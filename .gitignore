@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+web/dist/
+*.sqlite
+*.sqlite-*
+*.db
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+web/test-results/
+web/playwright-report/
+var/

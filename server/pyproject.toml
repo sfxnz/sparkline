@@ -1,0 +1,39 @@
+[project]
+name = "sparkconsole"
+version = "0.1.0"
+description = "Spark Console — live telemetry & benchmarking for NVIDIA DGX Spark clusters"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.7",
+  "httpx>=0.27",
+  "websockets>=12",
+  "psutil>=5.9",
+  "nvidia-ml-py>=12.560",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.10"]
+
+[project.scripts]
+spark-agent = "sparkconsole.agent.main:main"
+spark-console = "sparkconsole.console.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sparkconsole"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
