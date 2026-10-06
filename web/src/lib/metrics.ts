@@ -38,6 +38,8 @@ export function flatten(s: Sample): Map<string, number> {
   put('cpu.perf_util', c.perf_util);
   put('cpu.eff_util', c.eff_util);
   put('cpu.load1', c.load1);
+  put('cpu.load5', c.load5);
+  put('cpu.load15', c.load15);
   put('cpu.psi_some', c.psi_some);
   c.per_core.forEach((u, i) => { put(`cpu.core${i}.util`, u); });
   c.freq_mhz.forEach((f, i) => { put(`cpu.core${i}.mhz`, f); });
@@ -62,6 +64,8 @@ export function flatten(s: Sample): Map<string, number> {
 
   for (const f of s.fs) {
     put(`fs.${f.key}.used`, f.used);
+    put(`fs.${f.key}.total`, f.total);
+    put(`fs.${f.key}.free`, f.free);
     if (f.used + f.free) put(`fs.${f.key}.used_pct`, (100 * f.used) / (f.used + f.free)); // like df
   }
 

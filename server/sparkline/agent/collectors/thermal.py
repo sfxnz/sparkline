@@ -126,7 +126,7 @@ class ThermalCollector:
         if not self.has_core_temps:
             out.append(
                 Unsupported(
-                    metric="cpu.core_temp",
+                    metric="cpu.temp",
                     reason="Per-core CPU temperature is not exposed (only unlabelled ACPI zones)",
                 )
             )

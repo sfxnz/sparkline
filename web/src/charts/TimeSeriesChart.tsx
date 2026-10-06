@@ -18,11 +18,12 @@ import type { TimeRange } from '../lib/prefs';
 import type { NodeInfo } from '../lib/types';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
-import { historyCache, RANGE_SECONDS } from '../store/history';
+import { historyCache, historyRefreshMs, RANGE_SECONDS } from '../store/history';
 import { liveStore, type LiveStore } from '../store/live';
 import { usePrefs } from '../store/prefs';
 import { ChartDataTable } from './ChartDataTable';
-import { readChartTheme, summarize, useThemeVersion, withAlpha } from './theme';
+import { insertGaps } from './gaps';
+import { axisLabels, readChartTheme, summarize, timeAxis, useThemeVersion, withAlpha } from './theme';
 import './chart.css';
 
 export interface SeriesSpec {
@@ -50,9 +51,14 @@ interface Props {
   /** Always include these in the y range (e.g. 0 and 100 for percentages). */
   yMin?: number;
   yMax?: number;
+  /** Y-axis steps, e.g. BYTE_INCRS (from ./theme) for byte values. */
+  yIncrs?: readonly number[];
   thresholds?: readonly Threshold[];
   /** Force the unsupported state with this reason (otherwise derived from NodeInfo.unsupported). */
   unsupported?: string;
+  /** 'hover': in Live mode the legend shows values only under the cursor, for panels whose stats already show the
+   *  current values right above the chart (the same number twice, a frame apart, reads as two numbers). */
+  legendValues?: 'always' | 'hover';
   store?: LiveStore;
 }
 
@@ -69,20 +75,19 @@ const RANGE_LABEL: Record<TimeRange, string> = {
   '7d': 'last 7 days',
 };
 
+const fmtLegendTime = uPlot.fmtDate('{HH}:{mm}');
+const fmtLegendDay = uPlot.fmtDate('{D} {MMM} {HH}:{mm}');
+/** "16:20", or "3 Oct 16:20" for a moment that is not today. */
+function legendTime(ts: number): string {
+  const d = new Date(ts * 1000);
+  return d.toDateString() === new Date().toDateString() ? fmtLegendTime(d) : fmtLegendDay(d);
+}
+
 /** Reason a metric key is not reported by this node, if listed in NodeInfo.unsupported (exact key or prefix). */
 export function unsupportedReason(info: NodeInfo | null | undefined, key: string): string | null {
   const u = info?.unsupported.find((x) => key === x.metric || key.startsWith(`${x.metric}.`));
   return u?.reason ?? null;
 }
-
-const TIME_VALUES: uPlot.Axis.Values = [
-  [86400 * 365, '{YYYY}', null, null, null, null, null, null, 1],
-  [86400 * 28, '{MMM}', null, null, null, null, null, null, 1],
-  [86400, '{D} {MMM}', null, null, null, null, null, null, 1],
-  [3600, '{HH}:{mm}', null, null, null, null, null, null, 1],
-  [60, '{HH}:{mm}', null, null, null, null, null, null, 1],
-  [1, '{HH}:{mm}:{ss}', null, null, null, null, null, null, 1],
-];
 
 export function TimeSeriesChart({
   node,
@@ -94,8 +99,10 @@ export function TimeSeriesChart({
   height = 200,
   yMin,
   yMax,
+  yIncrs,
   thresholds,
   unsupported: unsupportedProp,
+  legendValues = 'always',
   store = liveStore,
 }: Props) {
   const prefRange = usePrefs((s) => s.timeRange);
@@ -108,6 +115,9 @@ export function TimeSeriesChart({
 
   const plotRef = useRef<HTMLDivElement>(null);
   const legendRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const legendTimeRef = useRef<HTMLSpanElement>(null);
+  const liveRef = useRef(live);
+  const hoverOnlyRef = useRef(legendValues === 'hover');
   const uRef = useRef<uPlot | null>(null);
   const dataRef = useRef<uPlot.AlignedData>([[]]);
   const formatRef = useRef(format);
@@ -136,17 +146,27 @@ export function TimeSeriesChart({
   useEffect(() => {
     formatRef.current = format;
   }, [format]);
+  useEffect(() => {
+    liveRef.current = live;
+    hoverOnlyRef.current = legendValues === 'hover';
+  }, [live, legendValues]);
 
   /** Legend values: at the cursor, or the latest point when the cursor is idle. */
   const paintLegend = useCallback((idx: number | null | undefined) => {
     const d = dataRef.current;
     const xs = d[0];
     const i = idx ?? (xs.length ? xs.length - 1 : null);
+    const blank = liveRef.current && idx == null && hoverOnlyRef.current;
     legendRefs.current.forEach((el, k) => {
       if (!el) return;
       const v = i === null ? null : d[k + 1]?.[i];
-      el.textContent = v == null || Number.isNaN(v) ? '—' : formatRef.current(v);
+      el.textContent = blank ? '' : v == null || Number.isNaN(v) ? '—' : formatRef.current(v);
     });
+    // Live and idle, the legend is "now" (as the stats above it). Otherwise say which moment it shows, so the last
+    // bucket of a 24 h chart is never mistaken for the live value.
+    const t = legendTimeRef.current;
+    const ts = i === null ? undefined : xs[i];
+    if (t) t.textContent = (liveRef.current && idx == null) || ts === undefined ? '' : `at ${legendTime(ts)}`;
   }, []);
 
   const updateSummary = useCallback(() => {
@@ -204,17 +224,16 @@ export function TimeSeriesChart({
       pxAlign: 0,
       scales: { x: { time: true }, y: { range: yRange } },
       legend: { show: false },
-      padding: [8, 16, 0, 0], // room for the newest time label at the right edge
+      padding: [8, Math.round(28 * k), 0, 0], // room for the newest time label, centred on the right edge
       axes: [
         {
           stroke: theme.axis,
           font: theme.font,
           grid: { stroke: theme.grid, width: 1 },
           ticks: { show: false },
-          space: Math.round(72 * k),
           gap: 6,
           size: Math.round(28 * k),
-          values: TIME_VALUES,
+          ...timeAxis(range, k),
         },
         {
           stroke: theme.axis,
@@ -224,7 +243,8 @@ export function TimeSeriesChart({
           gap: 8,
           size: Math.round(64 * k),
           space: Math.round(32 * k),
-          values: (_u, splits) => splits.map((v) => formatRef.current(v)),
+          ...(yIncrs ? { incrs: [...yIncrs] } : {}),
+          values: (_u, splits) => axisLabels(splits, formatRef.current),
         },
       ],
       series: [
@@ -285,6 +305,8 @@ export function TimeSeriesChart({
             if (key === 'x' && showTableRef.current && !programmatic) snapshotTable();
           },
         ],
+        // Threshold lines only: their labels sit in the legend row (a reserved gutter), so the data line never
+        // crosses the text and two close thresholds never collide.
         draw: [
           (u) => {
             if (!thresholdList.length) return;
@@ -292,22 +314,16 @@ export function TimeSeriesChart({
             const { left, top, width, height: h } = u.bbox;
             const dpr = uPlot.pxRatio;
             ctx.save();
-            ctx.font = `500 ${Math.round(theme.fontPx * dpr)}px ${theme.fontFamily}`;
-            ctx.textAlign = 'right';
-            ctx.textBaseline = 'bottom';
             for (const t of thresholdList) {
               const y = Math.round(u.valToPos(t.value, 'y', true)) + 0.5;
               if (y < top || y > top + h) continue;
-              const color = t.tone === 'crit' ? theme.crit : theme.warn;
-              ctx.strokeStyle = color;
+              ctx.strokeStyle = t.tone === 'crit' ? theme.crit : theme.warn;
               ctx.lineWidth = dpr;
               ctx.setLineDash([4 * dpr, 4 * dpr]);
               ctx.beginPath();
               ctx.moveTo(left, y);
               ctx.lineTo(left + width, y);
               ctx.stroke();
-              ctx.fillStyle = color;
-              ctx.fillText(t.label, left + width - 4 * dpr, y - 3 * dpr);
             }
             ctx.restore();
           },
@@ -347,10 +363,17 @@ export function TimeSeriesChart({
       let raf = 0;
       let visible = true;
       let lastSummary = 0;
+      let state: LoadState = 'loading';
       const pull = () => {
-        const w = store.window(node, keys, serverNow() - liveWindowS - 5);
+        const raw = store.window(node, keys, serverNow() - liveWindowS - 5);
+        const w = insertGaps(raw.ts, raw.values, (store.latest(node)?.interval_ms ?? 1000) / 1000, 3);
         dataRef.current = [w.ts, ...w.values];
-        setLoad(w.ts.length ? 'ready' : 'empty');
+        // Nothing buffered for an online node yet (the bootstrap or first sample is on its way) is loading, not
+        // empty: "No data in this range" only when the node has data but not for these keys, or is not online.
+        const online = useCluster.getState().nodes[node]?.status === 'online';
+        state = w.ts.length ? 'ready' : store.lastTs(node) !== null || !online ? 'empty' : 'loading';
+        setLoad(state);
+        return state;
       };
       const frame = () => {
         raf = 0;
@@ -387,6 +410,9 @@ export function TimeSeriesChart({
       document.addEventListener('visibilitychange', onVis);
       const unsub = store.subscribeSample(node, () => {
         dirty = true;
+        // Offscreen charts do not draw, but their overlay and summary must not keep saying "no data" once data
+        // has arrived: a cheap pull settles the state, and the plot draws on intersect.
+        if (!visible && state !== 'ready' && pull() === 'ready') updateSummary();
         start();
       });
       pull();
@@ -403,13 +429,13 @@ export function TimeSeriesChart({
       });
     } else {
       let cancelled = false;
-      const span = RANGE_SECONDS[range];
       const fetchOnce = () => {
         historyCache
           .load(node, keys, range, serverNow())
           .then((resp) => {
             if (cancelled) return;
-            dataRef.current = [resp.ts, ...keys.map((k) => resp.series[k] ?? resp.ts.map(() => null))];
+            const w = insertGaps(resp.ts, keys.map((k) => resp.series[k] ?? resp.ts.map(() => null)));
+            dataRef.current = [w.ts, ...w.values];
             u.setData(dataRef.current, false);
             if (!pausedRef.current) resetView();
             paintLegend(null);
@@ -423,8 +449,11 @@ export function TimeSeriesChart({
             setLoad('error');
           });
       };
+      // The summary names the new range at once (no longer "last 3 minutes" while the history loads).
+      dataRef.current = [[]];
+      updateSummary();
       fetchOnce();
-      const timer = setInterval(fetchOnce, Math.max(10_000, (span / 30) * 1000));
+      const timer = setInterval(fetchOnce, historyRefreshMs(range));
       cleanups.push(() => {
         cancelled = true;
         clearInterval(timer);
@@ -439,7 +468,7 @@ export function TimeSeriesChart({
     };
     // `keysId`/`thresholdsId` stand in for the arrays; formatting goes through refs so it never recreates the plot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [node, keysId, labels, range, live, liveWindowS, height, yMin, yMax, thresholdsId, themeVersion, unsupported, store, reloadKey, dataId]);
+  }, [node, keysId, labels, range, live, liveWindowS, height, yMin, yMax, yIncrs, thresholdsId, themeVersion, unsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
 
   if (unsupported) {
     return (
@@ -466,6 +495,13 @@ export function TimeSeriesChart({
               <span className="tschart__legend-value num" ref={(r) => { legendRefs.current[i] = r; }}>—</span>
             </li>
           ))}
+          {thresholds?.map((t) => (
+            <li key={`${t.label}${t.value}`} className={`tschart__legend-item tschart__threshold tone-${t.tone}`}>
+              <span className="tschart__swatch tschart__swatch--dashed" aria-hidden="true" />
+              <span className="tschart__legend-label">{t.label}</span>
+            </li>
+          ))}
+          <li className="tschart__legend-time num" aria-hidden="true"><span ref={legendTimeRef} /></li>
         </ul>
         <div className="tschart__actions">
           {nodeStale && live ? <StaleBadge node={node} store={store} /> : null}
@@ -477,7 +513,7 @@ export function TimeSeriesChart({
           <Tooltip content={showTable ? 'Hide data table' : 'Show data table'} placement="bottom">
             <IconButton
               size="sm"
-              aria-label="Show data table"
+              aria-label={`${title}: data table`}
               aria-expanded={showTable}
               aria-controls={tableId}
               icon={<Table2 />}

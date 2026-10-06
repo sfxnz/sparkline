@@ -30,11 +30,16 @@ export function AnimatedNumber({ value, format, className }: Props) {
       el.textContent = target === null ? DASH : format(target);
       return;
     }
+    // Clamped to the interval being crossed: a spring's slight overshoot must never show a value that was never
+    // measured (e.g. "-4 B/s" while a throughput settles at 0).
+    const lo = Math.min(from, target);
+    const hi = Math.max(from, target);
     const controls = animate(from, target, {
       ...springs.snappy,
       onUpdate: (v) => {
-        shown.current = v;
-        el.textContent = formatRef.current(v);
+        const c = Math.min(hi, Math.max(lo, v));
+        shown.current = c;
+        el.textContent = formatRef.current(c);
       },
       onComplete: () => {
         shown.current = target;

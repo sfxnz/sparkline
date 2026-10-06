@@ -217,6 +217,21 @@ def test_static_spa_fallback_and_cache_headers(tmp_path, dist):
         assert r.status_code == 404 and "problem" in r.json()
 
 
+def test_static_assets_are_gzipped_for_clients_that_accept_it(tmp_path, dist):
+    import gzip
+
+    (dist / "assets" / "big-1.js").write_text("const x = 1;\n" * 2000)
+    with TestClient(make(tmp_path, dist=dist)) as c:
+        raw = c.get("/assets/big-1.js", headers={"Accept-Encoding": "identity"})
+        assert "content-encoding" not in raw.headers and raw.text.startswith("const x")
+        r = c.get("/assets/big-1.js", headers={"Accept-Encoding": "gzip, br"})
+        assert r.headers["content-encoding"] == "gzip" and r.headers["vary"] == "Accept-Encoding"
+        assert r.text == raw.text  # the client decodes it
+        assert int(r.headers["content-length"]) < len(gzip.compress(raw.content)) + 64 < len(raw.content)
+        assert "immutable" in r.headers["cache-control"]
+        assert r.headers["content-type"].startswith(("application/javascript", "text/javascript"))
+
+
 def test_static_traversal_blocked(tmp_path, dist):
     with TestClient(make(tmp_path, dist=dist)) as c:
         for path in [
@@ -237,3 +252,51 @@ def test_frontend_not_built_page(client):
         and "Frontend not built" in r.text
         and "npm ci &amp;&amp; npm run build" in r.text
     )
+
+
+def test_settings_change_is_broadcast_to_open_streams(client):
+    with client.websocket_connect("/api/v1/stream", headers={**bearer(), **SAME}) as ws:
+        assert json.loads(ws.receive_text())["type"] == "hello"
+        s = client.get("/api/v1/settings", headers=bearer()).json()
+        assert (
+            client.put(
+                "/api/v1/settings", json={**s, "energy_rate_per_kwh": 0.42}, headers=bearer()
+            ).status_code
+            == 200
+        )
+        msg = json.loads(ws.receive_text())
+        while msg["type"] == "ping":
+            msg = json.loads(ws.receive_text())
+        assert msg == {"type": "settings", "settings": {**s, "energy_rate_per_kwh": 0.42}}
+
+
+def test_new_stream_gets_latest_sample_with_last_process_list(tmp_path):
+    from types import SimpleNamespace
+
+    from sparkline.console.demo import DemoModel
+
+    m = DemoModel("spark1", 1_791_000_000.0)
+    with_procs = m.sample_at(1_791_000_000.0, 1, procs=True)
+    without = m.sample_at(1_791_000_001.0, 2, procs=False)
+    with TestClient(make(tmp_path)) as c:
+        cluster = c.app.state.cluster
+        cluster.sources = {
+            "spark1": SimpleNamespace(ring=[with_procs, without]),
+            "spark2": SimpleNamespace(ring=[]),
+        }
+        (latest,) = cluster.latest_samples()
+        assert latest.ts == without.ts and latest.procs == with_procs.procs
+
+
+def test_data_dir_lock_refuses_a_second_console(tmp_path):
+    import os
+
+    from sparkline.console.main import lock_data_dir
+
+    fd = lock_data_dir(tmp_path / "data")
+    try:
+        with pytest.raises(OSError, match="already in use"):
+            lock_data_dir(tmp_path / "data")
+    finally:
+        os.close(fd)
+    os.close(lock_data_dir(tmp_path / "data"))  # free again once the first one exits

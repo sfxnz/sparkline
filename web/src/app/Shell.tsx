@@ -1,19 +1,20 @@
 import { Bell, Compass, Gauge, LayoutGrid, Monitor, PanelLeftClose, PanelLeftOpen, Search, Server, Settings as SettingsIcon, type LucideIcon } from 'lucide-react';
 import { m } from 'motion/react';
-import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Route, Switch, useLocation } from 'wouter';
 import { Button, IconButton } from '../design/components/Button';
 import { EmptyState } from '../design/components/EmptyState';
 import { ErrorBoundary } from '../design/components/ErrorBoundary';
 import { Kbd } from '../design/components/Kbd';
 import { SegmentedControl, type Segment } from '../design/components/SegmentedControl';
-import { nodeDisplayStatus, StatusPill, type Status } from '../design/components/StatusPill';
+import { StatusPill } from '../design/components/StatusPill';
 import { springs } from '../design/motion';
 import type { TimeRange } from '../lib/prefs';
 import { isApple } from '../lib/shortcuts';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
-import { openAlertCount, openAlertLevel, useEvents } from '../store/events';
+import { useNodeDisplayStatus } from '../store/attention';
+import { openAlertCount, useEvents } from '../store/events';
 import { usePrefs } from '../store/prefs';
 import { useUi } from '../store/ui';
 import Alerts from '../views/Alerts';
@@ -37,13 +38,17 @@ const RANGES: readonly Segment<TimeRange>[] = [
 export function Shell() {
   const [location] = useLocation();
   const conn = useConnection();
-  const collapsed = usePrefs((s) => s.sidebarCollapsed);
+  // Below ~40rem (a phone, or 400% zoom on a laptop) the sidebar is icons only, whatever the preference, so the page
+  // keeps a usable width. In rem, so it also applies when the user's font size is large.
+  const narrow = useMediaQuery('(max-width: 40rem)');
+  const collapsed = usePrefs((s) => s.sidebarCollapsed) || narrow;
   const showProblem = !conn.everLive && (conn.status === 'reconnecting' || conn.status === 'offline');
+  useFocusAfterNavigation(location);
 
   return (
     <div className={`shell${collapsed ? ' shell--collapsed' : ''}`}>
       <a className="skip-link" href="#main">Skip to content</a>
-      <Sidebar collapsed={collapsed} location={location} />
+      <Sidebar collapsed={collapsed} canExpand={!narrow} location={location} />
       <div className="shell__main">
         <Toolbar location={location} />
         <main id="main" className="shell__content" tabIndex={-1}>
@@ -83,6 +88,40 @@ export function Shell() {
   );
 }
 
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => typeof matchMedia === 'function' && matchMedia(query).matches);
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return;
+    const mq = matchMedia(query);
+    const on = () => { setMatches(mq.matches); };
+    on();
+    mq.addEventListener('change', on);
+    return () => { mq.removeEventListener('change', on); };
+  }, [query]);
+  return matches;
+}
+
+/**
+ * After a route change that left focus nowhere (the command palette or a keyboard shortcut navigated, and the element
+ * that had focus is gone), move it to the page's main region, so keyboard and screen-reader users land on the new
+ * page instead of the document body. Links that keep focus (sidebar, in-page) are left alone.
+ */
+function useFocusAfterNavigation(location: string) {
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const raf = requestAnimationFrame(() => {
+      const a = document.activeElement;
+      if (a && a !== document.body && a.isConnected) return;
+      document.getElementById('main')?.focus({ preventScroll: true });
+    });
+    return () => { cancelAnimationFrame(raf); };
+  }, [location]);
+}
+
 function NavItem({ href, icon: Icon, label, active, collapsed, trailing }: { href: string; icon: LucideIcon; label: string; active: boolean; collapsed: boolean; trailing?: ReactNode }) {
   return (
     <li>
@@ -93,14 +132,6 @@ function NavItem({ href, icon: Icon, label, active, collapsed, trailing }: { hre
       </Link>
     </li>
   );
-}
-
-/** Node status as shown in the chrome: console status, raised by open alerts, 'stale' while the console is lost. */
-function useNodeDisplayStatus(id: string | undefined): Status {
-  const status = useCluster((s) => (id ? s.nodes[id]?.status : undefined));
-  const alert = useEvents((s) => (id ? openAlertLevel(s.events, id) : null));
-  const consoleLive = useConnection((s) => s.status === 'live');
-  return nodeDisplayStatus(status, alert, consoleLive);
 }
 
 function NodeNavItem({ id, index, active, collapsed }: { id: string; index: number; active: boolean; collapsed: boolean }) {
@@ -122,7 +153,7 @@ function NodeNavItem({ id, index, active, collapsed }: { id: string; index: numb
   );
 }
 
-function Sidebar({ collapsed, location }: { collapsed: boolean; location: string }) {
+function Sidebar({ collapsed, canExpand, location }: { collapsed: boolean; canExpand: boolean; location: string }) {
   const order = useCluster((s) => s.order);
   const alerts = useEvents((s) => openAlertCount(s.events));
   const everLive = useConnection((s) => s.everLive);
@@ -183,12 +214,14 @@ function Sidebar({ collapsed, location }: { collapsed: boolean; location: string
         <Button variant="ghost" className="sidebar__wall" icon={<Monitor />} onClick={() => { navigate(paths.wall); }} title={collapsed ? 'Wall mode' : undefined} aria-label={collapsed ? 'Wall mode' : undefined}>
           <span className="nav__label">Wall mode</span>
         </Button>
-        <IconButton
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-expanded={!collapsed}
-          icon={collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-          onClick={() => { setPrefs({ sidebarCollapsed: !collapsed }); }}
-        />
+        {canExpand ? (
+          <IconButton
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            icon={collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+            onClick={() => { setPrefs({ sidebarCollapsed: !collapsed }); }}
+          />
+        ) : null}
       </div>
     </aside>
   );
@@ -201,7 +234,6 @@ function Toolbar({ location }: { location: string }) {
   const openPalette = useUi((s) => s.setPalette);
   const title = pageTitle(location);
   const nodeId = /^\/node\/([^/]+)/.exec(location)?.[1];
-  const nodeStatus = useNodeDisplayStatus(nodeId ? decodeURIComponent(nodeId) : undefined);
   const apple = isApple();
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -214,11 +246,13 @@ function Toolbar({ location }: { location: string }) {
   return (
     <header className={`toolbar${scrolled ? ' is-scrolled' : ''}`}>
       <div className="toolbar__title">
-        <h1 className="t-large-title">{title}</h1>
-        {nodeId ? <StatusPill status={nodeStatus} /> : null}
+        {/* A node page shows its name and status in its own header (shared element with the overview card), so the
+            toolbar keeps the page heading for assistive tech only instead of repeating it. */}
+        <h1 className={nodeId ? 'visually-hidden' : 't-large-title'}>{title}</h1>
       </div>
       <div className="toolbar__controls">
-        <SegmentedControl label="Time range" options={RANGES} value={range} onChange={(v) => { setPrefs({ timeRange: v }); }} />
+        {/* The range applies to charts: only the screens that have them offer it. */}
+        {location === '/' || nodeId ? <SegmentedControl label="Time range" options={RANGES} value={range} onChange={(v) => { setPrefs({ timeRange: v }); }} /> : null}
         {/* Before the first connection the page itself offers Retry; avoid a duplicate here. */}
         <ConnectionIndicator showRetry={everLive} />
         <button type="button" className="toolbar__search" onClick={() => { openPalette(true); }} aria-keyshortcuts={apple ? 'Meta+K' : 'Control+K'}>

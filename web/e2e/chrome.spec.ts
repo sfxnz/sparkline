@@ -83,16 +83,16 @@ test('losing the console turns every node stale and is announced; an open critic
     event: { id: 1, ts: Date.now() / 1000, node_id: 'spark1', severity: 'critical', kind: 'alert', rule_id: 'gpu_temp_crit', title: 'GPU temperature critical on spark1', detail: '', metric: 'gpu0.temp_c', value: 91, resolved_ts: null, acked: false },
   }));
   await expect(nav(page).getByRole('link', { name: /spark1.*Critical/ })).toBeVisible();
-  await expect(page.locator('.toolbar__title [data-status]')).toHaveAttribute('data-status', 'critical');
+  await expect(page.locator('.nhead [data-status]')).toHaveAttribute('data-status', 'critical');
   await expect(nav(page).getByRole('link', { name: /spark2.*Healthy/ })).toBeVisible();
 
   await ws.close();
   await expect(page.getByText(/Reconnecting/)).toBeVisible();
   await expect(nav(page).getByText('Healthy')).toHaveCount(0);
   await expect(nav(page).getByText('Critical')).toHaveCount(0);
-  await expect(nav(page).getByRole('link', { name: /spark1.*Stale/ })).toBeVisible();
-  await expect(page.locator('.toolbar__title [data-status]')).toHaveAttribute('data-status', 'stale');
-  await expect(page.getByText(/Lost the connection to Sparkline/)).toBeVisible();
+  await expect(nav(page).getByRole('link', { name: /spark1.*Not reporting/ })).toBeVisible();
+  await expect(page.locator('.nhead [data-status]')).toHaveAttribute('data-status', 'stale');
+  await expect(page.getByText('Not live: the connection to Sparkline was lost')).toBeVisible();
   await expect(page.locator('[aria-live="polite"][role="status"]')).toContainText('Connection to Sparkline lost');
 });
 

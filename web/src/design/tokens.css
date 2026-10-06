@@ -148,7 +148,7 @@
   --accent-soft: rgba(68, 89, 224, 0.11);
   --focus-ring: #3c51dc;
 
-  --ok: #1d9a55;        --ok-text: #12763e;    --ok-bg: rgba(29, 154, 85, 0.11);
+  --ok: #1d9a55;        --ok-text: #0f6e3a;    --ok-bg: rgba(29, 154, 85, 0.11);
   --warn: #b97700;      --warn-text: #865600;  --warn-bg: rgba(220, 150, 20, 0.14);
   --crit: #d63a32;      --crit-text: #b2261f;  --crit-bg: rgba(214, 58, 50, 0.1);
   --stale: #7b8089;     --stale-text: #585d66; --stale-bg: rgba(123, 128, 137, 0.13);

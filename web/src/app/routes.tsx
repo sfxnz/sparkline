@@ -38,8 +38,11 @@ export function pageTitle(location: string): string {
   return 'Sparkline';
 }
 
-/** Browser tab title: "<page> · Sparkline". */
+/** Browser tab title: "<page> · Sparkline"; node tabs say which tab ("GPU · spark2 · Sparkline"). */
 export function documentTitle(location: string): string {
   const page = location === paths.wall ? 'Wall mode' : location === paths.login ? 'Sign in' : pageTitle(location);
-  return page === 'Sparkline' ? page : `${page} · Sparkline`;
+  const tab = /^\/node\/[^/]+\/([^/?#]+)/.exec(location)?.[1];
+  const tabLabel = NODE_TABS.find((t) => t.id === tab && t.id !== 'summary')?.label;
+  if (page === 'Sparkline') return page;
+  return tabLabel ? `${tabLabel} · ${page} · Sparkline` : `${page} · Sparkline`;
 }

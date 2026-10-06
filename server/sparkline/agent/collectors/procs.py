@@ -50,7 +50,7 @@ def select_top(rows: dict[int, dict]) -> list[int]:
     """Union of top N by GPU memory, RSS and CPU (in that priority), capped at MAX_PROCS."""
     by_gpu = sorted((p for p in rows if rows[p]["gpu_mem"]), key=lambda p: -rows[p]["gpu_mem"])[:TOP_N]
     by_rss = sorted(rows, key=lambda p: -rows[p]["rss"])[:TOP_N]
-    by_cpu = sorted(rows, key=lambda p: -rows[p]["cpu"])[:TOP_N]
+    by_cpu = sorted(rows, key=lambda p: -(rows[p]["cpu"] or 0.0))[:TOP_N]
     out: list[int] = []
     for p in by_gpu + by_rss + by_cpu:
         if p not in out:
@@ -157,7 +157,7 @@ class ProcsCollector:
         for pid, (comm, ticks, rss, start) in scan_procs().items():
             self._prev[pid] = (start, ticks)
             p = prev.get(pid)
-            cpu = 0.0  # first sighting (or pid reuse): no interval to measure yet
+            cpu = None  # first sighting (or pid reuse): no interval to measure yet, so no reading (not 0 %)
             if p and p[0] == start and elapsed > 0 and ticks >= p[1]:
                 cpu = (ticks - p[1]) / self._hz / elapsed * 100
             rows[pid] = {
@@ -179,7 +179,7 @@ class ProcsCollector:
                     name=r["name"],
                     cmdline=cmd[:CMDLINE_MAX],
                     user=self._user(pid),
-                    cpu_pct=round(r["cpu"], 1),
+                    cpu_pct=None if r["cpu"] is None else round(r["cpu"], 1),
                     rss=r["rss"],
                     gpu_mem=r["gpu_mem"],
                     gpu_util=gpu_util.get(pid),

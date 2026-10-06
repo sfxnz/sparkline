@@ -13,6 +13,9 @@ interface Props {
   windowS?: number;
   rowHeight?: number;
   store?: LiveStore;
+  /** Where a point sits in its cell: 'end' for live samples (each covers the interval before it), 'center' for
+   *  history buckets (stamped at their middle). */
+  cellAlign?: 'end' | 'center';
 }
 
 interface Row {
@@ -24,12 +27,34 @@ const LABEL_W = 92;
 const GROUP_GAP = 10;
 const GROUP_NAME: Record<CoreInfo['kind'], string> = { performance: 'Performance', efficiency: 'Efficiency', unknown: 'Other' };
 
+/**
+ * Integer x edges [x0, x1] of each cell (flat array, two per point). Each cell starts exactly where its neighbour
+ * ended: sample times jitter by a few ms, so edges rounded independently leave 1 px seams or overlaps (alpha would
+ * double). A real gap in the data (more than 1.5 steps) stays a gap. Clamped to [minX, maxX].
+ */
+export function cellEdges(ts: ArrayLike<number>, step: number, align: 'end' | 'center', xAt: (t: number) => number, minX: number, maxX: number): number[] {
+  const offset = align === 'center' ? step / 2 : 0;
+  const out = new Array<number>(ts.length * 2);
+  let prevT: number | null = null;
+  let prevX1 = minX;
+  for (let j = 0; j < ts.length; j++) {
+    const t = ts[j] ?? 0;
+    const x1 = Math.min(maxX, Math.round(xAt(t + offset)));
+    const x0 = Math.max(minX, prevT !== null && t - prevT <= 1.5 * step ? prevX1 : Math.round(xAt(t + offset - step)));
+    out[2 * j] = x0;
+    out[2 * j + 1] = x1;
+    prevT = t;
+    prevX1 = x1;
+  }
+  return out;
+}
+
 export function orderCores(cores: readonly CoreInfo[]): Row[] {
   const rank = { performance: 0, efficiency: 1, unknown: 2 } as const;
   return [...cores].sort((a, b) => rank[a.kind] - rank[b.kind] || a.id - b.id).map((core) => ({ core, group: core.kind }));
 }
 
-export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight = 13, store = liveStore }: Props) {
+export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight = 13, store = liveStore, cellAlign = 'end' }: Props) {
   // Rows and the label column grow with the user's font size so the canvas labels stay legible and unclipped.
   const scale = fontScale();
   const rowHeight = Math.round(baseRowHeight * scale);
@@ -83,14 +108,12 @@ export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight =
       ctx.fillRect(labelW, y + 1, plotW, rowHeight - 2);
       const vs = win.values[i] ?? [];
       const now = serverNow();
+      const edges = cellEdges(win.ts, step, cellAlign, (t) => labelW + plotW - (now - t) * colW, labelW, labelW + plotW);
       for (let j = 0; j < n; j++) {
         const v = vs[j];
-        const t = win.ts[j];
-        if (v == null || t === undefined) continue;
-        // Integer cell edges: no overlaps (alpha would double) and no hairline gaps (moiré).
-        const x0 = Math.max(labelW, Math.round(labelW + plotW - (now - t + step) * colW));
-        const x1 = Math.round(labelW + plotW - (now - t) * colW);
-        if (x1 <= x0) continue;
+        const x0 = edges[2 * j] ?? 0;
+        const x1 = edges[2 * j + 1] ?? 0;
+        if (v == null || x1 <= x0) continue;
         const a = 0.06 + 0.94 * Math.pow(Math.min(100, Math.max(0, v)) / 100, 0.8);
         ctx.fillStyle = withAlpha(accent, a);
         ctx.fillRect(x0, y + 1, x1 - x0, rowHeight - 2);
@@ -106,7 +129,7 @@ export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight =
     rows.forEach((r, i) => {
       if (i > 0 && rows[i - 1]?.group !== r.group) ctx.fillRect(0, rowY(i) - GROUP_GAP / 2, w, 1);
     });
-  }, [node, keys, rows, rowY, rowHeight, labelW, height, windowS, store, focusRow]);
+  }, [node, keys, rows, rowY, rowHeight, labelW, height, windowS, store, focusRow, cellAlign]);
 
   const describe = useCallback(() => {
     const latest = keys.map((k) => store.latestValue(node, k));

@@ -1,0 +1,214 @@
+/* Thermals & Power (tp-) and Processes (procs-). Tokens only; status colours only for status. */
+
+/* ------------------------------------------------------------------ shared */
+.tp-updated {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.tp-updated svg { width: 13px; height: 13px; }
+.tp-updated--stale { color: var(--stale-text); }
+.tp-updated__suffix { color: var(--text-3); }
+
+/* Stale: last known values stay readable but visibly not live. Labels keep full contrast. */
+.tp-dim { transition: color var(--dur-base) var(--ease-out); }
+.is-stale .tp-dim { color: var(--text-3); }
+
+.tp-note { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); text-wrap: pretty; }
+
+/* ------------------------------------------------------------------ sensor groups */
+.tp-groups { display: flex; flex-direction: column; gap: var(--space-5); }
+/* Readings on the left, their history on the right: every group is one row, so panels never leave ragged gaps. */
+.tp-group__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--space-4) var(--space-8);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .tp-group__body { grid-template-columns: minmax(0, 1fr); }
+}
+.tp-group__body--single { grid-template-columns: minmax(0, 1fr); }
+/* Sensor rows start flush with the panel edge, like the other tables. */
+.tp-group .table-wrap { margin: calc(-1 * var(--space-2)) 0 0 calc(-1 * var(--space-5)); }
+.tp-sensors th, .tp-sensors td { padding-top: 7px; padding-bottom: 7px; }
+.tp-sensors th { background: transparent; position: static; }
+.tp-sensors tbody tr:hover td, .tp-sensors tbody tr:hover th { background: var(--fill-1); }
+.tp-sensors tbody th {
+  font-weight: 500;
+  color: var(--text-1);
+  font-size: var(--fs-callout);
+  white-space: nowrap;
+  text-align: left;
+  padding: 7px var(--space-3) 7px var(--space-5);
+  border-bottom: var(--hairline) solid var(--separator);
+}
+.tp-sensors tbody tr:last-child th { border-bottom: 0; }
+.tp-sensors__now { font-weight: 620; font-size: var(--fs-headline); white-space: nowrap; width: 1%; }
+.tp-unit { margin-left: 2px; font-size: var(--fs-footnote); font-weight: 500; color: var(--text-2); }
+.tp-sensors__mm { color: var(--text-2); white-space: nowrap; width: 1%; }
+.tp-sensors__trend { width: 32%; min-width: 96px; }
+.tp-trend-placeholder { display: block; height: 24px; }
+.tp-sensors__room { white-space: nowrap; width: 1%; }
+.tp-room { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-footnote); color: var(--text-1); font-weight: 560; }
+.tp-room__to { color: var(--text-3); font-weight: 400; }
+.tp-room--none { color: var(--text-3); }
+.tp-room--alert { color: var(--tone-text); }
+.tp-room--alert svg { width: 13px; height: 13px; color: var(--tone); }
+
+/* ------------------------------------------------------------------ power + energy */
+.tp-power-row {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+  align-items: stretch;
+}
+@media (max-width: 1100px) {
+  .tp-power-row { grid-template-columns: minmax(0, 1fr); }
+}
+.tp-power__body { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; gap: var(--space-6); align-items: start; }
+.tp-power__stats { display: grid; gap: var(--space-4); padding-top: var(--space-8); }
+@media (max-width: 720px) {
+  .tp-power__body { grid-template-columns: minmax(0, 1fr); }
+  .tp-power__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 0; }
+}
+
+.tp-energy .panel__body { display: flex; flex-direction: column; gap: var(--space-5); }
+.tp-energy__list { display: grid; margin: 0; }
+.tp-energy__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: var(--hairline) solid var(--separator);
+}
+.tp-energy__row:first-child { padding-top: 0; }
+.tp-energy__row dt { font-size: var(--fs-callout); color: var(--text-2); }
+.tp-energy__row dd { margin: 0; display: flex; align-items: baseline; gap: var(--space-3); }
+.tp-energy__kwh { font-size: var(--fs-title3); line-height: var(--lh-title3); font-weight: 620; letter-spacing: -0.012em; color: var(--text-1); }
+.tp-energy__cost { min-width: 4.5rem; text-align: right; font-size: var(--fs-callout); color: var(--text-2); }
+.tp-energy__err { border: 0; background: none; padding: 0 2px; color: var(--text-3); font-size: var(--fs-title3); }
+.tp-energy__system { display: grid; gap: var(--space-2); margin-top: auto; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--fill-1); border: var(--hairline) solid var(--separator); }
+.tp-energy__system-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.tp-energy__system-label { font-size: var(--fs-callout); font-weight: 560; color: var(--text-1); }
+
+/* ------------------------------------------------------------------ processes */
+.procs .panel__header { align-items: center; flex-wrap: wrap; }
+.procs__tools { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-4); min-width: 0; }
+.procs__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.procs__search > svg { position: absolute; left: 9px; width: 15px; height: 15px; color: var(--text-3); pointer-events: none; }
+.procs__search input {
+  width: min(17rem, 100%);
+  min-height: 2rem;
+  padding: 0 2rem 0 2rem;
+  border-radius: var(--radius-sm);
+  border: var(--hairline) solid var(--separator);
+  background: var(--fill-1);
+  font-size: var(--fs-callout);
+  color: var(--text-1);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.procs__search input::placeholder { color: var(--text-3); }
+.procs__search input:hover { background: var(--fill-2); }
+.procs__search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; background: var(--fill-2); }
+.procs__search input::-webkit-search-cancel-button { display: none; }
+.procs__clear { position: absolute; top: calc(50% - 0.8125rem); right: 3px; } /* half the small button height */
+
+.procs-table { min-width: 60rem; }
+.procs-table td { padding-top: 10px; padding-bottom: 10px; }
+/* max-width: 0 lets the process column take the remaining width and ellipsize, instead of widening the table. */
+.procs-table .procs__proc-cell { max-width: 0; }
+.procs-table .procs__row--open td { border-bottom-color: transparent; background: var(--fill-1); }
+.procs-table tbody tr.procs__detail:hover td { background: var(--fill-1); }
+/* Not live: values drop to the tertiary colour. Container/model chips keep theirs: they sit on their own fill, where
+   the tertiary colour would fall below AA, and they name things rather than show live values. */
+.is-stale .procs-table tbody td,
+.is-stale .procs-table tbody td :not(.procs__badge, .procs__badge *) { color: var(--text-3); }
+.procs__name-cell { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
+.procs__toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: -1px 0 0 -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-3);
+}
+.procs__toggle:hover { background: var(--fill-2); color: var(--text-1); }
+.procs__toggle svg { width: 15px; height: 15px; transition: transform var(--dur-fast) var(--ease-out); }
+.procs__toggle[aria-expanded='true'] svg { transform: rotate(90deg); }
+.procs__name { display: grid; gap: 1px; min-width: 0; }
+.procs__proc { font-weight: 600; color: var(--text-1); }
+.procs__pid { margin-left: var(--space-2); font-weight: 400; font-size: var(--fs-footnote); color: var(--text-3); }
+.procs__cmd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-footnote);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.procs__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 1px 8px 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--fill-2);
+  border: var(--hairline) solid var(--separator);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  font-weight: 500;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.procs__badge span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.procs__badge svg { flex: none; width: 12px; height: 12px; color: var(--text-2); }
+.procs__badge--model { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); }
+.procs__badge--model svg { color: var(--accent-text); }
+.procs__none { color: var(--text-3); }
+.procs__mem { display: grid; justify-items: end; gap: 4px; }
+.procs__bar { width: 4.5rem; height: 3px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
+.procs__bar > span { display: block; height: 100%; border-radius: inherit; background: var(--chart-1); }
+.procs__na {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  color: var(--text-3);
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.procs__detail td { padding-top: 0 !important; padding-bottom: var(--space-4) !important; }
+.procs__detail dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2) var(--space-5);
+  margin: 0 0 0 26px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--fill-1);
+  border: var(--hairline) solid var(--separator);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+}
+.procs__detail dt { color: var(--text-2); font-weight: 500; }
+.procs__detail dd { margin: 0; color: var(--text-1); }
+.procs__detail code { font-size: var(--fs-footnote); background: none; padding: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.procs__foot { padding: var(--space-3) var(--space-5) var(--space-4); border-top: var(--hairline) solid var(--separator); }

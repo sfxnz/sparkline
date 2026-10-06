@@ -189,7 +189,7 @@ class ProcSample(BaseModel):
     name: str
     cmdline: str  # truncated to 300 chars
     user: str | None = None
-    cpu_pct: float
+    cpu_pct: float | None = None  # % of ONE core (top-style, can exceed 100); None until a second reading
     rss: int
     gpu_mem: int | None = None
     gpu_util: float | None = None
@@ -210,6 +210,7 @@ class Sample(BaseModel):
     fs: list[FsSample]
     temps: list[TempSample]
     procs: list[ProcSample] | None = None  # only on ticks where processes were refreshed
+    procs_ts: float | None = None  # when the process list was last refreshed (on every tick)
     errors: dict[str, str] = Field(default_factory=dict)  # collector name -> error; others still report
 
 
@@ -378,4 +379,5 @@ class BenchRun(BaseModel):
 # {"type": "node_status", "node": NodeState}
 # {"type": "event", "event": Event}
 # {"type": "bench", "run": BenchRun}
+# {"type": "settings", "settings": ConsoleSettings}   (after PUT /api/v1/settings, so every open tab updates)
 # {"type": "ping", "ts": float}

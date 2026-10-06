@@ -1,5 +1,5 @@
 import type { Event } from '../lib/types';
-import { MAX_EVENTS, openAlertCount, openAlertLevel, useEvents } from './events';
+import { MAX_EVENTS, mergeEvent, mergeEvents, openAlertCount, openAlertLevel, useEvents } from './events';
 
 const ev = (id: number, patch: Partial<Event> = {}): Event => ({
   id, ts: id, node_id: 'spark1', severity: 'warning', kind: 'alert', rule_id: null, title: `e${id}`, detail: '', metric: null, value: null, resolved_ts: null, acked: false, ...patch,
@@ -28,5 +28,19 @@ describe('events store', () => {
     expect(openAlertLevel([ev(1), ev(2, { node_id: 'spark2', severity: 'critical' })], 'spark1')).toBe('warning');
     expect(openAlertLevel([ev(1), ev(2, { severity: 'critical' })], 'spark1')).toBe('critical');
     expect(openAlertLevel([ev(1, { kind: 'recovered', severity: 'critical' })], 'spark1')).toBeNull();
+  });
+});
+
+describe('mergeEvents', () => {
+  it('unions by id, newest first, and never moves acked/resolved backwards', () => {
+    const streamed = [ev(3, { acked: true }), ev(2)];
+    const fetched = [ev(2, { resolved_ts: 1_010 }), ev(3), ev(1)];
+    const out = mergeEvents(streamed, fetched);
+    expect(out.map((e) => e.id)).toEqual([3, 2, 1]);
+    expect(out[0]?.acked).toBe(true);
+    expect(out[1]?.resolved_ts).toBe(1_010);
+  });
+  it('mergeEvent keeps the newer copy fields but monotonic flags', () => {
+    expect(mergeEvent(ev(1, { acked: true, resolved_ts: 5 }), ev(1, { detail: 'new' }))).toMatchObject({ acked: true, resolved_ts: 5, detail: 'new' });
   });
 });

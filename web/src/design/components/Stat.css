@@ -9,9 +9,8 @@
   line-height: var(--lh-footnote);
   font-weight: 500;
   color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Wraps instead of clipping ("Energy since dri…") on narrow columns and at large user font sizes. */
+  overflow-wrap: anywhere;
 }
 .stat__value {
   display: flex;
@@ -50,5 +49,7 @@
 .stat__delta-label { color: var(--text-3); margin-left: 3px; }
 .stat__unsupported { min-height: var(--lh-title2); display: flex; align-items: center; }
 .stat__footer { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
-.stat--stale .stat__value { opacity: 0.45; }
+/* Not live: text drops to the tertiary colour, which still meets WCAG AA (opacity on text would not); graphics fade. */
+.stat--stale .stat__value { color: var(--text-3); }
+.stat--stale .stat__value * { color: inherit; }
 .stat__footer--stale { color: var(--stale-text); }

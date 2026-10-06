@@ -1,6 +1,8 @@
 .unsupported {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
+  max-width: 100%;
   gap: 4px;
   color: var(--text-3);
   font-size: var(--fs-footnote);

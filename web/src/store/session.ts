@@ -6,7 +6,7 @@ import { announce } from '../design/components/LiveAnnouncer';
 import { useBench } from './bench';
 import { useCluster } from './cluster';
 import { useConnection } from './connection';
-import { useEvents } from './events';
+import { MAX_EVENTS, mergeEvents, useEvents } from './events';
 import { historyCache, seedLive } from './history';
 import { liveStore } from './live';
 
@@ -28,6 +28,7 @@ export function dispatch(msg: WsMessage): void {
       useCluster.getState().setHello(msg.cluster);
       historyCache.clear();
       void seedLive([...known]);
+      void loadEvents(); // every (re)connect: events raised while disconnected are back-filled too
       break;
     }
     case 'sample':
@@ -45,9 +46,39 @@ export function dispatch(msg: WsMessage): void {
     case 'bench':
       useBench.getState().upsert(msg.run);
       break;
+    case 'settings':
+      useCluster.getState().setSettings(msg.settings);
+      break;
     case 'ping':
       break;
   }
+}
+
+const EVENTS_RETRY_MS = 10_000;
+let eventsRequest = 0;
+let eventsRetry: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Back-fill the events store from /api/v1/events, merged under whatever the stream already delivered. A refetch
+ * after a reconnect keeps the timeline on screen ('ready' stays 'ready'); a failure is retried after 10 s.
+ */
+export function loadEvents(): Promise<void> {
+  const id = ++eventsRequest;
+  if (eventsRetry) clearTimeout(eventsRetry);
+  eventsRetry = null;
+  const st = useEvents.getState();
+  if (st.load.status !== 'ready') useEvents.setState({ load: { status: 'loading' } });
+  return api.events(MAX_EVENTS).then(
+    (fetched) => {
+      if (id !== eventsRequest) return;
+      useEvents.setState((s) => ({ events: mergeEvents(s.events, fetched).slice(0, MAX_EVENTS), load: { status: 'ready' } }));
+    },
+    (error: unknown) => {
+      if (id !== eventsRequest) return;
+      if (useEvents.getState().load.status !== 'ready') useEvents.setState({ load: { status: 'error', error } });
+      eventsRetry = setTimeout(() => { void loadEvents(); }, EVENTS_RETRY_MS);
+    },
+  );
 }
 
 let socket: ReconnectingSocket | null = null;

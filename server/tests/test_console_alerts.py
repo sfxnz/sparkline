@@ -68,7 +68,8 @@ def test_fires_once_after_for_s_and_recovers_with_hysteresis(eng):
     assert sink.kinds("gpu_temp_critical") == ["alert", "recovered"]
     assert sink.resolved[ev.id] == t - 1
     rec = sink.events[-1]
-    assert rec.title == "GPU temperature critical cleared on spark2" and rec.detail.startswith("Now 83 °C")
+    assert rec.title == "Resolved: GPU temperature critical on spark2"
+    assert rec.detail.startswith("Now 83 °C · cleared after") and rec.detail.endswith("was critical")
 
 
 def test_short_breach_does_not_fire(eng):
@@ -163,3 +164,16 @@ def test_wildcard_metric(eng):
     )
     engine.evaluate_sample("spark2", sample(T0))
     assert [e.metric for e in sink.events] == ["fs.root.used_pct"]  # boot_efi is <1% used
+
+
+def test_values_carry_units_and_throttle_reasons_read_as_a_phrase():
+    from sparkline.console.alerts import _sentence, fmt_value
+
+    assert fmt_value("gpu0.power_w", 45.3) == "45.3 W"
+    assert fmt_value("gpu0.sm_mhz", 1450) == "1.45 GHz" and fmt_value("gpu0.sm_mhz", 208) == "208 MHz"
+    assert fmt_value("net.enp1s0f1np1.rx_bps", 2.5e9 / 8) == "2.5 Gb/s"
+    assert fmt_value("disk.nvme0n1.read_bps", 412e6) == "412 MB/s"
+    assert fmt_value("gpu0.temp_c", 86.4) == "86 °C"
+    assert _sentence(["Thermal limit", "Overheating"]) == "Thermal limit and overheating"
+    three = _sentence(["Power cap", "Thermal limit", "Overheating"])
+    assert three == "Power cap, thermal limit and overheating"

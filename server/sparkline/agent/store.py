@@ -1,7 +1,8 @@
 """History: rollup math (pure), resolution choice (pure) and the SQLite store.
 
-Each bucket row is ``{key: [agg, min, max]}`` where agg is the average, except counter keys (last value) and
-bitmask keys (bitwise OR). The ``Store`` is not thread-safe; the sampler drives it from one dedicated thread.
+Each bucket row is ``{key: [agg, min, max]}`` where agg is the average, except counter keys (last value),
+bitmask keys (bitwise OR) and per-interval event counts (sum). The ``Store`` is not thread-safe; the sampler
+drives it from one dedicated thread.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import math
 import os
 import sqlite3
 
-from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX
+from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX
 
 TABLES = {10: "r10", 60: "r60"}
 
@@ -21,6 +22,8 @@ def agg_kind(key: str) -> str:
         return "last"
     if key.endswith(BITMASK_KEYS_SUFFIX):
         return "or"
+    if key.endswith(SUM_KEYS_SUFFIX):
+        return "sum"
     return "avg"
 
 
@@ -42,7 +45,7 @@ class Acc:
             self.d[key] = [agg, 1, mn, mx]
             return
         kind = agg_kind(key)
-        if kind == "avg":
+        if kind in ("avg", "sum"):
             a[0] += agg
         elif kind == "last":
             a[0] = agg
@@ -109,6 +112,11 @@ def choose_resolution(
     return 60
 
 
+def bucket_width(t0: float, t1: float, points: int, res: float) -> float:
+    """Width of the buckets ``downsample`` uses for [t0, t1]: a multiple of the source resolution ``res``."""
+    return res * max(1, math.ceil((t1 - t0) / max(points, 1) / res - 0.01))  # tolerate a client's ms of skew
+
+
 def downsample(
     rows: list[tuple[float, dict[str, list[float]]]],
     t0: float,
@@ -116,17 +124,19 @@ def downsample(
     points: int,
     keys: list[str] | None,
     res: float,
+    force: bool = False,
 ) -> list[tuple[float, dict[str, list[float]]]]:
     """Bucket-average rows (ts-sorted) into at most ``points`` buckets over [t0, t1]. Bucket edges are
-    multiples of the width (itself a multiple of the source resolution ``res``), not offsets from t0, so a
-    sliding window keeps the same buckets from one refresh to the next."""
+    multiples of the width (``bucket_width``), not offsets from t0, so a sliding window keeps the same
+    buckets from one refresh to the next. Each bucket is stamped at the mean time of its rows. Fewer rows
+    than ``points`` pass through unchanged unless ``force`` (rows of mixed resolution must be bucketed)."""
     if not rows:
         return []
-    if len(rows) <= points:
+    if len(rows) <= points and not force:
         if keys is None:
             return rows
         return [(ts, {k: d[k] for k in keys if k in d}) for ts, d in rows]
-    width = res * max(1, math.ceil((t1 - t0) / points / res - 0.01))  # tolerate a client's ms of skew
+    width = bucket_width(t0, t1, points, res)
     out: list[tuple[float, dict]] = []
     acc, cur = Acc(), None
     for ts, d in rows:

@@ -8,7 +8,7 @@ const META: Record<Status, { label: string; icon: LucideIcon; tone: 'ok' | 'warn
   healthy: { label: 'Healthy', icon: CircleCheck, tone: 'ok' },
   warning: { label: 'Warning', icon: TriangleAlert, tone: 'warn' },
   critical: { label: 'Critical', icon: OctagonAlert, tone: 'crit' },
-  stale: { label: 'Stale', icon: Clock, tone: 'stale' },
+  stale: { label: 'Not reporting', icon: Clock, tone: 'stale' },
   offline: { label: 'Offline', icon: CircleSlash, tone: 'stale' },
   connecting: { label: 'Connecting', icon: LoaderCircle, tone: 'stale' },
   unknown: { label: 'Unknown', icon: CircleHelp, tone: 'stale' },

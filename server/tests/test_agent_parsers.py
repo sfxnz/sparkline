@@ -24,6 +24,7 @@ from sparkline.agent.collectors.net import (
     _If,
     assign_labels,
     classify,
+    display_order,
     find_peer,
     parse_net_dev,
     parse_rdma_state,
@@ -161,6 +162,9 @@ def test_roles_and_labels_from_sysfs_fixture():
     assert labels["enP2p1s0f1np1"] == "ConnectX-7 rail B"
     assert labels["enp1s0f0np0"] == labels["enP2p1s0f0np0"] == "ConnectX-7 port (no cable)"
     assert labels["enP7s7"] == "LAN"
+    ordered = [n for n, r, _, _ in sorted(raw, key=lambda x: display_order(x[1], labels[x[0]], x[0]))]
+    assert ordered[:2] == ["enp1s0f1np1", "enP2p1s0f1np1"]  # rail A then B, though "enP2" sorts first by name
+    assert ordered.index("enP7s7") < ordered.index("docker0") < ordered.index("wlP9s9")
 
 
 def test_peer_and_rdma_state():

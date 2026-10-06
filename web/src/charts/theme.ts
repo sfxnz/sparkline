@@ -1,5 +1,7 @@
 // Chart theming from CSS custom properties, so charts follow the active theme (and re-theme when it changes).
 import { useSyncExternalStore } from 'react';
+import uPlot from 'uplot';
+import type { TimeRange } from '../lib/prefs';
 
 export interface ChartTheme {
   grid: string;
@@ -17,13 +19,41 @@ export interface ChartTheme {
   fontFamily: string;
 }
 
-/** Root font size relative to the 16 px default, so canvas text follows the user's font scaling. */
-export function fontScale(): number {
-  const px = parseFloat(getComputedStyle(document.documentElement).fontSize);
-  return Number.isFinite(px) && px > 0 ? px / 16 : 1;
+// Reading the theme means getComputedStyle on <html>, which forces a style recalc when anything is dirty (and the
+// overview's animations keep style dirty). Sparklines and heatmaps draw every tick, so the values are cached: re-read
+// at once when the theme attributes or the colour scheme change, otherwise at most every few seconds (which also
+// picks up a changed font size).
+const THEME_TTL_MS = 5000;
+let themeCache: { key: string; at: number; theme: ChartTheme } | null = null;
+let scaleCache: { at: number; scale: number } | null = null;
+
+function themeKey(): string {
+  const el = document.documentElement;
+  const dark = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)').matches : false;
+  return `${el.getAttribute('data-theme') ?? ''}|${el.getAttribute('data-reduce-transparency') ?? ''}|${String(dark)}`;
 }
 
+/** Root font size relative to the 16 px default, so canvas text follows the user's font scaling. */
+export function fontScale(): number {
+  const now = performance.now();
+  if (scaleCache && now - scaleCache.at < THEME_TTL_MS) return scaleCache.scale;
+  const px = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  const scale = Number.isFinite(px) && px > 0 ? px / 16 : 1;
+  scaleCache = { at: now, scale };
+  return scale;
+}
+
+/** Chart colours and fonts from the active theme (cached; see above). */
 export function readChartTheme(): ChartTheme {
+  const key = themeKey();
+  const now = performance.now();
+  if (themeCache?.key === key && now - themeCache.at < THEME_TTL_MS) return themeCache.theme;
+  const theme = computeChartTheme();
+  themeCache = { key, at: now, theme };
+  return theme;
+}
+
+function computeChartTheme(): ChartTheme {
   const cs = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
   const fontPx = Math.round(11 * fontScale());
@@ -113,4 +143,68 @@ export function summarize(values: ArrayLike<number | null>): { latest: number | 
     if (max === null || v > max) max = v;
   }
   return { latest, min, max };
+}
+
+/** Y-axis steps for byte values: powers of two of KiB/MiB/GiB, so ticks read "32 GiB", "64 GiB" rather than
+ *  decimal steps rendered in binary units ("93.1 GiB"). Pass as a chart's `yIncrs`. */
+export const BYTE_INCRS: readonly number[] = [10, 20, 30].flatMap((p) => [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map((m) => m * 2 ** p));
+
+const LABEL_RE = /^(-?\d+(?:\.\d+)?)(\s*)(.*)$/;
+
+/** Fewest decimals (0..3) that write `v` exactly. */
+function decimalsFor(v: number): number {
+  for (let d = 0; d < 3; d++) if (Math.abs(Number(v.toFixed(d)) - v) < 1e-9 * Math.max(1, Math.abs(v))) return d;
+  return 3;
+}
+
+/**
+ * Y-axis tick labels that read as one scale: every tick in the same unit (the zero tick too: "0 GiB", not "0 B"),
+ * the same number of decimals on every tick, and no trailing ".0" when all ticks are whole ("0 W, 20 W, 40 W").
+ * Labels that do not parse as "<number><unit>", or whose non-zero ticks span units, keep the formatter's text.
+ * Repeats are blanked: a narrow range formatted to whole units would otherwise read "69 °C, 70 °C, 70 °C".
+ */
+export function axisLabels(splits: readonly number[], format: (n: number) => string): string[] {
+  let labels = splits.map((v) => format(v));
+  const parsed = labels.map((t) => LABEL_RE.exec(t));
+  if (parsed.every(Boolean)) {
+    const parts = parsed.map((m) => ({ num: Number(m?.[1]), sep: m?.[2] ?? '', unit: m?.[3] ?? '' }));
+    const nonZero = parts.filter((p) => p.num !== 0);
+    const unit = nonZero[0]?.unit;
+    if (unit !== undefined && nonZero.every((p) => p.unit === unit)) {
+      const sep = nonZero[0]?.sep ?? '';
+      const d = Math.max(0, ...nonZero.map((p) => decimalsFor(p.num)));
+      labels = parts.map((p) => `${p.num.toFixed(p.num === 0 ? 0 : d)}${sep}${unit}`);
+    }
+  }
+  let prev: string | null = null;
+  return labels.map((t) => {
+    const out = t === prev ? '' : t;
+    prev = t;
+    return out;
+  });
+}
+
+/** Time-axis steps per range: the format and density follow the range, never the chart's width, so neighbouring
+ *  charts of one screen tick alike (Live/5m every minute or more, as HH:MM; 7 d by day). */
+export const TIME_INCRS: Record<TimeRange, number[]> = {
+  live: [60, 120, 300, 600, 900, 1800],
+  '5m': [60, 120, 300, 600, 900, 1800],
+  '1h': [300, 600, 900, 1800, 3600],
+  '24h': [3600, 7200, 10800, 21600, 43200, 86400],
+  '7d': [86400, 172800, 345600, 604800],
+};
+
+const fmtHm = uPlot.fmtDate('{HH}:{mm}');
+const fmtDay = uPlot.fmtDate('{D} {MMM}');
+
+/** uPlot x-axis options for a range: its steps, its one label format, and no label so close to the plot's left edge
+ *  that it would run into the y-axis labels. `k` scales the spacing with the user's font size. */
+export function timeAxis(range: TimeRange, k: number): Pick<uPlot.Axis, 'incrs' | 'values' | 'space'> {
+  const fmt = range === '7d' ? fmtDay : fmtHm;
+  const edge = Math.round(22 * k);
+  return {
+    incrs: TIME_INCRS[range],
+    space: Math.round(72 * k),
+    values: (u, splits) => splits.map((v) => (u.valToPos(v, 'x') < edge ? '' : fmt(new Date(v * 1000)))),
+  };
 }

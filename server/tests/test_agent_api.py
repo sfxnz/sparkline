@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -192,3 +193,61 @@ async def test_run_discards_warmup_tick():
     await s.stop()
     first = Sample.model_validate_json(s.ring[0][1])
     assert first.seq == 1 and first.gpu[0].util == 2.0  # call 1 was the warm-up
+
+
+def test_procs_ts_marks_the_last_process_refresh():
+    class Procs:
+        name = "procs"
+
+        def __init__(self) -> None:
+            self.n = 0
+
+        def collect(self) -> dict:
+            self.n += 1
+            return {"procs": [] if self.n % 3 == 1 else None}  # refreshed on ticks 1, 4, ...
+
+    s = Sampler("n1", [FakeMem(), FakeCpu(), Procs()], interval_ms=250)
+    first, second, third, fourth = s.tick(), s.tick(), s.tick(), s.tick()
+    assert first.procs == [] and first.procs_ts == first.ts
+    assert second.procs is None and third.procs_ts == first.ts  # carried between refreshes
+    assert fourth.procs_ts == fourth.ts
+
+
+def _fill(s: Sampler, t0: float, n: int) -> None:
+    for i in range(n):
+        smp = s.tick()
+        smp.ts = t0 + i
+        s._record(smp)
+    s._db.submit(lambda: None).result()
+
+
+async def test_history_resolution_is_the_returned_bucket_width(tmp_path):
+    """resolution_s is how wide each returned point is (clients draw cells that wide), not the table's."""
+    s = make(tmp_path, ring_seconds=10)
+    now = float(int(time.time()))
+    _fill(s, now - 3600, 3600)  # an hour of 1 Hz samples -> 360 closed 10 s rollups, ring holds the last 10 s
+    h = await s.history(["gpu0.util"], now - 3600, now, points=60)
+    assert h.resolution_s == 60 and len(h.ts) <= 61
+    steps = sorted(b - a for a, b in zip(h.ts, h.ts[1:], strict=False))
+    assert steps[len(steps) // 2] == pytest.approx(60, abs=1)
+
+
+async def test_history_after_agent_restart_keeps_older_sqlite_rows(tmp_path):
+    """A ring holding 88 s must not hide the 10 s rollups that cover the rest of a 5-minute range."""
+    s = make(tmp_path, ring_seconds=900)
+    now = float(int(time.time()))
+    _fill(s, now - 400, 300)  # previous run: -400 .. -101
+    s.ring.clear()  # agent restart: the ring starts empty, SQLite keeps the rollups
+    _fill(s, now - 88, 88)
+    h = await s.history(["gpu0.util"], now - 300, now, points=600)
+    assert h.resolution_s == 10
+    assert min(h.ts) < now - 88 - 5  # rollups from before the restart are in the response
+    assert max(h.ts) > now - 10  # and the newest seconds come from the ring
+
+
+async def test_young_agent_serves_recent_ranges_from_the_ring(tmp_path):
+    s = make(tmp_path, ring_seconds=900)
+    now = float(int(time.time()))
+    _fill(s, now - 60, 60)
+    h = await s.history(["gpu0.util"], now - 300, now, points=600)
+    assert h.resolution_s == 1.0 and len(h.ts) == 60

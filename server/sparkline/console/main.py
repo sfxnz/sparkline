@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -11,6 +13,23 @@ import uvicorn
 
 from .app import create_app, validate_settings
 from .config import default_data_dir, load_config
+
+
+def lock_data_dir(data_dir: Path) -> int:
+    """Take an exclusive lock on the data directory, so two consoles never share one console.sqlite
+    (their alert engines would write duplicate events). Returns the open lock fd; raises OSError if
+    another process holds it."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    fd = os.open(data_dir / "console.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise OSError(
+            f"{data_dir} is already in use by another sparkline console. Stop it, or give this one its own "
+            "data_dir in the config."
+        ) from None
+    return fd
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -65,7 +84,12 @@ def main(argv: list[str] | None = None) -> None:
     data_dir = cfg.data_dir or default_data_dir()
     if args.demo:  # simulated events and settings must never land in the real console.sqlite
         data_dir = data_dir / "demo"
+    try:
+        lock = lock_data_dir(data_dir)  # held (open) for the life of the process
+    except OSError as e:
+        fail(str(e))
     app = create_app(cfg, data_dir, demo=args.demo, demo_speed=args.demo_speed)
+    app.state.data_dir_lock = lock
     uvicorn.run(app, host=host, port=cfg.port, log_level=args.log_level, proxy_headers=False)
 
 

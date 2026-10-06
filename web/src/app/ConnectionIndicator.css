@@ -14,12 +14,21 @@
   white-space: nowrap;
 }
 .conn__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone); flex: none; }
-.conn__dot--live { box-shadow: 0 0 0 0 var(--tone); animation: conn-pulse 2.4s var(--ease-out) infinite; }
-@keyframes conn-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); }
-  70%, 100% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 0%, transparent); }
+.conn__dot--live { position: relative; }
+/* The pulse is a ring that scales and fades (transform + opacity: compositor only, no repaint per frame). */
+.conn__dot--live::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ok) 55%, transparent);
+  animation: conn-pulse 2.4s var(--ease-out) infinite;
 }
-@media (prefers-reduced-motion: reduce) { .conn__dot--live { animation: none; } }
+@keyframes conn-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  70%, 100% { transform: scale(2.7); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .conn__dot--live::after { animation: none; opacity: 0; } }
 .conn__label { min-width: 2.5em; }
 .conn__demo {
   min-height: 1.375rem;

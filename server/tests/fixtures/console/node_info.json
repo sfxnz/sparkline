@@ -366,7 +366,7 @@
    "reason": "Whole-system power is not exposed; only the GPU rail is"
   },
   {
-   "metric": "cpu.core_temp",
+   "metric": "cpu.temp",
    "reason": "Per-core CPU temperatures are not exposed"
   }
  ],

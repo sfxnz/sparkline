@@ -67,6 +67,13 @@ a:hover {
   text-decoration: underline;
   text-underline-offset: 0.18em;
 }
+/* A plain link inside running text is underlined, so it is not told apart by colour alone (WCAG 1.4.1).
+   Styled links (buttons, nav items, cards) carry a class and keep their own treatment. */
+a:not([class]) {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 0.18em;
+}
 code {
   font-family: var(--font-mono);
   font-size: 0.92em;

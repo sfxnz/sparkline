@@ -14,7 +14,7 @@ import psutil
 
 from ..common.metrics import flatten
 from ..common.schema import CpuSample, HistoryResponse, MemSample, Sample
-from .store import Rollup, Store, choose_resolution, downsample
+from .store import Rollup, Store, bucket_width, choose_resolution, downsample
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ class Sampler:
         self.rollups = [Rollup(10), Rollup(60)]
         self._db = ThreadPoolExecutor(1, thread_name_prefix="store")
         self._last_good: dict[str, object] = {}
+        self._procs_ts: float | None = None
         self._task: asyncio.Task | None = None
 
     # -- collection (runs in a worker thread) -------------------------------------------------------
@@ -88,12 +89,16 @@ class Sampler:
                 fields[f] = self._last_good.get(f) or _placeholder(f)
                 errors.setdefault(f, "no data")
         self.seq += 1
+        ts = time.time()
+        if fields["procs"] is not None:
+            self._procs_ts = ts
         return Sample(
             node_id=self.node_id,
-            ts=time.time(),
+            ts=ts,
             seq=self.seq,
             interval_ms=self.interval_ms,
             errors=errors,
+            procs_ts=self._procs_ts,
             **fields,
         )
 
@@ -204,27 +209,33 @@ class Sampler:
         t_from = t_from if t_from is not None else t_to - 900
         points = max(1, min(points, 5000))
         ring = list(self.ring)
-        # The ring window (not its oldest sample) decides, so a young agent serves recent ranges from memory
-        ring_start = now - (self.ring.maxlen or 0) * self.interval_ms / 1000
-        res = choose_resolution(
-            t_from,
-            t_to,
-            now,
-            ring_start,
-            self.interval_ms / 1000,
-            self.retention[10],
-            points,
-        )
+        interval = self.interval_ms / 1000
+        # The ring's oldest sample (not its nominal window) decides: just after an agent restart the ring
+        # holds a minute or two, and older data in the range is read from SQLite instead of being dropped.
+        ring_oldest = ring[0][0] if ring else None
+        res = choose_resolution(t_from, t_to, now, ring_oldest, interval, self.retention[10], points)
         loop = asyncio.get_running_loop()
-        if res == self.interval_ms / 1000 or self.store is None:
+        merged = False
+        if res == interval or self.store is None:
             rows = await asyncio.to_thread(_ring_rows, ring, t_from, t_to)
         else:
             rows = await loop.run_in_executor(self._db, self.store.query, int(res), t_from, t_to)
-        rows = await asyncio.to_thread(downsample, rows, t_from, t_to, points, keys, res)
+            if ring_oldest is not None and t_to > ring_oldest:
+                # Whole buckets older than the ring; the newest part (incl. the open bucket, not in SQLite
+                # yet) comes from the ring. With nothing older (a young agent): the ring alone, at full rate.
+                older = [r for r in rows if r[0] + res / 2 <= ring_oldest]
+                recent = await asyncio.to_thread(_ring_rows, ring, max(t_from, ring_oldest), t_to)
+                if older:
+                    rows, merged = older + recent, True  # bucketed to one width below
+                else:
+                    rows, res = recent, interval
+        bucketed = merged or len(rows) > points
+        rows = await asyncio.to_thread(downsample, rows, t_from, t_to, points, keys, res, merged)
         all_keys = keys if keys is not None else sorted({k for _, d in rows for k in d})
         out = HistoryResponse(
             node_id=self.node_id,
-            resolution_s=res,
+            # The width of each returned point, not the source table's: clients draw buckets this wide.
+            resolution_s=bucket_width(t_from, t_to, points, res) if bucketed else res,
             ts=[round(t, 3) for t, _ in rows],
             series={},
             min={},

@@ -12,6 +12,8 @@ from .schema import Sample
 COUNTER_KEYS_SUFFIX = (".energy_j",)
 # Keys whose rollup keeps the bitwise OR of values in a bucket.
 BITMASK_KEYS_SUFFIX = (".throttle_mask",)
+# Per-interval event counts (new errors/drops in that tick): a bucket keeps their sum, so totals stay exact.
+SUM_KEYS_SUFFIX = (".errors", ".drops")
 
 
 def mount_key(mount: str) -> str:
@@ -51,6 +53,8 @@ def flatten(s: Sample) -> dict[str, float]:
     put("cpu.perf_util", c.perf_util)
     put("cpu.eff_util", c.eff_util)
     put("cpu.load1", c.load1)
+    put("cpu.load5", c.load5)
+    put("cpu.load15", c.load15)
     put("cpu.psi_some", c.psi_some)
     for i, u in enumerate(c.per_core):
         put(f"cpu.core{i}.util", u)
@@ -75,6 +79,8 @@ def flatten(s: Sample) -> dict[str, float]:
 
     for f in s.fs:
         put(f"fs.{f.key}.used", f.used)
+        put(f"fs.{f.key}.total", f.total)
+        put(f"fs.{f.key}.free", f.free)
         if f.used + f.free:  # like df: free is what non-root can still use, so reserved blocks count as used
             put(f"fs.{f.key}.used_pct", 100.0 * f.used / (f.used + f.free))
 

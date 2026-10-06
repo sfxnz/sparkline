@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { formatClock } from '../lib/format';
 import '../design/components/Table.css';
 
@@ -44,10 +45,13 @@ interface Props {
 /** Accessible alternative to a chart: the visible range as a table, downsampled to <= maxRows rows. */
 export function ChartDataTable({ id, caption, ts, series, format, maxRows = 60 }: Props) {
   const rows = downsampleRows(ts, series, maxRows);
+  const captionId = useId();
   return (
-    <div className="table-wrap chart-table" id={id} style={{ maxHeight: 280 }}>
+    // A scroll box: focusable (and named by the caption) so keyboard users can scroll it with the arrow keys.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+    <div className="table-wrap chart-table" id={id} style={{ maxHeight: 280 }} tabIndex={0} role="region" aria-labelledby={captionId}>
       <table className="table">
-        <caption className="table__caption">
+        <caption className="table__caption" id={captionId}>
           {caption}
           {ts.length > rows.length ? ` (${rows.length} averaged rows from ${ts.length} samples)` : ''}
         </caption>

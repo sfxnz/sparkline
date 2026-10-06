@@ -88,6 +88,14 @@ def assign_labels(ifaces: list[tuple[str, str, bool, str]]) -> dict[str, str]:
     return labels
 
 
+ROLE_ORDER = {"interconnect": 0, "lan": 1, "other": 2, "virtual": 3, "wireless": 4}
+
+
+def display_order(role: str, label: str, name: str) -> tuple:
+    """Rails A, B... first, then spare CX7 ports, LAN, other, virtual, wireless (NodeInfo.net order)."""
+    return (ROLE_ORDER.get(role, 2), not label.startswith("ConnectX-7 rail"), label, name)
+
+
 def find_peer(addrs: list[tuple[str, str]], peers: dict[str, str | list[str]]) -> str | None:
     """addrs: (ip, netmask). Returns the node_id of a configured peer with an IP on one of our subnets.
 
@@ -172,7 +180,7 @@ class NetCollector:
         self.ifaces: list[_If] = []
         self.info: list[NetIfInfo] = []
         owners = phy_owners([(key, phy_port(n), n) for n, role, _up, key in raw if role == "interconnect"])
-        for n, role, _up, _ in raw:
+        for n, role, _up, _ in sorted(raw, key=lambda r: display_order(r[1], labels[r[0]], r[0])):
             v4 = [(a.address, a.netmask) for a in addrs.get(n, []) if a.family == socket.AF_INET]
             mac = next((a.address for a in addrs.get(n, []) if a.family == psutil.AF_LINK), None)
             info = NetIfInfo(

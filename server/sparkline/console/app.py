@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import hmac
 import json
 import logging
+import mimetypes
 import time
 from collections import deque
 from contextlib import asynccontextmanager
@@ -438,6 +440,10 @@ def create_app(cfg: ConsoleConfig, data_dir: Path, demo: bool = False, demo_spee
         try:
             hello = {"type": "hello", "cluster": cluster.cluster_state().model_dump(mode="json")}
             await ws.send_text(json.dumps(hello, separators=(",", ":")))
+            for smp in cluster.latest_samples():
+                await ws.send_text(
+                    f'{{"type":"sample","node_id":{json.dumps(smp.node_id)},"sample":{smp.model_dump_json()}}}'
+                )
             tasks = {asyncio.create_task(client.pump()), asyncio.create_task(_drain(ws))}
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for t in pending:
@@ -455,7 +461,7 @@ def create_app(cfg: ConsoleConfig, data_dir: Path, demo: bool = False, demo_spee
 
     # -- static web app (registered last: catch-all) -----------------------------------------------
     @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
-    async def static(path: str):
+    async def static(path: str, request: Request):
         if path == "api" or path.startswith("api/"):
             raise ProblemError(404, "Not found", f"No API endpoint /{path}", "")
         dist = cfg.web_dist.resolve()
@@ -466,17 +472,37 @@ def create_app(cfg: ConsoleConfig, data_dir: Path, demo: bool = False, demo_spee
             f = (dist / path).resolve()
             if f.is_relative_to(dist) and f.is_file():
                 hashed = f.relative_to(dist).parts[0] == "assets"
-                return FileResponse(
-                    f,
-                    headers={
-                        "Cache-Control": "public, max-age=31536000, immutable" if hashed else "no-cache"
-                    },
-                )
+                cache = "public, max-age=31536000, immutable" if hashed else "no-cache"
+                return _static_file(f, request, cache)
             if path.startswith("assets/"):
                 raise ProblemError(404, "Not found", f"/{path} is not part of this build", "Reload the page")
-        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+        return _static_file(index, request, "no-cache")
 
     return app
+
+
+_COMPRESSIBLE = {".js", ".css", ".html", ".svg", ".json", ".map", ".txt", ".webmanifest"}
+_gz_cache: dict[Path, tuple[float, bytes]] = {}
+
+
+def _static_file(f: Path, request: Request, cache_control: str) -> Response:
+    """A web-app file, gzip-compressed (once per build file, kept in memory) for clients that accept it:
+    the initial JS is ~3x smaller on the wire. Other files and clients get the plain file."""
+    headers = {"Cache-Control": cache_control}
+    if f.suffix not in _COMPRESSIBLE:
+        return FileResponse(f, headers=headers)
+    headers["Vary"] = "Accept-Encoding"
+    if "gzip" not in request.headers.get("accept-encoding", ""):
+        return FileResponse(f, headers=headers)
+    mtime = f.stat().st_mtime
+    hit = _gz_cache.get(f)
+    if hit is None or hit[0] != mtime:
+        hit = (mtime, gzip.compress(f.read_bytes(), compresslevel=6, mtime=0))
+        _gz_cache[f] = hit
+    media = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+    if media.startswith("text/") or media == "application/javascript":
+        media += "; charset=utf-8"
+    return Response(hit[1], media_type=media, headers={**headers, "Content-Encoding": "gzip"})
 
 
 async def _drain(ws: WebSocket) -> None:

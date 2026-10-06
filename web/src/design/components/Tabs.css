@@ -5,6 +5,9 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
+.tabs__list[data-fade-end='true'] { mask-image: linear-gradient(to right, #000 calc(100% - 3rem), transparent); }
+.tabs__list[data-fade-start='true'] { mask-image: linear-gradient(to right, transparent, #000 3rem); }
+.tabs__list[data-fade-start='true'][data-fade-end='true'] { mask-image: linear-gradient(to right, transparent, #000 3rem, #000 calc(100% - 3rem), transparent); }
 .tabs__tab {
   position: relative;
   min-height: 2.5rem;

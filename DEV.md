@@ -96,3 +96,7 @@ SPARKLINE_URL=http://127.0.0.1:9701 npm run dev      # the same, against the dem
 cd server && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest -q
 cd web && npm run typecheck && npm run lint && npm test && npm run build && npm run e2e
 ```
+
+`npm run e2e` starts its own demo console (port `E2E_DEMO_PORT`, default 9702, data in the git-ignored `web/.e2e-demo/`)
+and a `vite preview` of the build proxying to it (port `E2E_PORT`, default 5180). Flow tests and axe checks run against
+that demo; a few chrome tests stub `/api` per test instead.

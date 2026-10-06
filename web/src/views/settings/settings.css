@@ -1,0 +1,38 @@
+.settings { gap: var(--space-4); width: 100%; }
+.settings__group { margin: var(--space-3) 0 calc(-1 * var(--space-1)); padding-left: var(--space-1); }
+.settings__group:first-child { margin-top: 0; }
+
+.set-rows { display: grid; gap: var(--space-3); }
+.set-rows > * { min-width: 0; } /* the versions table scrolls inside its own wrapper instead of widening the page */
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-8);
+  min-height: 2.75rem;
+  padding-bottom: var(--space-3);
+  border-bottom: var(--hairline) solid var(--separator);
+}
+.set-rows > .set-row:last-child, .set-node:last-child .set-row { border-bottom: 0; padding-bottom: 0; }
+.set-row__text { display: grid; gap: 2px; min-width: 0; max-width: 34rem; }
+.set-row__title { font-size: var(--fs-body); line-height: var(--lh-body); font-weight: 560; color: var(--text-1); }
+.set-row__desc { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); text-wrap: pretty; }
+.set-row__control { flex: none; display: flex; align-items: center; justify-content: flex-end; }
+@media (max-width: 640px) {
+  .set-row { flex-direction: column; align-items: flex-start; }
+  .set-row__control { justify-content: flex-start; }
+}
+.set-text { width: 7.5rem; min-height: 2rem; font-size: var(--fs-callout); }
+
+.set-actions { display: flex; align-items: center; gap: var(--space-2); }
+.set-actions__state { color: var(--text-2); margin-right: var(--space-1); white-space: nowrap; }
+.set-saved { display: inline-flex; align-items: center; gap: 4px; color: var(--ok-text); font-weight: 560; }
+.set-saved svg { width: 14px; height: 14px; }
+
+.set-node { display: grid; gap: var(--space-3); }
+.set-node + .set-node { margin-top: 0; }
+
+.set-version { display: inline-flex; align-items: center; gap: var(--space-2); }
+.set-table { margin: 0 calc(-1 * var(--space-5)); border-bottom: var(--hairline) solid var(--separator); padding-bottom: var(--space-3); }
+.set-code { background: none; padding: 0; font-size: var(--fs-footnote); color: var(--text-2); }
+.set-row__control .ops-numfield { align-items: flex-end; text-align: right; }

@@ -169,7 +169,8 @@ export interface ProcSample {
   name: string;
   cmdline: string;
   user: string | null;
-  cpu_pct: number;
+  /** % of one core (top-style: can exceed 100). Null until the agent has two readings of the process. */
+  cpu_pct: number | null;
   rss: number;
   gpu_mem: number | null;
   gpu_util: number | null;
@@ -190,6 +191,8 @@ export interface Sample {
   fs: FsSample[];
   temps: TempSample[];
   procs: ProcSample[] | null;
+  /** When the process list was last refreshed (carried on every tick; null from older agents). */
+  procs_ts?: number | null;
   errors: Record<string, string>;
 }
 
@@ -362,6 +365,11 @@ export interface BenchMessage {
   type: 'bench';
   run: BenchRun;
 }
+/** Console settings changed (PUT /api/v1/settings), so every open tab picks them up. */
+export interface SettingsMessage {
+  type: 'settings';
+  settings: ConsoleSettings;
+}
 export interface PingMessage {
   type: 'ping';
   ts: number;
@@ -373,4 +381,5 @@ export type WsMessage =
   | NodeStatusMessage
   | EventMessage
   | BenchMessage
+  | SettingsMessage
   | PingMessage;

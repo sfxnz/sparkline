@@ -56,6 +56,8 @@ def test_flatten_keys_and_values():
     assert f["disk.nvme0n1.busy_pct"] == 5
     assert f["fs.root.used_pct"] == pytest.approx(100 * 50 / 150)  # df-style: reserved blocks count as used
     assert f["temp.acpitz.0"] == 70.0
+    assert f["cpu.load5"] == 1 and f["cpu.load15"] == 1
+    assert f["fs.root.total"] == 200 and f["fs.root.free"] == 100
 
 
 def test_flatten_omits_none():

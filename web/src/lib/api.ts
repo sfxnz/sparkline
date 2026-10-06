@@ -1,5 +1,5 @@
 // REST client for the console. Same-origin (dev/preview proxy /api to the console); auth is an HttpOnly cookie.
-import type { HistoryResponse, NodeState } from './types';
+import type { AlertRule, ConsoleSettings, Event, HistoryResponse, NodeState, Problem } from './types';
 
 export type ApiErrorKind = 'unauthorized' | 'unreachable' | 'server' | 'client';
 
@@ -8,6 +8,8 @@ export class ApiError extends Error {
     readonly kind: ApiErrorKind,
     readonly status: number,
     message: string,
+    /** Full response body (the console answers errors with {"problem": {...}}). */
+    readonly body = '',
   ) {
     super(message);
     this.name = 'ApiError';
@@ -35,17 +37,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         : res.status >= 500
           ? 'server'
           : 'client';
-    throw new ApiError(kind, res.status, body.slice(0, 300) || res.statusText);
+    throw new ApiError(kind, res.status, body.slice(0, 300) || res.statusText, body);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
-const json = (body: unknown): RequestInit => ({
-  method: 'POST',
+const json = (body: unknown, method = 'POST'): RequestInit => ({
+  method,
   body: JSON.stringify(body),
   headers: { 'Content-Type': 'application/json' },
 });
+const query = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
 export const api = {
   /** 200 when the session is valid; throws ApiError('unauthorized') on 401. Body shape is not relied on. */
@@ -66,7 +69,38 @@ export const api = {
         points: String(points),
       }).toString()}`,
     ),
+  events: (limit = 500) => request<Event[]>(`/api/v1/events?${query({ limit: String(limit) })}`),
+  ack: (id: number) => request<Event>(`/api/v1/events/${id}/ack`, { method: 'POST' }),
+  rules: () => request<AlertRule[]>('/api/v1/alerts/rules'),
+  putRules: (rules: AlertRule[]) => request<AlertRule[]>('/api/v1/alerts/rules', json(rules, 'PUT')),
+  settings: () => request<ConsoleSettings>('/api/v1/settings'),
+  putSettings: (s: ConsoleSettings) => request<ConsoleSettings>('/api/v1/settings', json(s, 'PUT')),
+  /** Irreversible: deletes the node's stored history (the console requires the explicit confirm body). */
+  clearHistory: (node: string) =>
+    request<{ ok: boolean; demo?: boolean }>(`/api/v1/history?${query({ node })}`, json({ confirm: 'DELETE' }, 'DELETE')),
 };
+
+/** Human-readable Problem for any failure: the console's own {problem} when present, else a sensible default. */
+export function problemOf(err: unknown, what: string): Problem {
+  if (err instanceof ApiError) {
+    try {
+      const body = JSON.parse(err.body) as { problem?: Partial<Problem> };
+      if (body.problem?.message) {
+        return { message: body.problem.message, cause: body.problem.cause ?? '', fix: body.problem.fix ?? '' };
+      }
+    } catch {
+      /* not JSON: fall through */
+    }
+    if (err.kind === 'unreachable') {
+      return { message: `Couldn't ${what}`, cause: 'Sparkline is not reachable from this browser.', fix: 'Check that the console is running, then try again.' };
+    }
+    if (err.kind === 'unauthorized') {
+      return { message: `Couldn't ${what}`, cause: 'Your session has expired.', fix: 'Sign in again, then retry.' };
+    }
+    return { message: `Couldn't ${what}`, cause: `HTTP ${err.status}: ${err.message.slice(0, 200)}`, fix: 'Try again. If it keeps failing, check the console log.' };
+  }
+  return { message: `Couldn't ${what}`, cause: err instanceof Error ? err.message : String(err), fix: 'Try again.' };
+}
 
 export function streamUrl(loc: Location = window.location): string {
   return `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}/api/v1/stream`;

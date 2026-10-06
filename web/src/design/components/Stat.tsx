@@ -12,16 +12,18 @@ interface Props {
   format: Formatter;
   /** Optional change vs a reference, already formatted, with its direction (for icon + accessible text). */
   delta?: { text: string; direction: 'up' | 'down' | 'flat'; label?: string };
-  /** Dim the value and show "updated 12 s ago" (epoch seconds of the last real update). */
+  /** Dim the value; without a footer, also show "updated 12 s ago" (epoch seconds of the last real update). */
   stale?: boolean;
   updatedAt?: number | null;
   /** Reason text when the hardware does not report this metric. */
   unsupported?: string;
+  /** Short label for the unsupported state (default "Not reported by this hardware"). */
+  unsupportedLabel?: string;
   size?: 'md' | 'lg';
   footer?: ReactNode;
 }
 
-export function Stat({ label, value, format, delta, stale, updatedAt, unsupported, size = 'md', footer }: Props) {
+export function Stat({ label, value, format, delta, stale, updatedAt, unsupported, unsupportedLabel, size = 'md', footer }: Props) {
   const target = value == null || !Number.isFinite(value) ? null : format(value);
   const unit = target?.unit ?? '';
   const textFor = useCallback((n: number) => format(n, unit || undefined).value, [format, unit]);
@@ -32,7 +34,7 @@ export function Stat({ label, value, format, delta, stale, updatedAt, unsupporte
       <div className="stat__label">{label}</div>
       {unsupported ? (
         <div className="stat__unsupported">
-          <Unsupported reason={unsupported} />
+          <Unsupported reason={unsupported} label={unsupportedLabel} />
         </div>
       ) : (
         <div className="stat__value">
@@ -47,7 +49,9 @@ export function Stat({ label, value, format, delta, stale, updatedAt, unsupporte
           ) : null}
         </div>
       )}
-      {stale ? <StaleNote updatedAt={updatedAt ?? null} /> : footer ? <div className="stat__footer">{footer}</div> : null}
+      {/* Stale: the value dims. A stat keeps its own caption (its context still matters, and the screen labels the
+          group "last known values" once); only a stat with no caption says its age itself. */}
+      {footer ? <div className="stat__footer">{footer}</div> : stale && !unsupported ? <StaleNote updatedAt={updatedAt ?? null} /> : null}
     </div>
   );
 }

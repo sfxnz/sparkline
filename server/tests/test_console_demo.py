@@ -4,6 +4,8 @@ import asyncio
 import json
 import time
 
+import pytest
+
 from sparkline.common.schema import ConsoleSettings, NodeInfo, Sample
 from sparkline.console.cluster import Cluster
 from sparkline.console.demo import DemoModel, DemoSource, demo_history
@@ -33,7 +35,9 @@ def test_demo_hardware_mirrors_discovery():
     assert {s.id for s in info.sensors} >= {"acpitz.6", "nvme.composite", "nvme.sensor_2", "mlx5.3"}
     # same keys the real agent reports on GB10 (checked live on spark1/spark2)
     gpu = {f"gpu0.{k}" for k in ("power_limit_w", "mem_mhz", "fan_pct", "fb_memory", "ecc", "pcie_bps")}
-    assert {u.metric for u in info.unsupported} == gpu | {"fan", "system.power_w"}
+    assert {u.metric for u in info.unsupported} == gpu | {"cpu.temp", "fan", "system.power_w"}
+    hidden = {n.name for n in info.net if n.role in ("virtual", "wireless")}
+    assert hidden == {"docker0", "tailscale0", "wlP9s9"}
 
 
 def test_demo_dynamics_and_scripted_episodes():
@@ -67,6 +71,22 @@ def test_demo_history_resolution_and_determinism():
     )
     energy = h.series["gpu0.energy_j"]
     assert all(b >= a for a, b in zip(energy, energy[1:], strict=False))
+    assert h.ts[0] % 10 == 5  # stamped at bucket centres, like agent rollups
+
+
+def test_demo_energy_integrates_the_power_series():
+    """History energy must agree with the power chart, and differ between nodes with different loads."""
+    now = T0 + 10
+    inc = {}
+    for nid in ("spark1", "spark3"):
+        keys = ["gpu0.energy_j", "gpu0.power_w"]
+        h = demo_history(DemoModel(nid, T0), keys, now - 6 * 3600, now, 600, now=now)
+        e, p = h.series["gpu0.energy_j"], h.series["gpu0.power_w"]
+        span = h.ts[-1] - h.ts[0]
+        mean_p = sum(x for x in p if x is not None) / len(p)
+        inc[nid] = (e[-1] or 0) - (e[0] or 0)
+        assert inc[nid] == pytest.approx(mean_p * span, rel=0.03)
+    assert abs(inc["spark1"] - inc["spark3"]) > 0.05 * inc["spark1"]
 
 
 async def test_demo_failure_schedule_drives_stale_and_offline(tmp_path):

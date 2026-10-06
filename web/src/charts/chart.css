@@ -11,10 +11,15 @@
 .tschart__legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
 .tschart__legend-label { color: var(--text-2); }
 .tschart__legend-value { color: var(--text-1); font-weight: 600; min-width: 4.5ch; }
+.tschart__legend-time { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
+.tschart__legend-time:empty, .tschart__legend-time:has(> span:empty) { display: none; }
 .tschart__swatch { width: 10px; height: 3px; border-radius: var(--radius-full); background: var(--chart-1); }
 .tschart__swatch--1 { background: var(--chart-2); }
 .tschart__swatch--2 { background: var(--chart-3); }
 .tschart__swatch--3 { background: var(--chart-4); }
+/* Threshold key: a dashed stroke in the line's status colour (with its label, so never colour alone). */
+.tschart__swatch--dashed { height: 0; background: none; border-top: 2px dashed var(--tone); width: 14px; }
+.tschart__threshold .tschart__legend-label { color: var(--tone-text); }
 .tschart__actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 .tschart__stale { font-size: var(--fs-footnote); color: var(--stale-text); }
 .tschart__plot-wrap { position: relative; }

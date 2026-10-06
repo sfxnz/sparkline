@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import sampleJson from '../test/fixtures/sample.json';
 import type { CoreInfo, Sample } from '../lib/types';
 import { LiveStore } from '../store/live';
-import { Heatmap } from './Heatmap';
+import { cellEdges, Heatmap } from './Heatmap';
 
 const base = sampleJson as unknown as Sample;
 const mk = (ts: number, util: number): Sample => ({ ...base, node_id: 'spark1', ts, cpu: { ...base.cpu, per_core: [util, util, util] } });
@@ -40,5 +40,25 @@ describe('Heatmap', () => {
     fireEvent.keyDown(img, { key: 'ArrowDown' });
     expect(live).toHaveTextContent('Core 1 · Performance: 80% now');
     clock.mockRestore();
+  });
+});
+
+describe('cellEdges', () => {
+  const xAt = (t: number) => t * 1.37; // 1.37 px per second: edges land between pixels
+
+  it('makes jittered live samples contiguous: no 1 px seams, no overlaps', () => {
+    const ts = [100, 101.004, 101.998, 103.01, 104.002, 104.999];
+    const e = cellEdges(ts, 1, 'end', xAt, 0, 1e9);
+    for (let j = 1; j < ts.length; j++) expect(e[2 * j]).toBe(e[2 * j - 1]);
+  });
+
+  it('keeps a real gap in the data as a gap', () => {
+    const e = cellEdges([100, 101, 110, 111], 1, 'end', xAt, 0, 1e9);
+    expect(e[4]).toBeGreaterThan(e[3] ?? 0);
+  });
+
+  it('centres history buckets on their timestamp and spans the full bucket width', () => {
+    const e = cellEdges([1000, 1180, 1360], 180, 'center', (t) => t / 10, 0, 1e9);
+    expect([e[0], e[1], e[2], e[3], e[4], e[5]]).toEqual([91, 109, 109, 127, 127, 145]);
   });
 });

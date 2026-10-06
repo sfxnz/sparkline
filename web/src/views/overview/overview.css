@@ -1,0 +1,340 @@
+/* Overview. Uses design tokens only; status colours appear only through .tone-* (status) classes. */
+
+/* -------------------------------------------------------------- hero */
+.ov-hero { display: grid; gap: var(--space-1); padding: 0 0 var(--space-1); }
+.ov-hero__line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); min-height: var(--lh-title1); }
+.ov-hero__sentence {
+  font-size: var(--fs-title1);
+  line-height: var(--lh-title1);
+  font-weight: var(--fw-title2);
+  letter-spacing: var(--ls-title1);
+  color: var(--text-1);
+  text-wrap: balance;
+}
+.ov-hero__activity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  min-height: var(--lh-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+.ov-hero__workload { color: var(--text-1); font-weight: 500; }
+.ov-hero__sep { color: var(--text-3); }
+.ov-hero__numbers { font-variant-numeric: tabular-nums; }
+.ov-hero__numbers .num { color: var(--text-1); font-weight: 560; }
+
+/* -------------------------------------------------------------- shared bits */
+.ov-dim { color: var(--text-3); }
+.ov-label { font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 500; color: var(--text-2); }
+.ov-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); min-width: 0; }
+.ov-flag { display: inline-flex; align-items: center; gap: 4px; color: var(--tone-text); font-weight: 520; }
+.ov-flag svg { width: 13px; height: 13px; flex: none; color: var(--tone); }
+
+/* -------------------------------------------------------------- node cards */
+/* Three cards fit side by side down to a 1280 px laptop (sidebar open); the minimum is in rem so cards also drop to
+   fewer columns when the user's font size grows. Narrow cards tighten their spacing (container query below). */
+.ov-cards { display: grid; gap: var(--space-5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 18.25rem), 1fr)); }
+
+.ov-card {
+  --glow: 0;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  container-type: inline-size;
+}
+.ov-cx__short { display: none; text-decoration: none; }
+/* The ring is sized in rem so its centre label never outgrows it at large user font sizes (96 px at 16 px). */
+.ov-card__top .ring { width: 6rem !important; height: 6rem !important; }
+.ov-card__top .ring svg { width: 100%; height: 100%; }
+@container (max-width: 22rem) {
+  .ov-card__top, .ov-card__stats, .ov-card__sparks { gap: var(--space-3); }
+  .ov-card__values, .ov-card__foot-main { gap: var(--space-3); }
+  /* A smaller ring leaves the two stats room for their captions. */
+  .ov-card__top .ring { width: 5rem !important; height: 5rem !important; }
+  .ov-cx__long { display: none; }
+  .ov-cx__short { display: inline; }
+}
+.ov-card__panel { flex: 1; position: relative; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
+.ov-card:hover .ov-card__panel { border-color: var(--separator-strong); }
+.ov-card:has(.ov-card__title:focus-visible) .ov-card__panel { border-color: var(--focus-ring); }
+
+/* Ambient glow: sits behind the translucent panel, tinted by load. A pre-coloured layer whose strength is its opacity
+   (--glow, 0..1, written at most once a second) and whose breathing is the opacity of its ::before (one of three calm
+   periods, data-breath). Only opacity animates, so both run on the compositor; the gradient never repaints. */
+.ov-card__glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: var(--glow);
+  transition: opacity 1.2s var(--ease-in-out);
+}
+.ov-card__glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(90% 70% at 16% 8%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 72%);
+  opacity: 0.75;
+}
+.ov-card[data-breath='1'] .ov-card__glow::before { animation: ov-breathe 7s var(--ease-in-out) infinite alternate; }
+.ov-card[data-breath='2'] .ov-card__glow::before { animation: ov-breathe 5.5s var(--ease-in-out) infinite alternate; }
+.ov-card[data-breath='3'] .ov-card__glow::before { animation: ov-breathe 4.2s var(--ease-in-out) infinite alternate; }
+@keyframes ov-breathe {
+  from { opacity: 0.45; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-card .ov-card__glow::before { animation: none !important; opacity: 0.75; }
+  .ov-card .ov-card__glow { transition: none; }
+}
+:root[data-theme='light'] .ov-card__glow::before {
+  background: radial-gradient(90% 70% at 16% 8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 72%);
+}
+
+.ov-card__title {
+  display: inline-flex;
+  color: var(--text-1);
+  border-radius: var(--radius-xs);
+}
+.ov-card__title:hover { text-decoration: none; }
+.ov-card__name {
+  display: inline-block;
+  font-size: var(--fs-title3);
+  line-height: var(--lh-title3);
+  font-weight: var(--fw-title3);
+  letter-spacing: var(--ls-title3);
+}
+.ov-card__workload {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.ov-card .panel__titles { gap: 1px; }
+.ov-card .panel__header { min-height: 0; }
+.ov-card .panel__actions { margin: 0; }
+
+.ov-card .panel__body { display: flex; flex-direction: column; gap: var(--space-4); }
+.ov-card__values { display: flex; flex-direction: column; gap: var(--space-4); transition: opacity var(--dur-base) var(--ease-out), filter var(--dur-base) var(--ease-out); }
+/* Link + trend row; a stale/offline notice is laid over it (same box), so the card keeps its height in every state. */
+.ov-card__foot { position: relative; margin-top: auto; }
+.ov-card__foot-main { display: flex; flex-direction: column; gap: var(--space-4); }
+.ov-card__foot.has-notice > .ov-card__foot-main { visibility: hidden; }
+.ov-card--dim .ov-card__values { filter: saturate(0.3); }
+
+.ov-card__top { display: flex; align-items: center; gap: var(--space-4); }
+.ov-card__stats { flex: 1; min-width: 0; max-width: 22rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+
+.ov-ring { display: grid; justify-items: center; gap: 0; }
+.ov-ring__value { display: inline-flex; align-items: baseline; font-size: var(--fs-title2); line-height: var(--lh-title2); font-weight: 650; letter-spacing: -0.02em; color: var(--text-1); }
+.ov-ring__unit { font-size: var(--fs-footnote); font-weight: 560; color: var(--text-2); margin-left: 1px; }
+.ov-ring__label { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 600; letter-spacing: 0.06em; color: var(--text-3); }
+
+.ov-stat { display: grid; gap: 2px; min-width: 0; }
+.ov-stat__label { font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 500; color: var(--text-2); overflow-wrap: anywhere; }
+.ov-stat__value { display: flex; align-items: baseline; gap: 3px; min-height: var(--lh-title2); }
+.ov-stat__number { font-size: var(--fs-title2); line-height: var(--lh-title2); font-weight: 620; letter-spacing: -0.02em; color: var(--text-1); }
+.ov-stat__unit { font-size: var(--fs-subheadline); font-weight: 500; color: var(--text-2); }
+/* Wraps (two lines at most) rather than clipping, on narrow cards and at large user font sizes. */
+.ov-stat__footer { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+
+.ov-mem { display: grid; gap: var(--space-2); }
+.ov-mem__total { font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 560; color: var(--text-1); }
+.ov-mem__bar { display: flex; height: 8px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
+.ov-mem__seg { height: 100%; transition: width var(--dur-slow) var(--ease-out); }
+.ov-mem__seg + .ov-mem__seg { box-shadow: inset 1px 0 0 var(--surface-2); }
+.ov-mem__seg--gpu, .ov-sw--gpu { background: var(--chart-1); }
+.ov-mem__seg--other, .ov-sw--other { background: var(--chart-3); }
+.ov-sw--free { background: var(--fill-3); }
+.ov-legend { display: flex; flex-wrap: wrap; gap: 2px var(--space-4); margin: 0; padding: 0; list-style: none; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+.ov-legend li { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ov-legend .num { color: var(--text-1); font-weight: 520; }
+.ov-sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+
+.ov-cx { padding-top: var(--space-3); border-top: var(--hairline) solid var(--separator); align-items: center; }
+.ov-cx__rates { display: inline-flex; gap: var(--space-4); font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 560; color: var(--text-1); }
+.ov-cx__rate { display: inline-flex; align-items: center; gap: 3px; min-width: 9ch; justify-content: flex-end; }
+.ov-cx__rate svg { width: 12px; height: 12px; color: var(--text-3); }
+.ov-cx__none { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
+.ov-cx .ov-label { overflow-wrap: anywhere; }
+
+.ov-card__sparks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.ov-spark { display: grid; gap: var(--space-1); min-width: 0; }
+.ov-spark__label { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 500; color: var(--text-2); }
+
+/* Stale / offline notice: fills the card's foot slot exactly (see .ov-card__foot). */
+.ov-notice {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-content: center;
+  align-items: center;
+  gap: 2px var(--space-2);
+  overflow: hidden;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--text-2);
+  background: var(--fill-1);
+  border: var(--hairline) solid var(--separator);
+}
+.ov-notice > svg { width: 14px; height: 14px; flex: none; color: var(--stale-text); }
+.ov-notice strong { color: var(--text-1); font-weight: 600; }
+.ov-notice--down > svg { color: var(--warn); }
+.ov-notice__msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-notice--stale .ov-notice__msg { grid-column: 2 / -1; }
+.ov-notice__fix, .ov-notice__meta { grid-column: 2 / -1; }
+.ov-notice__fix { color: var(--text-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.ov-notice__fix code { font-size: 0.95em; }
+.ov-notice__meta { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* -------------------------------------------------------------- totals */
+.ov-totals .panel__body { padding: var(--space-5); }
+.ov-totals__row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ov-totals__row > .stat { padding: 0 var(--space-5); border-left: var(--hairline) solid var(--separator); }
+.ov-totals__row > .stat:first-child { padding-left: 0; border-left: 0; }
+.ov-totals .stat__footer { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1100px) {
+  .ov-totals__row { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--space-5); }
+  .ov-totals__row > .stat:nth-child(3) { padding-left: 0; border-left: 0; }
+}
+
+/* -------------------------------------------------------------- interconnect + events row */
+.ov-pair { display: grid; gap: var(--space-5); grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); }
+.ov-ic { container-type: inline-size; }
+.ov-ic .panel__body { display: flex; flex-direction: column; gap: var(--space-4); }
+/* Narrow (phone, 400% zoom): the two node ends sit above and below their rails instead of beside them. */
+@container (max-width: 30rem) {
+  .ov-ic__link { grid-template-columns: minmax(0, 1fr); }
+  .ov-ic__end { display: flex; justify-content: flex-start; gap: var(--space-2); min-width: 0; padding: var(--space-2) var(--space-3); }
+}
+.ov-ic__summary--stale { color: var(--text-3); }
+.ov-ic__summary { margin-top: auto; padding-top: var(--space-3); border-top: var(--hairline) solid var(--separator); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+.ov-pair--single { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1100px) {
+  .ov-pair { grid-template-columns: minmax(0, 1fr); }
+}
+
+.ov-ic__links { flex: 1; display: flex; flex-direction: column; gap: var(--space-5); }
+.ov-ic__link { flex: 1; }
+.ov-ic__link { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: stretch; gap: var(--space-4); }
+.ov-ic__end {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  min-width: 104px;
+  padding: var(--space-4) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--fill-1);
+  border: var(--hairline) solid var(--separator);
+}
+.ov-ic__end-icon { width: 18px; height: 18px; color: var(--text-3); }
+.ov-ic__end-name { font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: 600; color: var(--text-1); }
+.ov-ic__rails { display: grid; gap: var(--space-5); align-content: space-evenly; padding: var(--space-1) 0; }
+
+.ov-rail { display: grid; gap: var(--space-2); transition: opacity var(--dur-base) var(--ease-out); }
+.ov-rail--stale { filter: saturate(0.3); }
+.ov-rail__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.ov-rail__name { font-weight: 600; color: var(--text-1); }
+.ov-rail__meta { display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0 var(--space-2); color: var(--text-2); }
+
+.ov-lane { display: grid; grid-template-columns: minmax(0, 1fr) 10ch; align-items: center; gap: var(--space-3); }
+.ov-lane__value { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 560; color: var(--text-1); white-space: nowrap; }
+.ov-lane__value svg { width: 12px; height: 12px; color: var(--text-3); }
+
+/* A hairline track with a moving dotted flow. The flow element is one 24px tile wider than the track and slides by
+   exactly one tile per cycle (transform only), so the loop is seamless; speed is a quantised bucket. */
+.ov-lane__track {
+  --tile: 24px;
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: linear-gradient(var(--fill-3), var(--fill-3)) center / 100% 1px no-repeat;
+}
+.ov-lane__flow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--tile));
+  right: 0;
+  opacity: 0;
+  background: radial-gradient(circle at center, var(--accent) 0 1.6px, transparent 2.2px) 0 0 / var(--tile) 100% repeat-x;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.ov-lane__track[data-level='1'] .ov-lane__flow { opacity: 0.35; animation-duration: 3.2s; }
+.ov-lane__track[data-level='2'] .ov-lane__flow { opacity: 0.5; animation-duration: 2.2s; }
+.ov-lane__track[data-level='3'] .ov-lane__flow { opacity: 0.65; animation-duration: 1.5s; }
+.ov-lane__track[data-level='4'] .ov-lane__flow { opacity: 0.8; animation-duration: 1s; }
+.ov-lane__track[data-level='5'] .ov-lane__flow { opacity: 0.95; animation-duration: 0.7s; }
+.ov-lane__track--right:not([data-level='0']) .ov-lane__flow { animation-name: ov-flow-right; animation-timing-function: linear; animation-iteration-count: infinite; }
+.ov-lane__track--left:not([data-level='0']) .ov-lane__flow { animation-name: ov-flow-left; animation-timing-function: linear; animation-iteration-count: infinite; }
+@keyframes ov-flow-right { from { transform: translateX(0); } to { transform: translateX(var(--tile)); } }
+@keyframes ov-flow-left { from { transform: translateX(var(--tile)); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .ov-lane__flow { animation: none !important; }
+}
+
+/* events */
+.ov-events .panel__actions { margin: -2px -8px 0 0; }
+.ov-events__all svg { width: 14px; height: 14px; margin-right: -4px; }
+.ov-events__list { display: grid; margin: 0; padding: 0; list-style: none; }
+.ov-event {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: var(--hairline) solid var(--separator);
+}
+.ov-event:first-child { padding-top: 0; }
+.ov-event:last-child { border-bottom: 0; padding-bottom: 0; }
+.ov-event__sev { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 560; color: var(--tone-text); padding-top: 1px; }
+.ov-event__sev svg { width: 14px; height: 14px; flex: none; color: var(--tone); }
+.ov-tone-info { --tone: var(--text-3); --tone-text: var(--text-2); }
+.ov-event__body { display: grid; gap: 1px; min-width: 0; }
+.ov-event__title, .ov-event__detail { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.ov-event__title { font-size: var(--fs-callout); line-height: var(--lh-callout); font-weight: 520; color: var(--text-1); }
+.ov-event__detail { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+.ov-event--resolved .ov-event__title { color: var(--text-2); font-weight: 500; }
+.ov-event__open { color: var(--text-1); font-weight: 560; }
+.ov-event__time { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); white-space: nowrap; padding-top: 1px; }
+
+/* -------------------------------------------------------------- chart */
+.ov-chart { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-6); }
+.ov-chart__row { display: contents; }
+.ov-chart__col { padding-bottom: var(--space-1); border-bottom: var(--hairline) solid var(--separator); }
+@media (max-width: 900px) {
+  .ov-chart { grid-template-columns: minmax(0, 1fr); }
+  .ov-chart__col { display: none; }
+}
+
+/* -------------------------------------------------------------- empty (no nodes) */
+.ov-empty { border-radius: var(--radius-lg); padding: var(--space-6) var(--space-4); }
+.ov-empty .state__copy { display: grid; gap: var(--space-3); max-width: 32rem; }
+.ov-empty__code {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-radius: var(--radius-md);
+  background: var(--fill-1);
+  border: var(--hairline) solid var(--separator);
+  overflow-x: auto;
+}
+.ov-empty__code code { padding: 0; background: none; font-size: var(--fs-footnote); line-height: var(--lh-footnote); white-space: pre; }
+
+/* Not live: text drops to the tertiary colour, which still meets WCAG AA (opacity on text would not); graphics fade. */
+.ov-card--dim.ov-card--dim .ov-card__values *,
+.ov-rail--stale.ov-rail--stale * { color: var(--text-3); }
+.ov-card--dim .ov-card__values :is(svg, canvas),
+.ov-rail--stale :is(svg, canvas) { opacity: 0.5; }

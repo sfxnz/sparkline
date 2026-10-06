@@ -80,14 +80,39 @@ def validate_rules(rules: list[AlertRule]) -> None:
             raise ValueError(f"Rule {r.id!r}: throttle rules need a non-zero bitmask in threshold")
 
 
+def _bitrate(bytes_per_s: float) -> str:
+    bits = bytes_per_s * 8
+    for unit, scale in (("Gb/s", 1e9), ("Mb/s", 1e6), ("kb/s", 1e3)):
+        if bits >= scale:
+            return f"{bits / scale:.3g} {unit}"
+    return f"{bits:.0f} b/s"
+
+
 def fmt_value(key: str, v: float) -> str:
+    """A metric value with its unit, as the rule editor shows it (web/src/views/alerts/rules.ts unitFor)."""
     if key.endswith("temp_c") or key.startswith("temp."):
         return f"{v:.0f} °C"
     if key.startswith("mem.") and not key.startswith("mem.psi") and not key.endswith("_pct"):
         return f"{v / GIB:.1f} GiB"
     if key.endswith(("_pct", ".util")) or ".psi" in key:
         return f"{v:.1f} %"
+    if key.endswith("power_w"):
+        return f"{v:.1f} W"
+    if key.endswith("_mhz"):
+        return f"{v / 1000:.2f} GHz" if v >= 1000 else f"{v:.0f} MHz"
+    if key.endswith("_bps") and key.startswith("disk."):
+        return f"{v / 1e6:.3g} MB/s"
+    if key.endswith("_bps"):
+        return _bitrate(v)
     return f"{v:g}"
+
+
+def _sentence(titles: list[str]) -> str:
+    """["Thermal limit", "Overheating"] -> "Thermal limit and overheating" (a phrase, not a list)."""
+    words = [t if i == 0 else t[:1].lower() + t[1:] for i, t in enumerate(titles)]
+    if len(words) <= 1:
+        return "".join(words) or "Clock limit"
+    return f"{', '.join(words[:-1])} and {words[-1]}"
 
 
 def _dur(s: float) -> str:
@@ -235,8 +260,8 @@ class AlertEngine:
                     severity="info",
                     kind="recovered",
                     rule_id=r.id,
-                    title=f"{r.name} cleared on {node}",
-                    detail=f"{now_txt} (active for {_dur(ts - ev.ts)})",
+                    title=f"Resolved: {r.name} on {node}",
+                    detail=f"{now_txt} · cleared after {_dur(ts - ev.ts)} · was {ev.severity}",
                     metric=key or None,
                     value=v if r.kind == "threshold" else None,
                 )
@@ -244,7 +269,7 @@ class AlertEngine:
 
     def _detail(self, r: AlertRule, key: str, v: float) -> str:
         if r.kind == "throttle":
-            names = ", ".join(x["title"] for x in decode(int(v) & int(r.threshold or 0)))
-            return f"{names} for {_dur(r.for_s)}"
+            titles = [x["title"] for x in decode(int(v) & int(r.threshold or 0))]
+            return f"{_sentence(titles)} for {_dur(r.for_s)}"
         assert r.threshold is not None
         return f"{fmt_value(key, v)} for {_dur(r.for_s)} (threshold {fmt_value(key, r.threshold)})"

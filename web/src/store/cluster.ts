@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ClusterState, NodeState } from '../lib/types';
+import type { ClusterState, ConsoleSettings, NodeState } from '../lib/types';
 
 interface ClusterStore {
   cluster: ClusterState | null;
@@ -10,6 +10,7 @@ interface ClusterStore {
   clockOffset: number;
   setHello: (c: ClusterState) => void;
   setNode: (n: NodeState) => void;
+  setSettings: (settings: ConsoleSettings) => void;
 }
 
 export const useCluster = create<ClusterStore>()((set) => ({
@@ -30,6 +31,9 @@ export const useCluster = create<ClusterStore>()((set) => ({
       nodes: { ...s.nodes, [n.node_id]: n },
       order: s.order.includes(n.node_id) ? s.order : [...s.order, n.node_id],
     }));
+  },
+  setSettings: (settings) => {
+    set((s) => (s.cluster ? { cluster: { ...s.cluster, settings } } : {}));
   },
 }));
 

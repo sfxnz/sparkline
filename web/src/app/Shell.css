@@ -75,9 +75,9 @@
 .nav__trailing { margin-left: auto; display: inline-flex; align-items: center; }
 .nav__badge {
   margin-left: auto;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 6px;
+  min-width: 1.25em;
+  height: 1.375em;
+  padding: 0 0.45em;
   border-radius: var(--radius-full);
   display: inline-grid;
   place-items: center;
@@ -115,7 +115,7 @@
 .shell--collapsed .sidebar__brand { justify-content: center; padding: 0; }
 .shell--collapsed .nav__item { justify-content: center; padding: 0; position: relative; }
 .shell--collapsed .nav__trailing { position: absolute; right: 4px; bottom: 3px; }
-.shell--collapsed .nav__badge { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; }
+.shell--collapsed .nav__badge { position: absolute; top: 2px; right: 2px; min-width: 1.35em; height: 1.35em; padding: 0 0.3em; }
 .shell--collapsed .nav__section { border-top: var(--hairline) solid var(--separator); padding-top: var(--space-3); }
 .shell--collapsed .sidebar__foot { flex-direction: column; }
 .shell--collapsed .sidebar__wall { justify-content: center; padding: 0; width: 36px; flex: none; }
@@ -171,6 +171,9 @@
   max-width: calc(var(--content-max) + 2 * var(--space-8));
 }
 .shell__content:focus { outline: none; }
+/* Wide content (tables, tab strips) scrolls inside its own region; this only stops hidden helpers that are positioned
+   outside it (tooltip bubbles, visually hidden captions) from widening the page at narrow widths. */
+.shell__content { overflow-x: clip; }
 .shell__page { min-width: 0; }
 
 @media (max-width: 900px) {

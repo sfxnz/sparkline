@@ -7,6 +7,22 @@ def test_agg_kinds():
     assert agg_kind("gpu0.energy_j") == "last"
     assert agg_kind("gpu0.throttle_mask") == "or"
     assert agg_kind("gpu0.util") == "avg"
+    assert agg_kind("net.enp1s0f1np1.errors") == "sum"
+    assert agg_kind("net.enp1s0f1np1.drops") == "sum"
+
+
+def test_event_counts_are_summed_through_rollup_and_downsample():
+    """Per-interval error counts must total exactly over any range, not average out."""
+    r = Rollup(10)
+    for t, n in [(100.0, 0), (101.0, 3), (102.0, 0), (109.0, 1)]:
+        r.add(t, {"net.x.errors": n})
+    first = r.add(110.0, {"net.x.errors": 2})
+    assert first is not None and first[1]["net.x.errors"] == [4.0, 0.0, 3.0]
+    second = r.flush()
+    assert second is not None
+    rows = [(float(first[0]), first[1]), (float(second[0]), second[1])]
+    merged = downsample(rows, 100, 120, 1, None, 10.0)
+    assert merged[0][1]["net.x.errors"][0] == 6.0
 
 
 def test_rollup_avg_min_max_last_or():

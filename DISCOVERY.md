@@ -103,7 +103,7 @@ counters come from `.../counters/` and `.../hw_counters/` (e.g. `symbol_error`, 
 - hwmon: `acpitz` ×7 zones (unlabelled, 63–72 °C), `nvme` ×3, `mlx5` ASIC ×4 (66 °C), `mt7925_phy0`
   (Wi-Fi). The four `mlx5` entries are the four PCI functions of one ConnectX-7 chip and read the same value;
   they are shown as one "ConnectX-7 ASIC" sensor (max of the four).
-- No per-core CPU temperature (no coretemp-style chip): reported as unsupported (`cpu.core_temp`).
+- No per-core CPU temperature (no coretemp-style chip): reported as unsupported (`cpu.temp`).
 - The ACPI zones have no labels, so they are shown as "ACPI zone N". Their roles are not guessed.
 - **Fans: not exposed** (no hwmon fan inputs. The thermal cooling devices are CPU "Processor" throttles).
 - **Whole-system power: not exposed.** The only power sensor is the NVML GPU rail. The UI labels it

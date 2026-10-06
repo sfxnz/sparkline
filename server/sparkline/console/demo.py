@@ -16,7 +16,7 @@ import hashlib
 import math
 import time
 
-from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, flatten
+from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX, flatten
 from ..common.schema import (
     CoreInfo,
     CpuSample,
@@ -62,6 +62,8 @@ SPARE_PORTS = [
     ("enP2p1s0f0np0", "roceP2p1s0f0", "ConnectX-7 port (no cable)"),
 ]
 LAN = "enP7s7"
+# Listed in NodeInfo as the real agent lists them (labelled by name); not sampled unless include_virtual.
+VIRTUAL = [("docker0", "virtual"), ("tailscale0", "virtual"), ("wlP9s9", "wireless")]
 
 # Copied from the real agent's NodeInfo on spark1 (GB10), so demo and hardware render identically.
 UNSUPPORTED = [
@@ -77,6 +79,9 @@ UNSUPPORTED = [
         ("pcie_bps", "PCIe throughput", ""),
     ]
 ] + [
+    Unsupported(
+        metric="cpu.temp", reason="Per-core CPU temperature is not exposed (only unlabelled ACPI zones)"
+    ),
     Unsupported(metric="fan", reason="No fan sensors exposed by this hardware (hwmon)"),
     Unsupported(
         metric="system.power_w", reason="Whole-system power is not exposed; only the GPU rail (NVML) is"
@@ -145,6 +150,8 @@ class DemoModel:
         self.core_noise = [Smooth(f"{node_id}core{i}", (20, 75)) for i in range(20)]
         self.boot = t0 - 3.2 * 86400 - 3600 * (1 + _h(node_id, "boot"))
         self.info = self._info()
+        # Cumulative GPU energy tables (see energy_at): since boot, and for the driver session before it.
+        self._cum: dict[str, tuple[float, float, list[float]]] = {}
 
     # -- scenario ------------------------------------------------------------------------------------
     def scen(self, t: float) -> float:
@@ -196,6 +203,31 @@ class DemoModel:
         """GB10 GPU rail: ~4 W idle, ~30-35 W at ~90 % util (DISCOVERY); thermal episode > 40 W."""
         return 4 + 0.33 * self.util(t) + 8 * self.thermal(t) + 0.8 * _h(self.node_id, "p", int(t))
 
+    def power_at(self, t: float) -> float:
+        """Reported GPU power: the raw draw, softly held near 40 W by power capping in the thermal episode."""
+        raw = self.raw_power(t)
+        return 40 + (raw - 40) * 0.5 if raw > 40 else raw
+
+    ENERGY_STEP_S = 30.0
+    PREV_SESSION_S = 40 * 86400.0
+
+    def energy_at(self, t: float) -> float:
+        """GPU energy counter (J): the integral of power_at since the driver loaded at boot, so history
+        and the live counter agree with the power series. Before boot: the previous driver session."""
+        if t >= self.boot:
+            return self._integral("boot", self.boot, t)
+        origin = self.boot - self.PREV_SESSION_S
+        return self._integral("prev", origin, max(t, origin))
+
+    def _integral(self, name: str, origin: float, t: float) -> float:
+        step = self.ENERGY_STEP_S if name == "boot" else 4 * self.ENERGY_STEP_S
+        _, _, cum = self._cum.setdefault(name, (origin, step, [0.0]))
+        i = int((t - origin) // step)
+        while len(cum) <= i:  # extend lazily, midpoint rule per step
+            k = len(cum) - 1
+            cum.append(cum[-1] + self.power_at(origin + (k + 0.5) * step) * step)
+        return cum[i] + self.power_at(origin + (i + 0.5) * step) * (t - origin - i * step)
+
     def cpu_expected(self, t: float) -> float:
         b, a = self.busy(t)
         return 10 * (16 + 42 * b * a) + 10 * (4 + 9 * b * a) + 50 * a
@@ -217,7 +249,7 @@ class DemoModel:
         util = self.util(t)
         raw = self.raw_power(t)
         capped = _clamp((raw - 40) / 4 * 100, 0, 100)  # power capping only in the thermal episode
-        power = 40 + (raw - 40) * 0.5 if raw > 40 else raw
+        power = self.power_at(t)
         lag = 0.4 * self.raw_power(t - 8) + 0.35 * self.raw_power(t - 25) + 0.25 * self.raw_power(t - 60)
         temp = 40 + 0.9 * lag + 0.4 * j("t")  # ~44 °C idle (40-45 measured), ~70 °C at 90 % util
         temp += heat * (87.6 + 0.4 * j("th") - temp)
@@ -243,7 +275,7 @@ class DemoModel:
             video_mhz=1785.0,
             temp_c=round(temp, 1),
             power_w=round(power, 2),
-            energy_j=round(25.0 * (t - self.boot), 1),
+            energy_j=round(self.energy_at(t), 1),
             pstate=0,
             throttle_mask=mask,
             power_capped_pct=round(capped if capped > 5 else 0.0, 1),
@@ -506,7 +538,7 @@ class DemoModel:
                     ipv4=[ip] if (ip := (self.ip_a, self.ip_b)[i]) else [],
                     speed_mbps=200000,
                     rdma_device=rdma,
-                    counter_source="ethtool_phy",
+                    counter_source="netdev_rdma",
                     peer=self.peer,
                 )
             )
@@ -518,12 +550,14 @@ class DemoModel:
                     label=label,
                     mac=mac(i),
                     rdma_device=rdma,
-                    counter_source="ethtool_phy",
+                    counter_source="netdev_rdma",
                 )
             )
         net.append(
             NetIfInfo(name=LAN, role="lan", label="LAN", mac=mac(9), ipv4=[self.lan_ip], speed_mbps=10000)
         )
+        for i, (name, role) in enumerate(VIRTUAL, start=10):
+            net.append(NetIfInfo(name=name, role=role, label=name, mac=mac(i), counter_source="netdev"))
         sensors = [SensorInfo(id=f"acpitz.{i}", label=f"ACPI zone {i}", group="soc") for i in range(7)]
         sensors += [
             SensorInfo(id="nvme.composite", label="NVMe Composite", group="nvme", crit_c=84.85),
@@ -588,6 +622,7 @@ class DemoSource(NodeSource):
         self.model = DemoModel(node_id, t0, speed)
         self.seq = 0
         self.energy: float | None = None
+        self.procs_ts: float | None = None
         self.interval = 1.0
 
     def _refused(self) -> ConnectionRefusedError:
@@ -617,6 +652,9 @@ class DemoSource(NodeSource):
                 (g.energy_j or 0.0) if self.energy is None else self.energy + (g.power_w or 0) * self.interval
             )
             g.energy_j = round(self.energy, 1)
+            if s.procs is not None:
+                self.procs_ts = now
+            s.procs_ts = self.procs_ts
             self.seq += 1
             self.got_sample(s)
 
@@ -644,7 +682,7 @@ def demo_history(
     while b <= t_to - res and len(ts) < 5000:
         subs = [flatten(model.sample_at(b + res * f)) for f in (0.15, 0.5, 0.85)]
         idx = len(ts)
-        ts.append(float(b))
+        ts.append(float(b + res / 2))  # bucket centre, as the agent stamps its rollups
         for k in want if want is not None else subs[1].keys():
             vals = [s[k] for s in subs if k in s]
             for d in (series, mins, maxs):
@@ -655,6 +693,8 @@ def demo_history(
                 avg = vals[-1]
             elif k.endswith(BITMASK_KEYS_SUFFIX):
                 avg = float(int(vals[0]) | int(vals[1 % len(vals)]) | int(vals[-1]))
+            elif k.endswith(SUM_KEYS_SUFFIX):  # per-second counts: the bucket total
+                avg = sum(vals) / len(vals) * res
             else:
                 avg = sum(vals) / len(vals)
             series[k][idx], mins[k][idx], maxs[k][idx] = avg, min(vals), max(vals)

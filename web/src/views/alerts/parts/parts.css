@@ -1,0 +1,90 @@
+/* Small form primitives used by Alerts, Settings and Wall (candidates for the design system). */
+
+/* ------------------------------------------------------------------ switch */
+.ops-switch {
+  --w: 2.375rem;
+  --h: 1.375rem;
+  position: relative;
+  flex: none;
+  width: var(--w);
+  height: var(--h);
+  padding: 0;
+  border: var(--hairline) solid var(--separator-strong);
+  border-radius: var(--radius-full);
+  background: var(--fill-3);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.ops-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(var(--h) - 6px);
+  height: calc(var(--h) - 6px);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.ops-switch[aria-checked='true'] { background: var(--accent-fill); border-color: transparent; }
+.ops-switch[aria-checked='true'] .ops-switch__knob { transform: translateX(calc(var(--w) - var(--h))); }
+.ops-switch:disabled { opacity: 0.45; cursor: not-allowed; }
+.ops-switch:focus-visible { border-radius: var(--radius-full); }
+
+/* ------------------------------------------------------------------ select */
+.ops-select { position: relative; display: inline-flex; align-items: center; min-width: 0; }
+.ops-select select {
+  appearance: none;
+  min-height: 2rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0 1.75rem 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: var(--hairline) solid var(--separator-strong);
+  background: var(--fill-1);
+  color: var(--text-1);
+  font-size: var(--fs-callout);
+  cursor: pointer;
+  text-overflow: ellipsis;
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.ops-select select:hover { background: var(--fill-2); }
+.ops-select select:focus-visible { outline: none; border-color: var(--focus-ring); box-shadow: 0 0 0 1px var(--focus-ring), 0 0 0 4px var(--accent-soft); }
+.ops-select select option { background: var(--surface-3); color: var(--text-1); }
+.ops-select--sm select { min-height: 1.75rem; font-size: var(--fs-footnote); padding-left: var(--space-2); border-radius: var(--radius-ctl); }
+.ops-select__icon { position: absolute; right: 8px; width: 13px; height: 13px; color: var(--text-3); pointer-events: none; }
+
+/* ------------------------------------------------------------------ number field with unit */
+.ops-field { display: inline-flex; align-items: center; position: relative; min-width: 0; }
+.ops-field .input { min-height: 2rem; font-size: var(--fs-callout); font-variant-numeric: tabular-nums; text-align: right; }
+.ops-field__unit {
+  position: absolute;
+  right: var(--space-3);
+  font-size: var(--fs-footnote);
+  color: var(--text-2);
+  pointer-events: none;
+}
+.ops-field--unit .input { padding-right: 2.6rem; }
+.ops-error { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--crit-text); display: flex; gap: 4px; align-items: flex-start; }
+.ops-error svg { width: 13px; height: 13px; flex: none; margin-top: 2px; }
+
+/* ------------------------------------------------------------------ severity icon */
+.ops-sev-icon { width: 16px; height: 16px; flex: none; color: var(--tone); }
+
+/* ------------------------------------------------------------------ inline banner (save errors etc.) */
+.ops-banner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-1) var(--space-3);
+  align-items: start;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--tone-bg);
+  border: var(--hairline) solid color-mix(in srgb, var(--tone) 30%, transparent);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.ops-banner > svg { width: 18px; height: 18px; color: var(--tone); margin-top: 1px; }
+.ops-banner__title { font-weight: 600; color: var(--text-1); }
+.ops-banner__text { color: var(--text-2); font-size: var(--fs-footnote); line-height: var(--lh-footnote); margin-top: 2px; }
+.ops-banner__action { align-self: center; }
+.ops-numfield { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; }

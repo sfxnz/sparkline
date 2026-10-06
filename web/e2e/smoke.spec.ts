@@ -93,11 +93,13 @@ test('with a console: hello populates the sidebar and the indicator goes Live', 
   await page.goto('/');
   const nav = page.getByRole('navigation', { name: 'Main' });
   await expect(nav.getByRole('link', { name: /spark1.*Healthy/ })).toBeVisible();
-  await expect(nav.getByRole('link', { name: /spark2.*Stale/ })).toBeVisible();
+  await expect(nav.getByRole('link', { name: /spark2.*Not reporting/ })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: /^Live$/ })).toBeVisible();
   await expect(page.getByText('Demo', { exact: true })).toBeVisible();
   await page.keyboard.press('2');
   await expect(page).toHaveURL(/\/node\/spark2$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'spark2' })).toBeVisible();
+  // The page heading stays for assistive tech; the node header is the visible title (shared element with its card).
+  await expect(page.getByRole('heading', { level: 1, name: 'spark2' })).toBeAttached();
+  await expect(page.getByRole('heading', { level: 2, name: 'spark2' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true');
 });

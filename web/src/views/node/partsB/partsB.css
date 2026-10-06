@@ -1,0 +1,224 @@
+/* CPU, Network and Storage node tabs. Status colours appear only with an icon and a label. */
+
+.nb-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-5) var(--space-6);
+  align-items: start;
+}
+.nb-stats .stat__footer { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.nb-stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--stale-text);
+  white-space: nowrap;
+  padding: 6px 6px 0 0; /* clears the panel's negative action margin */
+}
+.nb-stale svg { width: 13px; height: 13px; }
+
+/* Values kept on screen while not live: dimmed, never presented as current (scoped to these tabs: Thermals and
+   Processes use the same class name with their own rules). */
+.nb .is-stale { filter: saturate(0.2); }
+
+/* ---------------------------------------------------------------- CPU */
+.nb-grid-cpu { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 1100px) { .nb-grid-cpu { grid-template-columns: minmax(0, 1fr); } }
+
+.nb-heatmap { display: flex; flex-direction: column; gap: var(--space-2); }
+/* The Heatmap's built-in time caption reads minutes only; this tab shows its own for every range. */
+.nb-heatmap .heatmap__time { display: none; }
+.nb-heatmap__time {
+  display: flex;
+  justify-content: space-between;
+  padding-left: 5.75rem; /* the Heatmap label column: 92 px at the default root size, scaled with it */
+  margin-top: calc(-1 * var(--space-1));
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-3);
+}
+.nb-heatmap__problem { display: grid; place-items: center; }
+
+.nb-cores { display: grid; gap: var(--space-4); }
+.nb-cores__group { display: grid; gap: var(--space-2); }
+.nb-cores__head { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; margin: 0; }
+.nb-cores__name { font-size: var(--fs-subheadline); line-height: var(--lh-subheadline); font-weight: 600; color: var(--text-1); }
+.nb-cores__detail { font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 400; color: var(--text-3); }
+.nb-cores__cells {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.nb-core { min-width: 0; }
+.nb-core .tooltip-anchor { display: flex; }
+.nb-core__cell {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: 'util util' 'ghz id';
+  align-items: baseline;
+  gap: 0 var(--space-1);
+  width: 100%;
+  padding: 7px 9px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--fill-1);
+  border: var(--hairline) solid var(--separator);
+  overflow: hidden;
+  cursor: default;
+}
+.nb-core__cell:hover { background: var(--fill-2); }
+.nb-core__util { grid-area: util; font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: 620; color: var(--text-1); letter-spacing: -0.01em; }
+.nb-core__ghz { grid-area: ghz; font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text-2); white-space: nowrap; }
+.nb-core__unit { color: var(--text-3); }
+.nb-core__id { grid-area: id; justify-self: end; font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text-3); }
+.nb-core__bar { position: absolute; left: 9px; right: 9px; bottom: 5px; height: 2px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
+.nb-core__fill { display: block; height: 100%; background: var(--accent); transform-origin: left center; transition: transform var(--dur-base) var(--ease-out); }
+
+/* ---------------------------------------------------------------- sections (Network, Storage) */
+.nb-section { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.nb-section__head { display: flex; align-items: center; gap: var(--space-1); min-height: 1.75rem; }
+.nb-section__title {
+  font-size: var(--fs-title3);
+  line-height: var(--lh-title3);
+  font-weight: var(--fw-title3);
+  letter-spacing: var(--ls-title3);
+  color: var(--text-1);
+}
+.nb-info {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+}
+.nb-info:hover { color: var(--text-1); background: var(--fill-2); }
+.nb-info svg { width: 15px; height: 15px; }
+
+/* ---------------------------------------------------------------- Network */
+.nb-grid-rails { grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+.nb-card { display: flex; flex-direction: column; gap: var(--space-4); }
+.nb-card__title { display: inline-flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.nb-card__peer { font-size: var(--fs-subheadline); font-weight: 500; color: var(--text-2); }
+.nb-meta { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
+.nb-pills { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-height: 1.25rem; }
+.nb-pills__rate { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); margin-left: var(--space-1); }
+.nb-stats--rail { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.nb-errline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding-top: var(--space-3);
+  border-top: var(--hairline) solid var(--separator);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--text-2);
+}
+.nb-errline__icon { width: 14px; height: 14px; flex: none; color: var(--tone, var(--text-3)); }
+.nb-errline__text { font-weight: 560; color: var(--tone-text, var(--text-1)); }
+.nb-errline__range { color: var(--text-3); }
+
+.nb-notconn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: var(--hairline) dashed var(--separator-strong);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+}
+.nb-notconn__label { font-weight: 600; color: var(--text-2); }
+.nb-notconn__list { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); }
+.nb-notconn__item { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); }
+.nb-notconn__item svg { width: 14px; height: 14px; }
+.nb-notconn__name { color: var(--text-2); font-family: var(--font-mono); font-size: 0.95em; }
+
+.nb-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  min-height: 2rem;
+  padding: 0 var(--space-3) 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-callout);
+  font-weight: 560;
+}
+.nb-disclosure:hover { background: var(--fill-2); color: var(--text-1); }
+.nb-disclosure__chevron { width: 16px; height: 16px; transition: transform var(--dur-fast) var(--ease-out); }
+.nb-disclosure[aria-expanded='true'] .nb-disclosure__chevron { transform: rotate(90deg); }
+.nb-disclosure__count { padding: 0 7px; border-radius: var(--radius-full); background: var(--fill-2); font-size: var(--fs-caption); line-height: 1.25rem; color: var(--text-2); }
+
+.nb-vlist { display: grid; }
+.nb-vrow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 6rem 8rem 8rem;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: var(--hairline) solid var(--separator);
+  font-size: var(--fs-callout);
+}
+.nb-vrow:last-child { border-bottom: 0; }
+.nb-vrow__icon { width: 16px; height: 16px; color: var(--text-3); }
+.nb-vrow__name { display: grid; min-width: 0; }
+.nb-vrow__rate { text-align: right; color: var(--text-1); }
+.nb-vrow__dir { color: var(--text-3); font-size: var(--fs-footnote); }
+.nb-vrow__unsampled { grid-column: 3 / -1; text-align: right; color: var(--text-3); font-size: var(--fs-footnote); }
+.nb-vnote {
+  margin: 0;
+  padding: var(--space-3) var(--space-5);
+  border-top: var(--hairline) solid var(--separator);
+  color: var(--text-3);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+}
+
+/* ---------------------------------------------------------------- Storage */
+.nb-stats--disk { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.nb-stats--temps { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+@media (max-width: 900px) { .nb-stats--disk { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.nb-grid-disk { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+@media (max-width: 1100px) { .nb-grid-disk { grid-template-columns: minmax(0, 1fr); } }
+
+.nb-fs { display: grid; gap: var(--space-5); }
+.nb-fs__row { display: grid; gap: var(--space-2); }
+.nb-fs__head { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.nb-fs__mount { font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: 600; color: var(--text-1); }
+.nb-fs__status { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 560; color: var(--tone-text); align-self: center; }
+.nb-fs__status svg { width: 14px; height: 14px; color: var(--tone); }
+.tone-ok .nb-fs__status { color: var(--text-2); }
+.nb-fs__bar { position: relative; height: 8px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
+.nb-fs__fill { position: absolute; inset: 0; background: var(--accent); transform-origin: left center; border-radius: inherit; transition: transform var(--dur-slow) var(--ease-out); }
+.tone-warn .nb-fs__fill { background: var(--warn); }
+.tone-crit .nb-fs__fill { background: var(--crit); }
+.nb-fs__tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--bg); opacity: 0.7; }
+.nb-fs__foot { display: flex; justify-content: space-between; gap: var(--space-3); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+.nb-fs__foot strong { font-weight: 600; color: var(--text-1); }
+
+.nb ul { list-style: none; margin: 0; padding: 0; }
+
+/* Heatmap time caption sits directly under the canvas, above the readout/scale row. */
+.nb-heatmap .heatmap { display: contents; }
+.nb-heatmap .heatmap__canvas-wrap { order: 0; }
+.nb-heatmap .nb-heatmap__time { order: 1; }
+.nb-heatmap .heatmap__foot { order: 2; }
+.nb-stats--rail .stat__footer { white-space: normal; }
+.nb-section__note { margin-left: var(--space-2); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
+
+/* Not live: text drops to the tertiary colour, which still meets WCAG AA (opacity on text would not); graphics fade. */
+.nb .is-stale.is-stale * { color: var(--text-3); }
+.nb .is-stale :is(svg, canvas) { opacity: 0.5; }
