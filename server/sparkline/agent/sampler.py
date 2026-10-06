@@ -194,7 +194,10 @@ class Sampler:
     def _broadcast(self, sample_json: str) -> None:
         if not self.subscribers:
             return
-        msg = f'{{"type":"sample","node_id":{json.dumps(self.node_id)},"sample":{sample_json}}}'
+        self.publish(f'{{"type":"sample","node_id":{json.dumps(self.node_id)},"sample":{sample_json}}}')
+
+    def publish(self, msg: str) -> None:
+        """Send a pre-serialised stream message (e.g. "bench") to every subscriber."""
         for q in self.subscribers:
             if q.full():
                 q.get_nowait()  # drop oldest for slow consumers

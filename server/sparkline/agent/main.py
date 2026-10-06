@@ -11,6 +11,7 @@ import uvicorn
 
 from ..common.netutil import resolve_bind
 from .app import create_app
+from .bench.runner import BenchRunner
 from .config import load_config
 from .info import Collectors
 from .sampler import Sampler
@@ -74,7 +75,16 @@ def main(argv: list[str] | None = None) -> int:
         cfg.retention_10s_days,
         cfg.retention_60s_days,
     )
-    app = create_app(sampler, lambda: info, cfg.token)
+    bench = BenchRunner(
+        cfg.node_id,
+        lambda: info,
+        lambda: sampler.latest,
+        sampler.publish,
+        cfg.bench_image,
+        cfg.bench_dir,
+        payload_device=cfg.bench_payload_device,
+    )
+    app = create_app(sampler, lambda: info, cfg.token, bench=bench)
     log.info(
         "sparkline-agent %s node=%s listening on %s:%d, interval %d ms, data %s",
         info.agent_version,

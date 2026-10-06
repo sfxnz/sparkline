@@ -340,6 +340,54 @@ export interface BenchRun {
   error: Problem | null;
   log_tail: string[];
   baseline_for: boolean;
+  /** Canonical params JSON: a baseline only applies to runs with the same bench_id + params_key. */
+  params_key: string;
+  /** The baseline this run's results were compared against. */
+  baseline_run_id: string | null;
+  /** Per-node progress from the agents. Omitted by GET /api/v1/bench/runs (list). */
+  node_states?: Record<string, NodeBenchState>;
+}
+
+/** Browser -> console: POST /api/v1/bench/runs. */
+export interface BenchCreate {
+  bench_id: string;
+  nodes: string[];
+  params: Record<string, unknown>;
+  /** Must be true; only set from the confirmation dialog. */
+  confirm: boolean;
+}
+
+/** Agent -> console per-node progress (nested in BenchRun.node_states). */
+export interface NodeBenchState {
+  run_id: string;
+  bench_id: string;
+  node_id: string;
+  role: string;
+  status: RunStatus;
+  progress: number;
+  phase: string;
+  ready: boolean;
+  started_ts: number | null;
+  finished_ts: number | null;
+  results: BenchResult[];
+  series: Record<string, number[]>;
+  metadata: Record<string, unknown>;
+  error: Problem | null;
+  log_tail: string[];
+}
+
+/** GET /api/v1/bench/compare?ids=a,b,c */
+export interface BenchCompareMetric {
+  metric: string;
+  label: string;
+  unit: string;
+  better: 'higher' | 'lower';
+  node_id: string | null;
+  values: Record<string, number | null>;
+}
+export interface BenchCompare {
+  runs: BenchRun[];
+  metrics: BenchCompareMetric[];
 }
 
 // --- WebSocket messages (console -> browser) ---------------------------------------------------

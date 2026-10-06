@@ -154,6 +154,30 @@ def test_rest_auth_snapshot_history(tmp_path):
         assert r.status_code == 200 and len(s.ring) == 0
 
 
+def test_tokenless_agent_answers_only_local_non_browser_requests(tmp_path):
+    """No token (loopback bind): a DNS-rebinding page sends its own Host, and browsers send Origin."""
+    s = make(tmp_path)
+    app = create_app(s, info, "", manage_sampler=False)
+    with TestClient(app, base_url="http://127.0.0.1:29971") as c:
+        assert c.get("/api/v1/info").status_code == 200
+        assert c.get("/api/v1/info", headers={"Host": "localhost:29971"}).status_code == 200
+        assert c.get("/api/v1/info", headers={"Host": "[::1]:29971"}).status_code == 200
+        rebind = {"Host": "rebind.attacker.example:29971"}
+        assert c.get("/api/v1/info", headers=rebind).status_code == 403
+        page = {"Origin": "http://127.0.0.1:29971"}
+        assert (
+            c.request("DELETE", "/api/v1/history", headers=page, json={"confirm": "DELETE"}).status_code
+            == 403
+        )
+        with pytest.raises(WebSocketDisconnect), c.websocket_connect("/api/v1/stream", headers=rebind) as ws:
+            ws.receive_text()
+        with pytest.raises(WebSocketDisconnect), c.websocket_connect("/api/v1/stream", headers=page) as ws:
+            ws.receive_text()
+    app = create_app(s, info, TOKEN, manage_sampler=False)  # with a token the bearer check is what counts
+    with TestClient(app) as c:
+        assert c.get("/api/v1/info", headers={**AUTH, "Host": "spark1.lan:9750"}).status_code == 200
+
+
 def test_websocket_hello_sample_and_auth(tmp_path):
     s = make(tmp_path, interval_ms=250)
     app = create_app(s, info, TOKEN)  # sampler loop runs inside the app lifespan

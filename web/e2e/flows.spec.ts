@@ -26,7 +26,7 @@ test('overview renders every demo node with a health sentence', async ({ page })
     await expect(page.getByRole("link", { name: new RegExp(`^${id}\\b.*open node details`) })).toBeVisible();
   }
   // The hero answers "is my cluster healthy?" in words, not only colour.
-  await expect(page.locator('.ov-hero__sentence')).toHaveText(/healthy|stale|offline|alert|critical|warning/i);
+  await expect(page.locator('.ov-hero__sentence')).toHaveText(/healthy|stale|offline|alert|critical|warning|temperature/i); // the demo's thermal episode reads "at its GPU slowdown temperature"
 });
 
 test('node tabs are reachable from the keyboard and keep the URL in step', async ({ page }) => {
@@ -150,7 +150,11 @@ for (const scheme of ['dark', 'light'] as const) {
   test(`no axe violations in interactive and degraded states (${scheme})`, async ({ page }) => {
     test.setTimeout(240_000);
     await page.emulateMedia({ colorScheme: scheme });
-    const check = async (what: string) => { expect(await axeViolations(page), `${what} (${scheme})`).toEqual([]); };
+    const check = async (what: string) => {
+      // Dialogs and the palette fade in: measure contrast on the final colours, not mid-transition.
+      await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || !((a.effect as KeyframeEffect | null)?.target as Element | null)?.closest('.palette, dialog, [role="dialog"]')));
+      expect(await axeViolations(page), `${what} (${scheme})`).toEqual([]);
+    };
 
     await page.goto('/node/spark1/gpu');
     await ready(page);

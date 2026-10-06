@@ -40,6 +40,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--demo", action="store_true", help="simulate three nodes, including failures")
     p.add_argument("--demo-speed", type=float, default=1.0, help="compress the demo failure schedule")
     p.add_argument(
+        "--demo-empty-bench",
+        action="store_true",
+        help="demo without seeded benchmark history (shows the empty state)",
+    )
+    p.add_argument(
         "--allow-public", action="store_true", help="allow binding a public / all-interfaces address"
     )
     p.add_argument("--log-level", default="info", choices=["debug", "info", "warning", "error"])
@@ -88,7 +93,9 @@ def main(argv: list[str] | None = None) -> None:
         lock = lock_data_dir(data_dir)  # held (open) for the life of the process
     except OSError as e:
         fail(str(e))
-    app = create_app(cfg, data_dir, demo=args.demo, demo_speed=args.demo_speed)
+    app = create_app(
+        cfg, data_dir, demo=args.demo, demo_speed=args.demo_speed, demo_empty_bench=args.demo_empty_bench
+    )
     app.state.data_dir_lock = lock
     uvicorn.run(app, host=host, port=cfg.port, log_level=args.log_level, proxy_headers=False)
 

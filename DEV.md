@@ -49,6 +49,11 @@ chmod 600 var/agent.toml
 server/.venv/bin/sparkline-agent --config var/agent.toml
 ```
 
+Benchmarks: GPU payloads run in `bench_image` (default `nvcr.io/nvidia/pytorch:26.07-py3`), test files go in
+`bench_work_dir` (default `<data_dir>/bench-work`). `bench_payload_device = "cpu"` runs the gpu-matmul, mem-bandwidth and
+thermal-soak payloads on the CPU at tiny sizes without `--gpus`: a code-path smoke test whose results are flagged smoke
+and never compared with GPU baselines. The catalog says so while it is on.
+
 To run the agent on spark2, copy the code over and start it the same way:
 
 ```sh

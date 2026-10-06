@@ -35,10 +35,14 @@ from ..common.schema import (
 )
 from ..common.schema import Severity as SeverityT
 from .alerts import validate_rules
+from .bench import AgentBackend, BenchError, BenchManager
+from .bench_routes import bench_router
+from .bench_store import BenchStore
 from .cluster import VERSION, Cluster
 from .config import ConsoleConfig
 from .demo import NODES as DEMO_NODES
 from .demo import DemoSource, demo_history
+from .demo_bench import DemoBench, seed_history
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, classify
 from .store import SESSION_TTL_S, Store
@@ -93,7 +97,13 @@ def origin_ok(headers) -> bool:
     return urlsplit(origin).netloc.lower() == (headers.get("host") or "").lower()
 
 
-def create_app(cfg: ConsoleConfig, data_dir: Path, demo: bool = False, demo_speed: float = 1.0) -> FastAPI:
+def create_app(
+    cfg: ConsoleConfig,
+    data_dir: Path,
+    demo: bool = False,
+    demo_speed: float = 1.0,
+    demo_empty_bench: bool = False,
+) -> FastAPI:
     data_dir.mkdir(parents=True, exist_ok=True)
     store = Store(data_dir / "console.sqlite")
     hub = Hub()
@@ -105,6 +115,16 @@ def create_app(cfg: ConsoleConfig, data_dir: Path, demo: bool = False, demo_spee
     else:
         for n in cfg.nodes:
             cluster.add_source(AgentClient(n.id, n.url, cluster, cfg.agent_token))
+    bench_store = BenchStore(store.db)
+    if demo:
+        if demo_empty_bench:  # demo DB only: show the empty benchmark state
+            bench_store.clear()
+        else:
+            models = {nid: src.model for nid, src in cluster.sources.items()}
+            seed_history(bench_store, models, cluster.settings.regression_pct, store.add_event)
+        bench = BenchManager(cluster, bench_store, DemoBench(cluster))
+    else:
+        bench = BenchManager(cluster, bench_store, AgentBackend(cluster, cfg.agent_token))
     auth_enabled = bool(cfg.token) or not demo
     token = cfg.token.encode()
     login_attempts: dict[str, deque[float]] = {}
@@ -114,9 +134,11 @@ def create_app(cfg: ConsoleConfig, data_dir: Path, demo: bool = False, demo_spee
     async def lifespan(app: FastAPI):
         http["c"] = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0))
         await cluster.start()
+        await bench.start()
         try:
             yield
         finally:
+            await bench.stop()
             await cluster.stop()
             await http["c"].aclose()
             store.close()
@@ -132,10 +154,15 @@ def create_app(cfg: ConsoleConfig, data_dir: Path, demo: bool = False, demo_spee
     app.state.cluster = cluster
     app.state.hub = hub
     app.state.store = store
+    app.state.bench = bench
 
     # -- errors as {"problem": {...}} ----------------------------------------------------------------
     @app.exception_handler(ProblemError)
     async def _problem(_req: Request, exc: ProblemError) -> JSONResponse:
+        return problem_response(exc.status, exc.problem)
+
+    @app.exception_handler(BenchError)
+    async def _bench(_req: Request, exc: BenchError) -> JSONResponse:
         return problem_response(exc.status, exc.problem)
 
     @app.exception_handler(RequestValidationError)
@@ -458,6 +485,8 @@ def create_app(cfg: ConsoleConfig, data_dir: Path, demo: bool = False, demo_spee
                 await ws.close(code=1013)
             elif client.kicked:
                 await ws.close(code=1008)
+
+    app.include_router(bench_router(bench, Auth))
 
     # -- static web app (registered last: catch-all) -----------------------------------------------
     @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)

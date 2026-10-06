@@ -57,6 +57,17 @@ export function Dialog({ open, onClose, title, description, children, footer, si
     };
   }, [onClose]);
 
+  // Unmounted while open (a parent that renders `{open ? <Dialog open /> : null}`): no 'close' event fires, so
+  // return focus to the opener here too.
+  useEffect(
+    () => () => {
+      const el = opener.current;
+      opener.current = null;
+      if (el?.isConnected) el.focus();
+    },
+    [],
+  );
+
   return (
     // Clicking the backdrop (the <dialog> element itself, outside the sheet) closes; keyboard users have Escape.
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions

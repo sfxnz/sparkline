@@ -1,5 +1,5 @@
 // REST client for the console. Same-origin (dev/preview proxy /api to the console); auth is an HttpOnly cookie.
-import type { AlertRule, ConsoleSettings, Event, HistoryResponse, NodeState, Problem } from './types';
+import type { AlertRule, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, HistoryResponse, NodeState, Problem, RunStatus } from './types';
 
 export type ApiErrorKind = 'unauthorized' | 'unreachable' | 'server' | 'client';
 
@@ -78,6 +78,34 @@ export const api = {
   /** Irreversible: deletes the node's stored history (the console requires the explicit confirm body). */
   clearHistory: (node: string) =>
     request<{ ok: boolean; demo?: boolean }>(`/api/v1/history?${query({ node })}`, json({ confirm: 'DELETE' }, 'DELETE')),
+};
+
+export interface BenchRunFilters {
+  bench_id?: string;
+  node?: string;
+  status?: RunStatus;
+  limit?: number;
+}
+
+const benchRun = (id: string) => `/api/v1/bench/runs/${encodeURIComponent(id)}`;
+
+/** Benchmark suite (used only by the lazy benchmarks chunk). */
+export const benchApi = {
+  catalog: () => request<BenchSpec[]>('/api/v1/bench/catalog'),
+  runs: (f: BenchRunFilters = {}) => {
+    const q = query(Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])));
+    return request<BenchRun[]>(`/api/v1/bench/runs${q ? `?${q}` : ''}`);
+  },
+  run: (id: string) => request<BenchRun>(benchRun(id)),
+  /** `confirm` must be true: the console refuses (400) otherwise. */
+  create: (body: BenchCreate) => request<BenchRun>('/api/v1/bench/runs', json(body)),
+  cancel: (id: string) => request<unknown>(`${benchRun(id)}/cancel`, { method: 'POST' }),
+  remove: (id: string) => request<unknown>(benchRun(id), { method: 'DELETE' }),
+  setBaseline: (benchId: string, runId: string) =>
+    request<unknown>(`/api/v1/bench/baselines/${encodeURIComponent(benchId)}`, json({ run_id: runId }, 'PUT')),
+  compare: (ids: readonly string[]) => request<BenchCompare>(`/api/v1/bench/compare?${query({ ids: ids.join(',') })}`),
+  /** Download URL (the console answers with an attachment). */
+  exportUrl: (id: string, format: 'json' | 'csv') => `${benchRun(id)}/export?${query({ format })}`,
 };
 
 /** Human-readable Problem for any failure: the console's own {problem} when present, else a sensible default. */

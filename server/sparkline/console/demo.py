@@ -152,6 +152,16 @@ class DemoModel:
         self.info = self._info()
         # Cumulative GPU energy tables (see energy_at): since boot, and for the driver session before it.
         self._cum: dict[str, tuple[float, float, list[float]]] = {}
+        # Demo benchmark load windows [start, end, intensity 0..1] (demo_bench.py), so telemetry shows them.
+        self.bench_windows: list[list[float]] = []
+
+    def bench_load(self, t: float) -> tuple[float, float]:
+        """(load, heat) of a demo benchmark at t: load is immediate, heat ramps up over ~45 s."""
+        load = heat = 0.0
+        for a, b, i in self.bench_windows:
+            if a <= t < b:
+                load, heat = max(load, i), max(heat, i * min(1.0, (t - a) / 45))
+        return load, heat
 
     # -- scenario ------------------------------------------------------------------------------------
     def scen(self, t: float) -> float:
@@ -190,6 +200,9 @@ class DemoModel:
 
     def busy(self, t: float) -> tuple[float, float]:
         b, active = self.shared_busy(t)
+        load, _ = self.bench_load(t)
+        if load:
+            b, active = max(b, load), max(active, load)
         heat = self.thermal(t)
         if heat:  # the thermal episode happens under full load
             b, active = max(b, heat), max(active, min(1.0, 4 * heat))
@@ -201,7 +214,9 @@ class DemoModel:
 
     def raw_power(self, t: float) -> float:
         """GB10 GPU rail: ~4 W idle, ~30-35 W at ~90 % util (DISCOVERY); thermal episode > 40 W."""
-        return 4 + 0.33 * self.util(t) + 8 * self.thermal(t) + 0.8 * _h(self.node_id, "p", int(t))
+        bench_heat = 5.5 * self.bench_load(t)[1]  # sustained GEMM: power capping, clocks sag a little
+        jitter = 0.8 * _h(self.node_id, "p", int(t))
+        return 4 + 0.33 * self.util(t) + 8 * self.thermal(t) + bench_heat + jitter
 
     def power_at(self, t: float) -> float:
         """Reported GPU power: the raw draw, softly held near 40 W by power capping in the thermal episode."""

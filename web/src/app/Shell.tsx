@@ -108,6 +108,12 @@ function useMediaQuery(query: string): boolean {
  */
 function useFocusAfterNavigation(location: string) {
   const first = useRef(true);
+  // A new page (same key as the page transition below; node tabs keep their place) starts at the top, not at the
+  // scroll position of the page it was opened from.
+  const page = location.split('/').slice(0, 3).join('/');
+  useEffect(() => {
+    if (!first.current) window.scrollTo(0, 0);
+  }, [page]);
   useEffect(() => {
     if (first.current) {
       first.current = false;

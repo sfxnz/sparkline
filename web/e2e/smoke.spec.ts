@@ -49,6 +49,8 @@ test('command palette opens with Ctrl+K, filters, and closes with Escape', async
   await expect(input).toBeFocused();
   await input.fill('alerts');
   await expect(page.getByRole('option', { selected: true })).toHaveText(/Alerts/);
+  // The palette fades in: measure contrast on the final colours, not mid-transition.
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || !((a.effect as KeyframeEffect | null)?.target as Element | null)?.closest('.palette, dialog, [role="dialog"]')));
   expect(await seriousViolations(page)).toEqual([]);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/alerts$/);

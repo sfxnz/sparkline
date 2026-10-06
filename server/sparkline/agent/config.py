@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import os
+import re
 import socket
 import tomllib
 from dataclasses import dataclass, field, fields
 
 DEFAULT_PATH = "/etc/sparkline/agent.toml"
+DEFAULT_BENCH_IMAGE = "nvcr.io/nvidia/pytorch:26.07-py3"
+_IMAGE_RE = re.compile(r"^[A-Za-z0-9][\w.\-/:@]{0,254}$")
 
 
 def default_data_dir() -> str:
@@ -32,6 +35,9 @@ class AgentConfig:
     peers: dict[str, str | list[str]] = field(default_factory=dict)  # node_id -> IP(s): interconnect peer
     include_virtual: bool = False
     allow_public: bool = False
+    bench_image: str = DEFAULT_BENCH_IMAGE  # container image for GPU benchmarks
+    bench_work_dir: str = ""  # scratch for benchmark files; default <data_dir>/bench-work
+    bench_payload_device: str = "cuda"  # "cpu": code-path smoke test of GPU payloads
 
     def validate(self) -> None:
         if not 250 <= self.interval_ms <= 5000:
@@ -40,6 +46,14 @@ class AgentConfig:
             raise ValueError(f"port out of range: {self.port}")
         if self.ring_seconds < 10 or self.procs_interval_s < 1:
             raise ValueError("ring_seconds must be >= 10 and procs_interval_s >= 1")
+        if not _IMAGE_RE.match(self.bench_image):
+            raise ValueError(f"bench_image is not a valid image reference: {self.bench_image!r}")
+        if self.bench_payload_device not in ("cuda", "cpu"):
+            raise ValueError(f"bench_payload_device must be cuda or cpu (got {self.bench_payload_device!r})")
+
+    @property
+    def bench_dir(self) -> str:
+        return self.bench_work_dir or os.path.join(self.data_dir, "bench-work")
 
 
 def load_config(path: str | None = None, overrides: dict | None = None) -> AgentConfig:

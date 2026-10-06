@@ -50,6 +50,11 @@ REASONS: dict[int, tuple[str, str, str, str]] = {
 
 _RANK = {"info": 0, "warning": 1, "critical": 2}
 
+# Reasons that cost clocks to heat or protection (warning/critical). Power capping and the other info-level
+# reasons are routine on GB10 under any sustained load, so a soak reports them apart from "throttled".
+LIMITING_MASK = sum(bit for bit, (_c, _t, sev, _e) in REASONS.items() if sev != "info")
+POWER_CAP_BIT = 0x4
+
 
 def decode(mask: int) -> list[dict]:
     out = []

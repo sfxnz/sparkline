@@ -15,13 +15,22 @@ import random
 import socket
 import time
 from collections import deque
+from collections.abc import Callable
 from typing import Protocol
 from urllib.parse import urlsplit
 
 import httpx
 from pydantic import ValidationError
 
-from ..common.schema import SCHEMA_VERSION, NodeInfo, NodeState, NodeStatus, Problem, Sample
+from ..common.schema import (
+    SCHEMA_VERSION,
+    NodeBenchState,
+    NodeInfo,
+    NodeState,
+    NodeStatus,
+    Problem,
+    Sample,
+)
 
 log = logging.getLogger("sparkline.console.nodes")
 
@@ -170,6 +179,7 @@ class NodeSource:
         self._skew_warned = False
         self._wake = asyncio.Event()
         self._session_task: asyncio.Task | None = None
+        self.on_bench: Callable[[str, NodeBenchState], None] | None = None  # set by the bench manager
 
     # -- implemented by subclasses ------------------------------------------------------------------
     async def session(self) -> None:
@@ -198,6 +208,10 @@ class NodeSource:
         if self.state.status != "online":
             self.set_status("online", None, None)
         self.listener.on_sample(self, s)
+
+    def got_bench(self, st: NodeBenchState) -> None:
+        if self.on_bench is not None:
+            self.on_bench(self.node_id, st)
 
     # -- status machine -----------------------------------------------------------------------------
     def set_status(self, status: NodeStatus, problem: Problem | None, next_retry_ts: float | None) -> None:
@@ -308,6 +322,8 @@ class AgentClient(NodeSource):
                         self.got_hello(NodeInfo.model_validate(msg["info"]))
                     elif kind == "sample":
                         self.got_sample(Sample.model_validate(msg["sample"]))
+                    elif kind == "bench":
+                        self.got_bench(NodeBenchState.model_validate(msg["run"]))
                 except ValidationError as e:
                     log.warning("%s: invalid %s message skipped: %s", self.node_id, kind, e.errors()[:2])
             raise StreamClosed(f"code {ws.close_code}")
