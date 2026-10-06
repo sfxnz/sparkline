@@ -1,0 +1,59 @@
+{
+ "default_route": "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT                                                       \nenP7s7\t00000000\t0214140A\t0003\t0\t0\t102\t00000000\t0\t0\t0                                                                           \nenP7s7\t0014140A\t00000000\t0001\t0\t0\t102\t00FFFFFF\t0\t0\t0                                                                           \nenp1s0f1np1\t0008640A\t00000000\t0001\t0\t0\t101\t00FFFFFF\t0\t0\t0                                                                      \nenP2p1s0f1np1\t0009640A\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0                                                                    \ndocker0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0                                                                            \n",
+ "ifaces": [
+  {
+   "name": "docker0",
+   "operstate": "down",
+   "device": null,
+   "rdma": null
+  },
+  {
+   "name": "enP2p1s0f0np0",
+   "operstate": "down",
+   "device": "/sys/devices/pci0002:00/0002:00:00.0/0002:01:00.0",
+   "rdma": "roceP2p1s0f0"
+  },
+  {
+   "name": "enP2p1s0f1np1",
+   "operstate": "up",
+   "device": "/sys/devices/pci0002:00/0002:00:00.0/0002:01:00.1",
+   "rdma": "roceP2p1s0f1"
+  },
+  {
+   "name": "enP7s7",
+   "operstate": "up",
+   "device": "/sys/devices/pci0007:00/0007:00:00.0/0007:01:00.0",
+   "rdma": null
+  },
+  {
+   "name": "enp1s0f0np0",
+   "operstate": "down",
+   "device": "/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.0",
+   "rdma": "rocep1s0f0"
+  },
+  {
+   "name": "enp1s0f1np1",
+   "operstate": "up",
+   "device": "/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.1",
+   "rdma": "rocep1s0f1"
+  },
+  {
+   "name": "lo",
+   "operstate": "unknown",
+   "device": null,
+   "rdma": null
+  },
+  {
+   "name": "tailscale0",
+   "operstate": "unknown",
+   "device": null,
+   "rdma": null
+  },
+  {
+   "name": "wlP9s9",
+   "operstate": "down",
+   "device": "/sys/devices/pci0009:00/0009:00:00.0/0009:01:00.0",
+   "rdma": null
+  }
+ ]
+}

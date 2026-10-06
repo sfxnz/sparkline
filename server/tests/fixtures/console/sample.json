@@ -1,0 +1,309 @@
+{
+ "node_id": "spark1",
+ "ts": 1791280100.0,
+ "seq": 100,
+ "interval_ms": 1000,
+ "gpu": [
+  {
+   "index": 0,
+   "util": 54.6,
+   "sm_mhz": 2890.0,
+   "gr_mhz": 2890.0,
+   "video_mhz": 1785.0,
+   "temp_c": 69.7,
+   "power_w": 61.01,
+   "energy_j": 15547531.8,
+   "pstate": 0,
+   "throttle_mask": 0,
+   "power_capped_pct": 0.0,
+   "thermal_capped_pct": 0.0
+  }
+ ],
+ "mem": {
+  "total": 130722492416,
+  "available": 31888693289,
+  "used": 98833799127,
+  "free": 17898078218,
+  "gpu": 85900753868,
+  "anon": 5637144576,
+  "cache": 13990615071,
+  "shmem": 1503238553,
+  "kernel": 3859926847,
+  "other": 1932735283,
+  "swap_total": 17179869184,
+  "swap_used": 4617089843,
+  "psi_some": 0.0,
+  "psi_full": 0.0
+ },
+ "cpu": {
+  "util": 14.8,
+  "perf_util": 24.1,
+  "eff_util": 5.5,
+  "per_core": [
+   5.0,
+   5.8,
+   7.4,
+   7.5,
+   3.2,
+   15.0,
+   15.0,
+   88.9,
+   16.0,
+   22.3,
+   4.1,
+   8.8,
+   3.6,
+   9.0,
+   0.7,
+   15.4,
+   23.5,
+   7.4,
+   19.9,
+   18.0
+  ],
+  "freq_mhz": [
+   2106.0,
+   2106.0,
+   2106.0,
+   2106.0,
+   2106.0,
+   3781.0,
+   3774.0,
+   3847.0,
+   3806.0,
+   3803.0,
+   2106.0,
+   2758.0,
+   2106.0,
+   2736.0,
+   2106.0,
+   3799.0,
+   3840.0,
+   3402.0,
+   3892.0,
+   3796.0
+  ],
+  "load1": 2.89,
+  "load5": 3.04,
+  "load15": 3.8,
+  "psi_some": 0.0
+ },
+ "net": [
+  {
+   "name": "enp1s0f1np1",
+   "up": true,
+   "speed_mbps": 200000,
+   "rx_bps": 0.0,
+   "tx_bps": 0.0,
+   "errors": 0.0,
+   "drops": 0.0,
+   "rdma_state": "ACTIVE",
+   "rdma_rate": "200 Gb/sec (4X HDR)"
+  },
+  {
+   "name": "enP2p1s0f1np1",
+   "up": true,
+   "speed_mbps": 200000,
+   "rx_bps": 0.0,
+   "tx_bps": 0.0,
+   "errors": 0.0,
+   "drops": 0.0,
+   "rdma_state": "ACTIVE",
+   "rdma_rate": "200 Gb/sec (4X HDR)"
+  },
+  {
+   "name": "enp1s0f0np0",
+   "up": false,
+   "speed_mbps": null,
+   "rx_bps": 0.0,
+   "tx_bps": 0.0,
+   "errors": 0.0,
+   "drops": 0.0,
+   "rdma_state": "DOWN",
+   "rdma_rate": null
+  },
+  {
+   "name": "enP2p1s0f0np0",
+   "up": false,
+   "speed_mbps": null,
+   "rx_bps": 0.0,
+   "tx_bps": 0.0,
+   "errors": 0.0,
+   "drops": 0.0,
+   "rdma_state": "DOWN",
+   "rdma_rate": null
+  },
+  {
+   "name": "enP7s7",
+   "up": true,
+   "speed_mbps": 10000,
+   "rx_bps": 44489.0,
+   "tx_bps": 115857.0,
+   "errors": 0.0,
+   "drops": 0.0,
+   "rdma_state": null,
+   "rdma_rate": null
+  }
+ ],
+ "disk": [
+  {
+   "name": "nvme0n1",
+   "read_bps": 4569624.0,
+   "write_bps": 14723478.0,
+   "read_iops": 65.0,
+   "write_iops": 911.0,
+   "busy_pct": 2.1
+  }
+ ],
+ "fs": [
+  {
+   "mount": "/",
+   "key": "root",
+   "device": "/dev/nvme0n1p2",
+   "total": 3936502300672,
+   "used": 3221420509487,
+   "free": 715081791185
+  },
+  {
+   "mount": "/boot/efi",
+   "key": "boot_efi",
+   "device": "/dev/nvme0n1p1",
+   "total": 1124999168,
+   "used": 6709248,
+   "free": 1118289920
+  }
+ ],
+ "temps": [
+  {
+   "id": "acpitz.0",
+   "c": 62.9
+  },
+  {
+   "id": "acpitz.1",
+   "c": 65.6
+  },
+  {
+   "id": "acpitz.2",
+   "c": 67.8
+  },
+  {
+   "id": "acpitz.3",
+   "c": 72.8
+  },
+  {
+   "id": "acpitz.4",
+   "c": 67.5
+  },
+  {
+   "id": "acpitz.5",
+   "c": 64.2
+  },
+  {
+   "id": "acpitz.6",
+   "c": 70.1
+  },
+  {
+   "id": "nvme.composite",
+   "c": 44.9
+  },
+  {
+   "id": "nvme.sensor1",
+   "c": 53.9
+  },
+  {
+   "id": "nvme.sensor2",
+   "c": 42.9
+  },
+  {
+   "id": "mlx5.0",
+   "c": 63.6
+  },
+  {
+   "id": "mlx5.1",
+   "c": 63.4
+  },
+  {
+   "id": "mlx5.2",
+   "c": 63.4
+  },
+  {
+   "id": "mlx5.3",
+   "c": 63.6
+  }
+ ],
+ "procs": [
+  {
+   "pid": 48213,
+   "name": "python",
+   "cmdline": "python serve_stats.py --model /root/.cache/huggingface/hub/models--sfxnz--DeepSeek-V4.1-Flash-EXL3/snapshots/3f2a9c1e --tp 2 --rank 0 --host 0.0.0.0 --port 8000 --max-batch 32",
+   "user": "root",
+   "cpu_pct": 104.3,
+   "rss": 4939212390,
+   "gpu_mem": 85900753868,
+   "gpu_util": 54.6,
+   "container": "c5-2B-r0",
+   "model": "DeepSeek-V4.1-Flash-EXL3"
+  },
+  {
+   "pid": 1873,
+   "name": "dockerd",
+   "cmdline": "/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock",
+   "user": "root",
+   "cpu_pct": 0.4,
+   "rss": 117440512,
+   "gpu_mem": null,
+   "gpu_util": null,
+   "container": null,
+   "model": null
+  },
+  {
+   "pid": 1622,
+   "name": "containerd",
+   "cmdline": "/usr/bin/containerd",
+   "user": "root",
+   "cpu_pct": 0.2,
+   "rss": 63963136,
+   "gpu_mem": null,
+   "gpu_util": null,
+   "container": null,
+   "model": null
+  },
+  {
+   "pid": 2301,
+   "name": "sparkline-agent",
+   "cmdline": "/opt/sparkline/venv/bin/python -m sparkline.agent.main",
+   "user": "spark",
+   "cpu_pct": 0.8,
+   "rss": 60817408,
+   "gpu_mem": null,
+   "gpu_util": null,
+   "container": null,
+   "model": null
+  },
+  {
+   "pid": 1544,
+   "name": "tailscaled",
+   "cmdline": "/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state",
+   "user": "root",
+   "cpu_pct": 0.3,
+   "rss": 54525952,
+   "gpu_mem": null,
+   "gpu_util": null,
+   "container": null,
+   "model": null
+  },
+  {
+   "pid": 512,
+   "name": "systemd-journald",
+   "cmdline": "/usr/lib/systemd/systemd-journald",
+   "user": "root",
+   "cpu_pct": 0.1,
+   "rss": 42991616,
+   "gpu_mem": null,
+   "gpu_util": null,
+   "container": null,
+   "model": null
+  }
+ ],
+ "errors": {}
+}

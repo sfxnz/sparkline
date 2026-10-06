@@ -82,9 +82,13 @@ The brief says Grace. GB10's CPU is actually **10× Cortex-X925 (performance) + 
 
 **Key finding:** inter-node traffic is RDMA. It bypasses the kernel netdev counters. In a 2 s sample,
 `/sys/class/net/enp1s0f1np1/statistics/tx_bytes` grew by **648 B**, while the ethtool PHY counter
-`tx_bytes_phy` grew by **573 MB**. The CX7 throughput therefore comes from the **ethtool PHY counters**
-(`rx/tx_bytes_phy`, `rx/tx_discards_phy`, `rx_crc_errors_phy`), read via the `SIOCETHTOOL` ioctl, which
-works without root. RDMA port state and rate come from `/sys/class/infiniband/*/ports/1/{state,rate}`. Error
+`tx_bytes_phy` grew by **573 MB**. The two rails are two PCI functions of **one physical port**
+(same `phys_switch_id`, `phys_port_name` `p1`, same `sys_image_guid`), so the `*_phy` counters are port-wide and
+read identically on both. Per-rail CX7 throughput is therefore **netdev bytes + RDMA
+`counters/port_{rcv,xmit}_data` (4-byte words) of that function** (`counter_source = "netdev_rdma"`); the two
+rails sum to the PHY total. The port-wide `rx/tx_discards_phy` and `rx_crc_errors_phy` come from the
+`SIOCETHTOOL` ioctl (works without root) and are attributed once per physical port (to rail A). RDMA port
+state and rate come from `/sys/class/infiniband/*/ports/1/{state,rate}`. Error
 counters come from `.../counters/` and `.../hw_counters/` (e.g. `symbol_error`, `link_downed`,
 `out_of_sequence`, `packet_seq_err`, `local_ack_timeout_err`). LAN throughput comes from netdev statistics.
 
@@ -97,7 +101,9 @@ counters come from `.../counters/` and `.../hw_counters/` (e.g. `symbol_error`, 
 ## Thermals & power
 
 - hwmon: `acpitz` ×7 zones (unlabelled, 63–72 °C), `nvme` ×3, `mlx5` ASIC ×4 (66 °C), `mt7925_phy0`
-  (Wi-Fi).
+  (Wi-Fi). The four `mlx5` entries are the four PCI functions of one ConnectX-7 chip and read the same value;
+  they are shown as one "ConnectX-7 ASIC" sensor (max of the four).
+- No per-core CPU temperature (no coretemp-style chip): reported as unsupported (`cpu.core_temp`).
 - The ACPI zones have no labels, so they are shown as "ACPI zone N". Their roles are not guessed.
 - **Fans: not exposed** (no hwmon fan inputs. The thermal cooling devices are CPU "Processor" throttles).
 - **Whole-system power: not exposed.** The only power sensor is the NVML GPU rail. The UI labels it

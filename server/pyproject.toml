@@ -1,7 +1,7 @@
 [project]
-name = "sparkconsole"
+name = "sparkline"
 version = "0.1.0"
-description = "Spark Console — live telemetry & benchmarking for NVIDIA DGX Spark clusters"
+description = "Sparkline — live telemetry & benchmarking for NVIDIA DGX Spark clusters"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115",
@@ -17,15 +17,15 @@ dependencies = [
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.10"]
 
 [project.scripts]
-spark-agent = "sparkconsole.agent.main:main"
-spark-console = "sparkconsole.console.main:main"
+sparkline-agent = "sparkline.agent.main:main"
+sparkline = "sparkline.console.main:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["sparkconsole"]
+packages = ["sparkline"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

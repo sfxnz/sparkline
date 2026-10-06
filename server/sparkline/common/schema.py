@@ -1,4 +1,4 @@
-"""Wire contract shared by spark-agent, spark-console and the web client (mirrored in web/src/lib/types.ts).
+"""Wire contract shared by sparkline-agent, sparkline and the web client (mirrored in web/src/lib/types.ts).
 
 Conventions:
 - Timestamps are Unix epoch seconds (float). Byte quantities are ints. Rates are per second.
@@ -56,7 +56,9 @@ class NetIfInfo(BaseModel):
     ipv4: list[str] = Field(default_factory=list)
     speed_mbps: int | None = None
     rdma_device: str | None = None
-    counter_source: Literal["ethtool_phy", "netdev"] = "netdev"
+    # "netdev_rdma": netdev bytes + RDMA port_*_data of this PCI function (real agent on CX7);
+    # "ethtool_phy" is kept for compatibility but is not emitted by the agent (PHY counters are port-wide)
+    counter_source: Literal["netdev_rdma", "ethtool_phy", "netdev"] = "netdev"
     peer: str | None = None  # node_id at the far end of an interconnect link, if known
 
 
@@ -235,7 +237,7 @@ NodeStatus = Literal["connecting", "online", "stale", "offline", "error"]
 class Problem(BaseModel):
     message: str  # "Agent unreachable on spark2"
     cause: str  # "Connection refused on 10.20.20.195:9750"
-    fix: str  # "Check `systemctl status spark-agent` on spark2"
+    fix: str  # "Check `systemctl status sparkline-agent` on spark2"
 
 
 class NodeState(BaseModel):
@@ -371,7 +373,7 @@ class BenchRun(BaseModel):
 # ---------------------------------------------------------------------------
 # WebSocket messages (console -> browser; agent -> console uses "hello"/"sample"/"bench"/"ping")
 # ---------------------------------------------------------------------------
-# {"type": "hello", "cluster": ClusterState}                (console)   / {"type":"hello","info":NodeInfo} (agent)
+# {"type": "hello", "cluster": ClusterState}   (console) / {"type": "hello", "info": NodeInfo}   (agent)
 # {"type": "sample", "node_id": str, "sample": Sample}
 # {"type": "node_status", "node": NodeState}
 # {"type": "event", "event": Event}

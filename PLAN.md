@@ -1,4 +1,4 @@
-# Spark Console — plan
+# Sparkline — plan
 
 Self-approved per the user's instruction ("no waiting for my decisions"). It is grounded in [DISCOVERY.md](DISCOVERY.md).
 
@@ -7,7 +7,7 @@ Self-approved per the user's instruction ("no waiting for my decisions"). It is 
 ```
  spark1                        spark2
  ┌───────────────┐             ┌───────────────┐
- │ spark-agent   │ :9750       │ spark-agent   │ :9750      Python 3.12, FastAPI/uvicorn,
+ │ sparkline-agent   │ :9750       │ sparkline-agent   │ :9750      Python 3.12, FastAPI/uvicorn,
  │  collectors   │             │  collectors   │            nvidia-ml-py, psutil. 1 Hz default
  │  ring buffer  │             │  ring buffer  │            (250 ms–5 s). In-memory ring of 15 min,
  │  SQLite rollup│             │  SQLite rollup│            SQLite 10 s rollups (7 d) + 1 min (30 d).
@@ -16,7 +16,7 @@ Self-approved per the user's instruction ("no waiting for my decisions"). It is 
         │ WS /api/v1/stream + REST (Bearer agent token, LAN/CX7 only)
         └──────────────┬──────────────┘
                ┌───────▼────────┐
-               │ spark-console  │ :9700  aggregator: merges nodes, stale/offline detection, backoff
+               │ sparkline  │ :9700  aggregator: merges nodes, stale/offline detection, backoff
                │  alerts+events │        reconnect, alert engine, event timeline, benchmark
                │  bench results │        orchestration + results/baselines (SQLite), serves web/dist,
                │  --demo        │        token auth. --demo simulates nodes incl. failures.
@@ -27,20 +27,20 @@ Self-approved per the user's instruction ("no waiting for my decisions"). It is 
                └────────────────┘ lucide-react. Live buffers live outside React (typed arrays).
 ```
 
-One Python project, `server/` (package `sparkconsole`), provides two entry points: `spark-agent` and `spark-console`.
-The wire contract is `server/sparkconsole/common/schema.py`. The frontend mirrors it in `web/src/lib/types.ts`.
+One Python project, `server/` (package `sparkline`), provides two entry points: `sparkline-agent` and `sparkline`.
+The wire contract is `server/sparkline/common/schema.py`. The frontend mirrors it in `web/src/lib/types.ts`.
 
 ### Repository layout
 ```
-server/  pyproject.toml, sparkconsole/{common,agent,console,bench}, tests/
+server/  pyproject.toml, sparkline/{common,agent,console,bench}, tests/
 web/     Vite app (src/{app,design,charts,store,lib,views}), tests (vitest), e2e (playwright)
 bench/   whitelisted benchmark payload scripts (run on nodes, inside docker where GPU needed)
-deploy/  install.sh, spark-agent.service, spark-console.service, docker-compose.yml, Dockerfile
+deploy/  install.sh, sparkline-agent.service, sparkline.service, docker-compose.yml, Dockerfile
 ```
 
 ### Ports, auth, binding
 - Agent `:9750`, console `:9700`.
-- Config: `/etc/spark-console/{agent,console}.toml` (or `--config`); env overrides `SPARK_*`.
+- Config: `/etc/sparkline/{agent,console}.toml` (or `--config`); env overrides `SPARKLINE_*`.
 - **Binding:** the default `bind = "auto"` resolves to the node's private LAN IP. The server refuses to bind a public
   (non-RFC1918/CGNAT/loopback/link-local) address unless `--allow-public` is passed. `0.0.0.0` is refused unless it is explicit.
 - **Auth:** the console uses `console_token`. The browser exchanges it at `/api/v1/auth/login` for an HttpOnly

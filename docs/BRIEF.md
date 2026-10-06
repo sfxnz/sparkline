@@ -1,6 +1,6 @@
-# Project: "Spark Console" — live telemetry & benchmarking dashboard for my NVIDIA DGX Spark cluster
+# Project: "Sparkline" — live telemetry & benchmarking dashboard for my NVIDIA DGX Spark cluster
 
-> Original brief from the owner (verbatim). Setup placeholders resolved in DISCOVERY.md: 2× DGX Spark
+> Original brief from the owner (verbatim, except the product was renamed from "Spark Console" to "Sparkline" at the owner's request). Setup placeholders resolved in DISCOVERY.md: 2× DGX Spark
 > (spark1, spark2), ConnectX-7 direct links (two 200G rails), viewed from a LAN browser, workloads = custom
 > PyTorch/EXL3 inference servers, vLLM, fine-tuning. The owner said: "get it all done fully, no waiting for my decisions."
 
@@ -49,7 +49,7 @@ Each benchmark has: description, estimated duration, expected thermal/power impa
 - **Loading**: skeletons that match the final layout exactly (no layout shift), shimmer respecting reduced motion, and progressive rendering: show whatever data has arrived.
 - **Empty**: helpful copy and a next action (e.g. "No benchmark runs yet. Run your first baseline").
 - **Stale data**: if a stream stalls, values dim and show "last updated Xs ago" rather than displaying frozen numbers as if live.
-- **Errors**: human-readable message, likely cause, and a concrete fix (e.g. "Agent unreachable on spark-02. Check `systemctl status spark-agent`"), plus retry. Automatic reconnection with exponential backoff and a visible connection indicator. One failing node or metric never breaks the rest of the dashboard. Error boundaries around every panel.
+- **Errors**: human-readable message, likely cause, and a concrete fix (e.g. "Agent unreachable on spark-02. Check `systemctl status sparkline-agent`"), plus retry. Automatic reconnection with exponential backoff and a visible connection indicator. One failing node or metric never breaks the rest of the dashboard. Error boundaries around every panel.
 - **Unsupported metrics**: shown as "not reported by this hardware" with an info tooltip, never as 0 or a broken chart.
 
 ## Interaction quality

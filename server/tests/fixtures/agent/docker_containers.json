@@ -1,0 +1,18 @@
+[
+ {
+  "Id": "bbc4b004fd764d1f0dc5c547f6f91214920a4764c7b4d22f6e8aeceb1c0bc215",
+  "Names": [
+   "/c5-3B-r0"
+  ],
+  "Image": "nvcr.io/nvidia/pytorch:26.07-py3",
+  "State": "running"
+ },
+ {
+  "Id": "6f15eeb081107301d3e4b2ceb2f7a0317cab26e9377adf5076ddc2aa44551a86",
+  "Names": [
+   "/conduit"
+  ],
+  "Image": "matrixconduit/matrix-conduit:latest",
+  "State": "running"
+ }
+]
