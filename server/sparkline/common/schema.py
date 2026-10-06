@@ -427,6 +427,6 @@ BenchRun.model_rebuild()
 # {"type": "sample", "node_id": str, "sample": Sample}
 # {"type": "node_status", "node": NodeState}
 # {"type": "event", "event": Event}
-# {"type": "bench", "run": BenchRun}   (console); agent sends {"type":"bench","node_id":..,"run":NodeBenchState}
+# {"type": "bench", "run": BenchRun}   (console); agent: {"type":"bench","node_id":..,"run":NodeBenchState}
 # {"type": "settings", "settings": ConsoleSettings}   (after PUT /api/v1/settings, so every open tab updates)
 # {"type": "ping", "ts": float}
