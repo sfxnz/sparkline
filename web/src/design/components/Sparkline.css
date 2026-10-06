@@ -1,0 +1,30 @@
+.sparkline {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-xs);
+  cursor: crosshair;
+  touch-action: pan-y;
+}
+.sparkline__canvas { width: 100%; }
+.sparkline:focus-visible { outline-offset: 3px; }
+.sparkline__readout {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-3);
+  border: var(--hairline) solid var(--separator);
+  box-shadow: var(--shadow-1);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  font-weight: 560;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.sparkline__readout[data-visible] { opacity: 1; transform: none; }

@@ -1,0 +1,178 @@
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: 100dvh;
+  transition: grid-template-columns var(--dur-base) var(--ease-out);
+}
+.shell--collapsed { grid-template-columns: var(--sidebar-width-collapsed) minmax(0, 1fr); }
+
+/* ------------------------------------------------------------------ sidebar */
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border-width: 0 var(--hairline) 0 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+  z-index: 2;
+}
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 2.5rem;
+  padding: 0 6px;
+  margin-bottom: var(--space-3);
+}
+.brand-mark { flex: none; display: inline-flex; filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent)); }
+.brand-mark svg { border-radius: 9px; }
+.sidebar__name {
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  white-space: nowrap;
+}
+.sidebar__nav { flex: 1; display: flex; flex-direction: column; gap: var(--space-5); overflow-y: auto; overflow-x: hidden; margin: 0 calc(-1 * var(--space-1)); padding: 0 var(--space-1); }
+.nav { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.nav__section { display: grid; gap: var(--space-1); }
+.nav__heading {
+  min-height: 1.5rem;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.nav__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 2.125rem;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--fs-callout);
+  font-weight: 520;
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.nav__item:hover { background: var(--fill-1); color: var(--text-1); text-decoration: none; }
+.nav__item.is-active { background: var(--accent-soft); color: var(--accent-text); }
+.nav__item.is-active .nav__icon { color: var(--accent-text); }
+.nav__icon { width: 18px; height: 18px; flex: none; color: var(--text-2); }
+.nav__label { overflow: hidden; text-overflow: ellipsis; }
+.nav__trailing { margin-left: auto; display: inline-flex; align-items: center; }
+.nav__badge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  display: inline-grid;
+  place-items: center;
+  background: var(--crit-bg);
+  color: var(--crit-text);
+  font-size: var(--fs-caption);
+  font-weight: 650;
+}
+.nav__empty { padding: 2px 10px 0; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); white-space: nowrap; }
+
+.sidebar__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: var(--hairline) solid var(--separator);
+}
+.sidebar__wall { flex: 1; justify-content: flex-start; gap: 10px; padding: 0 10px; color: var(--text-2); font-weight: 520; }
+
+/* collapsed: icons only, names stay available to assistive tech */
+.shell--collapsed .sidebar { padding-inline: var(--space-2); }
+.shell--collapsed .sidebar__name,
+.shell--collapsed .nav__label,
+.shell--collapsed .nav__trailing .status__label,
+.shell--collapsed .nav__heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.shell--collapsed .nav__empty { display: none; }
+.shell--collapsed .sidebar__brand { justify-content: center; padding: 0; }
+.shell--collapsed .nav__item { justify-content: center; padding: 0; position: relative; }
+.shell--collapsed .nav__trailing { position: absolute; right: 4px; bottom: 3px; }
+.shell--collapsed .nav__badge { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; }
+.shell--collapsed .nav__section { border-top: var(--hairline) solid var(--separator); padding-top: var(--space-3); }
+.shell--collapsed .sidebar__foot { flex-direction: column; }
+.shell--collapsed .sidebar__wall { justify-content: center; padding: 0; width: 36px; flex: none; }
+
+/* ------------------------------------------------------------------ toolbar */
+.shell__main { min-width: 0; display: flex; flex-direction: column; }
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--toolbar-height);
+  padding: var(--space-4) var(--space-8) var(--space-3);
+  border-bottom: var(--hairline) solid transparent;
+  flex-wrap: wrap;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+/* Once content scrolls under it, the toolbar becomes a thin material with a hairline (opaque under reduced transparency via the tokens). */
+.toolbar.is-scrolled {
+  background: var(--material-thin);
+  backdrop-filter: var(--blur-thin);
+  border-bottom-color: var(--separator);
+}
+.toolbar__title { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.toolbar__title h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toolbar__controls { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.toolbar__search {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2rem;
+  padding: 0 6px 0 10px;
+  border-radius: var(--radius-sm);
+  border: var(--hairline) solid var(--separator);
+  background: var(--fill-1);
+  color: var(--text-2);
+  font-size: var(--fs-footnote);
+  font-weight: 520;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.toolbar__search:hover { background: var(--fill-2); color: var(--text-1); }
+.toolbar__search > svg { width: 15px; height: 15px; }
+.toolbar__search > span:first-of-type { min-width: 72px; text-align: left; }
+.toolbar__kbd { display: inline-flex; gap: 3px; }
+
+.shell__content {
+  flex: 1;
+  padding: var(--space-2) var(--space-8) var(--space-12);
+  width: 100%;
+  max-width: calc(var(--content-max) + 2 * var(--space-8));
+}
+.shell__content:focus { outline: none; }
+.shell__page { min-width: 0; }
+
+@media (max-width: 900px) {
+  .toolbar, .shell__content { padding-inline: var(--space-4); }
+}

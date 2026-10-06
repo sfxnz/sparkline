@@ -1,0 +1,21 @@
+{
+  "node_id": "spark1",
+  "ts": 1791288000.5,
+  "seq": 42,
+  "interval_ms": 1000,
+  "gpu": [{"index": 0, "util": 91.0, "sm_mhz": 2171.0, "gr_mhz": 2171.0, "video_mhz": 1200.0, "temp_c": 71.0, "power_w": 32.4, "energy_j": 123456789.0, "pstate": 0, "throttle_mask": 4, "power_capped_pct": 12.5, "thermal_capped_pct": null}],
+  "mem": {"total": 130676342784, "available": 27917287424, "used": 102759055360, "free": 1073741824, "gpu": 92341796864, "anon": 5368709120, "cache": 8589934592, "shmem": 1073741824, "kernel": 2147483648, "other": 1827123712, "swap_total": 17179869184, "swap_used": 4294967296, "psi_some": 0.12, "psi_full": null},
+  "cpu": {"util": 14.2, "perf_util": 20.1, "eff_util": 8.3, "per_core": [5.0, 10.0, 0.0], "freq_mhz": [2808.0, null, 3900.0], "load1": 2.5, "load5": 2.1, "load15": 1.9, "psi_some": null},
+  "net": [
+    {"name": "enp1s0f1np1", "up": true, "speed_mbps": 200000, "rx_bps": 573000000.0, "tx_bps": 571000000.0, "errors": 0, "drops": 0, "rdma_state": "ACTIVE", "rdma_rate": "200 Gb/sec (4X HDR)"},
+    {"name": "enP7s7", "up": false, "speed_mbps": null, "rx_bps": 0.0, "tx_bps": 0.0, "errors": 1, "drops": 2, "rdma_state": null, "rdma_rate": null}
+  ],
+  "disk": [{"name": "nvme0n1", "read_bps": 1048576.0, "write_bps": 524288.0, "read_iops": 120.0, "write_iops": 60.0, "busy_pct": 3.5}],
+  "fs": [
+    {"mount": "/", "key": "root", "device": "/dev/nvme0n1p2", "total": 3800000000000, "used": 3116000000000, "free": 500000000000},
+    {"mount": "/data/models", "key": "data_models", "device": "/dev/nvme0n1p3", "total": 0, "used": 0, "free": 0}
+  ],
+  "temps": [{"id": "acpitz.0", "c": 63.5}, {"id": "nvme.composite", "c": null}, {"id": "mlx5.0", "c": 66.0}],
+  "procs": null,
+  "errors": {}
+}

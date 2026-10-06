@@ -1,0 +1,17 @@
+.ring { position: relative; flex: none; }
+.ring__track { stroke: var(--fill-3); }
+.ring__value { stroke: var(--ring-color); transition: stroke-dashoffset var(--dur-slow) var(--ease-out), stroke var(--dur-base) var(--ease-out); }
+.ring--accent { --ring-color: var(--accent); }
+.ring--ok { --ring-color: var(--ok); }
+.ring--warn { --ring-color: var(--warn); }
+.ring--crit { --ring-color: var(--crit); }
+.ring--stale { --ring-color: var(--stale); }
+.ring__center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-footnote);
+  font-weight: 600;
+}

@@ -1,0 +1,22 @@
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-weight: 560;
+  color: var(--tone-text);
+}
+.status--md { font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.status--sm { font-size: var(--fs-caption); line-height: var(--lh-caption); gap: 5px; }
+.status--pill {
+  min-height: 1.5rem;
+  padding: 0 10px 0 8px;
+  border-radius: var(--radius-full);
+  background: var(--tone-bg);
+}
+.status--pill.status--sm { min-height: 1.25rem; padding: 0 8px 0 6px; }
+.status__icon { width: 14px; height: 14px; flex: none; color: var(--tone); }
+.status--sm .status__icon { width: 12px; height: 12px; }
+.status__icon--spin { animation: status-spin 1s linear infinite; }
+@keyframes status-spin { to { transform: rotate(360deg); } }
+

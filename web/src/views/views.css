@@ -1,0 +1,42 @@
+.view { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+.view--flush { gap: var(--space-5); }
+.view--narrow { max-width: 880px; }
+.view__hero { display: grid; gap: var(--space-3); padding: var(--space-1) 0 var(--space-2); }
+
+.grid { display: grid; gap: var(--space-5); min-width: 0; }
+.grid--nodes { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.grid--4 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.grid--2 { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.grid--2-1 { grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); }
+.grid--catalog { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+@media (max-width: 1100px) {
+  .grid--2-1 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .grid--nodes, .grid--2 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* placeholders */
+.ph-stat { display: grid; gap: var(--space-2); }
+.ph-chart { display: flex; flex-direction: column; gap: var(--space-4); }
+.ph-rows { display: grid; }
+.ph-row { display: flex; align-items: center; gap: var(--space-3); height: 44px; border-bottom: var(--hairline) solid var(--separator); }
+.ph-row:last-child { border-bottom: 0; }
+.ph-node { display: grid; gap: var(--space-5); }
+.ph-node__head { display: flex; justify-content: space-between; align-items: center; }
+.ph-node__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: var(--space-4); align-items: center; }
+.ph-statrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-5); }
+.ph-bench { display: grid; gap: var(--space-3); }
+.ph-bench__foot { display: flex; justify-content: space-between; align-items: center; margin-top: var(--space-2); }
+.ph-settings { display: grid; }
+.ph-setting { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: var(--hairline) solid var(--separator); }
+.ph-setting:last-child { border-bottom: 0; }
+.ph-setting__text { display: grid; gap: var(--space-2); }
+
+/* wall */
+.wall { min-height: 100dvh; padding: var(--space-16) var(--space-10) var(--space-10); display: flex; flex-direction: column; }
+/* Full opacity: the ghost style is already quiet, and fading the label would fail text contrast. */
+.wall__exit { position: fixed; top: var(--space-4); right: var(--space-4); }
+.wall__grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: var(--space-8); }
+.wall__tile { border-radius: var(--radius-xl); padding: var(--space-10); display: flex; flex-direction: column; gap: var(--space-6); }
+.wall__stats { display: flex; gap: var(--space-6); margin-top: auto; flex-wrap: wrap; }

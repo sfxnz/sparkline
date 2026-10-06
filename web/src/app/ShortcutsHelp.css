@@ -1,0 +1,12 @@
+.shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+.shortcuts__title { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-bottom: var(--space-2); }
+.shortcuts__list { margin: 0; display: grid; }
+.shortcuts__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 36px; border-bottom: var(--hairline) solid var(--separator); font-size: var(--fs-callout); }
+.shortcuts__row:last-child { border-bottom: 0; }
+.shortcuts__row dd { margin: 0; display: inline-flex; gap: 6px; align-items: center; }
+.shortcuts__combo { display: inline-flex; gap: 3px; align-items: center; }
+.shortcuts__then { font-size: var(--fs-caption); color: var(--text-3); margin: 0 3px; }
+@media (max-width: 640px) { .shortcuts { grid-template-columns: 1fr; } }
+.shortcuts__toggle { display: flex; align-items: flex-start; gap: var(--space-3); margin-top: var(--space-6); padding-top: var(--space-4); border-top: var(--hairline) solid var(--separator); font-size: var(--fs-callout); cursor: pointer; }
+.shortcuts__toggle input { margin: 0.2em 0 0; accent-color: var(--accent-fill); width: 1em; height: 1em; flex: none; }
+.shortcuts__hint { display: block; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Sparkline</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Apply the saved theme before first paint (no flash). Mirrors src/lib/prefs.ts.
+      (function () {
+        var p = {};
+        try { p = JSON.parse(localStorage.getItem('sparkline.prefs') || '{}') || {}; } catch (e) {}
+        var t = p.theme === 'light' || p.theme === 'dark' ? p.theme
+          : (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        var root = document.documentElement;
+        root.setAttribute('data-theme', t);
+        if (p.reduceTransparency) root.setAttribute('data-reduce-transparency', '');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

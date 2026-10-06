@@ -1,0 +1,54 @@
+.palette .dialog__sheet { border-radius: var(--radius-lg); }
+.palette { margin-top: 12vh; }
+/* Escape and the backdrop close the palette; the search field's esc hint replaces the close button. */
+.palette .dialog__close { display: none; }
+.palette__search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 3.5rem;
+  padding: 0 var(--space-4) 0 var(--space-5);
+  border-bottom: var(--hairline) solid var(--separator);
+}
+.palette__search > svg { width: 18px; height: 18px; color: var(--text-3); flex: none; }
+.palette__input {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  border: 0;
+  background: transparent;
+  font-size: var(--fs-title3);
+  letter-spacing: var(--ls-title3);
+  color: var(--text-1);
+}
+.palette__input::placeholder { color: var(--text-3); }
+.palette__input:focus-visible { outline: none; }
+.palette__list { list-style: none; margin: 0; padding: var(--space-2); max-height: min(60vh, 420px); overflow-y: auto; }
+.palette__options { list-style: none; margin: 0; padding: 0; }
+.palette__group {
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.palette__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 2.375rem;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-1);
+  font-size: var(--fs-callout);
+  cursor: pointer;
+}
+.palette__option.is-active { background: var(--accent-soft); }
+.palette__icon { width: 16px; height: 16px; color: var(--text-2); flex: none; }
+.palette__option.is-active .palette__icon { color: var(--accent-text); }
+.palette__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette__hint { display: inline-flex; gap: 3px; }
+.palette__enter { width: 14px; height: 14px; color: var(--text-3); }
+.palette__empty { padding: var(--space-8) var(--space-4); text-align: center; color: var(--text-2); font-size: var(--fs-callout); }

@@ -1,0 +1,123 @@
+import { ArrowRight, Eye, EyeOff, KeyRound } from 'lucide-react';
+import { useId, useState, type SubmitEvent } from 'react';
+import { useLocation } from 'wouter';
+import { Button, IconButton } from '../design/components/Button';
+import { InlineCode } from '../design/components/InlineCode';
+import { ApiError, api } from '../lib/api';
+import { useConnection } from '../store/connection';
+import { retryConnection } from '../store/session';
+import { ConnectionIndicator } from './ConnectionIndicator';
+import './Login.css';
+
+type LoginError = { title: string; detail: string } | null;
+
+export function loginErrorCopy(e: unknown): NonNullable<LoginError> {
+  if (e instanceof ApiError && (e.kind === 'unauthorized' || e.status === 403)) {
+    return {
+      title: 'That token wasn’t accepted.',
+      detail: 'Copy `console_token` from `/etc/sparkline/console.toml` on the console host and try again.',
+    };
+  }
+  if (e instanceof ApiError && e.kind === 'client') {
+    return { title: 'The console rejected the request.', detail: e.message || `HTTP ${e.status}` };
+  }
+  return {
+    title: 'Can’t reach Sparkline.',
+    detail: 'Check that it is running: `systemctl status sparkline`, or start `sparkline --demo`.',
+  };
+}
+
+export function Login() {
+  const [, navigate] = useLocation();
+  const conn = useConnection((s) => s.status);
+  const [token, setToken] = useState('');
+  const [reveal, setReveal] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<LoginError>(null);
+  const fieldId = useId();
+  const errorId = useId();
+  const hintId = useId();
+
+  const submit = async (e: SubmitEvent) => {
+    e.preventDefault();
+    if (!token.trim()) {
+      setError({ title: 'Enter your console token.', detail: 'It is the `console_token` value that `install.sh` generated.' });
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.login(token.trim());
+      retryConnection();
+      navigate('/', { replace: true });
+    } catch (err) {
+      setError(loginErrorCopy(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="login" id="main">
+      <div className="login__card material-regular">
+        <div className="login__mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="44" height="44"><rect width="32" height="32" rx="9" fill="var(--accent-fill)" /><path d="M7 19.5h4l2.5-7 4 12 3-9 1.5 4H25" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </div>
+        <h1 className="login__title">Sign in to Sparkline</h1>
+        <p className="login__lead">Enter the console token for this cluster.</p>
+
+        <form className="login__form" onSubmit={(e) => { void submit(e); }} noValidate>
+          <label htmlFor={fieldId} className="login__label">Console token</label>
+          <div className="login__field">
+            <KeyRound className="login__field-icon" aria-hidden="true" />
+            <input
+              id={fieldId}
+              className="input login__input"
+              type={reveal ? 'text' : 'password'}
+              autoComplete="current-password"
+              spellCheck={false}
+              autoCapitalize="off"
+              value={token}
+              onChange={(e) => { setToken(e.target.value); if (error) setError(null); }}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? errorId : hintId}
+              // The only field on a dedicated sign-in page.
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+            />
+            <IconButton
+              className="login__reveal"
+              size="sm"
+              aria-label={reveal ? 'Hide token' : 'Show token'}
+              aria-pressed={reveal}
+              icon={reveal ? <EyeOff /> : <Eye />}
+              onClick={() => { setReveal((v) => !v); }}
+            />
+          </div>
+          <div className="login__message" aria-live="polite">
+            {error ? (
+              <p id={errorId} className="login__error">
+                <strong>{error.title}</strong> <InlineCode text={error.detail} />
+              </p>
+            ) : (
+              <p id={hintId} className="login__hint">
+                Exchanged for a secure session cookie. The token itself isn’t stored in this browser.
+              </p>
+            )}
+          </div>
+          <Button type="submit" variant="primary" size="lg" className="login__submit" disabled={busy}>
+            {busy ? 'Signing in…' : 'Sign in'}
+            {busy ? null : <ArrowRight aria-hidden="true" className="login__arrow" />}
+          </Button>
+        </form>
+      </div>
+      {conn === 'reconnecting' || conn === 'offline' ? (
+        <div className="login__conn">
+          <ConnectionIndicator />
+        </div>
+      ) : (
+        <p className="login__foot">Sparkline · DGX Spark cluster telemetry</p>
+      )}
+    </main>
+  );
+}

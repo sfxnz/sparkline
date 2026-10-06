@@ -1,0 +1,35 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: var(--radius-lg);
+}
+.panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) 0;
+  min-height: 52px;
+}
+.panel__titles { min-width: 0; display: grid; gap: 2px; }
+.panel__title {
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  font-weight: var(--fw-headline);
+  letter-spacing: var(--ls-headline);
+  color: var(--text-1);
+}
+.panel__subtitle { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+.panel__actions { display: flex; align-items: center; gap: var(--space-1); flex: none; margin: -4px -6px 0 0; }
+.panel__body { padding: var(--space-4) var(--space-5) var(--space-5); flex: 1; min-height: 0; }
+.panel--flush .panel__body { padding: var(--space-2) 0 0; }
+/* Content panels sit over the smooth ambient background, where a backdrop blur is visually indistinguishable from
+   plain translucency but forces a backdrop re-read on every chart repaint. Blur is kept for chrome that floats over
+   content (sidebar, dialogs, palette, popovers). */
+.panel.material-thin,
+.panel.material-regular,
+.panel.material-thick {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

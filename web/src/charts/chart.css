@@ -1,0 +1,57 @@
+.tschart { margin: 0; display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.tschart__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 26px;
+  flex-wrap: wrap;
+}
+.tschart__legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); list-style: none; margin: 0; padding: 0; }
+.tschart__legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.tschart__legend-label { color: var(--text-2); }
+.tschart__legend-value { color: var(--text-1); font-weight: 600; min-width: 4.5ch; }
+.tschart__swatch { width: 10px; height: 3px; border-radius: var(--radius-full); background: var(--chart-1); }
+.tschart__swatch--1 { background: var(--chart-2); }
+.tschart__swatch--2 { background: var(--chart-3); }
+.tschart__swatch--3 { background: var(--chart-4); }
+.tschart__actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+.tschart__stale { font-size: var(--fs-footnote); color: var(--stale-text); }
+.tschart__plot-wrap { position: relative; }
+.tschart__plot { position: absolute; inset: 0; transition: opacity var(--dur-base) var(--ease-out), filter var(--dur-base) var(--ease-out); }
+.tschart__plot--empty { position: relative; display: flex; }
+.tschart--stale .tschart__plot { opacity: 0.4; filter: saturate(0.2); }
+.tschart__plot--hidden { visibility: hidden; }
+.tschart__overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+.tschart__overlay > .skeleton { align-self: stretch; height: auto !important; }
+
+/* uPlot overrides */
+.tschart .u-select { background: var(--accent-soft); border-left: 1px solid var(--accent); border-right: 1px solid var(--accent); }
+.tschart .u-hz .u-cursor-x { border-right: 1px solid var(--separator-strong); }
+.tschart .u-cursor-y { display: none; }
+.tschart .u-over { cursor: crosshair; }
+
+.chart-table { border-radius: var(--radius-sm); border: var(--hairline) solid var(--separator); }
+.chart-table .table__caption { padding: var(--space-2) var(--space-3); }
+.chart-table tbody th {
+  position: static;
+  background: none;
+  font-weight: 450;
+  font-size: var(--fs-callout);
+  color: var(--text-2);
+}
+
+/* Heatmap */
+.heatmap { display: flex; flex-direction: column; gap: var(--space-2); }
+.heatmap__canvas-wrap { position: relative; width: 100%; border-radius: var(--radius-xs); }
+.heatmap__canvas { width: 100%; }
+.heatmap__time { display: flex; justify-content: space-between; padding-left: 92px; font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text-3); margin-top: calc(-1 * var(--space-1)); }
+.heatmap__foot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); font-size: var(--fs-footnote); color: var(--text-2); min-height: var(--lh-footnote); }
+.heatmap__scale { display: inline-flex; align-items: center; gap: 6px; }
+.heatmap__ramp { width: 72px; height: 6px; border-radius: var(--radius-full); background: linear-gradient(90deg, color-mix(in srgb, var(--chart-1) 8%, transparent), var(--chart-1)); }

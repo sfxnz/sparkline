@@ -1,0 +1,187 @@
+/* Sparkline design tokens. Dark is the default theme; light is equally considered.
+   Status colours (ok / warn / crit / stale) are reserved for status. Contrast pairs are verified by
+   src/design/contrast.test.ts, which parses this file. */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* Typography — the stack is fixed by the brief. Sizes in rem so user font scaling works. */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  --fs-large-title: 1.75rem;  --lh-large-title: 2.125rem;  --fw-large-title: 700;  --ls-large-title: -0.022em;
+  --fs-title1: 1.5rem;        --lh-title1: 1.875rem;       --fw-title1: 650;       --ls-title1: -0.02em;
+  --fs-title2: 1.25rem;       --lh-title2: 1.625rem;       --fw-title2: 650;       --ls-title2: -0.017em;
+  --fs-title3: 1.0625rem;     --lh-title3: 1.375rem;       --fw-title3: 600;       --ls-title3: -0.012em;
+  --fs-headline: 0.9375rem;   --lh-headline: 1.25rem;      --fw-headline: 600;     --ls-headline: -0.008em;
+  --fs-body: 0.9375rem;       --lh-body: 1.375rem;         --fw-body: 400;         --ls-body: -0.006em;
+  --fs-callout: 0.875rem;     --lh-callout: 1.25rem;       --fw-callout: 400;      --ls-callout: -0.004em;
+  --fs-subheadline: 0.8125rem; --lh-subheadline: 1.125rem; --fw-subheadline: 400;  --ls-subheadline: 0em;
+  --fs-footnote: 0.75rem;     --lh-footnote: 1rem;         --fw-footnote: 400;     --ls-footnote: 0.003em;
+  --fs-caption: 0.6875rem;    --lh-caption: 0.875rem;      --fw-caption: 500;      --ls-caption: 0.02em;
+
+  /* 4 px spacing grid */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px; --space-5: 20px;
+  --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px; --space-16: 64px;
+
+  /* Generous continuous corners */
+  --radius-xs: 6px; --radius-sm: 10px; --radius-md: 14px; --radius-lg: 20px; --radius-xl: 28px;
+  --radius-full: 999px;
+  /* A control nested 2px inside an --radius-sm track (segmented option, small button): concentric corners. */
+  --radius-ctl: calc(var(--radius-sm) - 2px);
+
+  --hairline: 1px;
+
+  /* Motion: CSS durations stay within 150–400 ms; springs live in motion.ts */
+  --dur-fast: 150ms; --dur-base: 240ms; --dur-slow: 400ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* rem: chrome widens with the user's font size instead of clipping labels. */
+  --sidebar-width: 15.5rem;
+  --sidebar-width-collapsed: 4.25rem;
+  --toolbar-height: 4rem;
+  --content-max: 1600px;
+
+  --blur-thin: blur(16px) saturate(150%);
+  --blur-regular: blur(28px) saturate(170%);
+  --blur-thick: blur(40px) saturate(180%);
+}
+
+@media (min-resolution: 2dppx) {
+  :root { --hairline: 0.5px; }
+}
+
+/* ---------------------------------------------------------------- dark (default) */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0b0c0f;
+  --bg-glow-1: rgba(98, 116, 255, 0.16);
+  --bg-glow-2: rgba(98, 116, 255, 0.06);
+
+  /* Opaque surfaces (also the reduced-transparency fallback of each material). */
+  --surface-1: #141519;
+  --surface-2: #18191e;
+  --surface-3: #1e1f25;
+  --material-thin: rgba(26, 27, 33, 0.52);
+  --material-regular: rgba(26, 27, 33, 0.68);
+  --material-thick: rgba(30, 31, 38, 0.86);
+  --material-highlight: rgba(255, 255, 255, 0.05);
+
+  --text-1: #f3f4f6;
+  --text-2: #a8acb5;
+  --text-3: #8b8f99;
+  --text-on-accent: #ffffff;
+
+  --separator: rgba(255, 255, 255, 0.08);
+  --separator-strong: rgba(255, 255, 255, 0.14);
+  --fill-1: rgba(255, 255, 255, 0.05);
+  --fill-2: rgba(255, 255, 255, 0.08);
+  --fill-3: rgba(255, 255, 255, 0.12);
+
+  --accent: #7286ff;
+  --accent-text: #98a7ff;
+  --accent-fill: #4b5ee4;
+  --accent-fill-hover: #5568ee;
+  --accent-soft: rgba(114, 134, 255, 0.16);
+  --focus-ring: #8c9cff;
+
+  --ok: #3fcf82;        --ok-text: #62db9a;    --ok-bg: rgba(63, 207, 130, 0.13);
+  --warn: #f2b440;      --warn-text: #f6c566;  --warn-bg: rgba(242, 180, 64, 0.13);
+  --crit: #ff645b;      --crit-text: #ff8c85;  --crit-bg: rgba(255, 100, 91, 0.14);
+  --stale: #8f949d;     --stale-text: #a9adb5; --stale-bg: rgba(143, 148, 157, 0.14);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 1px 1px rgba(0, 0, 0, 0.25), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 2px 6px rgba(0, 0, 0, 0.3), 0 24px 64px -12px rgba(0, 0, 0, 0.65);
+  --scrim: rgba(4, 5, 8, 0.56);
+
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: #8b8f99;
+  --chart-1: #7286ff;
+  --chart-2: #c5c9d2;
+  --chart-3: #7c8190;
+  --chart-4: #b4a4f5;
+  --skeleton: rgba(255, 255, 255, 0.06);
+  --skeleton-shine: rgba(255, 255, 255, 0.06);
+}
+
+/* ---------------------------------------------------------------- light */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #eceef2;
+  --bg-glow-1: rgba(98, 116, 255, 0.1);
+  --bg-glow-2: rgba(255, 255, 255, 0.7);
+
+  --surface-1: #f6f7f9;
+  --surface-2: #fafbfc;
+  --surface-3: #ffffff;
+  --material-thin: rgba(255, 255, 255, 0.5);
+  --material-regular: rgba(255, 255, 255, 0.7);
+  --material-thick: rgba(255, 255, 255, 0.86);
+  --material-highlight: rgba(255, 255, 255, 0.7);
+
+  --text-1: #15171c;
+  --text-2: #50545d;
+  --text-3: #686c76;
+  --text-on-accent: #ffffff;
+
+  --separator: rgba(20, 24, 36, 0.09);
+  --separator-strong: rgba(20, 24, 36, 0.16);
+  --fill-1: rgba(20, 24, 36, 0.04);
+  --fill-2: rgba(20, 24, 36, 0.07);
+  --fill-3: rgba(20, 24, 36, 0.11);
+
+  --accent: #4459e0;
+  --accent-text: #3346c4;
+  --accent-fill: #4459e0;
+  --accent-fill-hover: #3a4fd6;
+  --accent-soft: rgba(68, 89, 224, 0.11);
+  --focus-ring: #3c51dc;
+
+  --ok: #1d9a55;        --ok-text: #12763e;    --ok-bg: rgba(29, 154, 85, 0.11);
+  --warn: #b97700;      --warn-text: #865600;  --warn-bg: rgba(220, 150, 20, 0.14);
+  --crit: #d63a32;      --crit-text: #b2261f;  --crit-bg: rgba(214, 58, 50, 0.1);
+  --stale: #7b8089;     --stale-text: #585d66; --stale-bg: rgba(123, 128, 137, 0.13);
+
+  --shadow-1: 0 1px 2px rgba(20, 24, 36, 0.06);
+  --shadow-2: 0 1px 1px rgba(20, 24, 36, 0.04), 0 8px 24px -10px rgba(20, 24, 36, 0.14);
+  --shadow-3: 0 2px 6px rgba(20, 24, 36, 0.06), 0 24px 64px -16px rgba(20, 24, 36, 0.25);
+  --scrim: rgba(30, 34, 44, 0.28);
+
+  --chart-grid: rgba(20, 24, 36, 0.07);
+  --chart-axis: #686c76;
+  --chart-1: #4459e0;
+  --chart-2: #3a3e48;
+  --chart-3: #787d87;
+  --chart-4: #8a6fe0;
+  --skeleton: rgba(20, 24, 36, 0.06);
+  --skeleton-shine: rgba(255, 255, 255, 0.55);
+}
+
+/* Reduced transparency: system preference or the in-app toggle swap every material for its opaque surface. */
+@media (prefers-reduced-transparency: reduce) {
+  /* [data-theme] matches the specificity of the theme blocks above, which define the same variables. */
+  :root,
+  :root[data-theme] {
+    --material-thin: var(--surface-1);
+    --material-regular: var(--surface-2);
+    --material-thick: var(--surface-3);
+    --blur-thin: none; --blur-regular: none; --blur-thick: none;
+  }
+}
+:root[data-reduce-transparency] {
+  --material-thin: var(--surface-1);
+  --material-regular: var(--surface-2);
+  --material-thick: var(--surface-3);
+  --blur-thin: none; --blur-regular: none; --blur-thick: none;
+}

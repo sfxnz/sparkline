@@ -1,0 +1,56 @@
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-6);
+  max-width: 34rem;
+  margin: 0 auto;
+}
+.state--compact { padding: var(--space-6) var(--space-4); gap: 6px; }
+.state__glyph {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--fill-1);
+  border: var(--hairline) solid var(--separator);
+  color: var(--text-2);
+}
+.state__glyph svg { width: 22px; height: 22px; }
+.state--compact .state__glyph { width: 36px; height: 36px; border-radius: var(--radius-sm); margin-bottom: 2px; }
+.state--compact .state__glyph svg { width: 18px; height: 18px; }
+.state__glyph--problem { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
+.state__title {
+  font-size: var(--fs-title3);
+  line-height: var(--lh-title3);
+  font-weight: var(--fw-title3);
+  letter-spacing: var(--ls-title3);
+  color: var(--text-1);
+  text-wrap: balance;
+}
+.state--compact .state__title { font-size: var(--fs-headline); line-height: var(--lh-headline); }
+.state__copy { font-size: var(--fs-callout); line-height: var(--lh-callout); color: var(--text-2); text-wrap: pretty; max-width: 28rem; }
+.state--compact .state__copy { font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.state__actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.state--compact .state__actions { margin-top: var(--space-1); }
+.state__footnote { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); margin-top: var(--space-1); }
+
+.state__details {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+  margin: var(--space-3) 0 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--fill-1);
+  border: var(--hairline) solid var(--separator);
+  text-align: left;
+}
+.state--compact .state__details { padding: var(--space-3); gap: var(--space-2); margin-top: var(--space-2); }
+.state__details dt { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); margin-bottom: 3px; }
+.state__details dd { margin: 0; font-size: var(--fs-callout); line-height: var(--lh-callout); color: var(--text-1); }
+.state--compact .state__details dd { font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
