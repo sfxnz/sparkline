@@ -369,6 +369,55 @@ class BenchRun(BaseModel):
     error: Problem | None = None
     log_tail: list[str] = Field(default_factory=list)
     baseline_for: bool = False
+    params_key: str = ""  # canonical params JSON; baselines compare equal bench_id+params_key
+    baseline_run_id: str | None = None  # the baseline this run's results were compared against
+    node_states: dict[str, NodeBenchState] = Field(default_factory=dict)  # per-node progress from agents
+
+
+class BenchCreate(BaseModel):
+    """Browser -> console: POST /api/v1/bench/runs."""
+
+    bench_id: str
+    nodes: list[str]
+    params: dict[str, Any] = Field(default_factory=dict)
+    confirm: bool  # must be true; the UI only sets it from the confirmation dialog
+
+
+class BenchStartRequest(BaseModel):
+    """Console -> agent: POST /api/v1/bench/runs. Multi-node benches get one request per node with a role."""
+
+    run_id: str
+    bench_id: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    role: Literal["single", "server", "client", "rank"] = "single"
+    rank: int | None = None
+    world_size: int | None = None
+    peer_node: str | None = None
+    peer_ip: str | None = None  # rdma server IP (client role) or rendezvous/master IP (rank role)
+    peer_port: int | None = None
+
+
+class NodeBenchState(BaseModel):
+    """Agent -> console: GET /api/v1/bench/runs/{id} and the agent stream's "bench" messages."""
+
+    run_id: str
+    bench_id: str
+    node_id: str
+    role: str = "single"
+    status: RunStatus
+    progress: float = 0.0
+    phase: str = ""
+    ready: bool = False  # server role is listening; console may start the clients
+    started_ts: float | None = None
+    finished_ts: float | None = None
+    results: list[BenchResult] = Field(default_factory=list)
+    series: dict[str, list[float]] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error: Problem | None = None
+    log_tail: list[str] = Field(default_factory=list)
+
+
+BenchRun.model_rebuild()
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +427,6 @@ class BenchRun(BaseModel):
 # {"type": "sample", "node_id": str, "sample": Sample}
 # {"type": "node_status", "node": NodeState}
 # {"type": "event", "event": Event}
-# {"type": "bench", "run": BenchRun}
+# {"type": "bench", "run": BenchRun}   (console); agent sends {"type":"bench","node_id":..,"run":NodeBenchState}
 # {"type": "settings", "settings": ConsoleSettings}   (after PUT /api/v1/settings, so every open tab updates)
 # {"type": "ping", "ts": float}
