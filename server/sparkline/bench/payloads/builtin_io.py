@@ -2,8 +2,9 @@
 
 O_DIRECT with page-aligned mmap buffers (os.preadv / os.pwrite), falling back to buffered I/O with
 extras.direct=false only if the filesystem refuses O_DIRECT. Profiles: sequential write 1 MiB (writes the
-whole file once, fsync included), sequential read 1 MiB, random read/write 4 KiB with N threads (random write
-ends with fsync). The test file is always removed (finally, also on SIGTERM).
+whole file once, fsync included), sequential read 1 MiB, random read/write 4 KiB from N forked worker
+processes at queue depth 1 each (random write ends with fsync). The test file is always removed (finally, also
+on SIGTERM).
 """
 
 from __future__ import annotations
@@ -12,9 +13,10 @@ import argparse
 import contextlib
 import errno
 import mmap
+import multiprocessing as mp
 import os
+import queue
 import random
-import threading
 import time
 from array import array
 
@@ -84,21 +86,22 @@ def seq_read(path: str, size: int, runtime: float) -> tuple[float, float, int, a
     return done, elapsed, ops, lat, direct
 
 
-def rand_io(path: str, size: int, runtime: float, threads: int, write: bool):
-    fd, direct = open_file(path, os.O_RDWR if write else os.O_RDONLY)
+def _rand_worker(path: str, size: int, write: bool, i: int, go, stop_at, q) -> None:
+    on_sigterm()
+    try:
+        fd, direct = open_file(path, os.O_RDWR if write else os.O_RDONLY)
+    except OSError as e:
+        q.put((i, str(e)))
+        return
+    rng = random.Random(1000 + i)
     blocks = size // RAND_BS
-    lats = [array("f") for _ in range(threads)]
-    counts = [0] * threads
-    start = threading.Barrier(threads + 1)
-    stop_at = [0.0]
-
-    def worker(i: int) -> None:
-        rng = random.Random(1000 + i)
-        buf = mmap.mmap(-1, RAND_BS)
-        if write:
-            buf.write(os.urandom(RAND_BS))
-        lat, n = lats[i], 0
-        start.wait()
+    buf = mmap.mmap(-1, RAND_BS)
+    if write:
+        buf.write(os.urandom(RAND_BS))
+    lat, n = array("f"), 0
+    try:
+        go.wait()
+        stop = stop_at.value
         while True:
             off = rng.randrange(blocks) * RAND_BS
             t = time.perf_counter()
@@ -108,29 +111,55 @@ def rand_io(path: str, size: int, runtime: float, threads: int, write: bool):
                 os.preadv(fd, [buf], off)
             lat.append((time.perf_counter() - t) * 1e6)
             n += 1
-            if t >= stop_at[0]:
+            if t >= stop:
                 break
-        counts[i] = n
-
-    ts = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(threads)]
-    try:
-        for t in ts:
-            t.start()
-        t0 = time.perf_counter()
-        stop_at[0] = t0 + runtime
-        start.wait()
-        for t in ts:
-            t.join()
-        if write:
-            os.fsync(fd)
-        elapsed = time.perf_counter() - t0
+        q.put((i, (n, time.perf_counter(), direct, lat.tobytes())))
+    except OSError as e:
+        q.put((i, str(e)))
     finally:
         os.close(fd)
-    ops = sum(counts)
+
+
+def rand_io(path: str, size: int, runtime: float, threads: int, write: bool):
+    """QD1 4 KiB I/O from ``threads`` forked workers (one GIL each, so the GIL never queues the I/O
+    or inflates its latency); the clock runs from the start signal to the last worker's last I/O."""
+    ctx = mp.get_context("fork")
+    go, stop_at, q = ctx.Event(), ctx.Value("d", 0.0), ctx.Queue()
+    procs = [
+        ctx.Process(target=_rand_worker, args=(path, size, write, i, go, stop_at, q), daemon=True)
+        for i in range(threads)
+    ]
+    for p in procs:
+        p.start()
+    t0 = time.perf_counter()
+    stop_at.value = t0 + runtime  # CLOCK_MONOTONIC: one clock for every process
+    go.set()
+    outs = []
+    try:
+        for _ in procs:
+            i, out = q.get(timeout=runtime + 30)
+            if isinstance(out, str):
+                raise OSError(f"worker {i}: {out}")
+            outs.append(out)
+    except queue.Empty:
+        raise OSError("a random I/O worker exited without reporting") from None
+    finally:
+        for p in procs:
+            p.join(5)
+    elapsed = max(o[1] for o in outs) - t0
+    if write:
+        t = time.perf_counter()
+        fd = os.open(path, os.O_RDWR)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        elapsed += time.perf_counter() - t
+    ops = sum(o[0] for o in outs)
     merged = array("f")
-    for lat in lats:
-        merged.extend(lat)
-    return ops * RAND_BS, elapsed, ops, merged, direct
+    for o in outs:
+        merged.frombytes(o[3])
+    return ops * RAND_BS, elapsed, ops, merged, all(o[2] for o in outs)
 
 
 def main() -> None:

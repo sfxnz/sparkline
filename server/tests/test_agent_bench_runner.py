@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 import fcntl
 import http.server
+import importlib.util
 import json
+import math
 import os
 import signal
 import subprocess
 import sys
 import threading
 import time
+import types
 from pathlib import Path
 
 import psutil
@@ -22,6 +25,7 @@ from sparkline.agent.bench import jobs, probes, specs
 from sparkline.agent.bench import runner as runner_mod
 from sparkline.agent.bench.metadata import PAYLOAD_DIR
 from sparkline.agent.bench.runner import BenchRunner, Job, Rejected
+from sparkline.agent.collectors.procs import detect_model
 from sparkline.common.schema import (
     BenchStartRequest,
     CoreInfo,
@@ -678,9 +682,9 @@ async def test_rdma_server_and_client(tmp_path):
         "3",
     ]
     res = {x.metric: x for x in cli.state.results}
-    assert res["rdma_write_bw"].value == 188.86 and res["rdma_write_bw"].unit == "Gb/s"
-    assert res["rdma_write_lat"].value == 1.71 and res["rdma_write_lat"].better == "lower"
-    assert res["rdma_write_lat_p99"].value == 2.02
+    assert res["rdma_write_bw"].value == 108.93 and res["rdma_write_bw"].unit == "Gb/s"
+    assert res["rdma_write_lat"].value == 1.46 and res["rdma_write_lat"].better == "lower"
+    assert res["rdma_write_lat_p99"].value == 1.96
     assert res["rdma_write_bw"].extras["peer"] == "spark2"
     assert "peak" not in res["rdma_write_bw"].extras and res["rdma_write_bw"].extras["msg_rate_mpps"] > 0
 
@@ -705,6 +709,25 @@ async def test_storage_uses_fio_when_installed(tmp_path):
     res = {x.metric: x for x in job.state.results}
     assert res["rand_read_iops"].value == 230400.0 and res["rand_read_iops"].extras["method"] == "fio"
     assert res["seq_write_p99_us"].better == "lower"
+
+
+async def test_storage_refuses_test_file_without_free_space_margin(tmp_path, monkeypatch):
+    """Needs the file plus 10 % plus 1 GiB free in the work dir; refuses before any I/O otherwise."""
+    gib = 2**30
+    free = [0]
+    monkeypatch.setattr(jobs.shutil, "disk_usage", lambda p: types.SimpleNamespace(free=free[0]))
+    job = make_job(tmp_path, "storage-fio", {"size_mib": 4096})
+    calls = capture(job)
+    free[0] = math.ceil(4 * gib * 1.1 + gib) - 1
+    with pytest.raises(jobs.BenchError) as e:
+        await jobs.storage(job, job.params)
+    assert e.value.problem.message == "Not enough free space for a 4096 MiB test file on n1"
+    assert "5.4 GiB free in" in e.value.problem.cause and calls == []
+    assert not (job.dir / "sparkline-io.test").exists()
+    free[0] += 1
+    await jobs.storage(job, job.params)
+    argv = calls[0]["argv"]
+    assert len(calls) == 1 and argv[argv.index("--size-mib") + 1] == "4096"
 
 
 def test_fio_argv_subset(tmp_path):
@@ -859,6 +882,61 @@ def test_cpu_throughput_payload():
     }
     assert all(r["value"] > 0 and r["unit"] == "MB/s" for r in res.values())
     assert msgs[-1] == {"progress": 1.0, "phase": "Done"}
+    # Without core models the labels still say which kind of core, without repeating it.
+    assert res["single_perf_mbps"]["label"] == "Single performance core"
+    assert res["multi_eff_mbps"]["label"] == "All 1 efficiency cores"
+
+
+ZLIB_FAULTS = """
+import resource, sys, zlib
+import cpu_throughput as c
+kept = c.keep_heap() if sys.argv[1] == "keep" else False
+zlib.compress(c.BUF, 1)
+f0 = resource.getrusage(resource.RUSAGE_SELF).ru_minflt
+for _ in range(200):
+    zlib.compress(c.BUF, 1)
+print(kept, resource.getrusage(resource.RUSAGE_SELF).ru_minflt - f0)
+"""
+
+
+def test_cpu_throughput_keeps_heap_so_zlib_does_not_page_fault():
+    """Real hardware: with glibc trimming, each compress re-faulted its deflate state (~43 faults per call,
+    15-20 % of the run in the kernel, and the main source of the spark1/spark2 difference)."""
+    out = {}
+    for mode in ("keep", "default"):
+        r = subprocess.run(
+            [sys.executable, "-c", ZLIB_FAULTS, mode],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **{k: v for k, v in os.environ.items() if not k.startswith("MALLOC_")},
+                "PYTHONPATH": PAYLOAD_DIR,
+            },
+        )
+        assert r.returncode == 0, r.stderr
+        kept, faults = r.stdout.split()
+        out[mode] = (kept, int(faults))
+    if out["keep"][0] != "True":
+        pytest.skip("not glibc (no mallopt)")
+    assert out["keep"][1] < 100  # was ~8600 for 200 calls
+    assert out["default"][1] > 10 * max(1, out["keep"][1])  # the fault storm this guards against is real here
+
+
+def test_cpu_throughput_payload_labels_name_kind_and_model():
+    msgs = run_payload(
+        "cpu_throughput.py",
+        *("--seconds", "0.1", "--perf-cores", "1", "--eff-cores", "0", "--all-cores", "0,1"),
+        *("--perf-label", "Cortex-X925", "--eff-label", "Cortex-A725"),
+    )
+    labels = {m["result"]["metric"]: m["result"]["label"] for m in msgs if "result" in m}
+    assert labels == {
+        "single_perf_mbps": "Single performance core (Cortex-X925)",
+        "single_eff_mbps": "Single efficiency core (Cortex-A725)",
+        "multi_perf_mbps": "All 1 performance cores (Cortex-X925)",
+        "multi_eff_mbps": "All 1 efficiency cores (Cortex-A725)",
+        "multi_all_mbps": "All 2 cores (1 performance + 1 efficiency)",
+    }
 
 
 FAKE_TORCH = """
@@ -896,6 +974,221 @@ def test_thermal_soak_payload_tflops_use_the_timed_batch(tmp_path):
     assert res["tflops_first"] <= true_tf and abs(res["tflops_change_pct"]) < 15
 
 
+def test_mem_bw_cpu_clock_starts_before_workers_are_released(monkeypatch):
+    """Released workers race the timing thread for the GIL; a pass already under way must still be timed.
+
+    Fake ops hold the GIL for OP_S each (no overlap possible) and workers reach the start barrier last, so a
+    clock read after the release misses at least one whole op (that bug reported 2x here, +30 % on GB10).
+    """
+    op_s, cores = 0.01, sorted(os.sched_getaffinity(0))[:1] * 2
+
+    def op(*_a, **_k) -> None:
+        t = time.perf_counter()
+        while time.perf_counter() - t < op_s:  # busy: keeps the GIL (switch interval raised below)
+            pass
+
+    class Tensor:
+        copy_ = staticmethod(op)
+
+    fake_torch = types.SimpleNamespace(
+        set_num_threads=lambda n: None, ones=lambda n: Tensor(), full=lambda s, v: Tensor(), add=op
+    )
+
+    class WorkersLast(threading.Barrier):
+        def wait(self, timeout=None):
+            if threading.current_thread() is not threading.main_thread():
+                time.sleep(0.005)
+            return super().wait(timeout)
+
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.syspath_prepend(PAYLOAD_DIR)
+    spec = importlib.util.spec_from_file_location("mem_bw_under_test", os.path.join(PAYLOAD_DIR, "mem_bw.py"))
+    assert spec and spec.loader
+    mem_bw = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mem_bw)
+    fake_threading = types.SimpleNamespace(Thread=threading.Thread, Barrier=WorkersLast)
+    monkeypatch.setattr(mem_bw, "threading", fake_threading)
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1.0)
+    try:
+        out = mem_bw.cpu_side(cores, 1, 2)
+    finally:
+        sys.setswitchinterval(old)
+    per = 2**20 // 4 // len(cores)
+    for name, k in (("copy", 2), ("triad", 3)):
+        bound = k * per * 4 * len(cores) / (len(cores) * op_s) / 1e9  # ops run one after another
+        assert out[name] <= bound, (name, out[name], bound)
+
+
+# torch 2.13 (nv26.07) on sm_121 rejecting MXFP4 scales: the first line alone does not say why.
+_SCALED_MM_ERR = (
+    "Invalid scaling configuration.\n"
+    "- For TensorWise scaling, a and b should be float8, scales should be float and singletons.\n"
+    "- For BlockWise 1x16 scaling, a and b should be float4 (packed 2x), scales should be float8_e4m3fn.\n"
+    "Got a.dtype()=Float4_e2m1fn_x2, scale_a.dtype()=Float8_e8m0fnu, b.dtype()=Float4_e2m1fn_x2"
+)
+
+
+def _gpu_matmul_payload(monkeypatch, accepts: set[str]):
+    """gpu_matmul.py on a fake torch whose _scaled_mm accepts only FP4 scales of the given dtypes."""
+
+    class T:
+        def __init__(self, dtype: str = "") -> None:
+            self.dtype = dtype
+
+        def view(self, dtype: str) -> T:
+            return T(dtype)
+
+        to = view
+
+        def t(self) -> T:
+            return self
+
+    def scaled_mm(a, b, sa, sb, out_dtype=None):
+        if sa.dtype not in accepts:
+            raise RuntimeError(_SCALED_MM_ERR)
+
+    names = ("float4_e2m1fn_x2", "float8_e4m3fn", "float8_e8m0fnu", "uint8", "bfloat16")
+    torch = types.SimpleNamespace(
+        __version__="fake",
+        randint=lambda *a, **k: T(),
+        ones=lambda *a, **k: T(),
+        _scaled_mm=scaled_mm,
+        cuda=types.SimpleNamespace(synchronize=lambda: None),
+        **{n: n for n in names},
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    monkeypatch.syspath_prepend(PAYLOAD_DIR)
+    path = os.path.join(PAYLOAD_DIR, "gpu_matmul.py")
+    spec = importlib.util.spec_from_file_location("gpu_matmul_under_test", path)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_gpu_matmul_fp4_names_the_format_that_ran(monkeypatch):
+    mod = _gpu_matmul_payload(monkeypatch, {"float8_e4m3fn"})
+    _, extras = mod.operands("fp4", 256, "cuda", "tensor")
+    assert extras == {"format": "nvfp4", "scale_block": 16, "scale_dtype": "float8_e4m3fn"}
+    mod = _gpu_matmul_payload(monkeypatch, {"float8_e8m0fnu"})  # NVFP4 refused, MXFP4 runs
+    assert mod.operands("fp4", 256, "cuda", "tensor")[1]["format"] == "mxfp4"
+
+
+def test_gpu_matmul_fp4_unsupported_reason_keeps_the_float4_lines(monkeypatch):
+    mod = _gpu_matmul_payload(monkeypatch, set())
+    with pytest.raises(mod.Unsupported) as e:
+        mod.operands("fp4", 256, "cuda", "tensor")
+    msg = str(e.value)
+    assert "\n" not in msg and msg.count("Invalid scaling configuration.") == 2
+    assert "BlockWise 1x16 scaling, a and b should be float4" in msg and "Got a.dtype()=Float4" in msg
+    assert "TensorWise" not in msg  # lines about other dtypes are dropped
+
+
+def _nccl_payload(monkeypatch, calls: list[str], debug_log: str = ""):
+    """nccl_allreduce.py on a fake torch that records the order of collectives and timing events."""
+
+    class Buf:
+        def __init__(self, n: int) -> None:
+            self.n = n
+
+        def __getitem__(self, s: slice) -> Buf:
+            return Buf(len(range(*s.indices(self.n))))
+
+        def numel(self) -> int:
+            return self.n
+
+    class Event:
+        def __init__(self, enable_timing: bool = False) -> None:
+            pass
+
+        def record(self) -> None:
+            calls.append("record")
+
+        def synchronize(self) -> None:
+            pass
+
+        def elapsed_time(self, other: Event) -> float:
+            return 1.0
+
+    cuda = types.SimpleNamespace(
+        is_available=lambda: True,
+        set_device=lambda i: None,
+        synchronize=lambda: None,
+        Event=Event,
+        nccl=types.SimpleNamespace(version=lambda: (2, 30, 7)),
+    )
+    torch = types.SimpleNamespace(
+        __version__="fake", float32="f32", cuda=cuda, ones=lambda n, **k: Buf(n), device=lambda *a: a
+    )
+
+    def init_process_group(*a, **k):
+        with open(os.environ["NCCL_DEBUG_FILE"], "w") as f:  # NCCL writes its INFO log here
+            f.write(debug_log)
+
+    dist = types.SimpleNamespace(
+        init_process_group=init_process_group,
+        all_reduce=lambda x: calls.append("all_reduce"),
+        barrier=lambda: calls.append("barrier"),
+        destroy_process_group=lambda: None,
+    )
+    torch.distributed = dist
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    monkeypatch.setitem(sys.modules, "torch.distributed", dist)
+    monkeypatch.syspath_prepend(PAYLOAD_DIR)
+    path = os.path.join(PAYLOAD_DIR, "nccl_allreduce.py")
+    spec = importlib.util.spec_from_file_location("nccl_under_test", path)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _run_nccl_payload(monkeypatch, capsys, tmp_path, debug_log: str = "") -> tuple[list[str], list[dict]]:
+    calls: list[str] = []
+    mod = _nccl_payload(monkeypatch, calls, debug_log)
+    monkeypatch.setattr(mod, "NCCL_LOG", str(tmp_path / "nccl.txt"))
+    monkeypatch.delenv("NCCL_DEBUG_FILE", raising=False)  # restored after the test
+    argv = ["x", "--json", "--rank", "0", "--world-size", "2", "--master", "127.0.0.1", "--port", "1"]
+    monkeypatch.setattr(sys, "argv", [*argv, "--max-bytes", "32", "--iterations", "3", "--warmup", "2"])
+    mod.main()
+    return calls, [json.loads(ln) for ln in capsys.readouterr().out.splitlines()]
+
+
+def test_nccl_timing_starts_after_both_ranks_are_in(monkeypatch, capsys, tmp_path):
+    """Ranks leave the barrier at different times; an untimed all-reduce must sit between it and the start
+    event, or rank 0 times its wait for rank 1 (8 B read 16-48 us instead of 12-14 us on two GB10s)."""
+    calls, _ = _run_nccl_payload(monkeypatch, capsys, tmp_path)
+    per_size = ["all_reduce"] * 2 + ["barrier", "all_reduce", "record"] + ["all_reduce"] * 3 + ["record"]
+    assert calls == per_size * 3  # 8, 16 and 32 B
+
+
+def test_nccl_transport_from_the_real_debug_log(monkeypatch, capsys, tmp_path):
+    """Logs from two GB10s (NCCL 2.30.7): RoCE over both CX7 rails, and TCP (NCCL_IB_DISABLE=1)."""
+    ib = (FIX / "nccl_debug_ib_two_rails.txt").read_text()
+    calls: list[str] = []
+    mod = _nccl_payload(monkeypatch, calls)
+    t = mod.nccl_transport(ib)
+    assert t == {"network": "IB", "devices": ["rocep1s0f1", "roceP2p1s0f1"], "gdr": False}
+    assert mod.transport_summary(t) == (
+        "NCCL transport: RDMA (NET/IB) over rocep1s0f1, roceP2p1s0f1, GPU Direct RDMA off"
+    )
+    sock = mod.nccl_transport((FIX / "nccl_debug_socket_fallback.txt").read_text())
+    assert sock == {"network": "Socket", "devices": ["enp1s0f1np1", "enP2p1s0f1np1"], "gdr": None}
+    assert "TCP sockets (NET/Socket) over enp1s0f1np1, enP2p1s0f1np1 - not RDMA" in (
+        mod.transport_summary(sock)
+    )
+    assert mod.transport_summary(mod.nccl_transport("")) == "NCCL did not report its network transport"
+
+    _, msgs = _run_nccl_payload(monkeypatch, capsys, tmp_path, ib)
+    peak = next(m["result"] for m in msgs if "result" in m)
+    assert peak["metric"] == "allreduce_busbw_peak"
+    assert peak["extras"]["nccl_transport"] == "IB" and peak["extras"]["gpu_direct_rdma"] is False
+    assert peak["extras"]["nccl_net_devices"] == ["rocep1s0f1", "roceP2p1s0f1"]
+    assert {"log": mod.transport_summary(t)} in msgs
+    assert os.environ.get("NCCL_DEBUG_FILE") == str(tmp_path / "nccl.txt")  # set before init, read after
+
+
 def test_llm_percentile_is_nearest_rank(monkeypatch):
     monkeypatch.syspath_prepend(PAYLOAD_DIR)
     from llm_inference import pct
@@ -928,6 +1221,37 @@ def test_builtin_io_payload_small_file_removed(tmp_path):
     assert {"seq_write_mbps", "seq_read_mbps", "rand_read_iops", "rand_write_p99_us"} <= set(res)
     assert res["rand_read_iops"]["extras"]["method"] == "builtin"
     assert not f.exists()
+
+
+GIL_BOUND_IO = """
+import ctypes, os, sys
+import builtin_io as b
+usleep = ctypes.PyDLL(None).usleep  # PyDLL calls keep the GIL; sleeping uses no CPU, so load cannot skew it
+def held(*a):  # 1 ms holding the GIL, like Python's own work around each real I/O
+    usleep(1000)
+    return b.RAND_BS
+os.preadv = held
+nbytes, el, ops, lat, direct = b.rand_io(sys.argv[1], 2**20, 0.5, 4, False)
+print(ops, el, b.p99(lat))
+"""
+
+
+def test_builtin_io_random_workers_do_not_share_a_gil(tmp_path):
+    """Real hardware: with threads, Python's per-I/O work queued on one GIL, so at 32 threads the runner
+    reported 94 k IOPS where a C reference got 165 k, with p99 latency inflated 1.9x."""
+    f = tmp_path / "io.test"
+    f.write_bytes(bytes(2**20))
+    r = subprocess.run(
+        [sys.executable, "-c", GIL_BOUND_IO, str(f)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env={**os.environ, "PYTHONPATH": PAYLOAD_DIR},
+    )
+    assert r.returncode == 0, r.stderr[-2000:]
+    ops, el, p99_us = map(float, r.stdout.split())
+    assert ops / el > 2.5 / 0.001  # 4 workers x 1 ms: one shared GIL would give at most 1000/s
+    assert p99_us < 3000  # ... and every op would wait ~3 ms for the other three
 
 
 def test_builtin_io_sigterm_removes_file(tmp_path):
@@ -1000,7 +1324,10 @@ async def test_llm_inference_end_to_end(tmp_path, fake_llm):
     def latest() -> Sample:
         t[0] += 0.5
         t[1] += 1
-        return sample(t[0], used=(10 + min(t[1], 4)) * 2**30)
+        s = sample(t[0], used=(10 + min(t[1], 4)) * 2**30)
+        if t[1] % 10 == 0:  # like the agent: the process list only in some samples (every procs_interval_s)
+            s.procs = [ProcSample(pid=os.getpid(), name="python", cmdline="", rss=1, gpu_mem=3 * GIB)]
+        return s
 
     r = make_runner(tmp_path, latest=latest)
     params = {
@@ -1027,6 +1354,9 @@ async def test_llm_inference_end_to_end(tmp_path, fake_llm):
     assert res["prefill_tok_s"].extras["prompt_tokens"] == 130  # from the server's usage block
     assert 50 < res["decode_tok_s"].value < 400
     assert res["mem_used_delta_gib"].value > 0 and res["mem_used_delta_gib"].unit == "GiB"
+    # the fake server listens in this process: its footprint comes from the newest sample with a process list
+    mem = res["serving_gpu_mem_gib"]
+    assert mem.value == 3 and mem.extras["source"] == f"pid {os.getpid()} and its children"
 
 
 def test_serving_gpu_mem_falls_back_to_gpu_processes_when_the_pid_is_hidden(monkeypatch):
@@ -1045,6 +1375,70 @@ def test_serving_gpu_mem_falls_back_to_gpu_processes_when_the_pid_is_hidden(monk
     s.procs = s.procs[2:]
     mem, how = jobs.serving_gpu_mem(8000, s, None)
     assert mem is None and "no GPU compute process" in how
+
+
+def test_serving_gpu_mem_attributes_vllm_engine_core_through_its_container(monkeypatch):
+    """vLLM V1 in Docker (as on spark1, vllm/vllm-openai v0.30.0): the GPU memory is EngineCore's, whose
+    cmdline names no model; the `vllm serve <model>` API process in the same container does."""
+    monkeypatch.setattr(jobs.psutil, "net_connections", lambda kind: [])
+    s = sample(time.time())
+    api = "/usr/bin/python3 /usr/local/bin/vllm serve Qwen/Qwen2.5-0.5B-Instruct --host 0.0.0.0 --port 8000"
+    s.procs = [
+        ProcSample(
+            pid=1,
+            name="VLLM::EngineCor",
+            cmdline="VLLM::EngineCore",
+            rss=1,
+            gpu_mem=18 * GIB,
+            container="llm",
+        ),
+        ProcSample(pid=2, name="vllm", cmdline=api, rss=1, container="llm", model=detect_model(api)),
+        ProcSample(
+            pid=3, name="python", cmdline="python train.py", rss=1, gpu_mem=40 * GIB, container="other"
+        ),
+    ]
+    mem, how = jobs.serving_gpu_mem(8000, s, "Qwen/Qwen2.5-0.5B-Instruct")
+    assert mem == 18 * GIB and "with that model" in how and "VLLM::EngineCor" in how
+
+
+class FakeVllmStop(FakeOpenAI):
+    """vLLM 0.30.0's stream for an answer that ends at EOS, chunk for chunk as captured on spark1: a role
+    chunk, one text chunk per token, then the stop token as an empty chunk with finish_reason; usage counts
+    the stop."""
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers["Content-Length"]))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+
+        def send(obj: object) -> None:
+            self.wfile.write(f"data: {json.dumps(obj)}\n\n".encode())
+            self.wfile.flush()
+
+        send({"choices": [{"delta": {"role": "assistant", "content": ""}, "finish_reason": None}]})
+        for word in ["Hello", "!", " How", " are"]:  # 4 text tokens, 40 ms apart
+            send({"choices": [{"delta": {"content": word}, "finish_reason": None}]})
+            time.sleep(0.04)
+        send({"choices": [{"delta": {"content": ""}, "finish_reason": "stop"}]})  # token 5: EOS
+        send({"choices": [], "usage": {"prompt_tokens": 34, "completion_tokens": 5, "total_tokens": 39}})
+        self.wfile.write(b"data: [DONE]\n\n")
+
+
+def test_llm_decode_span_ends_at_the_stop_token():
+    """5 tokens (4 text + EOS) arrive 40 ms apart: 4 intervals in 160 ms = 25 tok/s. Timing the span to the
+    last text chunk instead divides 4 intervals by 120 ms (33 tok/s): the old 1/(n-1) overstatement."""
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeVllmStop)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}"
+        msgs = run_payload("llm_inference.py", "--base-url", url, "--requests", "1", "--max-tokens", "16")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    res = {m["result"]["metric"]: m["result"] for m in msgs if "result" in m}
+    assert 20 < res["decode_tok_s"]["value"] < 26.5
+    assert res["decode_tok_s"]["extras"]["prompt_tokens"] == 34
 
 
 async def test_llm_unreachable_endpoint_problem(tmp_path):

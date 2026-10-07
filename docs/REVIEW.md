@@ -257,11 +257,41 @@ fixed. Highest severity first.
 
 ## Known limitations
 
-- **Hardware benchmarks unverified on hardware.** Both nodes were serving a model (`qwen38-flash-next-nvfp4`)
-  throughout, so the GPU matmul, memory bandwidth, thermal soak, NCCL, RDMA, CPU and LLM benchmarks were never run
-  for real. Their code paths are covered by tests with a fake Docker and fake tools, and by the CPU smoke mode
-  (`bench_payload_device = "cpu"`); only the storage benchmark ran on real hardware (spark1, 64 MiB). FP4 support,
-  achieved TFLOPS, NCCL bus bandwidth and RDMA numbers on GB10 are therefore unconfirmed.
+- **Hardware benchmarks: run for real on 2026-10-07, with these gaps.** Every benchmark has now run on both idle
+  nodes through the console API and been cross-checked against independent tools (own CUDA, C STREAM, C pread
+  and pwrite, hand perftest, vLLM `/metrics`, NIC and disk counters, `nvidia-smi`). The numbers are in
+  DISCOVERY.md "Measured on hardware (2026-10-07)". FP4 is supported on GB10 (NVFP4, ~347 TFLOPS). Bugs that
+  the fakes could not catch were fixed then, among them: CPU memory bandwidth inflated up to 47 % (clock started
+  after the workers were released), CPU throughput ~17 % low (glibc heap trimming made zlib page-fault),
+  random 4 KiB I/O GIL-bound at high thread counts, NCCL small-message latency 3–4× high (rank skew timed),
+  LLM decode rate high when the model stops by itself, vLLM `serve <model>` not detected (and its engine
+  process's memory not attributed), the LLM memory figure missing from most runs, console telemetry dropping
+  samples, and the results table showing "2149 GHz". NCCL now also records and checks its transport (RDMA vs
+  TCP fallback). What is still unverified or open:
+  - The **fio path** never ran (fio is not installed on either node); only the built-in runner did. The two
+    use different queue depths and are never compared.
+  - **LLM inference** ran only against vLLM with Qwen2.5-0.5B on spark1. Other engines (TRT-LLM, SGLang) and
+    large models are untested. "Prefill tokens/s" is per request (prompt ÷ TTFT), so at concurrency > 1 it
+    is well below the server's aggregate prefill rate.
+  - The **thermal soak** ran for 10 minutes, not 30. "Time throttled 0 %" does not mean the clocks held:
+    GB10 eases the SM clock 1–2 % as it heats without setting a reason bit, which only clock CV and the
+    lowest clock show.
+  - **RDMA** tests one rail in one direction. A rail runs at ~109 Gb/s; both together are capped at ~185 by the
+    shared 200 Gb/s port and the 1024-byte RoCE packets of MTU 1500. One latency run of 10 read 3.89 µs instead
+    of ~1.45 and did not reproduce.
+  - **Single samples:** each GEMM size is timed once, so a transient goes straight into the result (one
+    spark2 BF16 run read 77.5 instead of ~99 TFLOPS and never reproduced). FP8 with per-row scales runs at
+    56 TFLOPS at 16384 (PyTorch's row-wise kernel on sm_121), not a Sparkline fault.
+  - **Metadata gaps:** the CPU clock shown in monitoring and the CPU benchmark's chart comes from
+    `scaling_cur_freq`, which on GB10 is the requested clock (flat 3900 / 2808 MHz); the real one is
+    `cpuinfo_avg_freq`. Run metadata snapshots only GPU readings, also for CPU, storage and RDMA runs, and
+    RDMA/NCCL runs save no network series. "CUDA" in node metadata is the host driver's 13.0; the container runs
+    13.3 in forward compatibility (in `extras.cuda` and the log). `suite_git` is empty on a node deployed
+    without `.git`; `suite_sha256` still identifies the code.
+  - **NVMe** answers one 4 KiB request in ~200 µs on both nodes, so the default 4-worker random result is
+    12–18 k IOPS; checking interrupt coalescing needs root. The free-space margin (file × 1.1 + 1 GiB) is thin
+    on a nearly full shared disk.
+  - Runs saved before the fixes keep their old numbers (and the soak's telemetry its 2 s holes).
 - **spark2 verified after the gate (2026-10-07).** The lead redeployed the final code to spark2 and ran both agents
   with the real console: both nodes online, GPU util/temp/power/SM clock identical to `nvidia-smi` on each node,
   both CX7 rails active, the served model detected on both, no browser console errors. Killing the spark2 agent

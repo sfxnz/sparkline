@@ -8,14 +8,44 @@ Sizes double from 8 B to --max-bytes (float32 elements, sum).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import os
+import re
 
 import torch
 import torch.distributed as dist
 from benchlib import emit, fail, log, on_sigterm, progress, result
 
 METHOD = "torch.distributed (nccl-tests not installed)"
+NCCL_LOG = "/tmp/sparkline-nccl-debug.txt"  # inside the container (removed with it)
+
+
+def nccl_transport(text: str) -> dict:
+    """What NCCL's INFO log says it used: network ("IB" for RDMA/RoCE, "Socket" for TCP), the devices the
+    channels run over, and whether GPU Direct RDMA was on."""
+    out: dict = {"network": None, "devices": [], "gdr": None}
+    if m := re.findall(r"Using network (\w+)", text):
+        out["network"] = m[-1]
+    names: dict[str, str] = {}
+    for line in re.findall(r"NET/(?:IB|Socket) : Using (.*)", text):
+        names = dict(re.findall(r"\[(\d+)\]([^\s:\[]+)", line)) or names
+    used = sorted(set(re.findall(r"via NET/\w+/(\d+)", text)), key=int)
+    out["devices"] = [names.get(i, f"#{i}") for i in used]
+    gdr = re.findall(r"NET/IB : GPU Direct RDMA (Enabled|Disabled)", text)
+    if gdr:
+        out["gdr"] = "Enabled" in gdr
+    return out
+
+
+def transport_summary(t: dict) -> str:
+    if t["network"] is None:
+        return "NCCL did not report its network transport"
+    kind = {"IB": "RDMA (NET/IB)", "Socket": "TCP sockets (NET/Socket)"}.get(t["network"], t["network"])
+    via = f" over {', '.join(t['devices'])}" if t["devices"] else ""
+    gdr = {True: ", GPU Direct RDMA on", False: ", GPU Direct RDMA off", None: ""}[t["gdr"]]
+    note = " - not RDMA: check NCCL_IB_HCA and `ibv_devinfo`" if t["network"] == "Socket" else ""
+    return f"NCCL transport: {kind}{via}{gdr}{note}"
 
 
 def main() -> None:
@@ -39,6 +69,8 @@ def main() -> None:
     n = a.world_size
     progress(0.0, f"Waiting for {n} ranks at {a.master}:{a.port}")
     log(f"rank {a.rank}/{n}, NCCL_IB_HCA={os.environ.get('NCCL_IB_HCA')}, torch {torch.__version__}")
+    # NCCL reads these at init; the INFO log goes to a file so it does not flood the log tail.
+    os.environ.update(NCCL_DEBUG="INFO", NCCL_DEBUG_SUBSYS="INIT,NET", NCCL_DEBUG_FILE=NCCL_LOG)
     torch.cuda.set_device(0)
     dist.init_process_group(
         "nccl",
@@ -64,6 +96,10 @@ def main() -> None:
                 dist.all_reduce(x)
             torch.cuda.synchronize()
             dist.barrier()
+            # The ranks leave the barrier up to a few hundred us apart, and rank 0's first timed all-reduce
+            # would wait for rank 1 inside the timing (8 B read 16-48 us instead of 12-14 us on GB10). One
+            # untimed all-reduce queued before the start event makes it fire only once both ranks are in.
+            dist.all_reduce(x)
             start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
             start.record()
             for _ in range(a.iterations):
@@ -76,6 +112,10 @@ def main() -> None:
             rows.append((nbytes, t * 1e6, algbw, algbw * 2 * (n - 1) / n))
     finally:
         dist.destroy_process_group()
+    transport = nccl_transport("")
+    with contextlib.suppress(OSError), open(NCCL_LOG, errors="replace") as f:
+        transport = nccl_transport(f.read())
+    log(transport_summary(transport))
     if a.rank == 0:
         emit(
             series={
@@ -97,6 +137,9 @@ def main() -> None:
             iterations=a.iterations,
             nccl_ib_hca=os.environ.get("NCCL_IB_HCA"),
             nccl_version=".".join(str(v) for v in torch.cuda.nccl.version()),
+            nccl_transport=transport["network"],
+            nccl_net_devices=transport["devices"],
+            gpu_direct_rdma=transport["gdr"],
         )
         big = rows[-1]
         result(

@@ -28,6 +28,8 @@ DOCKER_TTL_S = 30.0
 _CONTAINER_ID = re.compile(r"(?:docker-|cri-containerd-|crio-|/docker/|/kubepods[^\n]*/)([0-9a-f]{64})")
 _HF = re.compile(r"models--[^/\s]+?--([^/\s]+)")
 _MODEL_ARG = re.compile(r"--model(?:-path)?(?:=|\s+)(\S+)")
+# The model as the first positional argument: `vllm serve <model>`, `trtllm-serve [serve] <model>`
+_SERVE_ARG = re.compile(r"(?:^|[\s/])(?:vllm\s+serve|trtllm-serve(?:\s+serve)?)\s+([^\s-]\S*)")
 _GGUF = re.compile(r"([^/\s]+)\.gguf\b")
 _MODELS_DIR = re.compile(r"/models/([^/\s]+)")
 
@@ -78,7 +80,7 @@ def container_id(cgroup_text: str) -> str | None:
 def detect_model(cmdline: str) -> str | None:
     if m := _HF.search(cmdline):
         return m.group(1)
-    if m := _MODEL_ARG.search(cmdline):
+    if m := _MODEL_ARG.search(cmdline) or _SERVE_ARG.search(cmdline):
         v = m.group(1).rstrip("/")
         return os.path.basename(v) if v.startswith(("/", ".", "~")) else v
     if m := _GGUF.search(cmdline):

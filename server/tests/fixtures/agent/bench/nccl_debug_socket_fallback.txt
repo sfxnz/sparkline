@@ -1,0 +1,152 @@
+spark1:1:1 [0] NCCL INFO ncclOsDlopen(libnccl-env.so) failed: libnccl-env.so: cannot open shared object file: No such file or directory
+spark1:1:1 [0] NCCL INFO ENV/Plugin: Could not find: libnccl-env.so
+spark1:1:1 [0] NCCL INFO NCCL_SOCKET_IFNAME set to enp1s0f1np1,enP2p1s0f1np1
+spark1:1:1 [0] NCCL INFO cudaDriverVersion 13030
+spark1:1:1 [0] NCCL INFO NCCL version 2.30.7+cuda13.3
+spark1:1:1 [0] NCCL INFO NCCL git version HEAD a5187fa2e
+spark1:1:1 [0] NCCL INFO NCCL_NET_PLUGIN set by environment to spcx
+spark1:1:1 [0] NCCL INFO ncclOsDlopen(spcx) failed: spcx: cannot open shared object file: No such file or directory
+spark1:1:1 [0] NCCL INFO NET/Plugin: Loaded net plugin SPCX (v12)
+spark1:1:1 [0] NCCL INFO NET/Plugin: Loaded collnet plugin SPCX (v12)
+spark1:1:1 [0] NCCL INFO Successfully loaded external network plugin /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so
+spark1:1:1 [0] NCCL INFO Failed to initialize NET plugin SPCX
+spark1:1:1 [0] NCCL INFO transport/net_ib/init.cc:526 (ncclIbInit) -> 3
+spark1:1:1 [0] NCCL INFO Failed to initialize NET plugin IB
+spark1:1:1 [0] NCCL INFO NET/Socket : Using [0]enp1s0f1np1:10.100.8.1<0> [1]enP2p1s0f1np1:10.100.9.1<0>
+spark1:1:1 [0] NCCL INFO Initialized NET plugin Socket
+spark1:1:1 [0] NCCL INFO Assigned NET plugin Socket to comm
+spark1:1:1 [0] NCCL INFO ncclOsDlopen(libnccl-rma.so) failed: libnccl-rma.so: cannot open shared object file: No such file or directory
+spark1:1:1 [0] NCCL INFO RMA/Plugin: Could not find: libnccl-rma.so
+spark1:1:1 [0] NCCL INFO RMA/Plugin: Failed to load external plugin /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so, dlHandle: (nil), ncclRma: (nil)
+spark1:1:1 [0] NCCL INFO RMA/Plugin: Loaded rma plugin SPCX_RMA (v13)
+spark1:1:1 [0] NCCL INFO RMA/Plugin: Successfully loaded external plugin /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so
+
+[2026-10-07 18:49:48] spark1:1:1 [0] gin_plugin.cc:138 NCCL WARN gin_plugin.cc:138 Call to ncclNetPlugin_v12.init(ctx, commId, &config, logFunction, NULL) failed: 3
+
+[2026-10-07 18:49:48] spark1:1:1 [0] gin_plugin.cc:780 NCCL WARN gin_plugin.cc:780 Call to ginCommonInit(ctx, commId, logFunction) failed: 3
+spark1:1:1 [0] NCCL INFO plugin/rma/rma_v13.cc:18 (ncclRma_init) -> 3
+
+[2026-10-07 18:49:48] spark1:1:1 [0] misc/ibvwrap.cc:185 (wrap_ibv_alloc_pd) NCCL WARN lib wrapper not initialized.
+spark1:1:1 [0] NCCL INFO transport/net_ib/gdr.cc:55 (ibDmaBufSupportInitOnce) -> 3
+spark1:1:1 [0] NCCL INFO Unable to use GIN: Peermem is not supported, nor DMA-BUF.
+spark1:1:1 [0] NCCL INFO RMA/Plugin: Failed to initialize any plugin
+spark1:1:1 [0] NCCL INFO ncclOsDlopen(libnccl-gin.so) failed: libnccl-gin.so: cannot open shared object file: No such file or directory
+spark1:1:1 [0] NCCL INFO GIN/Plugin: Could not find: libnccl-gin.so
+spark1:1:1 [0] NCCL INFO GIN/Plugin: Failed to load external plugin /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so, dlHandle: (nil), ncclGin: (nil)
+spark1:1:1 [0] NCCL INFO GIN/Plugin: Loaded gin plugin SPCX_GIN (v13)
+spark1:1:1 [0] NCCL INFO GIN/Plugin: Successfully loaded external plugin /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so
+
+[2026-10-07 18:49:48] spark1:1:1 [0] gin_plugin.cc:138 NCCL WARN gin_plugin.cc:138 Call to ncclNetPlugin_v12.init(ctx, commId, &config, logFunction, NULL) failed: 3
+
+[2026-10-07 18:49:48] spark1:1:1 [0] gin_plugin.cc:642 NCCL WARN gin_plugin.cc:642 Call to ginCommonInit(ctx, commId, logFunction) failed: 3
+spark1:1:1 [0] NCCL INFO GIN/Plugin: Failed to initialize any GIN plugin
+spark1:1:1 [0] NCCL INFO Using network Socket
+spark1:1:1 [0] NCCL INFO Loaded NVML from libnvidia-ml.so.1
+spark1:1:1 [0] NCCL INFO [Rank 0] ncclCommInitRankConfig comm 0x17c776d0 rank 0 nranks 2 cudaDev 0 nvmlDev 0 busId f01000 commId 0x84b283a189227ce - Init START
+spark1:1:1 [0] NCCL INFO RAS client listening socket at 127.0.0.1<28028>
+spark1:1:1 [0] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 0 'enp1s0f1np1'
+spark1:1:1 [0] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 1 'enP2p1s0f1np1'
+spark1:1:1 [0] NCCL INFO ncclTopoGetCpuAffinity: Affinity for GPU 0 is empty, ignoring. (GPU affinity =  ; CPU affinity = 0-19).
+spark1:1:1 [0] NCCL INFO Rank 0: 2 Net devices
+spark1:1:1 [0] NCCL INFO Rank 0: 0 CollNet devices
+spark1:1:1 [0] NCCL INFO Local Net device counts across ranks: min 2 max 2
+spark1:1:1 [0] NCCL INFO Local CollNet device counts across ranks: min 0 max 0
+spark1:1:1 [0] NCCL INFO comm 0x17c776d0 rank 0 nRanks 2 nNodes 2 localRanks 1 localRank 0 MNNVL 0
+spark1:1:1 [0] NCCL INFO Channel 00/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 01/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 02/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 03/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 04/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 05/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 06/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 07/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 08/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 09/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 10/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 11/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 12/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 13/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 14/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 15/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 16/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 17/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 18/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 19/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 20/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 21/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 22/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 23/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 24/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 25/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 26/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 27/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 28/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 29/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 30/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 31/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 32/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 33/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 34/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 35/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 36/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 37/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 38/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 39/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 40/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 41/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 42/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 43/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 44/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 45/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 46/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 47/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 48/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 49/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 50/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 51/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 52/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 53/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 54/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 55/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 56/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 57/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 58/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 59/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 60/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 61/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 62/64 : 0 1
+spark1:1:1 [0] NCCL INFO Channel 63/64 : 0 1
+spark1:1:1 [0] NCCL INFO Trees [0] 1/-1/-1->0->-1 [1] 1/-1/-1->0->-1 [2] 1/-1/-1->0->-1 [3] 1/-1/-1->0->-1 [4] 1/-1/-1->0->-1 [5] 1/-1/-1->0->-1 [6] 1/-1/-1->0->-1 [7] 1/-1/-1->0->-1 [8] 1/-1/-1->0->-1 [9] 1/-1/-1->0->-1 [10] 1/-1/-1->0->-1 [11] 1/-1/-1->0->-1 [12] 1/-1/-1->0->-1 [13] 1/-1/-1->0->-1 [14] 1/-1/-1->0->-1 [15] 1/-1/-1->0->-1 [16] 1/-1/-1->0->-1 [17] 1/-1/-1->0->-1 [18] 1/-1/-1->0->-1 [19] 1/-1/-1->0->-1 [20] 1/-1/-1->0->-1 [21] 1/-1/-1->0->-1 [22] 1/-1/-1->0->-1 [23] 1/-1/-1->0->-1 [24] 1/-1/-1->0->-1 [25] 1/-1/-1->0->-1 [26] 1/-1/-1->0->-1 [27] 1/-1/-1->0->-1 [28] 1/-1/-1->0->-1 [29] 1/-1/-1->0->-1 [30] 1/-1/-1->0->-1 [31] 1/-1/-1->0->-1 [32] -1/-1/-1->0->1 [33] -1/-1/-1->0->1 [34] -1/-1/-1->0->1 [35] -1/-1/-1->0->1 [36] -1/-1/-1->0->1 [37] -1/-1/-1->0->1 [38] -1/-1/-1->0->1 [39] -1/-1/-1->0->1 [40] -1/-1/-1->0->1 [41] -1/-1/-1->0->1 [42] -1/-1/-1->0->1 [43] -1/-1/-1->0->1 [44] -1/-1/-1->0->1 [45] -1/-1/-1->0->1 [46] -1/-1/-1->0->1 [47] -1/-1/-1->0->1 [48] -1/-1/-1->0->1 [49] -1/-1/-1->0->1 [50] -1/-1/-1->0->1 [51] -1/-1/
+spark1:1:1 [0] NCCL INFO P2P Chunksize set to 262144
+spark1:1:1 [0] NCCL INFO Tuning P2P operations with maxP2pPeers = 2
+spark1:1:1 [0] NCCL INFO ncclOsDlopen(libnccl-profiler.so) failed: libnccl-profiler.so: cannot open shared object file: No such file or directory
+spark1:1:1 [0] NCCL INFO PROFILER/Plugin: Could not find: libnccl-profiler.so
+spark1:1:1 [0] NCCL INFO ncclOsDlsym(ncclProfiler_v6) failed: /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so: undefined symbol: ncclProfiler_v6
+spark1:1:1 [0] NCCL INFO ncclOsDlsym(ncclProfiler_v5) failed: /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so: undefined symbol: ncclProfiler_v5
+spark1:1:1 [0] NCCL INFO ncclOsDlsym(ncclProfiler_v4) failed: /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so: undefined symbol: ncclProfiler_v4
+spark1:1:1 [0] NCCL INFO ncclOsDlsym(ncclProfiler_v3) failed: /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so: undefined symbol: ncclProfiler_v3
+spark1:1:1 [0] NCCL INFO ncclOsDlsym(ncclProfiler_v2) failed: /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so: undefined symbol: ncclProfiler_v2
+spark1:1:1 [0] NCCL INFO ncclOsDlsym(ncclProfiler_v1) failed: /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so: undefined symbol: ncclProfiler_v1
+spark1:1:1 [0] NCCL INFO Check P2P Type isAllDirectP2p 1 directMode 0 isAllCudaP2p 1
+spark1:1:211 [0] NCCL INFO [Proxy Service UDS] Device 0 CPU core 9
+spark1:1:210 [0] NCCL INFO [Proxy Service] Device 0 CPU core 15
+spark1:1:210 [0] NCCL INFO proxy listening socket at 10.100.8.1<39105>
+spark1:1:1 [0] NCCL INFO ncclOsDlopen(libnccl-tuner.so) failed: libnccl-tuner.so: cannot open shared object file: No such file or directory
+spark1:1:1 [0] NCCL INFO TUNER/Plugin: Could not find: libnccl-tuner.so
+spark1:1:1 [0] NCCL INFO TUNER/Plugin: Using SPCX (v5)
+spark1:1:1 [0] NCCL INFO Registering new plugin entry for commId: 597615605542168526
+spark1:1:1 [0] NCCL INFO threadThresholds 8/8/64 | 16/8/64 | 512 | 512
+spark1:1:1 [0] NCCL INFO 64 coll channels, 64 collnet channels, 0 nvls channels, 64 p2p channels, 2 p2p channels per peer
+spark1:1:1 [0] NCCL INFO Symmetric memory is not supported. cuMemEnable 1, globalGinSupport 0, cuMemGdrSupport 0
+spark1:1:1 [0] NCCL INFO CC Off, workFifoBytes 1048576
+spark1:1:1 [0] NCCL INFO ncclCommInitRankConfig comm 0x17c776d0 rank 0 nranks 2 cudaDev 0 nvmlDev 0 busId f01000 commId 0x84b283a189227ce - Init COMPLETE
+spark1:1:1 [0] NCCL INFO Init timings - ncclCommInitRankConfig: rank 0 nranks 2 total 0.30 (kernels 0.24, alloc 0.02, bootstrap 0.00, allgathers 0.01, topo 0.01, graphs 0.00, connections 0.03, rest 0.00)
+spark1:1:212 [0] NCCL INFO [Proxy Progress] Device 0 CPU core 16
+spark1:1:1 [0] NCCL INFO Channel 00/0 : 1[0] -> 0[0] [receive] via NET/Socket/0
+spark1:1:1 [0] NCCL INFO Channel 01/0 : 1[0] -> 0[0] [receive] via NET/Socket/1
+spark1:1:1 [0] NCCL INFO Channel 02/0 : 1[0] -> 0[0] [receive] via NET/Socket/0
+spark1:1:1 [0] NCCL INFO Channel 03/0 : 1[0] -> 0[0] [receive] via NET/Socket/1
+spark1:1:1 [0] NCCL INFO Channel 04/0 : 1[0] -> 0[0] [receive] via NET/Socket/0
+spark1:1:1 [0] NCCL INFO Channel 05/0 : 1[0] -> 0[0] [receive] via NET/Socket/1
+spark1:1:1 [0] NCCL INFO Connected all rings, use ring PXN 0 GDR 0
+spark1:1:1 [0] NCCL INFO Deregistering plugin entry for commId: 597615605542168526

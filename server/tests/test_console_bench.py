@@ -338,6 +338,29 @@ def test_telemetry_overlay_is_recorded_and_bounded(tmp_path, monkeypatch):
     assert any(m == 4 for m in series["telemetry.spark1.throttle_mask"])  # bitmask survives downsampling
 
 
+def test_telemetry_overlay_keeps_every_sample_when_ticks_drift(tmp_path):
+    """Real soak 0muykplobp9x: the 1 s tick plus the 5 s agent polls drifted against the agent's 1 Hz samples,
+    so some ticks found two new samples and only the newest was kept: 2 s holes in every telemetry chart."""
+    sample = Sample.model_validate_json((FIX / "sample.json").read_text())
+    src = _Src("spark1", "http://127.0.0.1:1", listener=None)  # type: ignore[arg-type]
+    mgr, _ = _manager(tmp_path, [src])
+    act = _Active(run=_run("r", "{}", 1.0, status="running"), name="Thermal soak")
+    t0 = time.time() - 100
+    for i in range(5):  # history from before the run is not part of it
+        src.ring.append(sample.model_copy(update={"ts": t0 - 5 + i}))
+    mgr._record_telemetry(act, t0 - 0.5)
+    tick = t0 - 0.5
+    for i in range(60):
+        src.ring.append(sample.model_copy(update={"ts": t0 + i}))
+        if i % 5 != 4:  # every fifth sample, the tick runs late and finds two new samples
+            tick = t0 + i + 0.5
+            mgr._record_telemetry(act, tick)
+    mgr._record_telemetry(act, t0 + 60)
+    ts = act.run.series["telemetry.spark1.ts"]
+    assert ts == [round(t0 - 1, 3)] + [round(t0 + i, 3) for i in range(60)]
+    assert len(act.run.series["telemetry.spark1.util"]) == len(ts)
+
+
 def test_bench_api_requires_auth_and_same_origin(tmp_path):
     cfg = ConsoleConfig(token="tok", agent_token="a", web_dist=tmp_path / "nodist")
     auth = {"Authorization": "Bearer tok"}

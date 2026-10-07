@@ -206,7 +206,7 @@ class ThermalSoakParams(Params):
 # Duration estimates (seconds). Rates are rough GB10 figures used only to size progress bars and timeouts.
 # --------------------------------------------------------------------------------------------------------
 
-CONTAINER_START_S = 20.0
+CONTAINER_START_S = 8.0  # measured 3-5 s on GB10 with the image pulled (20 s made estimates 2-5x long)
 _GEMM_RATE = {"bf16": 100e12, "fp16": 100e12, "fp8": 200e12, "fp4": 400e12}
 
 
@@ -222,9 +222,9 @@ def est_gpu_matmul(p: GpuMatmulParams) -> float:
 def est_mem_bandwidth(p: MemBandwidthParams) -> float:
     t = CONTAINER_START_S
     if p.side in ("both", "gpu"):
-        t += 3 + p.iterations * 5 * p.gpu_array_mib * 2**20 / 150e9
+        t += 3 + p.iterations * 5 * p.gpu_array_mib * 2**20 / 200e9
     if p.side in ("both", "cpu"):
-        t += 3 * (2 + p.iterations * 5 * p.cpu_array_mib * 2**20 / 40e9)
+        t += 3 * (2 + p.iterations * 5 * p.cpu_array_mib * 2**20 / 100e9)
     return t
 
 

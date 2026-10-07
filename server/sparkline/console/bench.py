@@ -37,6 +37,7 @@ from ..common.schema import (
     NodeBenchState,
     NodeInfo,
     Problem,
+    Sample,
 )
 from .bench_store import BenchStore
 from .cluster import Cluster
@@ -69,6 +70,7 @@ LOST_CANCEL_RETRY_S = 120.0
 RECOVER_WAIT_S = 20.0
 TELEMETRY_KEYS = ("util", "temp_c", "power_w", "sm_mhz", "throttle_mask")
 TELEMETRY_MAX = 1800
+TELEMETRY_STEP_S = 0.75  # agent samples at 1 Hz arrive 0.93-1.07 s apart; faster agents are thinned
 LOG_TAIL = 60
 _B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
@@ -952,28 +954,37 @@ class BenchManager:
                 self.on_node_state(n, got)
 
     def _record_telemetry(self, act: _Active, now: float) -> None:
-        run = act.run
-        for n in run.nodes:
+        for n in act.run.nodes:
             src = self.cluster.sources.get(n)
             if src is None or not src.ring:
                 continue
-            s = src.ring[-1]
-            if s.ts <= act.tele_last.get(n, 0.0) or now - s.ts > 5:
-                continue
-            act.tele_last[n] = s.ts
-            g = s.gpu[0] if s.gpu else None
-            prev = act.tele_prev.setdefault(n, {})
-            pre = f"telemetry.{n}."
-            run.series.setdefault(pre + "ts", []).append(round(s.ts, 3))
+            last = act.tele_last.get(n)
+            # About one point a second, from every sample since the previous tick: the ticks (TICK_S plus
+            # the agent polls) drift against the agent's own 1 Hz, so a tick can find two new samples; keeping
+            # only the newest left 2 s holes in the run's charts. The first tick takes just the newest: older
+            # samples predate the run.
+            for s in [src.ring[-1]] if last is None else list(src.ring):
+                if (last is None or s.ts - last >= TELEMETRY_STEP_S) and now - s.ts <= 5:
+                    self._append_telemetry(act, n, s)
+                    last = s.ts
+
+    def _append_telemetry(self, act: _Active, n: str, s: Sample) -> None:
+        """Append one agent sample to the run's GPU telemetry overlay, halving it past TELEMETRY_MAX."""
+        run = act.run
+        act.tele_last[n] = s.ts
+        g = s.gpu[0] if s.gpu else None
+        prev = act.tele_prev.setdefault(n, {})
+        pre = f"telemetry.{n}."
+        run.series.setdefault(pre + "ts", []).append(round(s.ts, 3))
+        for key in TELEMETRY_KEYS:
+            v = getattr(g, key, None) if g is not None else None
+            v = prev.get(key, 0.0) if v is None else float(v)  # series hold floats: carry forward
+            prev[key] = v
+            run.series.setdefault(pre + key, []).append(v)
+        if len(run.series[pre + "ts"]) > TELEMETRY_MAX:  # same length as _halve: ceil(n / 2)
+            run.series[pre + "ts"] = run.series[pre + "ts"][::2]
             for key in TELEMETRY_KEYS:
-                v = getattr(g, key, None) if g is not None else None
-                v = prev.get(key, 0.0) if v is None else float(v)  # series hold floats: carry forward
-                prev[key] = v
-                run.series.setdefault(pre + key, []).append(v)
-            if len(run.series[pre + "ts"]) > TELEMETRY_MAX:  # same length as _halve: ceil(n / 2)
-                run.series[pre + "ts"] = run.series[pre + "ts"][::2]
-                for key in TELEMETRY_KEYS:
-                    run.series[pre + key] = _halve(run.series[pre + key], key == "throttle_mask")
+                run.series[pre + key] = _halve(run.series[pre + key], key == "throttle_mask")
 
     # -- finish -----------------------------------------------------------------------------------
     def _finalize(self, act: _Active) -> None:

@@ -44,6 +44,7 @@ import {
   projectedTotal,
   resultDelta,
   resultText,
+  runLog,
   stopwatch,
   valueWithUnit,
 } from './model';
@@ -249,7 +250,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
       {run.results.length ? <ResultsPanel run={run} regressionPct={regressionPct} onShare={() => { setShareOpen(true); }} /> : null}
 
       <MetadataPanel run={run} spec={spec} />
-      <LogPanel lines={run.log_tail} active={active} />
+      <LogPanel lines={runLog(run)} active={active} />
 
       <ConfirmDialog
         open={cancelOpen}

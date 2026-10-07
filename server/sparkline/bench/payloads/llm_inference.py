@@ -85,6 +85,7 @@ def one_request(base: str, api: str, model: str, prompt: str, max_tokens: int) -
         "ttft": None,
         "first": None,
         "last": None,
+        "eos": None,
         "chunks": 0,
         "usage": None,
         "error": None,
@@ -119,6 +120,10 @@ def one_request(base: str, api: str, model: str, prompt: str, max_tokens: int) -
                         out["ttft"] = now - t0
                     out["last"] = now
                     out["chunks"] += 1
+                elif ch.get("finish_reason") and out["first"] is not None:
+                    # A stop token (EOS) streams as an empty chunk with the finish reason. usage counts it in
+                    # completion_tokens, so with usage it is the last token (see decode in main()).
+                    out["eos"] = time.perf_counter()
         out["total"] = time.perf_counter() - t0
     except (OSError, ValueError, http.client.HTTPException) as e:
         out["error"] = f"{type(e).__name__}: {e}"
@@ -192,10 +197,12 @@ def main() -> None:
         usage = r["usage"] or {}
         p_tok = usage.get("prompt_tokens") or a.prompt_tokens
         c_tok = usage.get("completion_tokens") or r["chunks"]
+        # usage counts a stop token that streams no text: then the decode span ends at its (empty) chunk
+        last = r["eos"] if usage.get("completion_tokens") and r["eos"] else r["last"]
         total_out += c_tok
         prefill.append(p_tok / r["ttft"])
-        if c_tok > 1 and r["last"] > r["first"]:
-            decode.append((c_tok - 1) / (r["last"] - r["first"]))
+        if c_tok > 1 and last > r["first"]:
+            decode.append((c_tok - 1) / (last - r["first"]))
     usage0 = ok[0]["usage"] or {}
     ex = {
         "engine": engine,

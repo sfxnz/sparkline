@@ -365,7 +365,11 @@ export const isSmoke = (results: readonly BenchResult[]) => results.some((r) => 
 export const signedFormat = (r: Pick<BenchResult, 'metric'>) => (v: number) => (/_change_pct$/.test(r.metric) && v > 0 && formatValue(v) !== '0.00' ? `+${formatValue(v)}` : formatValue(v));
 
 /** "412 TFLOPS", "+27.3%", or "Unsupported" for a result the node could not measure. */
-export const resultText = (r: BenchResult) => (isUnsupported(r) ? 'Unsupported' : `${signedFormat(r)(r.value)}${valueWithUnit(r.value, r.unit).slice(formatValue(r.value).length)}`);
+export function resultText(r: BenchResult): string {
+  if (isUnsupported(r)) return 'Unsupported';
+  const text = valueWithUnit(r.value, r.unit); // clocks and temperatures are rewritten ("2.15 GHz", "81 °C")
+  return signedFormat(r)(r.value).startsWith('+') ? `+${text}` : text;
+}
 
 /** The results to emphasise: those flagged `extras.headline`, else the first result of each node (up to `max`). */
 export function headlineResults(all: readonly BenchResult[], max = 3): BenchResult[] {
@@ -650,6 +654,8 @@ export interface SoakStats {
   lastMinuteTflops: number | null;
   /** Last vs first minute, % (positive: faster at the end). Null until the run is long enough for two minutes. */
   tflopsChangePct: number | null;
+  /** Length of the first/last windows when the payload used shorter ones than a minute (a third of a short run). */
+  tflopsWindowS?: number;
 }
 
 /** First- and last-minute throughput need two separate minutes of data. */
@@ -704,6 +710,22 @@ export function soakStats(ts: readonly number[], s: Partial<Record<SeriesKind, n
     lastMinuteTflops,
     tflopsChangePct: deltaPct(lastMinuteTflops, firstMinuteTflops),
   };
+}
+
+/**
+ * First/last-minute throughput from the payload's own results when the run has them. The payload averages every
+ * timed GEMM window (about 0.5 s each); the series only holds the latest window once a second, and on GB10 that
+ * 1 Hz sampling aliases with a periodic dip (measured: 0.3-0.5% high), so the panel would disagree with the results
+ * table. The series stay the fallback while the run is live.
+ */
+export function withSoakResults(stats: SoakStats, results: readonly BenchResult[], node: string): SoakStats {
+  const find = (metric: string) => results.find((r) => r.node_id === node && r.metric === metric);
+  const first = find('tflops_first')?.value ?? null;
+  const last = find('tflops_last')?.value ?? null;
+  if (first === null || last === null) return stats;
+  const w = find('tflops_first')?.extras.window_s;
+  const windowS = typeof w === 'number' && w < 60 ? w : undefined;
+  return { ...stats, hasTflops: true, firstMinuteTflops: first, lastMinuteTflops: last, tflopsChangePct: find('tflops_change_pct')?.value ?? deltaPct(last, first), ...(windowS ? { tflopsWindowS: windowS } : {}) };
 }
 
 // ------------------------------------------------------------------------------------------------ competition
@@ -917,12 +939,21 @@ const isObj = (v: unknown): v is Meta => !!v && typeof v === 'object' && !Array.
 
 /** Metadata per node: the console's run.metadata.nodes, else each agent's own, else the flat metadata. */
 export function nodeMeta(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states'>): Record<string, Meta> {
+  // In the run's node order: a live run's node_states arrive in whatever order the agents first reported.
+  const rank = (n: string) => (run.nodes.includes(n) ? run.nodes.indexOf(n) : run.nodes.length);
+  const inRunOrder = (entries: [string, Meta][]) => Object.fromEntries(entries.sort((a, b) => rank(a[0]) - rank(b[0])));
   const nodes = run.metadata.nodes;
-  if (isObj(nodes) && Object.values(nodes).some(isObj)) return Object.fromEntries(Object.entries(nodes).filter((e): e is [string, Meta] => isObj(e[1])));
+  if (isObj(nodes) && Object.values(nodes).some(isObj)) return inRunOrder(Object.entries(nodes).filter((e): e is [string, Meta] => isObj(e[1])));
   const fromAgents = Object.entries(run.node_states ?? {}).filter(([, st]) => Object.keys(st.metadata).length);
-  if (fromAgents.length) return Object.fromEntries(fromAgents.map(([n, st]) => [n, st.metadata]));
+  if (fromAgents.length) return inRunOrder(fromAgents.map(([n, st]) => [n, st.metadata]));
   const flat = Object.fromEntries(Object.entries(run.metadata).filter(([k]) => k !== 'nodes' && k !== 'bench_name'));
   return Object.keys(flat).length ? Object.fromEntries(run.nodes.slice(0, 1).map((n) => [n, flat])) : {};
+}
+
+/** The run's log: the console saves it when the run ends; until then, each agent's live tail, prefixed the same way. */
+export function runLog(run: Pick<BenchRun, 'log_tail' | 'nodes' | 'node_states'>): string[] {
+  if (run.log_tail.length) return run.log_tail;
+  return run.nodes.flatMap((n) => (run.node_states?.[n]?.log_tail ?? []).map((line) => `[${n}] ${line}`));
 }
 
 /** Driver / CUDA / GPU of a run (the first node that reports each). */

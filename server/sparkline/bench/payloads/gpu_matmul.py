@@ -3,6 +3,7 @@
 FP8 uses torch._scaled_mm with float8_e4m3fn operands (per-tensor or per-row scales). FP4 tries
 torch._scaled_mm with float4_e2m1fn_x2 operands and block scales (NVFP4, then MXFP4); if this PyTorch/GPU
 cannot run it, the result is reported with extras.unsupported=true and the reason, never with a number.
+A measured FP4 result names the format that ran in extras.format.
 --device cpu is a code-path smoke test: tiny sizes, results flagged extras.smoke=true.
 """
 
@@ -26,14 +27,23 @@ def _round_up(x: int, m: int) -> int:
     return (x + m - 1) // m * m
 
 
+def _why(e: Exception) -> str:
+    """One-line reason from a torch error. torch._scaled_mm's "Invalid scaling configuration." is followed by
+    one line per accepted configuration and a "Got ..." line: keep the ones about float4, which say what this
+    PyTorch accepts for FP4 operands and what it was given."""
+    first, *rest = str(e).strip().splitlines() or [type(e).__name__]
+    detail = [ln.strip(" -") for ln in rest if "float4" in ln.lower()]
+    return " ".join([first[:200], *(d[:300] for d in detail)])
+
+
 def operands(dtype: str, n: int, dev: str, fp8_scaling: str):
-    """Return a zero-arg callable doing one n x n x n GEMM."""
+    """Return (zero-arg callable doing one n x n x n GEMM, extras describing what it runs)."""
     if dtype in ("bf16", "fp16"):
         t = torch.bfloat16 if dtype == "bf16" else torch.float16
         a = torch.randn(n, n, dtype=t, device=dev)
         b = torch.randn(n, n, dtype=t, device=dev)
         c = torch.empty(n, n, dtype=t, device=dev)
-        return lambda: torch.mm(a, b, out=c)
+        return (lambda: torch.mm(a, b, out=c)), {}
     if dev != "cuda":
         raise Unsupported("torch._scaled_mm needs a CUDA device (CPU smoke run)")
     if dtype == "fp8":
@@ -47,7 +57,7 @@ def operands(dtype: str, n: int, dev: str, fp8_scaling: str):
             sb = torch.tensor(1.0, device=dev)
         fn = lambda: torch._scaled_mm(a, b, scale_a=sa, scale_b=sb, out_dtype=torch.bfloat16)  # noqa: E731
         fn()
-        return fn
+        return fn, {}
     if not hasattr(torch, "float4_e2m1fn_x2"):
         raise Unsupported(f"PyTorch {torch.__version__} has no float4_e2m1fn_x2 dtype")
     a = torch.randint(0, 256, (n, n // 2), dtype=torch.uint8, device=dev).view(torch.float4_e2m1fn_x2)
@@ -65,9 +75,9 @@ def operands(dtype: str, n: int, dev: str, fp8_scaling: str):
         try:
             fn()
             torch.cuda.synchronize()
-            return fn
+            return fn, {"format": name, "scale_block": block, "scale_dtype": sdt}
         except (RuntimeError, ValueError, TypeError, NotImplementedError) as e:
-            errors.append(f"{name}: {str(e).splitlines()[0][:200]}")
+            errors.append(f"{name}: {_why(e)}")
     raise Unsupported("; ".join(errors))
 
 
@@ -122,10 +132,11 @@ def main() -> None:
     for d in dtypes:
         per_size: dict[str, float] = {}
         reason = None
+        kernel: dict = {}
         for n in sizes:
             progress(done / steps, f"{LABEL[d]} {n}³")
             try:
-                fn = operands(d, n, dev, a.fp8_scaling)
+                fn, kernel = operands(d, n, dev, a.fp8_scaling)
                 sec = time_gemm(fn, iters, warmup, dev)
                 per_size[str(n)] = 2 * n**3 / sec / 1e12
                 del fn
@@ -155,6 +166,7 @@ def main() -> None:
             "best_size": int(best),
             "iterations": iters,
             "warmup": warmup,
+            **kernel,
             **common,
         }
         if d == "fp8":

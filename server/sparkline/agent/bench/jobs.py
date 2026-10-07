@@ -33,6 +33,7 @@ from .specs import (
 RDMA_DEFAULT_PORT = 18515
 NCCL_DEFAULT_PORT = 29511
 GIB = 2**30
+PROCS_WAIT_S = 11.0  # two of the agent's default process-list intervals (5 s), and a margin
 
 
 def _cores(job: Job, kind: str) -> list[int]:
@@ -40,7 +41,7 @@ def _cores(job: Job, kind: str) -> list[int]:
 
 
 def _core_model(job: Job, kind: str) -> str:
-    return next((c.model for c in job.info.cores if c.kind == kind and c.model), kind)
+    return next((c.model for c in job.info.cores if c.kind == kind and c.model), "")
 
 
 def _csv(ids: list[int]) -> str:
@@ -339,7 +340,8 @@ def serving_gpu_mem(port: int, latest: Sample | None, model: str | None = None) 
 
     A server run by root or in a container hides its listening socket's pid from the agent's user, but NVML
     still lists its GPU compute processes: then the footprint is theirs (those whose detected model matches
-    ``model`` when any do), and the returned source says how it was attributed."""
+    ``model``, or that share a container with a process that does, when any do), and the returned source says
+    how it was attributed."""
     pid = None
     try:
         for c in psutil.net_connections(kind="tcp"):
@@ -352,7 +354,10 @@ def serving_gpu_mem(port: int, latest: Sample | None, model: str | None = None) 
     if pid is None:
         gpu = [pr for pr in procs if pr.gpu_mem]
         m = (model or "").lower()
-        named = [pr for pr in gpu if m and pr.model and (pr.model.lower() in m or m in pr.model.lower())]
+        serving = [pr for pr in procs if m and pr.model and (pr.model.lower() in m or m in pr.model.lower())]
+        # vLLM's GPU worker (VLLM::EngineCore) names no model; the API server in its container does
+        boxes = {pr.container for pr in serving if pr.container}
+        named = [pr for pr in gpu if pr in serving or (pr.container and pr.container in boxes)]
         pick = named or gpu
         if not pick:
             return None, (
@@ -374,13 +379,28 @@ def serving_gpu_mem(port: int, latest: Sample | None, model: str | None = None) 
     return sum(mem), f"pid {pid} and its children"
 
 
+async def _procs_sample(job: Job, seen: Sample | None) -> Sample | None:
+    """The newest sample that carries the process list. The agent collects processes only every
+    procs_interval_s (5 s by default), so most samples have none: after a short run, wait for the next."""
+    deadline = time.monotonic() + PROCS_WAIT_S
+    while seen is None and time.monotonic() < deadline:
+        s = job.runner.latest()
+        if s is not None and s.procs is not None:
+            return s
+        await asyncio.sleep(0.25)
+    return seen
+
+
 async def llm_inference(job: Job, p: LlmInferenceParams) -> None:
     before = job.runner.latest()
     peak = {"used": 0, "gpu": 0}
+    with_procs: list[Sample] = [before] if before is not None and before.procs is not None else []
 
     def track(s: Sample) -> None:
         peak["used"] = max(peak["used"], s.mem.used)
         peak["gpu"] = max(peak["gpu"], s.mem.gpu or 0)
+        if s.procs is not None:
+            with_procs[:] = [s]
 
     args = ["--base-url", p.base_url, "--api", p.api, "--prompt-tokens", str(p.prompt_tokens)]
     args += [
@@ -402,7 +422,8 @@ async def llm_inference(job: Job, p: LlmInferenceParams) -> None:
     port = parts.port or (443 if parts.scheme == "https" else 80)
     serving, how = (None, "endpoint is on another host")
     if parts.hostname in ("127.0.0.1", "localhost") or parts.hostname in _local_ips():
-        serving, how = await asyncio.to_thread(serving_gpu_mem, port, job.runner.latest(), labels["model"])
+        latest = await _procs_sample(job, with_procs[0] if with_procs else None)
+        serving, how = await asyncio.to_thread(serving_gpu_mem, port, latest, labels["model"])
     if serving is None:
         job.log(f"No memory footprint attributed to the serving process: {how}")
     if serving is not None:

@@ -56,29 +56,36 @@ def _vals(bench: str, node: str = "spark1", seed: int = 0, role: str = "single",
 def test_demo_numbers_are_plausible_for_gb10():
     for seed in range(5):
         g = _vals("gpu-matmul", seed=seed)
-        assert 90 <= g["bf16_tflops"] <= 100 and 88 <= g["fp16_tflops"] <= 100
+        # measured: BF16 98.4-99.2, FP16 97.7-98.9, FP8/BF16 1.98-2.02, FP4/FP8 1.74-1.77
+        assert 93 <= g["bf16_tflops"] <= 104 and 93 <= g["fp16_tflops"] <= 104
         assert (
-            1.8 <= g["fp8_tflops"] / g["bf16_tflops"] <= 2.2
-            and 1.8 <= g["fp4_tflops"] / g["fp8_tflops"] <= 2.2
+            1.85 <= g["fp8_tflops"] / g["bf16_tflops"] <= 2.15
+            and 1.65 <= g["fp4_tflops"] / g["fp8_tflops"] <= 1.9
         )
         m = _vals("mem-bandwidth", seed=seed)
-        assert 220 <= m["gpu_copy_gbps"] <= 250 and 220 <= m["gpu_triad_gbps"] <= 250
-        assert 100 <= m["cpu_all_copy_gbps"] <= 130 and 100 <= m["cpu_all_triad_gbps"] <= 130
+        assert 205 <= m["gpu_copy_gbps"] <= 240 and 205 <= m["gpu_triad_gbps"] <= 240
+        assert 100 <= m["cpu_all_copy_gbps"] <= 140 and 100 <= m["cpu_all_triad_gbps"] <= 140
+        assert 0.85 <= m["cpu_eff_copy_gbps"] / m["cpu_perf_copy_gbps"] <= 1.25  # sets span both clusters
         r = _vals("rdma-bw-lat", seed=seed, role="client")
-        assert 185 <= r["rdma_write_bw"] <= 195 and 2 <= r["rdma_write_lat"] <= 3
+        assert 105 <= r["rdma_write_bw"] <= 112 and 1.3 <= r["rdma_write_lat"] <= 1.6  # measured: 108.9, 1.4
+        assert r["rdma_write_lat"] < r["rdma_write_lat_p99"] <= 2.2
         assert _vals("rdma-bw-lat", role="server") == {}  # the client measures
         n = _vals("nccl-allreduce", seed=seed, role="rank0")
         assert 20 <= n["allreduce_busbw_peak"] <= 24 and _vals("nccl-allreduce", role="rank1") == {}
+        assert 11 <= n["allreduce_latency_small"] <= 16  # measured: 12.4-14.5 us for 8 B-2 KiB
         llm = _vals("llm-inference", seed=seed)
         assert 30 <= llm["decode_tok_s"] <= 60 and 150 <= llm["ttft_p50_ms"] <= 600
         c = _vals("cpu-throughput", seed=seed)
-        assert c["single_perf_mbps"] > 1.5 * c["single_eff_mbps"]
+        assert 230 <= c["single_perf_mbps"] <= 260 and 115 <= c["single_eff_mbps"] <= 135  # real: 246, 125
+        assert 1.8 <= c["single_perf_mbps"] / c["single_eff_mbps"] <= 2.2  # real: 1.97
+        scaling = c["multi_all_mbps"] / (c["multi_perf_mbps"] + c["multi_eff_mbps"])
+        assert 0.95 <= scaling <= 1.02  # real: 0.988
     s = _vals("storage-fio")  # fio not installed on the demo nodes: built-in runner, lower 4K IOPS
-    assert 5000 <= s["seq_read_mbps"] <= 7000 and 3500 <= s["seq_write_mbps"] <= 5000
-    assert s["rand_read_iops"] < 600_000
+    assert 8000 <= s["seq_read_mbps"] <= 9500 and 5800 <= s["seq_write_mbps"] <= 7800  # real GB/s
+    assert 12_000 <= s["rand_read_iops"] <= 17_000 and 600 <= s["rand_read_p99_us"] <= 1000  # real, QD 4
     fio_info = DemoModel("spark1", T0).info.model_copy(update={"tools": {"fio": True}})
     fio = _vals("storage-fio", info=fio_info)
-    assert 6000 <= fio["seq_read_mbps"] <= 7000 and 4000 <= fio["seq_write_mbps"] <= 5000
+    assert fio["seq_read_mbps"] > s["seq_read_mbps"] and fio["seq_write_mbps"] >= 0.9 * s["seq_write_mbps"]
     assert 600_000 <= fio["rand_read_iops"] <= 900_000
     assert _vals("gpu-matmul", seed=1) != _vals("gpu-matmul", seed=2)  # run-to-run noise
 
@@ -173,7 +180,7 @@ def test_demo_history_is_seeded_with_a_baseline_and_a_regression(demo):
     latest = runs[0]
     assert latest.bench_id == "gpu-matmul" and latest.baseline_run_id is not None
     bf16 = next(x for x in latest.results if x.metric == "bf16_tflops")
-    assert (bf16.value, bf16.baseline, bf16.regression) == (81.2, 95.0, True)
+    assert (bf16.value, bf16.baseline, bf16.regression) == (81.2, 98.0, True)
     assert [x.metric for x in latest.results if x.regression] == ["bf16_tflops"]
     base = BenchRun.model_validate(demo.get(f"/api/v1/bench/runs/{latest.baseline_run_id}").json())
     assert base.baseline_for and base.params_key == latest.params_key
@@ -185,7 +192,7 @@ def test_demo_history_is_seeded_with_a_baseline_and_a_regression(demo):
         if e["kind"] == "bench"
     ]
     assert [e.title for e in warn] == [
-        "Benchmark regression on spark1: BF16 dense GEMM 81.2 TFLOPS vs baseline 95.0 (−14.5%)"
+        "Benchmark regression on spark1: BF16 dense GEMM 81.2 TFLOPS vs baseline 98.0 (−17.1%)"
     ]
 
 

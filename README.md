@@ -61,6 +61,20 @@ address; use the host port you published.) The demo needs no token, and its firs
 the scripted episodes start. Without Docker, follow the "Demo" section of
 [DEV.md](DEV.md), which runs the same thing from a Python venv and a web build.
 
+## Install the whole cluster in one command
+
+On spark1, as your normal user, from the repo root (with `web/dist` built: `cd web && npm ci && npm run build`):
+
+```sh
+./deploy/install-cluster.sh            # add --dry-run first to see every action on both nodes
+```
+
+It installs `sparkline-agent` on spark1 and on its peer (ssh host `spark2`, override with `--peer`), with one
+shared agent token and the ConnectX-7 `peers` filled in from each node's RDMA interfaces. It then installs the
+console on spark1 and prints its URL (`http://<spark1 LAN IP>:9700`) and sign-in token. It asks for your sudo
+password on each node. Benchmarks are enabled by default (`--no-benchmarks` for monitor-only agents). The steps
+below do the same per node by hand.
+
 ## Install on the nodes (agent)
 
 Run this on every DGX Spark. You need sudo, Python 3.12 or newer with `python3-venv` (or `uv`), and internet
@@ -285,13 +299,13 @@ Benchmarks run only when you confirm them in the console. One job runs per node 
 
 | Benchmark | What it measures | Default duration | Impact | Needs |
 |---|---|---|---|---|
-| GPU matmul (`gpu-matmul`) | Dense GEMM TFLOPS for BF16, FP16, FP8 and FP4 (where supported) | about 1 min | High: saturates the GPU | Docker + PyTorch image |
-| Unified memory bandwidth (`mem-bandwidth`) | Copy/triad GB/s from the GPU and from the CPU (all, performance and efficiency cores) | about 40 s | Medium: slows running inference | Docker + PyTorch image |
-| CPU throughput (`cpu-throughput`) | Single- and multi-core MB/s, per core type | about 30 s | Medium CPU, GPU barely affected | nothing extra |
-| NCCL all-reduce (`nccl-allreduce`) | All-reduce bus bandwidth between the two nodes over the CX7 rails | about 30 s | Medium: stalls a TP=2 job | Docker + PyTorch image, 2 nodes |
-| RDMA bandwidth and latency (`rdma-bw-lat`) | `ib_write_bw` / `ib_write_lat` over one CX7 rail | about 15 s | Low: saturates that rail | `perftest`, 2 nodes |
+| GPU matmul (`gpu-matmul`) | Dense GEMM TFLOPS for BF16, FP16, FP8 and FP4 (NVFP4 on GB10; reported as unsupported elsewhere) | about 20 s | High: saturates the GPU | Docker + PyTorch image |
+| Unified memory bandwidth (`mem-bandwidth`) | Copy/triad GB/s from the GPU and from the CPU (all, performance and efficiency cores) | about 10 s | Medium: slows running inference | Docker + PyTorch image |
+| CPU throughput (`cpu-throughput`) | Single- and multi-core MB/s, per core type | about 25 s | Medium CPU, GPU barely affected | nothing extra |
+| NCCL all-reduce (`nccl-allreduce`) | All-reduce bus bandwidth between the two nodes over the CX7 rails | about 10 s | Medium: stalls a TP=2 job | Docker + PyTorch image, 2 nodes |
+| RDMA bandwidth and latency (`rdma-bw-lat`) | `ib_write_bw` / `ib_write_lat` over one CX7 rail | about 10 s | Low: saturates that rail | `perftest`, 2 nodes |
 | NVMe storage (`storage-fio`) | Sequential 1 MiB and random 4 KiB read/write: MB/s, IOPS, p99 latency | about 35 s | Low, but heavy disk I/O | `fio` (optional) |
-| LLM inference (`llm-inference`) | TTFT, prefill and decode tokens/s, memory footprint | about 1 min | Medium: real requests to your server | An OpenAI-compatible endpoint on the LAN |
+| LLM inference (`llm-inference`) | TTFT, prefill and decode tokens/s, memory footprint | seconds to minutes, depending on the model | Medium: real requests to your server | An OpenAI-compatible endpoint on the LAN |
 | Thermal soak (`thermal-soak`) | Clock stability, throttling, temperature and TFLOPS drift under sustained load | 10 to 30 min | High: holds the GPU at full load | Docker + PyTorch image |
 
 Notes:
@@ -307,6 +321,26 @@ Notes:
 - Each result records driver, CUDA and NVML versions, GPU name and UUID, clocks and temperatures at start and
   end, agent version, the suite's git hash (when run from a checkout) and SHA-256, hostnames, parameters and
   timestamps.
+
+### Typical results on a DGX Spark (GB10)
+
+Measured on two idle DGX Sparks with the default parameters unless noted (2026-10-07). Use them to tell whether
+your own run is in the right range; [DISCOVERY.md](DISCOVERY.md) has the spread, the cross-checks and the
+caveats.
+
+| Benchmark | Typical result |
+|---|---|
+| GPU matmul at 16384³ | BF16 ~99, FP16 ~98, FP8 (per-tensor scale) ~197, FP4 (NVFP4) ~347 TFLOPS. FP8 with per-row scales is much slower (~56) |
+| Memory bandwidth | GPU copy / triad ~222 / ~224 GB/s (about 82 % of 273 GB/s). CPU ~120 GB/s for every core set; the efficiency set is level with or slightly ahead of the performance set |
+| CPU throughput | ~246 MB/s per Cortex-X925 core, ~125 per Cortex-A725 core, ~2450 / ~1250 for each set of 10, ~3660 for all 20 |
+| NVMe (built-in runner, 4 GiB) | sequential write ~5–8 GB/s, read ~8–9.5 GB/s; 4 KiB random ~12–18 k IOPS with 4 workers, ~110–185 k with 32 |
+| RDMA, one rail | ~109 Gb/s write bandwidth at 64 KiB, ~1.45 µs latency |
+| NCCL all-reduce, both rails | ~22.5 GB/s bus bandwidth at 1 GiB, ~13 µs for 8 B |
+| Thermal soak, 10 min at 8192 | ~95 TFLOPS BF16, under 1 % drop first to last minute, ~81 °C peak, SM clock ~2.15–2.18 GHz, no throttle reasons |
+| LLM inference | depends on your model and server; Qwen2.5-0.5B on vLLM decodes ~160 tokens/s per request |
+
+Each CX7 rail is its own PCIe Gen5 x4 link (~109 Gb/s of payload), but both rails share one 200 Gb/s port: run
+together they carry ~185 Gb/s, which is the ceiling NCCL reaches.
 
 ## Keyboard shortcuts
 

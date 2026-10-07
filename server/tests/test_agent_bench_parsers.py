@@ -31,15 +31,15 @@ def test_json_lines():
 
 def test_perftest_bw_client_and_server():
     c = parse_perftest_bw((FIX / "perftest_write_bw_client.txt").read_text())
-    assert c == {
+    assert c == {  # perftest 6.20 on GB10, rail B, -D 5: msg rate x bytes x 8 = 108.93 Gb/s
         "bytes": 65536,
-        "iterations": 1801466,
+        "iterations": 623311,
         "peak": 0.0,
-        "average": 188.86,
-        "msg_rate_mpps": 0.360221,
+        "average": 108.93,
+        "msg_rate_mpps": 0.20777,
     }
     s = parse_perftest_bw((FIX / "perftest_write_bw_server.txt").read_text())
-    assert s["average"] == 188.79
+    assert s["average"] == 108.93
 
 
 def test_perftest_bw_mib_units_converted():
@@ -61,13 +61,13 @@ def test_perftest_lat():
     assert r == {
         "bytes": 2,
         "iterations": 5000,
-        "min": 1.64,
-        "max": 6.89,
-        "typical": 1.71,
-        "avg": 1.73,
-        "stdev": 0.08,
-        "p99": 2.02,
-        "p999": 6.89,
+        "min": 1.38,
+        "max": 3.01,
+        "typical": 1.46,
+        "avg": 1.56,
+        "stdev": 0.01,
+        "p99": 1.96,
+        "p999": 2.12,
     }
 
 

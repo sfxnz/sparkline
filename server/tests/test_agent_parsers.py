@@ -263,6 +263,12 @@ def test_model_detection():
     cmd = fx("cmdline_exl3").replace("\0", " ").strip()
     assert detect_model(cmd) == "DeepSeek-V4.1-Flash-EXL3"
     assert detect_model("vllm serve --model=meta-llama/Llama-3.1-8B") == "meta-llama/Llama-3.1-8B"
+    # vLLM's documented form, positional (the vllm/vllm-openai image's entrypoint is `vllm serve`)
+    real = "/usr/bin/python3 /usr/local/bin/vllm serve Qwen/Qwen2.5-0.5B-Instruct --host 0.0.0.0 --port 8000"
+    assert detect_model(real) == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert detect_model("vllm serve /srv/ckpt/llama-3-8b/ --port 8000") == "llama-3-8b"
+    assert detect_model("trtllm-serve serve nvidia/Llama-3.1-8B-FP8 --port 8000") == "nvidia/Llama-3.1-8B-FP8"
+    assert detect_model("vllm serve --port 8000") is None  # flags only: nothing to report
     assert detect_model("python x.py --model-path /data/ckpt/qwen3-32b/") == "qwen3-32b"
     assert detect_model("llama-server -m /srv/llm/mistral-7b.Q4_K_M.gguf") == "mistral-7b.Q4_K_M"
     assert detect_model("python serve.py /models/gemma-3") == "gemma-3"

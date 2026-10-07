@@ -94,10 +94,10 @@ def _env(node: str, info: NodeInfo | None) -> probes.Env:
 COMPRESSED_NOTE = "Demo: runs are time-compressed to about a tenth of the estimated duration."
 # Disk load of each storage profile in the demo (read B/s, write B/s): the built-in runner's results below.
 DISK_LOAD = {
-    "seq_write": (0.0, 4.65e9),
-    "seq_read": (5.75e9, 0.0),
-    "rand_read": (65.5e6, 0.0),
-    "rand_write": (0.0, 76.6e6),
+    "seq_write": (0.0, 6.9e9),
+    "seq_read": (8.5e9, 0.0),
+    "rand_read": (57.8e6, 0.0),
+    "rand_write": (0.0, 61.0e6),
 }
 
 
@@ -174,11 +174,11 @@ def phases(bench: str, p: dict[str, Any], peer_ip: str | None) -> list[tuple[str
         return out
     if bench == "cpu-throughput":
         return [
-            ("Single core (Cortex-X925)", 1),
-            ("Single core (Cortex-A725)", 1),
-            ("All performance cores (10x Cortex-X925)", 1),
-            ("All efficiency cores (10x Cortex-A725)", 1),
-            ("All cores (20)", 1),
+            ("Single performance core (Cortex-X925)", 1),
+            ("Single efficiency core (Cortex-A725)", 1),
+            ("All 10 performance cores (Cortex-X925)", 1),
+            ("All 10 efficiency cores (Cortex-A725)", 1),
+            ("All 20 cores (10 performance + 10 efficiency)", 1),
         ]
     if bench == "nccl-allreduce":
         sizes = nccl_sizes(p["max_size_mib"])[::3]
@@ -229,7 +229,9 @@ def make_results(
         return 1 + rng.gauss(0, sd) + (-0.006 if node == "spark2" else 0.0)
 
     if bench == "gpu-matmul":
-        base = {"bf16": 95.0, "fp16": 93.5, "fp8": 188.0, "fp4": 371.0}
+        # measured on spark1 and spark2 at 16384 (2026-10-07): BF16 98.5-99.2, FP16 97.7-98.9, FP8 per-tensor
+        # 195-200, NVFP4 343-349 TFLOPS; 4096 reaches 0.82-0.90 of that, 8192 0.95-0.99
+        base = {"bf16": 98.5, "fp16": 98.0, "fp8": 196.0, "fp4": 345.0}
         scale = {"4096": 0.86, "8192": 0.97, "16384": 1.0}
         best = max(p["sizes"], key=lambda s: scale[s])
         labels = {"bf16": "BF16", "fp16": "FP16", "fp8": "FP8", "fp4": "FP4"}
@@ -250,17 +252,19 @@ def make_results(
             )
         return out, {}
     if bench == "mem-bandwidth":
+        # measured on spark1 and spark2 (1 GiB arrays): GPU ~222 / ~224 GB/s; CPU about 120 GB/s for every
+        # core set, the A725 set slightly ahead of the X925 set (each set spans both clusters)
         out = []
         if p["side"] in ("both", "gpu"):
             out += [
-                _r("gpu_copy_gbps", "GPU copy", 231 * n(), "GB/s", array_mib=p["gpu_array_mib"]),
-                _r("gpu_triad_gbps", "GPU triad", 242 * n(), "GB/s", array_mib=p["gpu_array_mib"]),
+                _r("gpu_copy_gbps", "GPU copy", 222 * n(), "GB/s", array_mib=p["gpu_array_mib"]),
+                _r("gpu_triad_gbps", "GPU triad", 224 * n(), "GB/s", array_mib=p["gpu_array_mib"]),
             ]
         if p["side"] in ("both", "cpu"):
             for key, label, copy, triad, threads in (
-                ("all", "all cores", 112, 121, 20),
-                ("perf", "performance cores", 98, 105, 10),
-                ("eff", "efficiency cores", 64, 69, 10),
+                ("all", "all cores", 125, 119, 20),
+                ("perf", "performance cores", 119, 114, 10),
+                ("eff", "efficiency cores", 126, 120, 10),
             ):
                 out += [
                     _r(f"cpu_{key}_copy_gbps", f"CPU copy, {label}", copy * n(0.02), "GB/s", threads=threads),
@@ -275,18 +279,20 @@ def make_results(
         return out, {}
     if bench == "cpu-throughput":
         wl = {"workload": "sha256+zlib", "seconds": p["seconds_per_test"]}
-        # measured on spark1: X925 core ~199, A725 core ~114, all 20 cores ~2800 MB/s
+        # measured on spark1 and spark2 (2026-10-07, heap trimming off): X925 core ~246, A725 core ~125 MB/s;
+        # 10 cores of a kind scale 10.0x; all 20 cores ~3660 (98.8 % of the two sets' sum)
+        both = "All 20 cores (10 performance + 10 efficiency)"
         return [
-            _r("single_perf_mbps", "Single core (Cortex-X925)", 199 * n(), "MB/s", **wl),
-            _r("single_eff_mbps", "Single core (Cortex-A725)", 114 * n(), "MB/s", **wl),
-            _r("multi_perf_mbps", "All performance cores (10x Cortex-X925)", 1880 * n(0.015), "MB/s", **wl),
-            _r("multi_eff_mbps", "All efficiency cores (10x Cortex-A725)", 1080 * n(0.015), "MB/s", **wl),
-            _r("multi_all_mbps", "All cores (20)", 2800 * n(0.015), "MB/s", **wl),
+            _r("single_perf_mbps", "Single performance core (Cortex-X925)", 246 * n(), "MB/s", **wl),
+            _r("single_eff_mbps", "Single efficiency core (Cortex-A725)", 125 * n(), "MB/s", **wl),
+            _r("multi_perf_mbps", "All 10 performance cores (Cortex-X925)", 2455 * n(0.015), "MB/s", **wl),
+            _r("multi_eff_mbps", "All 10 efficiency cores (Cortex-A725)", 1250 * n(0.015), "MB/s", **wl),
+            _r("multi_all_mbps", both, 3660 * n(0.015), "MB/s", **wl),
         ], {}
     if bench == "nccl-allreduce":
         peak = 22.6 * n(0.015)
         sizes = nccl_sizes(p["max_size_mib"])
-        lat_us = 27.0 * n(0.04)
+        lat_us = 13.0 * n(0.04)  # measured on two GB10s: 12.4-14.5 us up to 2 KiB, 22.55 GB/s at 1 GiB
         times = [lat_us + s / (peak * 1e3) for s in sizes]  # µs; for 2 ranks busbw == algbw
         bw = [s / (t * 1e3) for s, t in zip(sizes, times, strict=True)]
         series = {
@@ -325,7 +331,9 @@ def make_results(
     if bench == "rdma-bw-lat":
         out, rail = [], p["rail"]
         if "bw" in p["tests"]:
-            gbps = {"4096": 141.0, "65536": 189.5, "1048576": 193.2}[p["msg_size"]] * n(0.006)
+            # measured spark1 -> spark2 on both rails (perftest 6.20, RoCE MTU 1024): each rail is one PCIe
+            # Gen5 x4 function, so ~109 Gb/s of payload (115 Gb/s on the wire), not the 200 Gb/s port rate.
+            gbps = {"4096": 104.2, "65536": 108.9, "1048576": 109.1}[p["msg_size"]] * n(0.004)
             out.append(
                 _r(
                     "rdma_write_bw",
@@ -337,13 +345,13 @@ def make_results(
                 )
             )
         if "lat" in p["tests"]:
-            lat = 2.38 * n(0.03)
+            lat = 1.43 * n(0.03)  # measured typical 1.40-1.46 us, p99 1.50-1.96 us
             out += [
                 _r("rdma_write_lat", f"RDMA write latency (rail {rail})", lat, "us", "lower", rail=rail),
                 _r(
                     "rdma_write_lat_p99",
                     f"RDMA write latency p99 (rail {rail})",
-                    lat * 1.31 * n(0.05),
+                    lat * (1.05 + 0.3 * rng.random()),  # measured p99 / typical: 1.07-1.34
                     "us",
                     "lower",
                 ),
@@ -352,13 +360,14 @@ def make_results(
     if bench == "storage-fio":
         fio = bool(info and info.tools.get("fio"))
         ex = {"method": "fio" if fio else "builtin", "size_mib": p["size_mib"], "threads": p["threads"]}
-        # (MB/s, IOPS, p99 µs) with fio / with the built-in single-process runner
+        # (MB/s, IOPS, p99 µs) with fio / with the built-in runner. Built-in measured on spark1 and spark2
+        # (4 GiB, QD 1 per 1 MiB stream, 4 workers at QD 1 for 4 KiB): 5.8-7.8 / 8.0-9.5 GB/s, 12-17k IOPS.
+        # fio sequential: dd with 16 MiB O_DIRECT requests on the same drives, 6.3-7.9 / 12.1 GB/s.
         table = {
-            "seq_write": ((4750, 0, 350), (4650, 0, 400)),  # built-in measured on spark1: ~5.0 GB/s
-            "seq_read": ((6600, 0, 420), (5750, 0, 480)),  # built-in measured: ~5.9 GB/s, p99 ~0.48 ms
-            # built-in measured (64 MiB, 4 threads, synchronous O_DIRECT, QD 4): ~16k / ~18.7k IOPS
-            "rand_read": ((3110, 760_000, 95), (65.5, 16_000, 685)),
-            "rand_write": ((1970, 480_000, 40), (76.6, 18_700, 320)),
+            "seq_write": ((7000, 0, 350), (6900, 0, 410)),
+            "seq_read": ((12000, 0, 420), (8500, 0, 320)),
+            "rand_read": ((3110, 760_000, 95), (57.8, 14_100, 800)),
+            "rand_write": ((1970, 480_000, 40), (61.0, 14_900, 800)),
         }
         out = []
         for prof in p["profiles"]:
@@ -393,7 +402,8 @@ def soak_point(model: DemoModel, t: float, rng: random.Random) -> dict[str, floa
     g = model.sample_at(t).gpu[0]
     vals = [g.sm_mhz, g.temp_c, g.power_w, g.throttle_mask, g.util]
     pt = {k: float(v or 0.0) for k, v in zip(SOAK_KEYS, vals, strict=True)}
-    pt["tflops"] = round(95.0 * 0.97 * min(1.0, (g.sm_mhz or 0.0) / 2200) * (1 + rng.gauss(0, 0.004)), 3)
+    # measured 10 min soaks at 8192: 94.6 TFLOPS at 2149 MHz, 95.5 at 2181 MHz
+    pt["tflops"] = round(96.5 * min(1.0, (g.sm_mhz or 0.0) / 2200) * (1 + rng.gauss(0, 0.004)), 3)
     return pt
 
 
@@ -672,7 +682,7 @@ _SEED: list[tuple[str, list[str], dict, float, str, bool]] = [
     ("llm-inference", ["spark1"], {}, 26, "succeeded", False),
     ("nccl-allreduce", ["spark1", "spark2"], {}, 20, "succeeded", False),
     ("thermal-soak", ["spark2"], {"minutes": 20}, 7, "cancelled", False),
-    ("gpu-matmul", ["spark1"], {}, 3, "succeeded", False),  # the regression (BF16 81.2 vs 95.0)
+    ("gpu-matmul", ["spark1"], {}, 3, "succeeded", False),  # the regression (BF16 81.2 vs 98.0)
 ]
 
 
@@ -737,7 +747,7 @@ def seed_history(
                     r.value = 81.2 if r.metric == "bf16_tflops" else round(r.value * 0.985, 3)
             if i == 0:
                 for r in results:  # a round, memorable baseline
-                    r.value = 95.0 if r.metric == "bf16_tflops" else r.value
+                    r.value = 98.0 if r.metric == "bf16_tflops" else r.value
             owner = None if bench in CLUSTER_RESULTS else n
             run.results += [r.model_copy(update={"node_id": owner}) for r in results]
             run.series.update({f"{n}.{k}": v for k, v in series.items()})

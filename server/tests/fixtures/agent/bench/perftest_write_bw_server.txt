@@ -1,28 +1,26 @@
-
 ************************************
 * Waiting for client to connect... *
 ************************************
 ---------------------------------------------------------------------------------------
                     RDMA_Write BW Test
- Dual-port       : OFF		Device         : rocep1s0f1
+ Dual-port       : OFF		Device         : roceP2p1s0f1
  Number of qps   : 1		Transport type : IB
  Connection type : RC		Using SRQ      : OFF
- PCIe relax order: ON		Lock-free      : OFF
- ibv_wr* API     : ON		Using DDP      : OFF
+ PCIe relax order: ON
+ ibv_wr* API     : ON
  CQ Moderation   : 1
- CQE Poll Batch  : 16
- Mtu             : 4096[B]
+ Mtu             : 1024[B]
  Link type       : Ethernet
  GID index       : 3
  Max inline data : 0[B]
  rdma_cm QPs	 : OFF
  Data ex. method : Ethernet
 ---------------------------------------------------------------------------------------
- local address: LID 0000 QPN 0x0129 PSN 0x91b2e4 RKey 0x203f00 VAddr 0x00ffffa1c20000
- GID: 00:00:00:00:00:00:00:00:00:00:255:255:10:100:08:01
- remote address: LID 0000 QPN 0x012a PSN 0x4f1c2d RKey 0x203e00 VAddr 0x00ffff8a3f0000
- GID: 00:00:00:00:00:00:00:00:00:00:255:255:10:100:08:02
+ local address: LID 0000 QPN 0x40a2 PSN 0x1e923c RKey 0x1e0400 VAddr 0x00ee5b967b5000
+ GID: 00:00:00:00:00:00:00:00:00:00:255:255:10:100:09:02
+ remote address: LID 0000 QPN 0x40a2 PSN 0x2f78c6 RKey 0x1e0400 VAddr 0x00e36190f3d000
+ GID: 00:00:00:00:00:00:00:00:00:00:255:255:10:100:09:01
 ---------------------------------------------------------------------------------------
  #bytes     #iterations    BW peak[Gb/sec]    BW average[Gb/sec]   MsgRate[Mpps]
- 65536      1801466          0.00               188.79 		   0.360083
+ 65536      623311           0.00               108.93 		   0.207770
 ---------------------------------------------------------------------------------------

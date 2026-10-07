@@ -7,7 +7,7 @@ import { formatFreq, formatPercent, formatTemp } from '../../lib/format';
 import { decodeThrottle } from '../../lib/throttle';
 import type { BenchRun } from '../../lib/types';
 import { serverNow } from '../../store/cluster';
-import { alignByNode, formatValue, parseRunSeries, SOAK_MIN_SPAN_S, soakStats, TELEMETRY_PREFIX, type NodeSeries, type SoakStats } from './model';
+import { alignByNode, formatValue, parseRunSeries, SOAK_MIN_SPAN_S, soakStats, TELEMETRY_PREFIX, withSoakResults, type NodeSeries, type SoakStats } from './model';
 import { RunChart } from './RunChart';
 import { runFrame, runMarkers } from './RunTelemetry';
 
@@ -43,7 +43,7 @@ export function SoakPanel({ run, expected }: { run: BenchRun; expected: number }
     <Panel title="Soak analysis" subtitle="From the series recorded during the run">
       <div className="bench-soak">
         {nodes.map((n) => (
-          <SoakStatsRow key={n} node={n} multi={nodes.length > 1} stats={soakStats(parsed.ts[n] ?? [], parsed.byNode[n] ?? {})} />
+          <SoakStatsRow key={n} node={n} multi={nodes.length > 1} stats={withSoakResults(soakStats(parsed.ts[n] ?? [], parsed.byNode[n] ?? {}), run.results, n)} />
         ))}
         <div className="bench-telemetry">
           {CHARTS.filter((c) => nodes.some((n) => parsed.byNode[n]?.[c.kind]?.length)).map((c) => (
@@ -97,7 +97,7 @@ function SoakStatsRow({ node, multi, stats }: { node: string; multi: boolean; st
           </dd>
         </div>
         <div>
-          <dt>First → last minute</dt>
+          <dt>{stats.tflopsWindowS ? `First → last ${Math.round(stats.tflopsWindowS)} s` : 'First → last minute'}</dt>
           {stats.firstMinuteTflops === null || stats.lastMinuteTflops === null ? (
             <>
               <dd className="num">—</dd>

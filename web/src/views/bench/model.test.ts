@@ -59,6 +59,11 @@ describe('review fixes', () => {
     expect(formatValue(-29.5)).toBe('−29.5');
     expect(resultText(result({ metric: 'tflops_change_pct', value: 27.3, unit: '%' }))).toBe('+27.3%');
     expect(resultText(result({ metric: 'tflops_change_pct', value: -12, unit: '%' }))).toBe('−12.0%');
+    // real thermal-soak results: SM clocks in MHz and the peak temperature read as on the live screens
+    expect(resultText(result({ metric: 'sm_mhz_mean', value: 2148.626, unit: 'MHz' })).replace(/\u00a0/g, ' ')).toBe('2.15 GHz');
+    expect(resultText(result({ metric: 'sm_mhz_min', value: 2093, unit: 'MHz' }))).toBe('2.09 GHz');
+    expect(resultText(result({ metric: 'temp_max_c', value: 81.0, unit: '°C' }))).toBe('81 °C');
+    expect(resultText(result({ metric: 'sm_clock_cv_pct', value: 0.5277, unit: '%' }))).toBe('0.528%');
   });
   it('compares percentages in points, and never flags runs whose params differ', () => {
     expect(deltaLook(1.0, 0.5, 'lower', 5, undefined, '%')).toMatchObject({ text: '+0.5 pts', regression: false });
@@ -330,6 +335,27 @@ describe('run series and soak stats', () => {
     expect(stats.firstMinuteTflops).toBeCloseTo(100 - 10 / 61);
     expect(stats.lastMinuteTflops).toBe(90);
   });
+  it('takes first vs last minute throughput from the payload results once the run has them', async () => {
+    const { withSoakResults } = await import('./model');
+    const ts = Array.from({ length: 180 }, (_, i) => i);
+    // the 1 Hz samples of real run 0muykplobp9x read 95.07 -> 93.97; the payload's every-window means 94.631 -> 93.691
+    const sampled = soakStats(ts, { tflops: ts.map((i) => (i < 60 ? 95.07 : 93.97)) });
+    const results = [
+      result({ metric: 'tflops_first', value: 94.631, node_id: 'spark1' }),
+      result({ metric: 'tflops_last', value: 93.691, node_id: 'spark1' }),
+      result({ metric: 'tflops_change_pct', value: -0.99, node_id: 'spark1' }),
+      result({ metric: 'tflops_first', value: 95.528, node_id: 'spark2' }),
+    ];
+    const s1 = withSoakResults(sampled, results, 'spark1');
+    expect([s1.firstMinuteTflops, s1.lastMinuteTflops, s1.tflopsChangePct]).toEqual([94.631, 93.691, -0.99]);
+    expect(withSoakResults(sampled, results, 'spark2')).toBe(sampled); // incomplete: keep the series' figures
+    expect(withSoakResults(sampled, [], 'spark1')).toBe(sampled); // live run: no results yet
+    // a 1-minute soak: the payload compares the first and last 20 s (real run 0muymdjyhkob)
+    const short = withSoakResults(soakStats([], {}), [result({ metric: 'tflops_first', value: 94.675, extras: { window_s: 20 } }), result({ metric: 'tflops_last', value: 94.553, extras: { window_s: 20 } })], 'spark1');
+    expect([short.firstMinuteTflops, short.tflopsWindowS, short.hasTflops]).toEqual([94.675, 20, true]);
+    expect(short.tflopsChangePct).toBeCloseTo(-0.129, 2);
+    expect(s1.tflopsWindowS).toBeUndefined();
+  });
 });
 
 describe('competition', () => {
@@ -415,11 +441,23 @@ describe('run metadata', () => {
     const { nodeMeta, runFacts, metaText } = await import('./model');
     const consoleShape = run({ id: 'm', nodes: ['spark1', 'spark2'], metadata: { bench_name: 'GPU matmul', nodes: { spark1: { driver: '580.173.02', cuda: '13.0', gpu: 'NVIDIA GB10' }, spark2: { driver: '580.173.02' } } } });
     expect(Object.keys(nodeMeta(consoleShape))).toEqual(['spark1', 'spark2']);
+    // a live run: the agents' states arrive in reporting order, the table still follows the run's node order
+    const st = (node_id: string, metadata: Record<string, unknown>, log_tail: string[] = []) => ({ run_id: 'l', bench_id: 'thermal-soak', node_id, role: 'single', status: 'running' as const, progress: 0.1, phase: '', ready: true, started_ts: 1, finished_ts: null, results: [], series: {}, metadata, error: null, log_tail });
+    const live = run({ id: 'l', nodes: ['spark1', 'spark2'], node_states: { spark2: st('spark2', { driver: 'b' }), spark1: st('spark1', { driver: 'a' }) } });
+    expect(Object.keys(nodeMeta(live))).toEqual(['spark1', 'spark2']);
     expect(runFacts(consoleShape)).toEqual({ driver: '580.173.02', cuda: '13.0', gpu: 'NVIDIA GB10' });
     expect(nodeMeta(run({ id: 'f', metadata: { driver: '1' } }))).toEqual({ spark1: { driver: '1' } });
     expect(metaText('clocks_start', { sm_mhz: 2171 }).replace(/\u00a0/g, ' ')).toBe('2.17 GHz');
     expect(metaText('temps_end', { gpu_c: 71.4 }).replace(/\u00a0/g, ' ')).toBe('71 °C');
     expect(metaText('simulated', true)).toBe('Yes');
+  });
+  it('shows the agents\' live log until the console saves the run\'s log', async () => {
+    const { runLog } = await import('./model');
+    const st = (node_id: string, log_tail: string[]) => ({ run_id: 'l', bench_id: 'thermal-soak', node_id, role: 'single', status: 'running' as const, progress: 0.1, phase: '', ready: true, started_ts: 1, finished_ts: null, results: [], series: {}, metadata: {}, error: null, log_tail });
+    const live = run({ id: 'l', nodes: ['spark1', 'spark2'], node_states: { spark2: st('spark2', ['soak 600 s']), spark1: st('spark1', ['soak 600 s', 'more']) } });
+    expect(runLog(live)).toEqual(['[spark1] soak 600 s', '[spark1] more', '[spark2] soak 600 s']);
+    expect(runLog({ ...live, log_tail: ['[spark1] saved'] })).toEqual(['[spark1] saved']);
+    expect(runLog(run({ id: 'e' }))).toEqual([]);
   });
   it('keeps recorded telemetry when a list copy without it arrives, and parses it separately', () => {
     const full = run({ id: 't', series: { 'telemetry.spark1.ts': [1], 'telemetry.spark1.util': [90], 'spark1.tflops': [100] } });

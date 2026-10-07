@@ -145,7 +145,7 @@ def test_base_url_privacy(url, ok):
 
 def test_estimates_scale_with_params():
     b = REGISTRY["thermal-soak"]
-    assert b.estimate(b.validate({"minutes": 30})) == pytest.approx(20 + 1800)
+    assert b.estimate(b.validate({"minutes": 30})) == pytest.approx(8 + 1800)
     s = REGISTRY["storage-fio"]
     assert s.estimate(s.validate({"runtime_s": 20})) > s.estimate(s.validate({}))
     g = REGISTRY["gpu-matmul"]

@@ -78,8 +78,10 @@ def cpu_side(cores: list[int], mib: int, iters: int) -> dict[str, float]:
         best = float("inf")
         for i in range(iters + 1):  # first pass is a warm-up (page faults)
             state["op"] = op
-            start.wait()
+            # Clock starts before the release: once released, workers race this thread for the GIL and can be
+            # well into the pass before a post-release t0 (measured +30 % at 20 threads on GB10).
             t0 = time.perf_counter()
+            start.wait()
             end.wait()
             if i:
                 best = min(best, time.perf_counter() - t0)

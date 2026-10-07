@@ -17,7 +17,8 @@ Everything below was observed directly. Metrics not listed here are not shown as
 
 Workload at probe time: a TP=2 inference job (`serve_stats.py`, container `c5-2B-r0`,
 `nvcr.io/nvidia/pytorch:26.07-py3`) using ~86 GB of GPU-allocated memory and ~90% GPU utilisation **on both
-nodes**. Heavy benchmarks would disrupt it, so the benchmark suite was verified in dry-run and demo mode only.
+nodes**. Heavy benchmarks would disrupt it, so at first the benchmark suite was verified in dry-run and demo mode
+only. Every benchmark was later run on both idle nodes: see "Measured on hardware (2026-10-07)" below.
 
 ## GPU — NVIDIA GB10 (Blackwell, CC 12.1, 6144 CUDA cores)
 
@@ -66,8 +67,11 @@ The brief says Grace. GB10's CPU is actually **10× Cortex-X925 (performance) + 
 | 0–4, 10–14 | Cortex-A725 (efficiency) | 0xd87 | 2.808 GHz |
 | 5–9, 15–19 | Cortex-X925 (performance) | 0xd85 | 3.900 GHz |
 
-- Two clusters/L3 domains (`topology/cluster_id`: cpu1–10 vs cpu0,11–19). Governor `performance`.
-- Per-core `scaling_cur_freq` is readable. Per-core utilisation comes from `/proc/stat`. Load average is available.
+- Two clusters/L3 domains: cpu0–9 (8 MiB L3) and cpu10–19 (16 MiB L3), each with 5 A725 + 5 X925 cores
+  (`topology/cluster_id`, `cache/index3/shared_cpu_list`). Governor `performance`.
+- Per-core `scaling_cur_freq` is readable but reports the *requested* clock (always 3900 / 2808 MHz, even idle).
+  The real average clock is `cpufreq/cpuinfo_avg_freq` (user-readable; EAGAIN on an idle core). Per-core
+  utilisation comes from `/proc/stat`. Load average is available.
 - The core type is classified at runtime from `cpuinfo_max_freq` (with `CPU part` as a cross-check), not hard-coded.
 
 ## Network
@@ -120,6 +124,38 @@ counters come from `.../counters/` and `.../hw_counters/` (e.g. `symbol_error`, 
 | `fio` | ❌ | ❌ | Uses fio if installed. Otherwise a built-in O_DIRECT runner, clearly labelled |
 | LLM engine | vLLM images present, custom servers | same | Engine-agnostic: an OpenAI-compatible endpoint with streaming TTFT/decode timing |
 | `sudo` without a password | ❌ | — | `install.sh` must be run with sudo (`--dry-run` and `--destdir` work without). Dev runs use user-space processes |
+
+## Measured on hardware (2026-10-07)
+
+Every benchmark run through the console API on spark1 and spark2 with no other GPU workload or container (idle
+check before each run, Docker events checked during). Image `nvcr.io/nvidia/pytorch:26.07-py3` (PyTorch
+2.13.0a0, CUDA 13.3 in forward-compatibility mode over driver 580.173.02). Values are the spread over repeated
+runs; both nodes agree within the figures given.
+
+| Benchmark | Result | Cross-check |
+|---|---|---|
+| GPU matmul, 16384³ (TFLOPS) | BF16 98.4–99.5, FP16 97.3–99.4, FP8 per-tensor 195–200, **FP4 (NVFP4) 343–350** | CUDA events = wall clock; profiler kernels: `cutlass_80_tensorop` (BF16/FP16), `nvjet_sm121` (FP8), `cutlass3x_sm120_bstensorop…ue4m3xe2m1` (FP4). FP8/BF16 2.0×, FP4/FP8 1.75×. 1 PFLOP sparse FP4 ⇒ ~125 dense BF16: ~79 % |
+| GPU matmul, smaller sizes | 4096: 82–90 % of the 16384 figure; 8192: 95–100 % | FP8 per-row scaling falls to 56 at 16384 (PyTorch's row-wise CUTLASS kernel) |
+| Memory bandwidth, GPU (GB/s) | copy 221–224, triad 221–227 (1 and 8 GiB arrays) | own CUDA program: cudaMemcpy D2D 222.9, read-only 235. 81–86 % of 273 GB/s |
+| Memory bandwidth, CPU (GB/s) | copy / triad: all 20 cores 117–127 / 117–122; 10 X925 117–122 / 112–116; 10 A725 125–129 / 120–123 | C STREAM copy (pthreads, pinned): all 122, X925 117, A725 123. Cluster 0 alone ~68, cluster 1 ~98; one core ~48 |
+| CPU throughput, SHA-256 + zlib-1 (MB/s) | X925 core 245–246, A725 core 125; 10 X925 2450–2461; 10 A725 1248–1255; all 20 3632–3693 | standalone script pinned with `taskset`: 245.7 / 125.1. Scaling 10.0×; real clocks 3.89 / 2.80 GHz |
+| NVMe, built-in O_DIRECT runner, 4 GiB, 4 workers | seq write 1 MiB 5.2–7.8 GB/s; seq read 1 MiB 7.7–9.5 GB/s; 4 KiB random 12–18 k IOPS read and write, p99 0.6–1.0 ms | `/proc/diskstats` byte counts match; page cache flat. 32 workers: 185 k IOPS (spark1), 111–123 k (spark2); own C program 139–165 k / 102 k |
+| RDMA write, one rail, spark1 → spark2 | 108.9–109.0 Gb/s at 64 KiB (104.2 at 4 KiB, 109.1 at 1 MiB); latency typical 1.40–1.46 µs, p99 1.5 (rail A) / 1.95 (rail B) | hand `ib_write_bw` 108.94; NIC counters 115.1 Gb/s on the wire (RoCE MTU 1024 headers ×1.057). Each rail is a PCIe Gen5 x4 function. Both rails at once: 92.6 + 92.6 |
+| NCCL all-reduce, 2 ranks, both rails (GB/s) | peak bus bandwidth 22.54–22.55 at 1 GiB; 8 B in 12.6–14.1 µs | NCCL log: NET/IB on `rocep1s0f1` + `roceP2p1s0f1`, GPU Direct RDMA off; NIC counters 29.6 GB per rail per direction as predicted. 180 Gb/s = 97.5 % of the two-rail perftest figure |
+| LLM inference, vLLM v0.30.0, Qwen2.5-0.5B-Instruct, spark1 | decode 160 tok/s per request (163 at c=8), output 155 tok/s (c=1) / 1076 (c=8), TTFT p50 21 ms, serving memory 18.17 GiB | vLLM `/metrics`: 6.25 ms per token = 159.9 tok/s; `nvidia-smi` 18,609 MiB |
+| Thermal soak, 10 min, 8192 BF16 | 94.6 → 93.7 TFLOPS (spark1), 95.5 → 95.0 (spark2); SM clock mean 2149 / 2181 MHz, CV 0.53 / 0.21 %; peak 81 °C; 0 % throttled; GPU power 85–87 W | 90 spot checks against `nvidia-smi`: equal utilisation and throttle mask, temperature within 2 °C, power within 1.4 W |
+
+Observed behaviour worth knowing:
+
+- Under load the GPU runs at 2.1–2.2 GHz (of a 3.0 GHz maximum) at 83–92 W with no throttle reason set. As it
+  heats to ~80 °C the clock eases by 1–2 % without any reason bit; NVML utilisation tops out at 96 %.
+- GB10 shows a ~1.2 % throughput dip once a second at a fixed point in each second, with or without the agent.
+- Each CX7 rail carries ~109 Gb/s of payload; the two rails share one 200 Gb/s physical port, so both together
+  carry ~185 Gb/s of payload (~195 on the wire). Interfaces are at MTU 1500, so RoCE uses 1024-byte packets.
+- The NVMe answers a single 4 KiB request in ~200 µs (kernel average 231 µs), so few-worker random I/O is
+  latency-bound; checking interrupt coalescing needs root (`nvme get-feature -f 8`).
+- One RDMA latency run of 10 (rail B) read 3.89 µs (min 2.15) right after its bandwidth test; repeats read
+  1.44–1.46 µs. Not reproduced.
 
 ## Permissions
 
