@@ -95,7 +95,7 @@ export function Totals() {
             totals.memUsed !== null && totals.memTotal ? (
               <span className="num">
                 {formatBytes(totals.memUsed).replace(/\s?GiB$/, '')} of {formatBytes(totals.memTotal)}
-                {totals.psi !== null ? (totals.psi < 0.05 ? ' · no stalls' : ` · stalls ${formatPercent(totals.psi, totals.psi < 10 ? 1 : 0)}`) : ''}
+                {totals.psi !== null ? (totals.psi < 0.05 ? ' · no memory pressure' : ` · waiting on memory ${formatPercent(totals.psi, totals.psi < 10 ? 1 : 0)} of the time`) : ''}
               </span>
             ) : (
               of

@@ -17,14 +17,12 @@ import { useNodeDisplayStatus } from '../store/attention';
 import { openAlertCount, useEvents } from '../store/events';
 import { usePrefs } from '../store/prefs';
 import { useUi } from '../store/ui';
-import Alerts from '../views/Alerts';
 import Node from '../views/Node';
 import Overview from '../views/Overview';
-import Settings from '../views/Settings';
 import { ChartPanelSkeleton } from '../views/placeholders';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import { ConnectionProblem } from './ConnectionProblem';
-import { Benchmarks, pageTitle, paths } from './routes';
+import { Alerts, Benchmarks, Settings, pageTitle, paths } from './routes';
 import './Shell.css';
 
 const RANGES: readonly Segment<TimeRange>[] = [
@@ -168,66 +166,68 @@ function Sidebar({ collapsed, canExpand, location }: { collapsed: boolean; canEx
 
   return (
     <aside className="sidebar material-thin" aria-label="Primary">
-      <div className="sidebar__brand">
-        <span className="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" width="28" height="28"><rect width="32" height="32" rx="9" fill="var(--accent-fill)" /><path d="M7 19.5h4l2.5-7 4 12 3-9 1.5 4H25" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </span>
-        <span className="sidebar__name">Sparkline</span>
-      </div>
-
-      <nav className="sidebar__nav" aria-label="Main">
-        <ul className="nav">
-          <NavItem href="/" icon={LayoutGrid} label="Overview" active={location === '/'} collapsed={collapsed} />
-        </ul>
-
-        <div className="nav__section">
-          <h2 className="nav__heading">Nodes</h2>
-          {order.length ? (
-            <ul className="nav">
-              {order.map((id, i) => (
-                <NodeNavItem key={id} id={id} index={i} active={location.startsWith(`/node/${encodeURIComponent(id)}`)} collapsed={collapsed} />
-              ))}
-            </ul>
-          ) : (
-            <p className="nav__empty">{everLive ? 'No nodes configured' : 'Waiting for the console'}</p>
-          )}
+      <div className="sidebar__inner">
+        <div className="sidebar__brand">
+          <span className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" width="28" height="28"><rect width="32" height="32" rx="9" fill="var(--accent-fill)" /><path d="M7 19.5h4l2.5-7 4 12 3-9 1.5 4H25" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </span>
+          <span className="sidebar__name">Sparkline</span>
         </div>
 
-        <div className="nav__section">
+        <nav className="sidebar__nav" aria-label="Main">
           <ul className="nav">
-            <NavItem
-              href="/alerts"
-              icon={Bell}
-              label="Alerts"
-              active={location.startsWith('/alerts')}
-              collapsed={collapsed}
-              trailing={
-                alerts > 0 ? (
-                  <span className="nav__badge num">
-                    {alerts}
-                    <span className="visually-hidden"> open {alerts === 1 ? 'alert' : 'alerts'}</span>
-                  </span>
-                ) : null
-              }
-            />
-            <NavItem href="/benchmarks" icon={Gauge} label="Benchmarks" active={location.startsWith('/benchmarks')} collapsed={collapsed} />
-            <NavItem href="/settings" icon={SettingsIcon} label="Settings" active={location.startsWith('/settings')} collapsed={collapsed} />
+            <NavItem href="/" icon={LayoutGrid} label="Overview" active={location === '/'} collapsed={collapsed} />
           </ul>
-        </div>
-      </nav>
 
-      <div className="sidebar__foot">
-        <Button variant="ghost" className="sidebar__wall" icon={<Monitor />} onClick={() => { navigate(paths.wall); }} title={collapsed ? 'Wall mode' : undefined} aria-label={collapsed ? 'Wall mode' : undefined}>
-          <span className="nav__label">Wall mode</span>
-        </Button>
-        {canExpand ? (
-          <IconButton
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-expanded={!collapsed}
-            icon={collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-            onClick={() => { setPrefs({ sidebarCollapsed: !collapsed }); }}
-          />
-        ) : null}
+          <div className="nav__section">
+            <h2 className="nav__heading">Nodes</h2>
+            {order.length ? (
+              <ul className="nav">
+                {order.map((id, i) => (
+                  <NodeNavItem key={id} id={id} index={i} active={location.startsWith(`/node/${encodeURIComponent(id)}`)} collapsed={collapsed} />
+                ))}
+              </ul>
+            ) : (
+              <p className="nav__empty">{everLive ? 'No nodes configured' : 'Waiting for the console'}</p>
+            )}
+          </div>
+
+          <div className="nav__section">
+            <ul className="nav">
+              <NavItem
+                href="/alerts"
+                icon={Bell}
+                label="Alerts"
+                active={location.startsWith('/alerts')}
+                collapsed={collapsed}
+                trailing={
+                  alerts > 0 ? (
+                    <span className="nav__badge num">
+                      {alerts}
+                      <span className="visually-hidden"> open {alerts === 1 ? 'alert' : 'alerts'}</span>
+                    </span>
+                  ) : null
+                }
+              />
+              <NavItem href="/benchmarks" icon={Gauge} label="Benchmarks" active={location.startsWith('/benchmarks')} collapsed={collapsed} />
+              <NavItem href="/settings" icon={SettingsIcon} label="Settings" active={location.startsWith('/settings')} collapsed={collapsed} />
+            </ul>
+          </div>
+        </nav>
+
+        <div className="sidebar__foot">
+          <Button variant="ghost" className="sidebar__wall" icon={<Monitor />} onClick={() => { navigate(paths.wall); }} title={collapsed ? 'Wall mode' : undefined} aria-label={collapsed ? 'Wall mode' : undefined}>
+            <span className="nav__label">Wall mode</span>
+          </Button>
+          {canExpand ? (
+            <IconButton
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed}
+              icon={collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+              onClick={() => { setPrefs({ sidebarCollapsed: !collapsed }); }}
+            />
+          ) : null}
+        </div>
       </div>
     </aside>
   );

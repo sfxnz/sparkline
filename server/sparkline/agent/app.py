@@ -7,7 +7,8 @@ import contextlib
 import hmac
 import ipaddress
 import time
-from collections.abc import Callable
+from collections import deque
+from collections.abc import AsyncIterator, Callable
 from typing import Annotated
 from urllib.parse import urlsplit
 
@@ -15,11 +16,20 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, WebSo
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from ..common.schema import BenchSpec, BenchStartRequest, HistoryResponse, NodeBenchState, NodeInfo, Sample
+from ..common.schema import (
+    BenchSpec,
+    BenchStartRequest,
+    HistoryResponse,
+    NodeBenchState,
+    NodeInfo,
+    Problem,
+    Sample,
+)
 from .bench.runner import BenchRunner, Rejected
 from .sampler import Sampler
 
 PING_EVERY_S = 15.0
+FAIL_LIMIT = 10  # wrong bearer tokens per minute per client IP (the console's sign-in limit)
 
 
 def _token_ok(expected: str, got: str | None) -> bool:
@@ -57,7 +67,7 @@ def create_app(
     bench: BenchRunner | None = None,
 ) -> FastAPI:
     @contextlib.asynccontextmanager
-    async def lifespan(_app: FastAPI):
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if manage_sampler:
             sampler.start()
         if bench is not None:
@@ -69,11 +79,37 @@ def create_app(
             await sampler.stop()
 
     app = FastAPI(title="sparkline-agent", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    failures: dict[str, deque[float]] = {}
+
+    def recent_failures(host: str) -> deque[float]:
+        """Wrong tokens from this client IP in the last minute (guessing the token is throttled)."""
+        now = time.time()
+        q = failures.setdefault(host, deque())
+        while q and q[0] < now - 60:
+            q.popleft()
+        return q
+
+    def token_check(host: str, got: str | None) -> int:
+        """200, 401 (wrong or missing token, counted) or 429 (too many wrong tokens from this IP)."""
+        if not token:
+            return 200
+        q = recent_failures(host)
+        if len(q) >= FAIL_LIMIT:
+            return 429
+        if _token_ok(token, got):
+            return 200
+        q.append(time.time())
+        return 401
 
     def auth(request: Request) -> None:
         if not token and not _local_only(request.headers.get("host"), request.headers.get("origin")):
             raise HTTPException(403, "This agent has no token: it only answers local, non-browser requests")
-        if not _token_ok(token, _bearer(request.headers.get("authorization"))):
+        status = token_check(
+            request.client.host if request.client else "?", _bearer(request.headers.get("authorization"))
+        )
+        if status == 429:
+            raise HTTPException(429, f"Too many wrong tokens: {FAIL_LIMIT} per minute allowed")
+        if status != 200:
             raise HTTPException(
                 401, "Missing or invalid bearer token", headers={"WWW-Authenticate": "Bearer"}
             )
@@ -114,7 +150,7 @@ def create_app(
 
     if bench is not None:
 
-        def problem(status: int, p) -> JSONResponse:
+        def problem(status: int, p: Problem) -> JSONResponse:
             return JSONResponse({"problem": p.model_dump()}, status_code=status)
 
         @app.get("/api/v1/bench/catalog", dependencies=[Depends(auth)])
@@ -153,7 +189,7 @@ def create_app(
     async def stream(ws: WebSocket) -> None:
         got = _bearer(ws.headers.get("authorization")) or ws.query_params.get("token")
         local = token or _local_only(ws.headers.get("host"), ws.headers.get("origin"))
-        if not local or not _token_ok(token, got):
+        if not local or token_check(ws.client.host if ws.client else "?", got) != 200:
             await ws.close(code=1008)  # before accept -> HTTP 403 to the client
             return
         await ws.accept()

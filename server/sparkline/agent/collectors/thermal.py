@@ -6,6 +6,7 @@ import glob
 import os
 import re
 from dataclasses import dataclass, field
+from typing import Literal
 
 from ...common.schema import SensorInfo, TempSample, Unsupported
 from . import read, read_once
@@ -34,6 +35,7 @@ def build_sensors(chips: list[Chip]) -> list[tuple[SensorInfo, list[tuple[str, i
     counters: dict[str, int] = {}
     nics: dict[tuple[str, int], list[tuple[str, int]]] = {}  # (chip id, temp index) -> member paths
     nvme_chips = 0
+    group: Literal["soc", "gpu", "nvme", "nic", "wireless", "other"]  # SensorInfo.group
     for chip in sorted(chips, key=lambda c: (c.name, c.device)):
         if chip.name == "nvme":
             prefix = "nvme" if nvme_chips == 0 else f"nvme{nvme_chips}"
@@ -85,7 +87,10 @@ def scan_hwmon(root: str = "/sys/class/hwmon") -> tuple[list[Chip], bool, bool]:
     """-> (chips with temp inputs, any fan inputs, any power inputs)."""
     chips, fans, power = [], False, False
     for h in sorted(glob.glob(f"{root}/hwmon*")):
-        files = os.listdir(h)
+        try:
+            files = os.listdir(h)
+        except OSError:  # removed between glob and listdir (driver unbind, NVMe reset)
+            continue
         fans |= any(re.fullmatch(r"fan\d+_input", f) for f in files)
         power |= any(re.fullmatch(r"power\d+_input", f) for f in files)
         temps = {}

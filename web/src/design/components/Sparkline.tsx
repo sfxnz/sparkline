@@ -25,9 +25,23 @@ interface Props {
 interface Data {
   ts: readonly number[];
   values: readonly (number | null)[];
+  /** Live data: the fixed time window [from, to] the x axis spans, so a partly filled window looks partial. */
+  from?: number;
+  to?: number;
 }
 
 const PAD_Y = 3;
+
+/** x of point i: by its time within [from, to] when the data has a time window, else spread by index. */
+export function sparkX(d: Data, i: number, w: number): number {
+  const n = d.values.length;
+  const { from, to } = d;
+  const t = d.ts[i];
+  if (from !== undefined && to !== undefined && to > from && t !== undefined && d.ts.length === n) {
+    return ((t - from) / (to - from)) * (w - 2) + 1;
+  }
+  return (i / Math.max(1, n - 1)) * (w - 2) + 1;
+}
 
 /** Small canvas line chart: DPR-aware, tactile hover readout, keyboard focusable with a text summary. */
 export function Sparkline({ label, format, values, ts, source, store = liveStore, height = 40, min, max }: Props) {
@@ -59,7 +73,7 @@ export function Sparkline({ label, format, values, ts, source, store = liveStore
       lo -= 1;
       hi += 1;
     }
-    const x = (i: number) => (i / (n - 1)) * (w - 2) + 1;
+    const x = (i: number) => sparkX(data.current, i, w);
     const y = (v: number) => PAD_Y + (1 - (v - lo) / (hi - lo)) * (height - PAD_Y * 2);
 
     // Area + line, broken at gaps.
@@ -156,8 +170,9 @@ export function Sparkline({ label, format, values, ts, source, store = liveStore
     if (!node || !metric) return;
     let lastSummary = 0;
     const pull = () => {
-      const w = store.window(node, [metric], serverNow() - windowS);
-      data.current = { ts: w.ts, values: w.values[0] ?? [] };
+      const now = serverNow();
+      const w = store.window(node, [metric], now - windowS);
+      data.current = { ts: w.ts, values: w.values[0] ?? [], from: now - windowS, to: now };
       draw();
       const t = performance.now();
       if (t - lastSummary > 5000) {
@@ -188,7 +203,12 @@ export function Sparkline({ label, format, values, ts, source, store = liveStore
     const n = data.current.values.length;
     if (!el || n < 2) return null;
     const r = el.getBoundingClientRect();
-    return Math.min(n - 1, Math.max(0, Math.round(((clientX - r.left - 1) / (r.width - 2)) * (n - 1))));
+    // The point drawn nearest the pointer (points sit by time in a live window, not evenly).
+    let best = 0;
+    for (let i = 1; i < n; i++) {
+      if (Math.abs(sparkX(data.current, i, r.width) + r.left - clientX) < Math.abs(sparkX(data.current, best, r.width) + r.left - clientX)) best = i;
+    }
+    return best;
   };
 
   const onPointerMove = (e: PointerEvent) => {

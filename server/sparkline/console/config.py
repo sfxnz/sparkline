@@ -1,12 +1,15 @@
-"""Console configuration: TOML file + CLI overrides."""
+"""Console configuration. Precedence: CLI flag > ``SPARKLINE_*`` environment variable > TOML file
+(``--config``, ``$SPARKLINE_CONFIG`` or /etc/sparkline/console.toml) > default."""
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..common.schema import ConsoleSettings
 
@@ -29,6 +32,19 @@ class ConsoleConfig(BaseModel):
     data_dir: Path | None = None
     web_dist: Path = REPO_WEB_DIST
     settings: ConsoleSettings = Field(default_factory=ConsoleSettings)
+    # Reverse proxies (IPs or CIDRs) whose X-Forwarded-For / -Proto are believed: behind a TLS proxy the
+    # session cookie is then Secure, and sign-in limits count the real client, not the proxy.
+    trusted_proxies: list[str] = Field(default_factory=list)
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _proxies(cls, v: list[str]) -> list[str]:
+        for p in v:
+            try:
+                ipaddress.ip_network(p, strict=False)
+            except ValueError:
+                raise ValueError(f"{p!r} is not an IP address or network (e.g. 127.0.0.1)") from None
+        return v
 
 
 def default_data_dir() -> Path:
@@ -38,11 +54,26 @@ def default_data_dir() -> Path:
     return Path.home() / ".local/share/sparkline"
 
 
-def load_config(path: Path | None) -> ConsoleConfig:
-    """Load the TOML file. ``path=None`` means the default path, which may be absent (-> defaults)."""
-    if path is None:
-        if not DEFAULT_CONFIG.exists():
-            return ConsoleConfig()
+ENV_KEYS = {
+    "SPARKLINE_TOKEN": "token",
+    "SPARKLINE_AGENT_TOKEN": "agent_token",
+    "SPARKLINE_BIND": "bind",
+    "SPARKLINE_PORT": "port",
+    "SPARKLINE_DATA_DIR": "data_dir",
+}
+
+
+def load_config(path: Path | None, env: Mapping[str, str] | None = None) -> ConsoleConfig:
+    """Load the TOML file and apply ``SPARKLINE_*`` variables from ``env`` (None: ignored; empty values count
+    as unset). ``path=None`` means ``$SPARKLINE_CONFIG``, else the default path, which may be absent."""
+    env = env or {}
+    if path is None and env.get("SPARKLINE_CONFIG"):
+        path = Path(env["SPARKLINE_CONFIG"])
+    data: dict = {}
+    if path is None and DEFAULT_CONFIG.exists():
         path = DEFAULT_CONFIG
-    with open(path, "rb") as f:
-        return ConsoleConfig.model_validate(tomllib.load(f))
+    if path is not None:
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    data.update({key: env[name] for name, key in ENV_KEYS.items() if env.get(name)})
+    return ConsoleConfig.model_validate(data)

@@ -30,7 +30,7 @@
 .ov-dim { color: var(--text-3); }
 .ov-label { font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 500; color: var(--text-2); }
 .ov-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); min-width: 0; }
-.ov-flag { display: inline-flex; align-items: center; gap: 4px; color: var(--tone-text); font-weight: 520; }
+.ov-flag { display: inline-flex; align-items: center; gap: 4px; color: var(--tone-text); font-weight: 520; white-space: nowrap; }
 .ov-flag svg { width: 13px; height: 13px; flex: none; color: var(--tone); }
 
 /* -------------------------------------------------------------- node cards */
@@ -72,7 +72,7 @@
   border-radius: inherit;
   pointer-events: none;
   opacity: var(--glow);
-  transition: opacity 1.2s var(--ease-in-out);
+  transition: opacity var(--dur-slow) var(--ease-out);
 }
 .ov-card__glow::before {
   content: '';
@@ -208,47 +208,59 @@
   .ov-totals__row > .stat:nth-child(3) { padding-left: 0; border-left: 0; }
 }
 
-/* -------------------------------------------------------------- interconnect + events row */
-.ov-pair { display: grid; gap: var(--space-5); grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); }
-.ov-ic { container-type: inline-size; }
-.ov-ic .panel__body { display: flex; flex-direction: column; gap: var(--space-4); }
-/* Narrow (phone, 400% zoom): the two node ends sit above and below their rails instead of beside them. */
-@container (max-width: 30rem) {
-  .ov-ic__link { grid-template-columns: minmax(0, 1fr); }
-  .ov-ic__end { display: flex; justify-content: flex-start; gap: var(--space-2); min-width: 0; padding: var(--space-2) var(--space-3); }
-}
-.ov-ic__summary--stale { color: var(--text-3); }
-.ov-ic__summary { margin-top: auto; padding-top: var(--space-3); border-top: var(--hairline) solid var(--separator); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+/* -------------------------------------------------------------- totals + interconnect row */
+/* Cluster totals and the links between nodes share a row, so at a 1440 x 900 laptop the first viewport holds the whole
+   story: health sentence, nodes, cluster totals, interconnect. Totals sit as a 2 x 2 grid there; alone (no links) or
+   on narrow screens they are the 4-across strip. */
+.ov-pair { display: grid; gap: var(--space-5); grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 .ov-pair--single { grid-template-columns: minmax(0, 1fr); }
+.ov-pair:not(.ov-pair--single) .ov-totals__row { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--space-5); }
+.ov-pair:not(.ov-pair--single) .ov-totals__row > .stat:nth-child(3) { padding-left: 0; border-left: 0; }
+.ov-pair:not(.ov-pair--single) .ov-totals .stat__footer { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 @media (max-width: 1100px) {
   .ov-pair { grid-template-columns: minmax(0, 1fr); }
 }
 
-.ov-ic__links { flex: 1; display: flex; flex-direction: column; gap: var(--space-5); }
-.ov-ic__link { flex: 1; }
-.ov-ic__link { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: stretch; gap: var(--space-4); }
-.ov-ic__end {
+.ov-ic { container-type: inline-size; }
+.ov-ic .panel__body { display: flex; flex-direction: column; gap: var(--space-4); }
+.ov-ic__summary--stale { color: var(--text-3); }
+.ov-ic__summary { margin-top: auto; padding-top: var(--space-3); border-top: var(--hairline) solid var(--separator); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+
+/* Each link is a small table: a row per rail, a column per direction (a → b, then b → a drawn as a ← b). */
+.ov-ic__links { display: flex; flex-direction: column; gap: var(--space-5); }
+.ov-ic__link {
   display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 4px;
-  min-width: 104px;
-  padding: var(--space-4) var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--fill-1);
-  border: var(--hairline) solid var(--separator);
+  grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
 }
-.ov-ic__end-icon { width: 18px; height: 18px; color: var(--text-3); }
-.ov-ic__end-name { font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: 600; color: var(--text-1); }
-.ov-ic__rails { display: grid; gap: var(--space-5); align-content: space-evenly; padding: var(--space-1) 0; }
+.ov-ic__dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  font-weight: 560;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ov-ic__dir svg { width: 12px; height: 12px; flex: none; color: var(--text-3); }
+/* Narrow (phone, 400% zoom): the rail label takes its own line above its two lanes. */
+@container (max-width: 30rem) {
+  .ov-ic__link { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--space-4); }
+  .ov-ic__corner { display: none; }
+  .ov-rail__label { grid-column: 1 / -1; }
+}
 
-.ov-rail { display: grid; gap: var(--space-2); transition: opacity var(--dur-base) var(--ease-out); }
-.ov-rail--stale { filter: saturate(0.3); }
-.ov-rail__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.ov-rail { display: contents; }
+.ov-rail__label { display: grid; gap: 2px; min-width: 0; font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
 .ov-rail__name { font-weight: 600; color: var(--text-1); }
-.ov-rail__meta { display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0 var(--space-2); color: var(--text-2); }
+.ov-rail__meta { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0 var(--space-2); color: var(--text-2); }
+.ov-rail--stale .ov-lane__track { opacity: 0.5; }
 
-.ov-lane { display: grid; grid-template-columns: minmax(0, 1fr) 10ch; align-items: center; gap: var(--space-3); }
+.ov-lane { display: grid; grid-template-columns: minmax(2rem, 1fr) 9.5ch; align-items: center; gap: var(--space-3); min-width: 0; }
 .ov-lane__value { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 560; color: var(--text-1); white-space: nowrap; }
 .ov-lane__value svg { width: 12px; height: 12px; color: var(--text-3); }
 

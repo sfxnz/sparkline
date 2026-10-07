@@ -13,7 +13,7 @@ import { useCluster } from '../../store/cluster';
 import { Select } from '../alerts/parts/Select';
 import { RowsSkeleton } from '../placeholders';
 import { runPath } from './hooks';
-import { baselineSummary, filterRuns, nodesText, formatDateTime, headlineText, MAX_COMPARE, NO_HISTORY_FILTERS, paramsSummary, runDuration, STATUS_LOOK, type HistoryFilters } from './model';
+import { baselineSummary, filterRuns, nodesText, formatDateTime, headlineCaption, headlineDetail, headlineText, MAX_COMPARE, NO_HISTORY_FILTERS, paramsSummary, runDuration, STATUS_LOOK, type HistoryFilters } from './model';
 import { DeltaBadge, RunStatusPill } from './parts';
 
 interface Props {
@@ -80,7 +80,15 @@ export function History({ runs, specs, load, onFirstBaseline }: Props) {
       header: 'Headline result',
       align: 'end',
       sortValue: (r) => r.results[0]?.value ?? null,
-      render: (r) => (r.status === 'succeeded' ? <span className="num">{headlineText(r.results)}</span> : <span className="t-tertiary">—</span>),
+      render: (r) =>
+        r.status === 'succeeded' ? (
+          <span className="bench-hist__result" title={headlineDetail(r.results)}>
+            <span className="num">{headlineText(r.results)}</span>
+            <span className="bench-hist__params">{headlineCaption(r.results)}</span>
+          </span>
+        ) : (
+          <span className="t-tertiary">—</span>
+        ),
     },
     {
       id: 'baseline',

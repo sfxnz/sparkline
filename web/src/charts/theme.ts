@@ -11,6 +11,8 @@ export interface ChartTheme {
   surface: string;
   /** Series colours: accent first, then restrained neutrals. Status colours are only for thresholds. */
   series: string[];
+  /** Sequential ramp stops (--heat-0..4) at HEAT_STOPS: one hue, lightness ordered by value. */
+  heat: string[];
   warn: string;
   crit: string;
   /** `500 <fontPx>px <family>`: 11 px at the default 16 px root, scaled with the user's font size. */
@@ -65,6 +67,7 @@ function computeChartTheme(): ChartTheme {
     separator: v('--separator-strong', 'rgba(128,128,128,0.3)'),
     surface: v('--surface-3', '#222'),
     series: [v('--chart-1', '#7286ff'), v('--chart-2', '#ccc'), v('--chart-3', '#888'), v('--chart-4', '#b4a4f5')],
+    heat: ['#272b4f', '#4b5ed8', '#7b8dff', '#abb7ff', '#e0e4ff'].map((f, i) => v(`--heat-${i}`, f)),
     warn: v('--warn', '#f2b440'),
     crit: v('--crit', '#ff645b'),
     font: `500 ${fontPx}px ${fontFamily}`,
@@ -86,6 +89,40 @@ export function withAlpha(color: string, alpha: number): string {
     return `rgba(${r ?? 0}, ${g ?? 0}, ${b ?? 0}, ${alpha})`;
   }
   return color;
+}
+
+/** Positions (0..1) of the --heat-N stops; denser at the low end so 20 % already clears 3:1 against the panel. */
+export const HEAT_STOPS = [0, 0.2, 0.45, 0.7, 1] as const;
+
+/** Colour of value `t` (0..1) on the sequential ramp: linear between the two neighbouring '#rrggbb' stops. */
+export function heatColor(stops: readonly string[], t: number): string {
+  const x = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0));
+  let k = 0;
+  while (k < HEAT_STOPS.length - 2 && x > (HEAT_STOPS[k + 1] ?? 1)) k++;
+  const lo = HEAT_STOPS[k] ?? 0;
+  const hi = HEAT_STOPS[k + 1] ?? 1;
+  const f = hi > lo ? (x - lo) / (hi - lo) : 0;
+  const rgb = (c: string | undefined) => {
+    const n = parseInt(/^#([0-9a-f]{6})$/i.exec(c?.trim() ?? '')?.[1] ?? '808080', 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const a = rgb(stops[k]);
+  const b = rgb(stops[k + 1]);
+  return `rgb(${a.map((v, i) => Math.round(v + ((b[i] ?? v) - v) * f)).join(', ')})`;
+}
+
+const heatLuts = new WeakMap<readonly string[], string[]>();
+/**
+ * heatColor at every whole percent (index 0..100), computed once per palette: the heatmap paints thousands of cells
+ * per sample, and a colour string per cell (regex, parse, format) was its main cost.
+ */
+export function heatLut(stops: readonly string[]): readonly string[] {
+  let lut = heatLuts.get(stops);
+  if (!lut) {
+    lut = Array.from({ length: 101 }, (_, i) => heatColor(stops, i / 100));
+    heatLuts.set(stops, lut);
+  }
+  return lut;
 }
 
 // One MutationObserver for the whole app: bumps a version whenever theme attributes on <html> change.

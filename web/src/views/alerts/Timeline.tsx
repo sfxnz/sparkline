@@ -120,7 +120,7 @@ export function Timeline({ load, onRetry }: Props) {
         {loading ? (
           <RowsSkeleton rows={8} />
         ) : events.length === 0 ? (
-          <EmptyState icon={Bell} title="No events yet" compact>
+          <EmptyState icon={Bell} title="No events yet" compact action={<Button size="sm" onClick={showRules}>Review alert rules</Button>}>
             Alerts, recoveries and node status changes appear here as they happen. Events are kept for 30 days.
           </EmptyState>
         ) : matching.length === 0 ? (
@@ -150,6 +150,14 @@ export function Timeline({ load, onRetry }: Props) {
       </div>
     </Panel>
   );
+}
+
+/** Bring the rules editor (further down this page) into view and move focus to its first control. */
+function showRules() {
+  const rules = document.querySelector<HTMLElement>('.alerts-rules');
+  if (!rules) return;
+  rules.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  rules.querySelector<HTMLElement>('input, select, button')?.focus({ preventScroll: true });
 }
 
 function TimelineRow({ e, links, onJump }: { e: Event; links: Links; onJump: (id: number) => void }) {

@@ -2,10 +2,12 @@
 
 Telemetry is a deterministic function of wall time (seeded smooth noise + per-second jitter), so live samples
 and synthesized history share one model. Scripted failures run on "scenario time" = elapsed * demo_speed:
-  spark3: online 90 s -> stops sending 20 s (stale) -> connection refused 40 s (offline) -> reconnects
-  spark2: stream stalls 8 s every 4 min; storage collector error (disk=[]) 15 s every 5 min
-  spark1: thermal episode every 6 min (~87 °C, sw_thermal then hw_thermal, clocks drop) for ~40 s
-Offsets put the first of each in the first two minutes so a short demo shows them.
+  spark1: thermal episode every 6 min from 60 s (~87 °C, sw_thermal then hw_thermal, clocks drop), ~50 s
+  spark2: stream stalls 8 s every 4 min from 120 s; storage collector error (disk=[]) 15 s every 5 min
+          from 240 s
+  spark3: from 150 s, every 150 s: stops sending 20 s (stale) -> refused 40 s (offline) -> reconnects
+The first minute is calm (a newcomer first sees a healthy cluster), then the episodes come one at a time, all
+within about four minutes so a short demo still shows each of them.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import errno
 import hashlib
 import math
 import time
+from typing import Literal
 
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX, flatten
 from ..common.schema import (
@@ -63,7 +66,11 @@ SPARE_PORTS = [
 ]
 LAN = "enP7s7"
 # Listed in NodeInfo as the real agent lists them (labelled by name); not sampled unless include_virtual.
-VIRTUAL = [("docker0", "virtual"), ("tailscale0", "virtual"), ("wlP9s9", "wireless")]
+VIRTUAL: list[tuple[str, Literal["virtual", "wireless"]]] = [
+    ("docker0", "virtual"),
+    ("tailscale0", "virtual"),
+    ("wlP9s9", "wireless"),
+]
 
 # Copied from the real agent's NodeInfo on spark1 (GB10), so demo and hardware render identically.
 UNSUPPORTED = [
@@ -154,6 +161,8 @@ class DemoModel:
         self._cum: dict[str, tuple[float, float, list[float]]] = {}
         # Demo benchmark load windows [start, end, intensity 0..1] (demo_bench.py), so telemetry shows them.
         self.bench_windows: list[list[float]] = []
+        # Demo storage benchmark disk load [start, end, read B/s, write B/s], added to the NVMe telemetry.
+        self.disk_windows: list[list[float]] = []
 
     def bench_load(self, t: float) -> tuple[float, float]:
         """(load, heat) of a demo benchmark at t: load is immediate, heat ramps up over ~45 s."""
@@ -171,19 +180,19 @@ class DemoModel:
         """'ok' | 'stall' (connected, no samples) | 'refused' (agent down)."""
         s = self.scen(t)
         if self.node_id == "spark3":
-            p = (s + 60) % 150
-            return "ok" if p < 90 else "stall" if p < 110 else "refused"
-        if self.node_id == "spark2" and (s + 150) % 240 >= 232:
+            p = (s - 60) % 150
+            return "ok" if s < 60 or p < 90 else "stall" if p < 110 else "refused"
+        if self.node_id == "spark2" and (s + 112) % 240 >= 232:
             return "stall"
         return "ok"
 
     def thermal(self, t: float) -> float:
         if self.node_id != "spark1":
             return 0.0
-        return _episode((self.scen(t) - 15) % 360, 12, 25, 15)
+        return _episode((self.scen(t) - 60) % 360, 12, 25, 15)
 
     def storage_error(self, t: float) -> bool:
-        return self.node_id == "spark2" and (self.scen(t) + 200) % 300 < 15
+        return self.node_id == "spark2" and (self.scen(t) + 60) % 300 < 15
 
     # -- workload ------------------------------------------------------------------------------------
     def diurnal(self, t: float) -> float:
@@ -327,7 +336,8 @@ class DemoModel:
         )
 
         # CPU: X925 cores carry the serving threads; core 7 holds the busy-polling main thread
-        per_core, freq = [0.0] * 20, [0.0] * 20
+        per_core = [0.0] * 20
+        freq: list[float | None] = [0.0] * 20
         for c in PERF:
             u = 16 + 42 * b * active + 10 * self.core_noise[c](t) + 4 * j(f"c{c}")
             if c == 7 and self.workload == "tp2":
@@ -391,6 +401,9 @@ class DemoModel:
         else:
             rd = 3e6 + 2e6 * j("dr") + (2.6e9 * (disk_x - 0.75) / 0.25 if disk_x > 0.75 else 0.0)
             wr = 12e6 + 9e6 * j("dw")
+            for a, b, brd, bwr in self.disk_windows:
+                if a <= t < b:
+                    rd, wr = rd + brd, wr + bwr
             disk.append(
                 DiskSample(
                     name="nvme0n1",

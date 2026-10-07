@@ -31,11 +31,16 @@ def bearer(token=TOKEN):
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_everything_but_healthz_and_login_needs_auth(client):
+def test_everything_but_healthz_login_and_me_needs_auth(client):
     assert client.get("/healthz").status_code == 200
+    # signed out is a normal answer from /auth/me, not an error (no red 401 in the browser console)
+    r = client.get("/api/v1/auth/me")
+    assert r.status_code == 200
+    assert r.json() == {"authenticated": False, "auth_required": True, "demo": False}
+    assert client.get("/api/v1/auth/me", headers=bearer("wrong")).json()["authenticated"] is False
+    assert client.get("/api/v1/auth/me", headers=bearer()).json()["authenticated"] is True
     for method, path in [
         ("GET", "/api/v1/cluster"),
-        ("GET", "/api/v1/auth/me"),
         ("GET", "/api/v1/events"),
         ("GET", "/api/v1/settings"),
         ("GET", "/api/v1/alerts/rules"),
@@ -69,16 +74,66 @@ def test_login_cookie_logout_and_sessions_survive_restart(tmp_path):
         sid = c.cookies["sparkline_session"]
     with TestClient(make(tmp_path)) as c2:  # restart: session persisted in SQLite
         c2.cookies.set("sparkline_session", sid)
-        assert c2.get("/api/v1/auth/me").status_code == 200
+        assert c2.get("/api/v1/auth/me").json()["authenticated"] is True
         assert c2.post("/api/v1/auth/logout").status_code == 200
         c2.cookies.set("sparkline_session", sid)
-        assert c2.get("/api/v1/auth/me").status_code == 401
+        assert c2.get("/api/v1/auth/me").json()["authenticated"] is False
+        assert c2.get("/api/v1/cluster").status_code == 401
+
+
+def test_changing_the_token_signs_out_every_session(tmp_path):
+    with TestClient(make(tmp_path)) as c:
+        assert c.post("/api/v1/auth/login", json={"token": TOKEN}).status_code == 200
+        sid = c.cookies["sparkline_session"]
+    with TestClient(make(tmp_path, token="a-brand-new-token-0123")) as c2:  # the leaked token was replaced
+        c2.cookies.set("sparkline_session", sid)
+        assert c2.get("/api/v1/auth/me").json()["authenticated"] is False
+        assert c2.get("/api/v1/settings").status_code == 401
+        assert c2.post("/api/v1/auth/login", json={"token": TOKEN}).status_code == 401
 
 
 def test_secure_cookie_on_https(tmp_path):
     with TestClient(make(tmp_path), base_url="https://testserver") as c:
         r = c.post("/api/v1/auth/login", json={"token": TOKEN})
         assert "Secure" in r.headers["set-cookie"]
+
+
+def test_behind_a_trusted_tls_proxy_the_cookie_is_secure_and_limits_count_real_clients(tmp_path):
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    from sparkline.console.main import proxy_options
+
+    plain = ConsoleConfig(token=TOKEN, agent_token="a")
+    assert proxy_options(plain) == {"proxy_headers": False}  # forwarded headers ignored unless configured
+    with pytest.raises(ValueError):
+        ConsoleConfig(trusted_proxies=["*"])
+    cfg = ConsoleConfig(token=TOKEN, agent_token="a", web_dist=tmp_path / "x", trusted_proxies=["127.0.0.1"])
+    assert proxy_options(cfg) == {"proxy_headers": True, "forwarded_allow_ips": "127.0.0.1"}
+    # uvicorn applies these options as this middleware (TestClient's peer is "testclient", our proxy here)
+    app = ProxyHeadersMiddleware(create_app(cfg, tmp_path / "data"), trusted_hosts="testclient")
+    with TestClient(app) as c:
+        fwd = lambda ip: {"X-Forwarded-Proto": "https", "X-Forwarded-For": ip}  # noqa: E731
+        for _ in range(10):  # someone else guessing
+            assert (
+                c.post("/api/v1/auth/login", json={"token": "x"}, headers=fwd("203.0.113.66")).status_code
+                == 401
+            )
+        r = c.post("/api/v1/auth/login", json={"token": TOKEN}, headers=fwd("203.0.113.9"))
+        assert r.status_code == 200  # not locked out by the other client
+        assert "Secure" in r.headers["set-cookie"]
+
+
+def test_security_headers_on_pages_and_api(tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text('<!doctype html><script src="/theme-init.js"></script>')
+    with TestClient(make(tmp_path, dist=dist)) as c:
+        for path in ("/", "/node/spark1", "/api/v1/cluster", "/api/v1/auth/me"):
+            h = c.get(path).headers
+            assert "frame-ancestors 'none'" in h["content-security-policy"], path
+            assert "script-src 'self';" in h["content-security-policy"]  # no inline scripts
+            assert h["x-content-type-options"] == "nosniff" and h["referrer-policy"] == "same-origin"
+            assert h["x-frame-options"] == "DENY"
 
 
 def test_login_rate_limit(client):

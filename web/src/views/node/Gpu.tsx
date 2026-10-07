@@ -17,7 +17,7 @@ import type { TimeRange } from '../../lib/prefs';
 import { useRangeData, type RangeData } from './parts/hooks';
 import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
-import { CollectorErrors, SEVERITY_META, selectThrottleMask, throttleHeadline, ThrottleRows } from './parts/Notices';
+import { clockLevel, CollectorErrors, SEVERITY_META, selectThrottleMask, throttleHeadline, ThrottleRows } from './parts/Notices';
 import { ProcTable } from './parts/ProcTable';
 import { gpuEnergy, gpuPower, gpuPstate, gpuSm, gpuTemp, gpuUtil } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
@@ -114,20 +114,24 @@ export default function Gpu({ nodeId }: NodeTabProps) {
         </div>
       </Panel>
 
-      <div className="ngpu__throttle">
-        <Panel title="Clock limits" subtitle="Why the GPU is not running at full clock, from the driver">
+      {/* One panel. Left: why the clocks are limited now, then how much of the range they were (averages, said so).
+          Right: the per-sample history; its legend is the latest sample ("now") or the one under the cursor. */}
+      <Panel title="Clock limits" subtitle="Why the GPU is not running at full clock, from the driver">
+        <div className="ngpu__throttle">
           <div className="nclock">
-            <ThrottleNow nodeId={nodeId} />
+            <ThrottleNow nodeId={nodeId} smMax={smMax} />
             <CappedShare nodeId={nodeId} />
           </div>
-        </Panel>
-        <Panel title="Time clock-limited" subtitle="Share of each interval spent power- or thermal-capped">
-          <TimeSeriesChart node={nodeId} title="Time clock-limited" series={CAPPED} format={pct1} yMin={0} yMax={100} height={164} />
-        </Panel>
-      </div>
+          <div className="nclock-time">
+            <h3 className="nclock-time__title">Time clock-limited</h3>
+            <p className="nclock-time__sub">Share of each sample interval the GPU spent power- or thermal-capped</p>
+            <TimeSeriesChart node={nodeId} title="Time clock-limited" series={CAPPED} format={pct1} yMin={0} yMax={100} height={164} />
+          </div>
+        </div>
+      </Panel>
 
       <div className="ngpu__charts">
-        <Panel title="Utilisation">
+        <Panel title="Utilisation" subtitle="Share of time the GPU was busy">
           <TimeSeriesChart node={nodeId} title="GPU utilisation" series={UTIL} format={pct} yMin={0} yMax={100} />
         </Panel>
         <Panel title="SM clock" subtitle={smMax ? `Chart top is the ${formatFreq(smMax)} maximum` : undefined}>
@@ -156,10 +160,11 @@ export default function Gpu({ nodeId }: NodeTabProps) {
   );
 }
 
-function ThrottleNow({ nodeId }: { nodeId: string }) {
+function ThrottleNow({ nodeId, smMax }: { nodeId: string; smMax: number | null }) {
   const mask = useLatest(nodeId, selectThrottleMask);
+  const clocks = useLatest(nodeId, (s) => clockLevel(s, smMax));
   const reasons = decodeThrottle(mask);
-  const head = throttleHeadline(reasons);
+  const head = throttleHeadline(reasons, clocks);
   const meta = head.severity === 'ok' ? null : SEVERITY_META[head.severity];
   const Icon = meta?.icon ?? CircleCheck;
   if (mask === null) {
@@ -223,8 +228,8 @@ function CappedShare({ nodeId }: { nodeId: string }) {
   const phrase = phraseOf(range, data);
   return (
     <div className="ncapped">
-      <Stat label="Time power-capped" value={data ? mean(data.series['gpu0.power_capped_pct']) : null} format={percentParts} footer={`Share of the ${phrase}`} />
-      <Stat label="Time thermal-capped" value={data ? mean(data.series['gpu0.thermal_capped_pct']) : null} format={percentParts} footer={`Share of the ${phrase}`} />
+      <Stat label="Time power-capped" value={data ? mean(data.series['gpu0.power_capped_pct']) : null} format={percentParts} footer={`Average over the ${phrase}`} />
+      <Stat label="Time thermal-capped" value={data ? mean(data.series['gpu0.thermal_capped_pct']) : null} format={percentParts} footer={`Average over the ${phrase}`} />
     </div>
   );
 }

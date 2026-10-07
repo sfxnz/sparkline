@@ -1,19 +1,21 @@
-import { Bell, Blend, CornerDownLeft, Gauge, Keyboard, LayoutGrid, Monitor, PanelLeft, Search, Server, Settings, SunMoon, type LucideIcon } from 'lucide-react';
+import { Activity, Bell, Blend, CornerDownLeft, Gauge, Keyboard, LayoutGrid, Monitor, PanelLeft, Search, Server, Settings, SunMoon, type LucideIcon } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useLocation } from 'wouter';
 import { Dialog } from '../design/components/Dialog';
 import { Kbd } from '../design/components/Kbd';
+import { benchApi } from '../lib/api';
 import { fuzzyFilter } from '../lib/fuzzy';
 import { nextTheme, resolveTheme } from '../lib/prefs';
+import type { BenchSpec } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { usePrefs } from '../store/prefs';
 import { useUi } from '../store/ui';
-import { NODE_TABS, paths } from './routes';
+import { NODE_TABS, paths, type NodeTab } from './routes';
 import './CommandPalette.css';
 
 export interface Command {
   id: string;
-  group: 'Go to' | 'Nodes' | 'Actions';
+  group: 'Go to' | 'Nodes' | 'Metrics' | 'Benchmarks' | 'Actions';
   label: string;
   /** Extra words that should match ("dark light appearance"). */
   keywords?: string;
@@ -22,8 +24,42 @@ export interface Command {
   run: () => void;
 }
 
+/** Metrics people look for by name, and the node tab that shows each. Listed per node, only once the user types. */
+const METRICS: readonly { label: string; tab: NodeTab; keywords: string }[] = [
+  { label: 'GPU utilisation', tab: 'gpu', keywords: 'usage load busy sm' },
+  { label: 'GPU temperature', tab: 'gpu', keywords: 'temp thermal heat slowdown shutdown' },
+  { label: 'GPU power', tab: 'gpu', keywords: 'watts rail' },
+  { label: 'SM clock', tab: 'gpu', keywords: 'clocks frequency ghz mhz' },
+  { label: 'Throttle reasons', tab: 'gpu', keywords: 'throttling clock limits clocks-event power-capped thermal-capped' },
+  { label: 'GPU processes', tab: 'gpu', keywords: 'gpu memory vllm model containers' },
+  { label: 'Unified memory', tab: 'memory', keywords: 'ram used free breakdown' },
+  { label: 'Swap', tab: 'memory', keywords: 'paged out' },
+  { label: 'Memory pressure', tab: 'memory', keywords: 'psi stall waiting' },
+  { label: 'CPU utilisation', tab: 'cpu', keywords: 'cores load performance efficiency' },
+  { label: 'Per-core heatmap', tab: 'cpu', keywords: 'cores' },
+  { label: 'ConnectX-7 throughput', tab: 'network', keywords: 'cx7 rdma interconnect rail bandwidth traffic' },
+  { label: 'ConnectX-7 errors', tab: 'network', keywords: 'cx7 rdma interconnect drops counters link' },
+  { label: 'Disk throughput', tab: 'storage', keywords: 'nvme read write iops busy io' },
+  { label: 'Disk capacity', tab: 'storage', keywords: 'space filesystems free used' },
+  { label: 'NVMe temperature', tab: 'storage', keywords: 'temp disk ssd' },
+  { label: 'Temperatures', tab: 'thermals', keywords: 'temp sensors acpi nvme hwmon heat' },
+  { label: 'GPU energy and cost', tab: 'thermals', keywords: 'kwh power price' },
+];
 
-function useCommands(close: () => void): Command[] {
+/** The benchmark catalog, fetched the first time the palette opens (the benchmarks screen is a separate chunk). */
+let catalog: Promise<BenchSpec[]> | null = null;
+function useCatalog(): BenchSpec[] {
+  const [specs, setSpecs] = useState<BenchSpec[]>([]);
+  useEffect(() => {
+    let live = true;
+    catalog ??= benchApi.catalog().catch(() => { catalog = null; return []; });
+    void catalog.then((s) => { if (live) setSpecs(s); });
+    return () => { live = false; };
+  }, []);
+  return specs;
+}
+
+function useCommands(close: () => void, query: string): Command[] {
   const [, navigate] = useLocation();
   const order = useCluster((s) => s.order);
   const theme = usePrefs((s) => s.theme);
@@ -33,6 +69,8 @@ function useCommands(close: () => void): Command[] {
   const setPrefs = usePrefs((s) => s.set);
   const cycleTheme = usePrefs((s) => s.cycleTheme);
   const setHelp = useUi((s) => s.setHelp);
+  const specs = useCatalog();
+  const typing = query.trim() !== '';
 
   return useMemo(() => {
     const go = (to: string) => () => { close(); navigate(to); };
@@ -49,6 +87,17 @@ function useCommands(close: () => void): Command[] {
         cmds.push({ id: `node-${id}-${t.id}`, group: 'Nodes', label: `${id} › ${t.label}`, icon: Server, run: go(paths.node(id, t.id)) });
       }
     });
+    // Metrics and individual benchmarks would bury the short list; they appear once the user types.
+    if (typing) {
+      for (const id of order) {
+        for (const m of METRICS) {
+          cmds.push({ id: `metric-${id}-${m.label}`, group: 'Metrics', label: `${id} › ${m.label}`, keywords: m.keywords, icon: Activity, run: go(paths.node(id, m.tab)) });
+        }
+      }
+      for (const spec of specs) {
+        cmds.push({ id: `bench-${spec.id}`, group: 'Benchmarks', label: `${spec.name}…`, keywords: `${spec.category} benchmark run ${spec.id.replaceAll('-', ' ')}`, icon: Gauge, run: go(`${paths.benchmarks}?configure=${encodeURIComponent(spec.id)}`) });
+      }
+    }
     cmds.push(
       { id: 'act-theme', group: 'Actions', label: `Switch to ${resolveTheme(nextTheme(theme)) === 'dark' ? 'dark' : 'light'} appearance`, keywords: 'appearance dark light mode toggle', icon: SunMoon, hint: 'T', run: () => { cycleTheme(); } },
       { id: 'act-transparency', group: 'Actions', label: reduceTransparency ? 'Turn off reduced transparency' : 'Reduce transparency', keywords: 'blur opaque accessibility', icon: Blend, run: () => { setPrefs({ reduceTransparency: !reduceTransparency }); } },
@@ -58,7 +107,7 @@ function useCommands(close: () => void): Command[] {
       { id: 'act-single-keys', group: 'Actions', label: singleKeys ? 'Turn off single-key shortcuts' : 'Turn on single-key shortcuts', keywords: 'keyboard keys speech accessibility', icon: Keyboard, run: () => { setPrefs({ singleKeyShortcuts: !singleKeys }); } },
     );
     return cmds;
-  }, [order, theme, reduceTransparency, collapsed, singleKeys, navigate, close, setPrefs, cycleTheme, setHelp]);
+  }, [order, theme, reduceTransparency, collapsed, singleKeys, navigate, close, setPrefs, cycleTheme, setHelp, specs, typing]);
 }
 
 /** ⌘K / Ctrl+K palette: combobox + listbox with grouped options and fuzzy filtering. */
@@ -76,9 +125,9 @@ export function CommandPalette() {
 }
 
 function PaletteBody({ close, inputRef }: { close: () => void; inputRef: RefObject<HTMLInputElement | null> }) {
-  const commands = useCommands(close);
-  const singleKeys = usePrefs((s) => s.singleKeyShortcuts); // every hint is a single-key shortcut
   const [query, setQuery] = useState('');
+  const commands = useCommands(close, query);
+  const singleKeys = usePrefs((s) => s.singleKeyShortcuts); // every hint is a single-key shortcut
   const [active, setActive] = useState(0);
   const listId = useId();
   const optId = (id: string) => `${listId}-${id}`;
@@ -128,8 +177,8 @@ function PaletteBody({ close, inputRef }: { close: () => void; inputRef: RefObje
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={currentId}
-          aria-label="Search views, nodes and actions"
-          placeholder="Search views, nodes and actions…"
+          aria-label="Search views, nodes, metrics, benchmarks and actions"
+          placeholder="Search views, nodes, metrics, benchmarks and actions…"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setActive(0); }}
           onKeyDown={onKeyDown}

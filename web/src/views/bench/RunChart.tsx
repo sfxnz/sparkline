@@ -32,6 +32,8 @@ interface Props {
   height?: number;
   yMin?: number;
   yMax?: number;
+  /** Smallest y span shown: a near-flat series (52-53 °C) would otherwise give a single, repeated tick label. */
+  ySpan?: number;
   /** Shown instead of the plot while the data is on its way. */
   loading?: boolean;
   /** Shown (with the legend) when there is no data at all. */
@@ -41,7 +43,7 @@ interface Props {
 const fmtHms = uPlot.fmtDate('{HH}:{mm}:{ss}');
 const fmtHm = uPlot.fmtDate('{HH}:{mm}');
 
-export function RunChart({ title, ts, series, format, xRange, markers = [], height = 160, yMin, yMax, loading, emptyText = 'No samples for this run' }: Props) {
+export function RunChart({ title, ts, series, format, xRange, markers = [], height = 160, yMin, yMax, ySpan, loading, emptyText = 'No samples for this run' }: Props) {
   const plotRef = useRef<HTMLDivElement>(null);
   const uRef = useRef<uPlot | null>(null);
   const legendRefs = useRef<(HTMLSpanElement | null)[]>([]);
@@ -98,10 +100,15 @@ export function RunChart({ title, ts, series, format, xRange, markers = [], heig
         },
         y: {
           range: (_u, dmin, dmax) => {
-            const lo = Math.min(dmin, yMin ?? dmin);
-            const hi = Math.max(dmax, yMax ?? dmax);
+            let lo = Math.min(dmin, yMin ?? dmin);
+            let hi = Math.max(dmax, yMax ?? dmax);
             if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [yMin ?? 0, yMax ?? 1];
             if (yMin !== undefined && yMax !== undefined && dmin >= yMin && dmax <= yMax) return [yMin, yMax];
+            if (ySpan && hi - lo < ySpan) {
+              const mid = (hi + lo) / 2;
+              lo = mid - ySpan / 2;
+              hi = mid + ySpan / 2;
+            }
             return uPlot.rangeNum(lo, hi === lo ? lo + 1 : hi, 0.1, true);
           },
         },
@@ -217,7 +224,7 @@ export function RunChart({ title, ts, series, format, xRange, markers = [], heig
     };
     // Formatting, range and markers go through refs: they never recreate the plot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labelsId, height, yMin, yMax, themeVersion]);
+  }, [labelsId, height, yMin, yMax, ySpan, themeVersion]);
 
   // Feed data (and re-apply the range: it moves with the ETA while the run is live).
   useEffect(() => {

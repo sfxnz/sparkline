@@ -1,9 +1,9 @@
 import { decodeThrottle } from '../../../lib/throttle';
 import { stack } from './StackedAreaChart';
 import { mean, peak, tempHeadroom } from './gpu';
-import { throttleHeadline } from './Notices';
+import { clockLevel, throttleHeadline } from './Notices';
 import { gpuProcs, topMemoryProcs } from './ProcTable';
-import type { ProcSample } from '../../../lib/types';
+import type { ProcSample, Sample } from '../../../lib/types';
 
 describe('peak / mean', () => {
   it('peak takes the max across samples and rollup maxima', () => {
@@ -25,6 +25,9 @@ describe('tempHeadroom (GB10: slowdown 86 °C, shutdown 90 °C)', () => {
   });
   it('is critical above slowdown and at shutdown', () => {
     expect(tempHeadroom(87.6, 86, 90)).toMatchObject({ level: 'crit', text: '2 °C over slowdown · 2 °C to shutdown' });
+    // Computed from the displayed (rounded) temperature, so the two figures add up: 88 °C is 2 over and 2 to go.
+    expect(tempHeadroom(87.5, 86, 90)).toMatchObject({ level: 'crit', text: '2 °C over slowdown · 2 °C to shutdown' });
+    expect(tempHeadroom(85.6, 86, 90)).toMatchObject({ level: 'crit', text: 'At slowdown (86 °C) · 4 °C to shutdown' });
     expect(tempHeadroom(90, 86, 90)?.text).toBe('At or above shutdown (90 °C)');
   });
   it('is null without a reading or thresholds', () => {
@@ -34,8 +37,18 @@ describe('tempHeadroom (GB10: slowdown 86 °C, shutdown 90 °C)', () => {
 });
 
 describe('throttleHeadline', () => {
-  it('says full speed when no reasons are active', () => {
-    expect(throttleHeadline(decodeThrottle(0))).toEqual({ text: 'Running at full speed — no clock limits active', severity: 'ok' });
+  it('says full speed only when no reasons are active and the clock is near its maximum', () => {
+    expect(throttleHeadline(decodeThrottle(0), 'full')).toEqual({ text: 'Running at full speed — no clock limits active', severity: 'ok' });
+    expect(throttleHeadline(decodeThrottle(0), 'idle').text).toBe('No clock limits active — clocks are low because the GPU is idle');
+    expect(throttleHeadline(decodeThrottle(0)).text).toBe('No clock limits active');
+  });
+  it('places the clock against its maximum (an idle GB10 reports mask 0 at 208 of 3000 MHz)', () => {
+    const at = (sm_mhz: number | null, util: number | null) => ({ gpu: [{ sm_mhz, util }] }) as unknown as Sample;
+    expect(clockLevel(at(208, 0), 3000)).toBe('idle');
+    expect(clockLevel(at(1200, 85), 3000)).toBe('low');
+    expect(clockLevel(at(2900, 85), 3000)).toBe('full');
+    expect(clockLevel(at(208, 0), null)).toBeNull();
+    expect(clockLevel(null, 3000)).toBeNull();
   });
   it('treats idle as calm, not a limit', () => {
     expect(throttleHeadline(decodeThrottle(0x1)).severity).toBe('ok');

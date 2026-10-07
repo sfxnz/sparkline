@@ -129,6 +129,10 @@ def test_valid_params_coerced():
         ("http://10.0.0.1:99999", None),
         ("http://10.0.0.1/a b", None),
         ("10.0.0.1:8000", None),
+        ("http://127.0.0.1:9750", None),  # the agent itself
+        ("http://127.0.0.1:22/x", None),  # SSH
+        ("http://10.20.20.48:9700/api", None),  # the console
+        ("http://127.0.0.1:2375", None),  # Docker API
     ],
 )
 def test_base_url_privacy(url, ok):
@@ -167,3 +171,20 @@ def test_availability_mapping():
     assert probes.availability("llm-inference", env)[0] is None
     env = probes.Env(rdma=P("no rails"))
     assert probes.availability("nccl-allreduce", env)[0].message == "no rails"
+    env = probes.Env(cpu_cap=P("capped"))
+    for i in ("cpu-throughput", "llm-inference", "storage-fio", "rdma-bw-lat"):
+        assert probes.availability(i, env)[0].message == "capped"
+    for i in ("gpu-matmul", "thermal-soak", "mem-bandwidth", "nccl-allreduce"):  # in containers
+        assert probes.availability(i, env)[0] is None
+
+
+def test_cpu_quota_reads_own_cgroup(tmp_path):
+    (tmp_path / "self").mkdir()
+    (tmp_path / "self" / "cgroup").write_text("0::/system.slice/sparkline-agent.service\n")
+    cg = tmp_path / "cg" / "system.slice" / "sparkline-agent.service"
+    cg.mkdir(parents=True)
+    (cg / "cpu.max").write_text("50000 100000\n")
+    assert probes.cpu_quota(str(tmp_path), str(tmp_path / "cg")) == 0.5
+    (cg / "cpu.max").write_text("max 100000\n")
+    assert probes.cpu_quota(str(tmp_path), str(tmp_path / "cg")) is None
+    assert probes.cpu_quota(str(tmp_path / "nope"), str(tmp_path / "cg")) is None

@@ -7,7 +7,15 @@
 .shell--collapsed { grid-template-columns: var(--sidebar-width-collapsed) minmax(0, 1fr); }
 
 /* ------------------------------------------------------------------ sidebar */
+/* The material spans the whole grid row, so the sidebar runs the full scroll height of a long page; its contents
+   stay pinned to the viewport. */
 .sidebar {
+  border-width: 0 var(--hairline) 0 0;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 2;
+}
+.sidebar__inner {
   position: sticky;
   top: 0;
   height: 100dvh;
@@ -15,11 +23,7 @@
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-4) var(--space-3) var(--space-3);
-  border-width: 0 var(--hairline) 0 0;
-  border-radius: 0;
-  box-shadow: none;
   overflow: hidden;
-  z-index: 2;
 }
 .sidebar__brand {
   display: flex;
@@ -70,7 +74,7 @@
 .nav__item:hover { background: var(--fill-1); color: var(--text-1); text-decoration: none; }
 .nav__item.is-active { background: var(--accent-soft); color: var(--accent-text); }
 .nav__item.is-active .nav__icon { color: var(--accent-text); }
-.nav__icon { width: 18px; height: 18px; flex: none; color: var(--text-2); }
+.nav__icon { width: 1.125rem; height: 1.125rem; flex: none; color: var(--text-2); } /* rem: grows with the user's font size, like its label */
 .nav__label { overflow: hidden; text-overflow: ellipsis; }
 .nav__trailing { margin-left: auto; display: inline-flex; align-items: center; }
 .nav__badge {
@@ -99,7 +103,7 @@
 .sidebar__wall { flex: 1; justify-content: flex-start; gap: 10px; padding: 0 10px; color: var(--text-2); font-weight: 520; }
 
 /* collapsed: icons only, names stay available to assistive tech */
-.shell--collapsed .sidebar { padding-inline: var(--space-2); }
+.shell--collapsed .sidebar__inner { padding-inline: var(--space-2); }
 .shell--collapsed .sidebar__name,
 .shell--collapsed .nav__label,
 .shell--collapsed .nav__trailing .status__label,
@@ -160,7 +164,7 @@
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .toolbar__search:hover { background: var(--fill-2); color: var(--text-1); }
-.toolbar__search > svg { width: 15px; height: 15px; }
+.toolbar__search > svg { width: 0.9375rem; height: 0.9375rem; }
 .toolbar__search > span:first-of-type { min-width: 72px; text-align: left; }
 .toolbar__kbd { display: inline-flex; gap: 3px; }
 

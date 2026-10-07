@@ -67,12 +67,29 @@ export const selectThrottleMask = (s: Sample | null) => s?.gpu[0]?.throttle_mask
 /** Reasons that actually limit clocks ("Idle" only means there is no work). */
 export const limiting = (reasons: readonly ThrottleReason[]) => reasons.filter((r) => r.code !== 'gpu_idle');
 
-export function throttleHeadline(reasons: readonly ThrottleReason[]): { text: string; severity: Severity | 'ok' } {
+/** Where the SM clock sits against its maximum: near it ('full'), well below it with no work ('idle') or with work
+ *  ('low'), or unknown (null). An idle GB10 reports mask 0x0 at about 7% of its maximum clock. */
+export type ClockLevel = 'full' | 'idle' | 'low' | null;
+export function clockLevel(s: Sample | null, maxMhz: number | null): ClockLevel {
+  const g = s?.gpu[0];
+  if (g?.sm_mhz == null || !maxMhz) return null;
+  if (g.sm_mhz >= 0.8 * maxMhz) return 'full';
+  return g.util == null || g.util < 10 ? 'idle' : 'low';
+}
+
+const NO_LIMIT_TEXT: Record<Exclude<ClockLevel, null> | 'unknown', string> = {
+  full: 'Running at full speed — no clock limits active',
+  idle: 'No clock limits active — clocks are low because the GPU is idle',
+  low: 'No clock limits active — the driver is running the clocks below maximum',
+  unknown: 'No clock limits active',
+};
+
+export function throttleHeadline(reasons: readonly ThrottleReason[], clocks: ClockLevel = null): { text: string; severity: Severity | 'ok' } {
   const active = limiting(reasons);
   if (!active.length) {
     return reasons.length
       ? { text: 'Idle — clocks are lowered because there is no work', severity: 'ok' }
-      : { text: 'Running at full speed — no clock limits active', severity: 'ok' };
+      : { text: NO_LIMIT_TEXT[clocks ?? 'unknown'], severity: 'ok' };
   }
   const sev = worstSeverity(active) ?? 'info';
   const names = active.map((r) => r.title.toLowerCase()).join(', ');
@@ -80,10 +97,11 @@ export function throttleHeadline(reasons: readonly ThrottleReason[]): { text: st
 }
 
 const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
+const worstFirst = (reasons: readonly ThrottleReason[]) => [...reasons].sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.bit - b.bit);
 
 /** Active reasons, most severe first. */
 export function ThrottleRows({ reasons }: { reasons: readonly ThrottleReason[] }) {
-  const sorted = [...reasons].sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.bit - b.bit);
+  const sorted = worstFirst(reasons);
   return (
     <ul className="throttle">
       {sorted.map((r) => {
@@ -119,7 +137,9 @@ export function ThrottleNotice({ nodeId }: { nodeId: string }) {
     <div className={`nnote ${m.tone}`}>
       <Icon className="nnote__icon" aria-hidden="true" />
       <p className="nnote__text">
-        <strong>{m.label}: {head.text}.</strong> <span className="nnote__msg">{active.map((r) => r.explanation).join(' ')}</span>
+        {/* Only the worst reason's explanation: three explanations under one heading read as a wall of text,
+            and the GPU tab lists every reason with its own. */}
+        <strong>{m.label}: {head.text}.</strong> <span className="nnote__msg">{worstFirst(active)[0]?.explanation}{active.length > 1 ? ' The GPU tab explains the others.' : ''}</span>
       </p>
       <Link href={paths.node(nodeId, 'gpu')} className="nnote__link">
         GPU<ChevronRight aria-hidden="true" />

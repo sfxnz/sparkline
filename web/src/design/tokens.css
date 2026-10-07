@@ -111,6 +111,9 @@
   --chart-2: #c5c9d2;
   --chart-3: #7c8190;
   --chart-4: #b4a4f5;
+  /* Sequential ramp (CPU heatmap): one hue, lightness rising with the value, stops at 0 / 20 / 45 / 70 / 100 %.
+     From the 20 % stop on, cells clear 3:1 against every surface (contrast.test.ts). */
+  --heat-0: #272b4f; --heat-1: #4b5ed8; --heat-2: #7b8dff; --heat-3: #abb7ff; --heat-4: #e0e4ff;
   --skeleton: rgba(255, 255, 255, 0.06);
   --skeleton-shine: rgba(255, 255, 255, 0.06);
 }
@@ -164,6 +167,7 @@
   --chart-2: #3a3e48;
   --chart-3: #787d87;
   --chart-4: #8a6fe0;
+  --heat-0: #dde2fa; --heat-1: #6a7eeb; --heat-2: #4a5ee2; --heat-3: #3140b6; --heat-4: #1e2574;
   --skeleton: rgba(20, 24, 36, 0.06);
   --skeleton-shine: rgba(255, 255, 255, 0.55);
 }

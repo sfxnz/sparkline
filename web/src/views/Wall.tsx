@@ -5,6 +5,7 @@ import { useLocation } from 'wouter';
 import { AnimatedNumber } from '../design/components/AnimatedNumber';
 import { Button } from '../design/components/Button';
 import { StatusPill } from '../design/components/StatusPill';
+import { springs } from '../design/motion';
 import { formatDuration, wattsParts } from '../lib/format';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
@@ -158,7 +159,7 @@ function AlertTicker() {
     return (
       <footer className={`wall-ticker wall-ticker--quiet${clear ? '' : ' wall-ticker--pending'}`}>
         {clear ? <CircleCheck className="wall-ticker__ok" aria-hidden="true" /> : <Clock className="wall-ticker__wait" aria-hidden="true" />}
-        <span>{clear ? 'No open alerts' : 'No alert has fired yet'}</span>
+        <span>{clear ? 'No open alerts' : 'No open alerts yet'}</span>
       </footer>
     );
   }
@@ -172,7 +173,7 @@ function AlertTicker() {
         {alerts.length > 1 ? <span className="wall-ticker__pos"> · {i + 1} of {alerts.length}</span> : null}
       </span>
       <AnimatePresence mode="wait" initial={false}>
-        <m.div key={a.id} className="wall-ticker__item" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.4 }}>
+        <m.div key={a.id} className="wall-ticker__item" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={springs.gentle}>
           <span className="wall-ticker__sev"><SeverityBadge severity={a.severity} size="md" /></span>
           <span className="wall-ticker__title">{a.title}</span>
           <span className="wall-ticker__detail">{a.detail}</span>

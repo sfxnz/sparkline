@@ -53,7 +53,8 @@ const themes = { dark, light: { ...dark, ...block(":root[data-theme='light']") }
 
 const SURFACES = ['bg', 'surface-1', 'surface-2', 'surface-3'];
 const TEXT = ['text-1', 'text-2', 'text-3', 'accent-text', 'ok-text', 'warn-text', 'crit-text', 'stale-text'];
-const NON_TEXT = ['accent', 'focus-ring', 'ok', 'warn', 'crit', 'stale', 'chart-1', 'chart-2', 'chart-3'];
+const NON_TEXT = ['accent', 'focus-ring', 'ok', 'warn', 'crit', 'stale', 'chart-1', 'chart-2', 'chart-3', 'heat-1', 'heat-2', 'heat-3', 'heat-4'];
+const HEAT = ['heat-0', 'heat-1', 'heat-2', 'heat-3', 'heat-4'];
 const STATUS = ['ok', 'warn', 'crit', 'stale'];
 
 describe.each(Object.entries(themes))('%s theme contrast', (_name, t) => {
@@ -77,6 +78,12 @@ describe.each(Object.entries(themes))('%s theme contrast', (_name, t) => {
       expect(contrast(solid(`${s}-text`, tinted), tinted)).toBeGreaterThanOrEqual(4.5);
     },
   );
+
+  it('the heat ramp is perceptually ordered: each stop further from the surface than the last', () => {
+    const base = solid('surface-2', c('bg'));
+    const steps = HEAT.map((h) => contrast(c(h), base));
+    steps.slice(1).forEach((x, i) => { expect(x).toBeGreaterThan((steps[i] ?? 0) * 1.4); });
+  });
 
   it('text on accent fill (primary button) >= 4.5, including hover', () => {
     expect(contrast(c('text-on-accent'), c('accent-fill'))).toBeGreaterThanOrEqual(4.5);

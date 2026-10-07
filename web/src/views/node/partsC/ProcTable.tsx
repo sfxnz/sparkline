@@ -130,7 +130,8 @@ export function ProcTable({ rows, sort, onSort, memTotal, empty }: Props) {
   );
 }
 
-function Badge({ icon, text, label, model }: { icon: ReactNode; text: string; label: string; model?: boolean }) {
+/** Container / model chip: the same look wherever a process row appears (Processes, GPU and Memory tabs). */
+export function Badge({ icon, text, label, model }: { icon: ReactNode; text: string; label: string; model?: boolean }) {
   return (
     <span className={`procs__badge${model ? ' procs__badge--model' : ''}`} title={`${label}: ${text}`}>
       <span aria-hidden="true" style={{ display: 'contents' }}>{icon}</span>

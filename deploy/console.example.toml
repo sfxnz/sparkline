@@ -1,0 +1,26 @@
+# Sparkline console config, template for Docker Compose (install.sh console writes its own).
+# Generate each token with:  python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+# Reference: README.md, "Configuration".
+
+# "auto" = the private LAN IP of the default route. 0.0.0.0 and public addresses are refused.
+bind = "auto"
+port = 9700
+# What you type on the sign-in screen. Or leave empty and set SPARKLINE_TOKEN.
+token = ""
+# Must equal token in /etc/sparkline/agent.toml on every node. Or leave empty and set SPARKLINE_AGENT_TOKEN.
+agent_token = ""
+
+# [settings]                  # also editable in the app (Settings)
+# energy_rate_per_kwh = 0.28
+# currency = "£"
+# stale_after_s = 5.0
+# offline_after_s = 30.0
+# regression_pct = 5.0
+
+[[nodes]]
+id = "spark1"
+url = "http://10.20.20.48:9750"
+
+[[nodes]]
+id = "spark2"
+url = "http://10.20.20.195:9750"

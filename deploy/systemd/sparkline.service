@@ -1,0 +1,75 @@
+# Sparkline console: aggregator, API and web app, on one host (for example spark1). Installed by
+# deploy/install.sh, which rewrites /opt/sparkline when --prefix is used. Check the sandbox with
+# `systemd-analyze security sparkline`.
+#
+# The console only talks HTTP/WebSocket to the agents and to browsers, and keeps events, settings and
+# benchmark results in SQLite. It needs no devices, no capabilities and no view of other processes, so it
+# is sandboxed more tightly than the agent.
+
+[Unit]
+Description=Sparkline console (aggregator, API and web app)
+Wants=network-online.target
+# bind = "auto" needs the LAN address to exist.
+After=network-online.target
+
+[Service]
+Type=exec
+User=sparkline
+Group=sparkline
+ExecStart=/opt/sparkline/venv/bin/sparkline --config /etc/sparkline/console.toml
+Restart=on-failure
+RestartSec=5s
+# Exit status 2 means a configuration problem (bad TOML, unsafe bind, missing token). A restart won't fix it.
+RestartPreventExitStatus=2
+# /opt is read-only at runtime, so don't try to write .pyc files.
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# --- Files ------------------------------------------------------------------------------------------
+# console.sqlite (events, settings, benchmark results, sessions) lives in /var/lib/sparkline.
+StateDirectory=sparkline
+StateDirectoryMode=0750
+UMask=0027
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sparkline
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+
+# --- Privileges -------------------------------------------------------------------------------------
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+
+# --- Kernel and processes ---------------------------------------------------------------------------
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+# Only its own processes are visible in /proc. ProcSubset=pid is not set: bind = "auto" reads
+# /proc/net/route to find the LAN interface.
+ProtectProc=invisible
+
+# --- Network ----------------------------------------------------------------------------------------
+# AF_INET/AF_INET6: browsers and agents. AF_UNIX: local logging. AF_NETLINK: interface addresses for
+# bind = "auto".
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+# --- Resources --------------------------------------------------------------------------------------
+# Live buffers are bounded (about 15 minutes per node). This is a safety net, not a budget.
+MemoryHigh=768M
+MemoryMax=1G
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

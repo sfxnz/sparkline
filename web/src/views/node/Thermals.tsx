@@ -7,7 +7,7 @@ import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
-import { formatTemp, tempParts, wattsParts, type Formatter } from '../../lib/format';
+import { tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { useCluster } from '../../store/cluster';
 import type { LiveStore } from '../../store/live';
 import { usePrefs } from '../../store/prefs';
@@ -16,9 +16,10 @@ import { formatEnergyCost, formatKwh, joulesToKwh } from '../shared/energy';
 import { useRangeHistory } from '../shared/live';
 import { useLiveDerived, useSpanEnergy, useStaleSince } from './partsC/hooks';
 import { NowLabel } from './parts/NowLabel';
+import { TempFooter } from './parts/TempFooter';
 import { EnergyPanel, PowerPanel } from './partsC/Power';
 import { SensorGroupPanel } from './partsC/SensorGroup';
-import { buildGroups, headroom, hottest, type SensorGroup } from './partsC/thermal';
+import { buildGroups, hottest, type SensorGroup } from './partsC/thermal';
 import './partsC/partsC.css';
 
 export default function Thermals({ nodeId }: { nodeId: string }) {
@@ -67,7 +68,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, fanReason }: { nodeId
   const gpuTemp = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.temp_c'), [nodeId]), Object.is);
   const gpuPower = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.power_w'), [nodeId]), Object.is);
   const gpuSensor = groups.find((g) => g.id === 'gpu')?.sensors[0];
-  const room = headroom(gpuTemp, gpuSensor?.limit ?? null);
+  const gpuInfo = useCluster((s) => s.nodes[nodeId]?.info?.gpus[0]);
 
   return (
     <Panel label={`${nodeId} thermals and power summary`} className="tp-head">
@@ -80,7 +81,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, fanReason }: { nodeId
           format={tempParts}
           stale={stale}
           updatedAt={updatedAt}
-          footer={room ? (room.degrees > 0 ? `${formatTemp(room.degrees)} below slowdown (${formatTemp(gpuSensor?.limit)})` : 'At the slowdown limit') : undefined}
+          footer={gpuTemp == null ? undefined : <TempFooter temp={gpuTemp} slowdown={gpuInfo?.temp_slowdown_c ?? gpuSensor?.limit ?? null} shutdown={gpuInfo?.temp_shutdown_c ?? null} />}
         />
         <Stat label="GPU power" value={gpuPower} format={wattsParts} stale={stale} updatedAt={updatedAt} footer="GPU rail only" />
         <EnergyToday nodeId={nodeId} />

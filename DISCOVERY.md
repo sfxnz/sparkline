@@ -116,13 +116,16 @@ counters come from `.../counters/` and `.../hw_counters/` (e.g. `symbol_error`, 
 | `nvcc` 13.0 | ✅ | ✅ | — |
 | Docker (user in `docker` group) | ✅ | ✅ | Runs GPU benchmarks in `nvcr.io/nvidia/pytorch:26.07-py3` (present on both) |
 | `perftest` (`ib_write_bw`, `ib_write_lat`) | ✅ 24.01 | ✅ | RDMA bandwidth/latency |
-| nccl-tests (`all_reduce_perf`) | ❌ | ❌ | Built on demand inside the PyTorch container, or uses a binary if found |
+| nccl-tests (`all_reduce_perf`) | ❌ | ❌ | Not used: it needs an MPI launcher across nodes. The NCCL benchmark uses `torch.distributed` (NCCL backend) in the PyTorch container and reports the same algbw/busbw |
 | `fio` | ❌ | ❌ | Uses fio if installed. Otherwise a built-in O_DIRECT runner, clearly labelled |
 | LLM engine | vLLM images present, custom servers | same | Engine-agnostic: an OpenAI-compatible endpoint with streaming TTFT/decode timing |
-| `sudo` without a password | ❌ | — | `install.sh` asks for sudo. Dev runs use user-space processes |
+| `sudo` without a password | ❌ | — | `install.sh` must be run with sudo (`--dry-run` and `--destdir` work without). Dev runs use user-space processes |
 
 ## Permissions
 
 - The agent runs unprivileged. Everything above is readable as a normal user (NVML, sysfs, `/proc`, ethtool ioctl).
+  `/dev/nvidia*`, `/dev/infiniband/uverbs*` and `rdma_cm` are mode 0666 on DGX OS, so the installed `sparkline`
+  user needs no device groups (`install.sh` adds a device's group only if it is not world-accessible).
 - Container names: `/proc/<pid>/cgroup` gives `docker-<id>.scope`, which the agent resolves through
-  `/var/run/docker.sock` (the user is in the `docker` group).
+  `/var/run/docker.sock`. In development the user is in the `docker` group. The installed agent gets Docker
+  access only with `install.sh agent --enable-benchmarks`. Otherwise it shows the short container id.

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
+from typing import Any
 
 from ...common.schema import GpuInfo, GpuSample, Unsupported
 from . import counter_delta
@@ -55,7 +57,7 @@ def _reason(e: Exception) -> str:
 
 
 class _Gpu:
-    def __init__(self, index: int, handle) -> None:
+    def __init__(self, index: int, handle: Any) -> None:  # an NVML device handle
         self.index = index
         self.h = handle
         self.disabled: set[str] = set()  # fields that raised NotSupported
@@ -103,7 +105,7 @@ class GpuCollector:
             self.info.append(self._probe(g))
 
     @staticmethod
-    def _try(fn, *args):
+    def _try(fn: Callable[..., Any], *args: Any) -> Any:
         try:
             return fn(*args)
         except Exception:
@@ -156,7 +158,7 @@ class GpuCollector:
                 )
         return info
 
-    def _read(self, g: _Gpu, field: str, fn, *args):
+    def _read(self, g: _Gpu, field: str, fn: Callable[..., Any], *args: Any) -> Any:
         if field in g.disabled:
             return None
         try:

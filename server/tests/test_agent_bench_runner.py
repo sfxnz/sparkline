@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import http.server
 import json
 import os
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import psutil
 import pytest
+from netports import free_ports
 
 from sparkline.agent.bench import jobs, probes, specs
 from sparkline.agent.bench import runner as runner_mod
@@ -37,7 +39,7 @@ from sparkline.common.schema import (
 FIX = Path(__file__).parent / "fixtures" / "agent" / "bench"
 FAKE = FIX / "fake_payload.py"
 FAKE_DOCKER = FIX / "fake_docker.py"  # housekeeping (ps/rm) never reaches the real Docker daemon
-LLM_PORT = 29910  # assigned test port
+LLM_PORT, NOTHING_PORT = free_ports(2)  # fake OpenAI server; nothing listening
 GIB = 2**30
 
 
@@ -354,6 +356,17 @@ def docker_state(tmp_path, monkeypatch, containers: list[dict]) -> Path:
     return path
 
 
+def add_docker_container(path: Path, container: dict) -> None:
+    """Update the fake docker state like fake_docker.py does: under its lock, so no update is lost."""
+    with open(f"{path}.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        st = json.loads(path.read_text())
+        st["containers"].append(container)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(st))
+        os.replace(tmp, path)
+
+
 async def test_sweep_removes_leftovers_of_a_killed_agent(tmp_path, monkeypatch):
     """A killed agent leaves its container running and its work dir behind: both go before the next start."""
     state = docker_state(
@@ -401,9 +414,7 @@ async def test_late_created_container_is_removed_after_cancel(tmp_path, monkeypa
         await wait_for(
             lambda: ["rm", "-f", "sparkline-bench-late1"] in json.loads(state.read_text())["calls"]
         )
-        st = json.loads(state.read_text())
-        st["containers"].append({"id": "created1", "run": "late1", "node": "n1"})
-        state.write_text(json.dumps(st))
+        add_docker_container(state, {"id": "created1", "run": "late1", "node": "n1"})
 
     await dockerd_finishes_create()
     await wait_for(lambda: r.current is None)
@@ -896,6 +907,18 @@ def test_llm_percentile_is_nearest_rank(monkeypatch):
     assert pct([4.0], 95) == 4.0 and pct([1.0, 9.0], 100) == 9.0
 
 
+def test_llm_errors_never_echo_the_endpoints_body(monkeypatch):
+    """A loopback service answering 403 must not leak its body through the run error."""
+    monkeypatch.syspath_prepend(PAYLOAD_DIR)
+    from llm_inference import http_error
+
+    leak = b'{"internal": "loopback-only service data: db_password=hunter2"}'
+    assert http_error(403, leak) == "HTTP 403 (not an OpenAI error; body not shown)"
+    assert "hunter2" not in http_error(500, b"<html>db_password=hunter2</html>")
+    assert http_error(404, b'{"error": {"message": "model x not found"}}') == "HTTP 404: model x not found"
+    assert http_error(400, b'{"object": "error", "message": "bad max_tokens"}') == "HTTP 400: bad max_tokens"
+
+
 def test_builtin_io_payload_small_file_removed(tmp_path):
     f = tmp_path / "io.test"
     msgs = run_payload(
@@ -1026,7 +1049,7 @@ def test_serving_gpu_mem_falls_back_to_gpu_processes_when_the_pid_is_hidden(monk
 
 async def test_llm_unreachable_endpoint_problem(tmp_path):
     r = make_runner(tmp_path)
-    await r.start(req(bench_id="llm-inference", params={"base_url": f"http://127.0.0.1:{LLM_PORT + 1}"}))
+    await r.start(req(bench_id="llm-inference", params={"base_url": f"http://127.0.0.1:{NOTHING_PORT}"}))
     await r.current.task
     st = r.get("r1")
     assert st.status == "failed" and st.error.message == "LLM endpoint unreachable"

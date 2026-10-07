@@ -20,6 +20,8 @@ import logging
 import os
 import socket
 import time
+from collections.abc import Sequence
+from typing import Literal
 
 import psutil
 
@@ -63,7 +65,10 @@ def parse_net_dev(text: str) -> dict[str, dict[str, int]]:
     return out
 
 
-def classify(name: str, rdma_ifs: set[str], default_if: str | None) -> str:
+NetRole = Literal["interconnect", "lan", "virtual", "wireless", "other"]  # NetIfInfo.role
+
+
+def classify(name: str, rdma_ifs: set[str], default_if: str | None) -> NetRole:
     if name in rdma_ifs:
         return "interconnect"
     if name == default_if:
@@ -75,7 +80,7 @@ def classify(name: str, rdma_ifs: set[str], default_if: str | None) -> str:
     return "other"
 
 
-def assign_labels(ifaces: list[tuple[str, str, bool, str]]) -> dict[str, str]:
+def assign_labels(ifaces: Sequence[tuple[str, str, bool, str]]) -> dict[str, str]:
     """ifaces: (name, role, up, sort_key). Up interconnects sorted by sort_key (PCI path) -> rail A, B..."""
     labels = {}
     rails = sorted((key, name) for name, role, up, key in ifaces if role == "interconnect" and up)
@@ -166,7 +171,7 @@ class NetCollector:
         default_if = default_route_iface()
         addrs = psutil.net_if_addrs()
         names = sorted(n for n in os.listdir("/sys/class/net") if n != "lo")
-        raw = []
+        raw: list[tuple[str, NetRole, bool, str]] = []
         for n in names:
             role = classify(n, set(rmap), default_if)
             up = read_once(f"/sys/class/net/{n}/operstate") == "up"

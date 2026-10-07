@@ -1,8 +1,8 @@
 """End-to-end: fake agents (uvicorn threads) <-> real console (uvicorn thread) over real sockets.
 
-Ports: 29751 fake agent (good token), 29752 console, 29753 fake agent (other token), 29759 nothing listening,
-29790 fake agent with a skewed clock, 29791 fake agent that says hello but never samples, 29792 TCP listener
-that never answers (hung agent).
+Ports (free ones, picked per run): fake agent (good token), console, fake agent (other token), nothing
+listening, fake agent with a skewed clock, fake agent that says hello but never samples, TCP listener that
+never answers (hung agent).
 """
 
 from __future__ import annotations
@@ -21,14 +21,14 @@ from websockets.sync.client import connect as ws_connect
 
 sys.path.insert(0, str(Path(__file__).parent / "fixtures" / "console"))
 from fakeagent import ServerThread, make_fake_agent  # noqa: E402
+from netports import free_ports  # noqa: E402
 
 from sparkline.common.schema import ClusterState, HistoryResponse  # noqa: E402
 from sparkline.console.app import create_app  # noqa: E402
 from sparkline.console.config import ConsoleConfig  # noqa: E402
 from sparkline.console.hub import SAMPLE_QUEUE  # noqa: E402
 
-AGENT_PORT, CONSOLE_PORT, BAD_AGENT_PORT, DEAD_PORT = 29751, 29752, 29753, 29759
-SKEW_PORT, SILENT_PORT, HUNG_PORT = 29790, 29791, 29792
+AGENT_PORT, CONSOLE_PORT, BAD_AGENT_PORT, DEAD_PORT, SKEW_PORT, SILENT_PORT, HUNG_PORT = free_ports(7)
 BROWSER = {"Authorization": "Bearer browser-tok"}
 BASE = f"http://127.0.0.1:{CONSOLE_PORT}"
 

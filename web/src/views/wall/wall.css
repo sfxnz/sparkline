@@ -82,7 +82,7 @@
   z-index: -1;
   pointer-events: none;
   opacity: var(--glow);
-  transition: opacity 1.2s var(--ease-in-out);
+  transition: opacity var(--dur-slow) var(--ease-out);
 }
 .wall-tile__glow::before {
   content: '';

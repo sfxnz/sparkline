@@ -77,12 +77,12 @@ def flatten(s: Sample) -> dict[str, float]:
         put(p + "write_iops", d.write_iops)
         put(p + "busy_pct", d.busy_pct)
 
-    for f in s.fs:
-        put(f"fs.{f.key}.used", f.used)
-        put(f"fs.{f.key}.total", f.total)
-        put(f"fs.{f.key}.free", f.free)
-        if f.used + f.free:  # like df: free is what non-root can still use, so reserved blocks count as used
-            put(f"fs.{f.key}.used_pct", 100.0 * f.used / (f.used + f.free))
+    for vol in s.fs:
+        put(f"fs.{vol.key}.used", vol.used)
+        put(f"fs.{vol.key}.total", vol.total)
+        put(f"fs.{vol.key}.free", vol.free)
+        if vol.used + vol.free:  # like df: free is what non-root can use, so reserved blocks count as used
+            put(f"fs.{vol.key}.used_pct", 100.0 * vol.used / (vol.used + vol.free))
 
     for t in s.temps:
         put(f"temp.{t.id}", t.c)

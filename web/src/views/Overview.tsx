@@ -1,5 +1,5 @@
 // Overview ('/'): is my cluster healthy and what is it doing?
-// Hero sentence -> living node cards -> cluster totals -> interconnect + recent events -> GPU activity over time.
+// Hero sentence -> living node cards -> cluster totals + interconnect -> recent events -> GPU activity over time.
 import { ServerOff } from 'lucide-react';
 import { useMemo } from 'react';
 import { EmptyState } from '../design/components/EmptyState';
@@ -41,11 +41,11 @@ export default function Overview() {
           <NodeCard key={id} id={id} />
         ))}
       </div>
-      <Totals />
       <div className={`ov-pair${links.length ? '' : ' ov-pair--single'}`}>
+        <Totals />
         {links.length ? <InterconnectPanel links={links} /> : null}
-        <RecentEvents />
       </div>
+      <RecentEvents />
       <ClusterChart nodes={order} />
     </div>
   );
@@ -60,11 +60,11 @@ function OverviewSkeleton() {
           <NodeCardSkeleton key={i} />
         ))}
       </div>
-      <TotalsSkeleton />
       <div className="ov-pair">
+        <TotalsSkeleton />
         <InterconnectSkeleton />
-        <RecentEventsSkeleton />
       </div>
+      <RecentEventsSkeleton />
       <ClusterChartSkeleton rows={SKELETON_NODES} />
     </div>
   );

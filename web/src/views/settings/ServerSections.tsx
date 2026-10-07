@@ -56,10 +56,10 @@ export function FreshnessSection({ current, save }: Props) {
     >
       <div className="set-rows">
         {f.status.kind === 'error' ? <ProblemBanner problem={f.status.problem} /> : null}
-        <SettingRow id="set-stale" htmlFor="set-stale-input" title="Mark stale after" description="No sample for this long: values are shown dimmed with “updated N s ago”.">
+        <SettingRow id="set-stale" htmlFor="set-stale-input" title="Mark “Not reporting” after" description="No sample for this long: the node shows Not reporting and its values dim with “updated N s ago”.">
           <NumberField id="set-stale-input" describedBy="set-stale-desc" value={f.draft.stale_after_s} onChange={(v) => { f.set('stale_after_s', v); }} unit="s" error={f.errors.stale_after_s} />
         </SettingRow>
-        <SettingRow id="set-offline" htmlFor="set-offline-input" title="Mark offline after" description="No sample for this long: the node is offline and the Node offline alert can fire.">
+        <SettingRow id="set-offline" htmlFor="set-offline-input" title="Mark “Offline” after" description="No sample for this long: the node shows Offline and the Node offline alert can fire.">
           <NumberField id="set-offline-input" describedBy="set-offline-desc" value={f.draft.offline_after_s} onChange={(v) => { f.set('offline_after_s', v); }} unit="s" error={f.errors.offline_after_s} />
         </SettingRow>
       </div>

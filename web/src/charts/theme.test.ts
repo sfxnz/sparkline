@@ -1,4 +1,4 @@
-import { axisLabels } from './theme';
+import { axisLabels, heatColor, heatLut } from './theme';
 import { formatBitrate, formatBytes, formatWatts } from '../lib/format';
 
 describe('axisLabels', () => {
@@ -18,5 +18,31 @@ describe('axisLabels', () => {
     expect(axisLabels([0, 600e6 / 8, 1.2e9 / 8], formatBitrate)).toEqual(['0\u00a0b/s', '600\u00a0Mb/s', '1.20\u00a0Gb/s']);
     expect(axisLabels([69.6, 70.1, 70.4], (n) => `${n.toFixed(0)} °C`)).toEqual(['70 °C', '', '']);
     expect(axisLabels([1, 2], (n) => (n > 1 ? 'high' : 'low'))).toEqual(['low', 'high']);
+  });
+});
+
+describe('heatColor', () => {
+  const stops = ['#000000', '#333333', '#666666', '#999999', '#ffffff'];
+  it('hits the stops exactly and interpolates between them', () => {
+    expect(heatColor(stops, 0)).toBe('rgb(0, 0, 0)');
+    expect(heatColor(stops, 0.2)).toBe('rgb(51, 51, 51)');
+    expect(heatColor(stops, 1)).toBe('rgb(255, 255, 255)');
+    expect(heatColor(stops, 0.1)).toBe('rgb(26, 26, 26)');
+  });
+  it('clamps out-of-range and non-finite values', () => {
+    expect(heatColor(stops, -1)).toBe('rgb(0, 0, 0)');
+    expect(heatColor(stops, 2)).toBe('rgb(255, 255, 255)');
+    expect(heatColor(stops, Number.NaN)).toBe('rgb(0, 0, 0)');
+  });
+});
+
+describe('heatLut', () => {
+  it('holds heatColor at every whole percent and is computed once per palette', () => {
+    const stops = ['#000000', '#333333', '#666666', '#999999', '#ffffff'];
+    const lut = heatLut(stops);
+    expect(lut).toHaveLength(101);
+    expect(lut[20]).toBe(heatColor(stops, 0.2));
+    expect(lut[100]).toBe('rgb(255, 255, 255)');
+    expect(heatLut(stops)).toBe(lut);
   });
 });

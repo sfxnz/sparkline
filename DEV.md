@@ -1,6 +1,7 @@
 # Running Sparkline for development
 
-Everything runs as your user from the repo. Packaged deployment (`install.sh`, systemd) comes in a later phase.
+Everything runs as your user from the repo. For installing on the nodes (`deploy/install.sh`, systemd, Docker
+Compose), see [README.md](README.md).
 Runtime files go in `var/`, which git ignores.
 
 ## One-time setup
@@ -8,12 +9,15 @@ Runtime files go in `var/`, which git ignores.
 ```sh
 cd server && uv venv && uv pip install -e '.[dev]'    # or: python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 cd ../web && npm ci
-mkdir -p ../var && chmod 700 ../var
+cd .. && mkdir -p var && chmod 700 var                 # back at the repo root, where every command below runs
 ```
 
 ## Demo: no hardware, no token
 
+From the repo root:
+
 ```sh
+(cd web && npm run build)                                   # the console serves web/dist
 cat > var/demo.toml <<'EOF'
 bind = "127.0.0.1"
 port = 9701
@@ -22,7 +26,7 @@ EOF
 server/.venv/bin/sparkline --demo --config var/demo.toml      # http://127.0.0.1:9701 (serves web/dist)
 ```
 
-The demo runs three nodes: spark1, spark2 and spark3. spark3 goes stale at about 30 s, goes offline at about 48 s and reconnects on its own. Alerts fire and then recover.
+The demo runs three nodes: spark1, spark2 and spark3. The first minute is calm; then spark1 has a thermal episode (about 60 s), spark2's stream stalls briefly (about 120 s), and spark3 goes stale at about 150 s, goes offline at about 170 s and reconnects on its own. Alerts fire and then recover. Benchmark runs are time-compressed.
 With no `token` in the config, auth is off.
 
 ## Real agents + console
@@ -105,3 +109,18 @@ cd web && npm run typecheck && npm run lint && npm test && npm run build && npm 
 `npm run e2e` starts its own demo console (port `E2E_DEMO_PORT`, default 9702, data in the git-ignored `web/.e2e-demo/`)
 and a `vite preview` of the build proxying to it (port `E2E_PORT`, default 5180). Flow tests and axe checks run against
 that demo; a few chrome tests stub `/api` per test instead.
+
+### Deployment files
+
+None of these need root, and none of them touch the system:
+
+```sh
+shellcheck deploy/install.sh
+./deploy/install.sh agent --dry-run                  # also: console --nodes a=http://x:9750, uninstall --purge
+./deploy/install.sh agent --destdir /tmp/sl-stage    # real layout under /tmp/sl-stage, no users or systemd
+systemd-analyze verify deploy/systemd/*.service      # only complains that /opt/sparkline/venv is absent
+docker compose -f deploy/docker-compose.yml config
+```
+
+A `--destdir` run creates a working venv inside the stage, so its `sparkline`/`sparkline-agent` and the
+generated TOML can be tried directly (pass `--bind 127.0.0.1 --port ...` and `--data-dir`).

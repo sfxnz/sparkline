@@ -10,11 +10,13 @@ import logging
 import mimetypes
 import time
 from collections import deque
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 from urllib.parse import urlsplit
 
+import anyio
 import httpx
 from fastapi import Depends, FastAPI, Query, Request, Response, WebSocket
 from fastapi.exceptions import RequestValidationError
@@ -44,7 +46,7 @@ from .demo import NODES as DEMO_NODES
 from .demo import DemoSource, demo_history
 from .demo_bench import DemoBench, seed_history
 from .hub import Hub
-from .nodes import AgentClient, AuthRejected, classify
+from .nodes import AgentClient, AuthRejected, NodeSource, classify
 from .store import SESSION_TTL_S, Store
 
 log = logging.getLogger("sparkline.console.app")
@@ -89,7 +91,44 @@ class ConfirmBody(BaseModel):
     confirm: Literal["DELETE"]
 
 
-def origin_ok(headers) -> bool:
+# Every HTTP response: scripts, styles and connections only from this console (styles may be inline: uPlot and
+# the charts set style attributes), never framed, no MIME sniffing, no referrer to other sites.
+SECURITY_HEADERS = [
+    (
+        b"content-security-policy",
+        b"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        b"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; "
+        b"base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    ),
+    (b"x-frame-options", b"DENY"),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"same-origin"),
+]
+
+
+class SecurityHeaders:
+    """Pure ASGI middleware (streams and WebSockets pass through untouched)."""
+
+    def __init__(self, app: Callable) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {k.lower() for k, _ in headers}
+                headers += [(k, v) for k, v in SECURITY_HEADERS if k not in present]
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+def origin_ok(headers: Mapping[str, str]) -> bool:
     """Reject cross-site requests: an Origin header, when present, must match Host."""
     origin = headers.get("origin")
     if origin is None:
@@ -106,6 +145,8 @@ def create_app(
 ) -> FastAPI:
     data_dir.mkdir(parents=True, exist_ok=True)
     store = Store(data_dir / "console.sqlite")
+    if store.bind_sessions_to_token(cfg.token):
+        log.warning("The console token changed: signed out every existing session")
     hub = Hub()
     cluster = Cluster(store, hub, cfg.settings, demo=demo)
     if demo:
@@ -120,7 +161,7 @@ def create_app(
         if demo_empty_bench:  # demo DB only: show the empty benchmark state
             bench_store.clear()
         else:
-            models = {nid: src.model for nid, src in cluster.sources.items()}
+            models = {nid: cast(DemoSource, src).model for nid, src in cluster.sources.items()}
             seed_history(bench_store, models, cluster.settings.regression_pct, store.add_event)
         bench = BenchManager(cluster, bench_store, DemoBench(cluster))
     else:
@@ -131,7 +172,7 @@ def create_app(
     http: dict[str, httpx.AsyncClient] = {}
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         http["c"] = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0))
         await cluster.start()
         await bench.start()
@@ -151,6 +192,7 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    app.add_middleware(SecurityHeaders)
     app.state.cluster = cluster
     app.state.hub = hub
     app.state.store = store
@@ -279,12 +321,16 @@ def create_app(
         response.delete_cookie(COOKIE, path="/")
         return {"ok": True}
 
-    @app.get("/api/v1/auth/me", dependencies=Auth)
-    async def me() -> dict:
-        return {"authenticated": True, "auth_required": auth_enabled, "demo": demo}
+    @app.get("/api/v1/auth/me")
+    async def me(request: Request) -> dict:
+        """Always 200 (a signed-out first load is not an error in the browser console), except 429."""
+        status, _ = authenticate(request)
+        if status == 429:
+            raise too_many()
+        return {"authenticated": status == 200, "auth_required": auth_enabled, "demo": demo}
 
     # -- cluster / nodes ----------------------------------------------------------------------------
-    def source(node: str):
+    def source(node: str) -> NodeSource:
         src = cluster.sources.get(node)
         if src is None:
             raise ProblemError(
@@ -295,7 +341,7 @@ def create_app(
             )
         return src
 
-    def require_reachable(src) -> None:
+    def require_reachable(src: NodeSource) -> None:
         if src.state.status in ("offline", "error"):
             raise ProblemError(
                 503,
@@ -319,22 +365,23 @@ def create_app(
         return src.state
 
     # -- history / live -----------------------------------------------------------------------------
-    @app.get("/api/v1/history", dependencies=Auth)
+    @app.get("/api/v1/history", dependencies=Auth, response_model=None)  # already validated: no 2nd pass
     async def history(
         node: str,
         keys: str = "",
         from_: Annotated[float | None, Query(alias="from")] = None,
         to: float | None = None,
         points: Annotated[int, Query(ge=1, le=5000)] = 600,
-    ):
+    ) -> HistoryResponse:
         src = source(node)
         require_reachable(src)
         to = time.time() if to is None else to
         from_ = to - 3600 if from_ is None else from_
         key_list = [k for k in keys.split(",") if k]
         if demo:  # seconds of CPU for long ranges: keep it off the event loop that feeds live streams
-            return await asyncio.to_thread(demo_history, src.model, key_list or None, from_, to, points)
-        params = {"keys": keys, "from": from_, "to": to, "points": points}
+            model = cast(DemoSource, src).model
+            return await asyncio.to_thread(demo_history, model, key_list or None, from_, to, points)
+        params: dict[str, str | float] = {"keys": keys, "from": from_, "to": to, "points": points}
         try:
             r = await http["c"].get(
                 f"{src.url.rstrip('/')}/api/v1/history",
@@ -471,14 +518,19 @@ def create_app(
                 await ws.send_text(
                     f'{{"type":"sample","node_id":{json.dumps(smp.node_id)},"sample":{smp.model_dump_json()}}}'
                 )
-            tasks = {asyncio.create_task(client.pump()), asyncio.create_task(_drain(ws))}
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for t in pending:
-                t.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
-            for t in done:
-                if t.exception() is not None:  # client went away mid-send: normal
-                    log.debug("browser stream ended: %r", t.exception())
+            # An anyio task group, not asyncio.wait + gather: when the server cancels this handler mid-cleanup
+            # (shutdown), the cancellation must stay owned by the server's cancel scope instead of escaping.
+            async with anyio.create_task_group() as tg:
+
+                async def until_done(part: Callable[[], Awaitable[None]]) -> None:
+                    try:
+                        await part()
+                    except Exception as e:  # client went away mid-send: normal
+                        log.debug("browser stream ended: %r", e)
+                    tg.cancel_scope.cancel()  # either side ending ends the stream
+
+                tg.start_soon(until_done, client.pump)
+                tg.start_soon(until_done, lambda: _drain(ws))
         finally:
             hub.remove(client)
             if client.overflowed:
@@ -490,7 +542,7 @@ def create_app(
 
     # -- static web app (registered last: catch-all) -----------------------------------------------
     @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
-    async def static(path: str, request: Request):
+    async def static(path: str, request: Request) -> Response:
         if path == "api" or path.startswith("api/"):
             raise ProblemError(404, "Not found", f"No API endpoint /{path}", "")
         dist = cfg.web_dist.resolve()

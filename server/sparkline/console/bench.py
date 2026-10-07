@@ -9,6 +9,7 @@ demo simulation (demo_bench.DemoBench). Per-node ``NodeBenchState`` updates arri
 from __future__ import annotations
 
 import asyncio
+import builtins
 import contextlib
 import csv
 import io
@@ -17,7 +18,7 @@ import logging
 import re
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -38,6 +39,7 @@ from ..common.schema import (
     Problem,
 )
 from .bench_store import BenchStore
+from .cluster import Cluster
 from .nodes import AuthRejected, classify
 
 log = logging.getLogger("sparkline.console.bench")
@@ -304,7 +306,7 @@ class AgentBackend:
     """sparkline-agent's /api/v1/bench endpoints. State updates also arrive on the agent stream, routed by
     NodeSource.on_bench (wired up by BenchManager)."""
 
-    def __init__(self, cluster, agent_token: str):
+    def __init__(self, cluster: Cluster, agent_token: str):
         self.cluster = cluster
         self.token = agent_token
         self.http: httpx.AsyncClient | None = None
@@ -428,7 +430,7 @@ class _Active:
 
 
 class BenchManager:
-    def __init__(self, cluster, store: BenchStore, backend: BenchBackend):
+    def __init__(self, cluster: Cluster, store: BenchStore, backend: BenchBackend):
         self.cluster = cluster
         self.store = store
         self.backend = backend
@@ -458,7 +460,7 @@ class BenchManager:
             self.store.save(a.run)
         await self.backend.close()
 
-    def _spawn(self, coro) -> asyncio.Task:
+    def _spawn(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task:
         t = asyncio.create_task(coro)
         self._tasks.add(t)
         t.add_done_callback(self._task_done)
@@ -647,7 +649,7 @@ class BenchManager:
 
     async def _dispatch(self, act: _Active) -> None:
         run = act.run
-        base = {"run_id": run.id, "bench_id": run.bench_id, "params": run.params}
+        base: dict[str, Any] = {"run_id": run.id, "bench_id": run.bench_id, "params": run.params}
         if run.bench_id == "rdma-bw-lat":
             client, server = run.nodes
             rail = str(run.params.get("rail", "A"))
@@ -1240,7 +1242,7 @@ class BenchManager:
         self.cluster.hub.broadcast({"type": "bench", "run": run.model_dump(mode="json")})
         return run
 
-    def compare(self, ids: list[str]) -> dict[str, Any]:
+    def compare(self, ids: builtins.list[str]) -> dict[str, Any]:
         runs = [self.get(i) for i in ids]
         metrics: dict[tuple[str, str | None], dict[str, Any]] = {}
         for run in runs:

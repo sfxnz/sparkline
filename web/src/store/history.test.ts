@@ -33,4 +33,15 @@ describe('HistoryCache', () => {
     for (let i = 0; i < 200; i++) await c.load(`n${i}`, ['a'], '7d');
     expect(c.size).toBeLessThanOrEqual(64);
   });
+
+  it('drops expired responses instead of holding them until evicted', async () => {
+    let t = 0;
+    const c = new HistoryCache((n) => Promise.resolve(resp(n)), () => t);
+    for (let i = 0; i < 10; i++) await c.load(`n${i}`, ['a'], '1h');
+    await c.load('n0', ['a'], '24h');
+    expect(c.size).toBe(11);
+    t = 31_000; // past the 1 h TTL (30 s), within the 24 h one (5 min)
+    await c.load('n1', ['a'], '5m');
+    expect(c.size).toBe(2);
+  });
 });

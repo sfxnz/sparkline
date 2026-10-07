@@ -1,13 +1,16 @@
-import { CircleCheck, CircleHelp, CircleSlash, Clock, LoaderCircle, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { CircleCheck, CircleHelp, CircleSlash, CircleX, Clock, LoaderCircle, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
 import type { NodeStatus } from '../../lib/types';
 import './StatusPill.css';
 
-export type Status = 'healthy' | 'warning' | 'critical' | 'stale' | 'offline' | 'connecting' | 'unknown';
+export type Status = 'healthy' | 'warning' | 'critical' | 'error' | 'stale' | 'offline' | 'connecting' | 'unknown';
 
 const META: Record<Status, { label: string; icon: LucideIcon; tone: 'ok' | 'warn' | 'crit' | 'stale' }> = {
   healthy: { label: 'Healthy', icon: CircleCheck, tone: 'ok' },
   warning: { label: 'Warning', icon: TriangleAlert, tone: 'warn' },
   critical: { label: 'Critical', icon: OctagonAlert, tone: 'crit' },
+  /** The console reaches the agent but cannot use it (token mismatch, protocol version, refused stream): a setup fault
+   *  that needs a fix, not a hardware emergency, so it is not called "Critical". */
+  error: { label: 'Error', icon: CircleX, tone: 'crit' },
   stale: { label: 'Not reporting', icon: Clock, tone: 'stale' },
   offline: { label: 'Offline', icon: CircleSlash, tone: 'stale' },
   connecting: { label: 'Connecting', icon: LoaderCircle, tone: 'stale' },
@@ -28,7 +31,7 @@ export function nodeDisplayStatus(status: NodeStatus | undefined, alert: 'warnin
     case 'offline':
       return 'offline';
     case 'error':
-      return 'critical';
+      return 'error';
     case 'connecting':
       return 'connecting';
     default:

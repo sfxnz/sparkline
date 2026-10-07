@@ -1,0 +1,15 @@
+# Build context is the repo root; BuildKit reads this file because it sits next to deploy/Dockerfile.
+# Only server/ and web/ sources are needed.
+*
+!server/pyproject.toml
+!server/requirements.lock
+!server/sparkline/**
+!web/**
+**/__pycache__
+**/*.pyc
+web/node_modules
+web/dist
+web/test-results
+web/playwright-report
+web/screenshots
+web/.e2e-demo

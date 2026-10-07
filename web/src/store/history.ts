@@ -1,5 +1,7 @@
 // History loader: /api/v1/live seeds the LiveStore on connect; /api/v1/history serves the fixed ranges.
-// Responses are cached per node + keys + range for a range-appropriate time, and the cache is bounded.
+// Responses are cached per node + keys + range for a range-appropriate time, and the cache is bounded: expired
+// entries are dropped on every load (a 24 h per-core response is hundreds of KB, and an expired one is never reused),
+// and at most MAX_ENTRIES fresh ones are kept.
 import { api } from '../lib/api';
 import type { TimeRange } from '../lib/prefs';
 import type { HistoryResponse } from '../lib/types';
@@ -18,7 +20,7 @@ export const historyRefreshMs = (range: HistoryRange) => Math.max(10_000, (RANGE
 type Fetcher = (node: string, keys: readonly string[], from: number, to: number) => Promise<HistoryResponse>;
 
 export class HistoryCache {
-  private readonly entries = new Map<string, { at: number; promise: Promise<HistoryResponse> }>();
+  private readonly entries = new Map<string, { at: number; ttl: number; promise: Promise<HistoryResponse> }>();
 
   constructor(
     private readonly fetcher: Fetcher = (n, k, f, t) => api.history(n, k, f, t),
@@ -27,12 +29,14 @@ export class HistoryCache {
 
   load(node: string, keys: readonly string[], range: HistoryRange, serverNow = this.now() / 1000): Promise<HistoryResponse> {
     const id = `${node}|${[...keys].sort().join(',')}|${range}`;
+    const now = this.now();
+    for (const [k, e] of this.entries) if (now - e.at >= e.ttl) this.entries.delete(k);
     const hit = this.entries.get(id);
-    if (hit && this.now() - hit.at < CACHE_TTL_MS[range]) return hit.promise;
+    if (hit) return hit.promise;
     const promise = this.fetcher(node, keys, serverNow - RANGE_SECONDS[range], serverNow);
     promise.catch(() => this.entries.delete(id)); // never cache failures
     this.entries.delete(id);
-    this.entries.set(id, { at: this.now(), promise });
+    this.entries.set(id, { at: now, ttl: CACHE_TTL_MS[range], promise });
     while (this.entries.size > MAX_ENTRIES) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) break;

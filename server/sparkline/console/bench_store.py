@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import sqlite3
 import time
@@ -71,7 +72,7 @@ class BenchStore:
         sql += " ORDER BY created_ts DESC, id DESC LIMIT ?"
         return [self._load(r[0]) for r in self.db.execute(sql, [*args, limit]).fetchall()]
 
-    def unfinished(self) -> list[BenchRun]:
+    def unfinished(self) -> builtins.list[BenchRun]:
         rows = self.db.execute(
             "SELECT data FROM bench_runs WHERE status IN ('queued','running') ORDER BY created_ts"
         ).fetchall()

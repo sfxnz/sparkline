@@ -98,4 +98,32 @@ describe('CommandPalette', () => {
     expect(loc.history).toContain('/node/spark2/gpu');
     expect(useUi.getState().paletteOpen).toBe(false);
   });
+
+  it('finds metrics and individual benchmarks by name, and nothing unrelated', async () => {
+    const user = userEvent.setup();
+    useCluster.getState().setHello(cluster);
+    const spec = { id: 'gpu-matmul', name: 'GPU matmul throughput', category: 'compute', description: '', est_duration_s: 30, impact: {}, params: [], min_nodes: 1, max_nodes: 1, requires: [], availability: {} };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify([spec]), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const loc = memoryLocation({ path: '/', record: true });
+    render(
+      <Router hook={loc.hook}>
+        <CommandPalette />
+      </Router>,
+    );
+    act(() => { useUi.getState().setPalette(true); });
+    const input = screen.getByRole('combobox', { name: /Search views/ });
+    const options = () => screen.queryAllByRole('option').map((o) => o.textContent);
+    await user.type(input, 'nccl');
+    expect(options()).toEqual([]);
+    await user.clear(input);
+    await user.type(input, 'swap');
+    expect(options()[0]).toBe('spark1 › Swap');
+    expect(options().some((o) => o.includes('appearance'))).toBe(false);
+    await user.clear(input);
+    await user.type(input, 'matmul');
+    expect(options()).toEqual(['GPU matmul throughput…']);
+    await user.keyboard('{Enter}');
+    expect(loc.history.at(-1)).toBe('/benchmarks?configure=gpu-matmul');
+    fetchSpy.mockRestore();
+  });
 });

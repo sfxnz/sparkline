@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from sparkline.agent.app import create_app
+from sparkline.agent.config import AgentConfig
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.store import Store
 from sparkline.common.schema import CpuSample, GpuSample, MemSample, NodeInfo, Sample
@@ -195,6 +196,21 @@ def test_websocket_hello_sample_and_auth(tmp_path):
     assert s.subscribers == set()
 
 
+def test_wrong_tokens_are_throttled_per_client_and_short_tokens_refused(tmp_path):
+    app = create_app(make(tmp_path), info, TOKEN, manage_sampler=False)
+    with TestClient(app) as c:
+        wrong = {"Authorization": "Bearer guess"}
+        codes = [c.get("/api/v1/info", headers=wrong).status_code for _ in range(11)]
+        assert codes[:10] == [401] * 10 and codes[10] == 429
+        assert c.get("/api/v1/info", headers=AUTH).status_code == 429  # even the right one, for a minute
+        with pytest.raises(WebSocketDisconnect), c.websocket_connect("/api/v1/stream", headers=AUTH) as ws:
+            ws.receive_text()
+    with pytest.raises(ValueError, match="at least 16"):
+        AgentConfig(token="x").validate()
+    AgentConfig(token="").validate()  # tokenless (loopback only) stays possible
+    AgentConfig(token="0123456789abcdef").validate()
+
+
 def test_rollups_reach_sqlite(tmp_path):
     s = make(tmp_path)
     t0 = 1_000_000.0
@@ -275,3 +291,15 @@ async def test_young_agent_serves_recent_ranges_from_the_ring(tmp_path):
     _fill(s, now - 60, 60)
     h = await s.history(["gpu0.util"], now - 300, now, points=600)
     assert h.resolution_s == 1.0 and len(h.ts) == 60
+
+
+def test_ring_rows_hold_only_the_requested_keys(tmp_path):
+    """A 2-key chart over a full 250 ms ring must not materialise all ~150 keys of 3600 samples."""
+    from sparkline.agent.sampler import _ring_rows
+
+    s = make(tmp_path)
+    for _ in range(3):
+        s.collect_once()
+    ring, now = list(s.ring), time.time() + 1
+    assert [set(d) for _, d in _ring_rows(ring, 0, now, ["gpu0.util", "nope"])] == [{"gpu0.util"}] * 3
+    assert {"gpu0.util", "mem.used", "cpu.util"} <= set(_ring_rows(ring, 0, now)[0][1])

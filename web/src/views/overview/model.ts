@@ -103,13 +103,15 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   const flaggedCritical = flagged.some((n) => n.condition?.level === 'critical');
   let status: Status;
   if (connecting.length === nodes.length) status = 'connecting';
-  else if (alerts.critical || alerts.explained === 'critical' || error.length || flaggedCritical) status = 'critical';
+  else if (alerts.critical || alerts.explained === 'critical' || flaggedCritical) status = 'critical';
+  // A node the console cannot use (token mismatch, protocol version): a setup fault, labelled as such, not "Critical".
+  else if (error.length) status = 'error';
   else if (offline.length || stale.length || alerts.warning || alerts.explained || flagged.length) status = 'warning';
   else if (connecting.length) status = 'connecting';
   else status = 'healthy';
 
   const label =
-    status === 'healthy' ? 'Healthy' : status === 'critical' ? 'Critical' : status === 'warning' ? 'Needs attention' : 'Connecting';
+    status === 'healthy' ? 'Healthy' : status === 'critical' ? 'Critical' : status === 'error' ? 'Error' : status === 'warning' ? 'Needs attention' : 'Connecting';
   return { status, label, sentence };
 }
 

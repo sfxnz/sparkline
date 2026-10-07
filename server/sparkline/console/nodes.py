@@ -97,7 +97,7 @@ def classify(exc: BaseException, node: str, url: str) -> tuple[NodeStatus, Probl
         return "error", Problem(
             message=f"Agent on {node} speaks a different protocol version",
             cause=f"Agent schema_version {exc.version}, console expects {SCHEMA_VERSION}",
-            fix=f"Upgrade sparkline-agent on {node} and sparkline to the same release (run ./install.sh)",
+            fix=f"Upgrade sparkline-agent on {node} and sparkline to one release (re-run deploy/install.sh)",
         )
     if isinstance(exc, socket.gaierror):
         return "offline", Problem(
@@ -125,7 +125,8 @@ def classify(exc: BaseException, node: str, url: str) -> tuple[NodeStatus, Probl
         errno.ETIMEDOUT,
     )
     if isinstance(exc, TimeoutError | httpx.ConnectTimeout) or no_route:
-        why = "no route to host" if no_route and exc.errno != errno.ETIMEDOUT else "timed out"
+        unreachable = isinstance(exc, OSError) and exc.errno in (errno.EHOSTUNREACH, errno.ENETUNREACH)
+        why = "no route to host" if unreachable else "timed out"
         return "offline", Problem(
             message=f"Agent unreachable on {node}",
             cause=f"No response from {host}:{port} ({why}): a network problem",
@@ -289,7 +290,7 @@ class AgentClient(NodeSource):
         tcp_up = False
 
         class Conn(ClientConnection):
-            def connection_made(self, transport) -> None:  # TCP connected
+            def connection_made(self, transport: asyncio.BaseTransport) -> None:  # TCP connected
                 nonlocal tcp_up
                 tcp_up = True
                 super().connection_made(transport)

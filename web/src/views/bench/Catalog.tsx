@@ -9,7 +9,7 @@ import { useCluster } from '../../store/cluster';
 import { formatAgo } from '../../lib/format';
 import { useNow } from '../../design/useNow';
 import { runPath } from './hooks';
-import { aboutDuration, groupCatalog, headlineText, runnableNodes, splitDescription } from './model';
+import { aboutDuration, groupCatalog, headlineCaption, headlineDetail, headlineText, runnableNodes, splitDescription } from './model';
 import { Availability, CATEGORY_ICON, ImpactChips, RunStatusPill } from './parts';
 
 interface Props {
@@ -69,10 +69,11 @@ function BenchCard({ spec, last, onConfigure }: { spec: BenchSpec; last: BenchRu
       </ul>
       <footer className="bench-card__foot">
         {last ? (
-          <Link href={runPath(last.id)} className="bench-card__last">
+          <Link href={runPath(last.id)} className="bench-card__last" title={last.status === 'succeeded' ? headlineDetail(last.results) : undefined}>
             {last.status === 'succeeded' ? (
               <>
                 <span className="bench-card__last-value num">{headlineText(last.results)}</span>
+                <span className="bench-card__last-what">{headlineCaption(last.results)}</span>
                 <span className="bench-card__last-when">{formatAgo(last.finished_ts ?? last.created_ts, now)}</span>
               </>
             ) : (

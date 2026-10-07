@@ -1,5 +1,5 @@
 import { LazyMotion, MotionConfig } from 'motion/react';
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { Route, Switch, useLocation } from 'wouter';
 import { ErrorBoundary } from '../design/components/ErrorBoundary';
 import { LiveAnnouncer } from '../design/components/LiveAnnouncer';
@@ -9,10 +9,8 @@ import { useConnection } from '../store/connection';
 import { usePrefs, watchSystemTheme } from '../store/prefs';
 import { startSession } from '../store/session';
 import { useUi } from '../store/ui';
-import Wall from '../views/Wall';
 import { CommandPalette } from './CommandPalette';
-import { Login } from './Login';
-import { documentTitle, paths } from './routes';
+import { Login, Wall, documentTitle, paths } from './routes';
 import { Shell } from './Shell';
 import { ShortcutsHelp } from './ShortcutsHelp';
 
@@ -76,13 +74,16 @@ export function App() {
     <MotionConfig reducedMotion="user">
       <LazyMotion features={loadMotionFeatures} strict>
         <ErrorBoundary what="Sparkline">
-          <Switch>
-            <Route path="/login" component={Login} />
-            <Route path="/wall" component={Wall} />
-            <Route>
-              <Shell />
-            </Route>
-          </Switch>
+          {/* Wall mode and sign-in are their own chunks; the shell has its own Suspense for its pages. */}
+          <Suspense fallback={null}>
+            <Switch>
+              <Route path="/login" component={Login} />
+              <Route path="/wall" component={Wall} />
+              <Route>
+                <Shell />
+              </Route>
+            </Switch>
+          </Suspense>
           <CommandPalette />
           <ShortcutsHelp />
         </ErrorBoundary>

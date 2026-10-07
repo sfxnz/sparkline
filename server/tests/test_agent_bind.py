@@ -48,9 +48,9 @@ def test_resolve_bind_auto(monkeypatch):
 
 def test_config_file_and_overrides(tmp_path):
     p = tmp_path / "agent.toml"
-    p.write_text('node_id = "n1"\nport = 1234\ntoken = "t"\n[peers]\nspark2 = "10.100.8.2"\n')
+    p.write_text('node_id = "n1"\nport = 1234\ntoken = "t-0123456789abcd"\n[peers]\nspark2 = "10.100.8.2"\n')
     cfg = load_config(str(p), {"port": 29750, "bind": None})
-    assert (cfg.node_id, cfg.port, cfg.token, cfg.bind) == ("n1", 29750, "t", "auto")
+    assert (cfg.node_id, cfg.port, cfg.token, cfg.bind) == ("n1", 29750, "t-0123456789abcd", "auto")
     assert cfg.peers == {"spark2": "10.100.8.2"} and cfg.interval_ms == 1000
     p.write_text("prot = 1\n")
     with pytest.raises(ValueError, match="unknown config keys"):

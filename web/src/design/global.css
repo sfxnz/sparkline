@@ -6,10 +6,17 @@
   box-sizing: border-box;
 }
 
+/* Ambient background: gives translucent materials something to refract. It is the root background, so it covers the
+   whole scroll height (not just the first viewport) and scrolls with the page; the glows are anchored to the top and
+   bottom of the document. */
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  background: var(--bg);
+  min-height: 100%;
+  background:
+    radial-gradient(1100px 680px at 14% -72px, var(--bg-glow-1), transparent 62%) no-repeat,
+    radial-gradient(900px 620px at 92% calc(100% + 72px), var(--bg-glow-2), transparent 60%) no-repeat,
+    var(--bg);
 }
 
 body {
@@ -21,23 +28,10 @@ body {
   letter-spacing: var(--ls-body);
   font-optical-sizing: auto;
   color: var(--text-1);
-  /* No body background: the html background plus the fixed ambient layer below show through. */
+  /* No body background: the html (root) background shows through. */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-}
-
-/* Ambient background: gives translucent materials something to refract. Fixed, behind everything. */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(1100px 680px at 14% -8%, var(--bg-glow-1), transparent 62%),
-    radial-gradient(900px 620px at 92% 108%, var(--bg-glow-2), transparent 60%),
-    var(--bg);
 }
 
 h1, h2, h3, h4, p, figure, blockquote, dl, dd {

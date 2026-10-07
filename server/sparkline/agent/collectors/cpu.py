@@ -6,6 +6,7 @@ import glob
 import os
 import re
 from collections import Counter
+from typing import Literal
 
 from ...common.schema import CoreInfo, CpuSample
 from . import parse_psi, read, read_once
@@ -103,6 +104,7 @@ def classify_cores(
     cores = []
     for i in sorted(max_khz):
         f = max_khz[i]
+        kind: Literal["performance", "efficiency", "unknown"]
         kind = "unknown" if len(known) < 2 or not f else "performance" if f == top else "efficiency"
         cid = cluster_ids.get(i)
         cores.append(

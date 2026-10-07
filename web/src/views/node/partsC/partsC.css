@@ -99,9 +99,12 @@
 
 /* ------------------------------------------------------------------ processes */
 .procs .panel__header { align-items: center; flex-wrap: wrap; }
+/* On a phone the tools wrap under the title and the filter shrinks to the panel instead of running off its edge. */
+.procs .panel__actions { flex-shrink: 1; min-width: 0; max-width: 100%; }
 .procs__tools { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-4); min-width: 0; }
 .procs__search {
   position: relative;
+  max-width: 100%;
   display: flex;
   align-items: center;
 }
@@ -126,7 +129,9 @@
 .procs-table { min-width: 60rem; }
 .procs-table td { padding-top: 10px; padding-bottom: 10px; }
 /* max-width: 0 lets the process column take the remaining width and ellipsize, instead of widening the table. */
-.procs-table .procs__proc-cell { max-width: 0; }
+.procs-table .procs__proc-cell { max-width: 0; width: 30%; }
+/* Chips never take the process column's room: long model paths ellipsize inside their own cell. */
+.procs-table .procs__badge { max-width: 16rem; }
 .procs-table .procs__row--open td { border-bottom-color: transparent; background: var(--fill-1); }
 .procs-table tbody tr.procs__detail:hover td { background: var(--fill-1); }
 /* Not live: values drop to the tertiary colour. Container/model chips keep theirs: they sit on their own fill, where
@@ -151,7 +156,7 @@
 .procs__toggle svg { width: 15px; height: 15px; transition: transform var(--dur-fast) var(--ease-out); }
 .procs__toggle[aria-expanded='true'] svg { transform: rotate(90deg); }
 .procs__name { display: grid; gap: 1px; min-width: 0; }
-.procs__proc { font-weight: 600; color: var(--text-1); }
+.procs__proc { font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .procs__pid { margin-left: var(--space-2); font-weight: 400; font-size: var(--fs-footnote); color: var(--text-3); }
 .procs__cmd {
   font-family: var(--font-mono);

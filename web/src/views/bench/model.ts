@@ -250,7 +250,14 @@ export function paramsSummary(spec: BenchSpec | undefined, params: Record<string
   const defaults = defaultParams(spec);
   const changed = spec.params.filter((p) => p.name in params && JSON.stringify(params[p.name]) !== JSON.stringify(defaults[p.name]));
   if (!changed.length) return 'Default parameters';
-  return changed.slice(0, max).map((p) => `${p.label} ${paramText(p, params[p.name])}`).join(' · ');
+  return changed
+    .slice(0, max)
+    .map((p) => {
+      const text = paramText(p, params[p.name]);
+      // A value that already names itself ("Rail B") is not prefixed with its label again ("Rail Rail B").
+      return text.toLowerCase().startsWith(`${p.label.toLowerCase()} `) ? text : `${p.label} ${text}`;
+    })
+    .join(' · ');
 }
 
 // ------------------------------------------------------------------------------------------------ run state
@@ -304,9 +311,13 @@ export function formatValue(v: number | null | undefined): string {
 /** Units as people write them: "us" -> "µs". */
 export const unitText = (unit: string) => (unit === 'us' ? 'µs' : unit);
 
-/** "412 TFLOPS", "1.92 µs". */
-export const valueWithUnit = (v: number | null | undefined, unit: string) =>
-  v == null || !Number.isFinite(v) ? '—' : `${formatValue(v)}${!unit ? '' : unit === '%' ? '%' : ` ${unitText(unit)}`}`;
+/** "412 TFLOPS", "1.92 µs". Clocks and temperatures read as on the live screens: "1.88 GHz", "88 °C". */
+export function valueWithUnit(v: number | null | undefined, unit: string): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  if (unit === 'MHz' && Math.abs(v) >= 1000) return `${(v / 1000).toFixed(2)} GHz`;
+  if (unit === '°C') return `${Math.round(v)} °C`;
+  return `${formatValue(v)}${!unit ? '' : unit === '%' ? '%' : ` ${unitText(unit)}`}`;
+}
 
 export function deltaPct(value: number | null | undefined, ref: number | null | undefined): number | null {
   if (value == null || ref == null || !Number.isFinite(value) || !Number.isFinite(ref) || ref === 0) return null;
@@ -367,14 +378,40 @@ export function headlineResults(all: readonly BenchResult[], max = 3): BenchResu
   return (sameMetric.length > 1 ? sameMetric : results).slice(0, max);
 }
 
-/** One-line headline for tables and cards: the first metric, "412 TFLOPS", or per node "93.6 / 90.4 TFLOPS". */
-export function headlineText(all: readonly BenchResult[]): string {
+/** The results a one-line headline shows: the flagged (else first) metric, one per node, up to three. */
+function headlineSet(all: readonly BenchResult[]): BenchResult[] {
   const results = all.filter((r) => !isUnsupported(r));
   const first = results.find((r) => r.extras.headline === true) ?? results[0];
+  if (!first) return [];
+  return results.filter((r) => r.metric === first.metric && r.unit === first.unit).slice(0, 3);
+}
+
+/** One-line headline for tables and cards: the first metric, "412 TFLOPS", or per node "93.6 / 90.4 TFLOPS". */
+export function headlineText(all: readonly BenchResult[]): string {
+  const same = headlineSet(all);
+  const first = same[0];
   if (!first) return '—';
-  const same = results.filter((r) => r.metric === first.metric && r.unit === first.unit);
   if (same.length < 2) return valueWithUnit(first.value, first.unit);
-  return `${same.slice(0, 3).map((r) => formatValue(r.value)).join(' / ')} ${first.unit}`;
+  return `${same.map((r) => formatValue(r.value)).join(' / ')} ${first.unit}`;
+}
+
+/** What the headline number is, with its nodes in the same order: "Single core (Cortex-X925) · spark1 / spark2". */
+export function headlineCaption(all: readonly BenchResult[]): string {
+  const same = headlineSet(all);
+  const first = same[0];
+  if (!first) return '';
+  const nodes = same.map((r) => r.node_id).filter((n): n is string => !!n);
+  return [first.label, nodes.join(' / ')].filter(Boolean).join(' · ');
+}
+
+/** Hover detail: each node's value, and the work unit when the payload names one ("sha256 + zlib …"). */
+export function headlineDetail(all: readonly BenchResult[]): string {
+  const same = headlineSet(all);
+  const first = same[0];
+  if (!first) return '';
+  const values = same.map((r) => `${r.node_id ? `${r.node_id}: ` : ''}${valueWithUnit(r.value, r.unit)}`).join(', ');
+  const work = typeof first.extras.workload === 'string' ? ` ${first.unit} = input bytes processed per second by ${first.extras.workload}.` : '';
+  return `${first.label}. ${values}.${work}`;
 }
 
 /** Which nodes' results had a baseline to compare with, and which had none ("cluster" for cluster-wide results). */

@@ -4,9 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { medianStep } from '../../../charts/gaps';
 import { Heatmap } from '../../../charts/Heatmap';
 import { LIVE_WINDOW_S } from '../../../charts/TimeSeriesChart';
-import { ChartLine } from 'lucide-react';
-import { EmptyState } from '../../../design/components/EmptyState';
-import { ProblemState } from '../../../design/components/ProblemState';
+import { NoDataInRange } from '../../../charts/NoDataInRange';
+import { HistoryUnavailable } from '../../../charts/HistoryUnavailable';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { fontScale } from '../../../charts/theme';
 import type { TimeRange } from '../../../lib/prefs';
@@ -51,7 +50,7 @@ export function RangeHeatmap({ node, cores }: { node: string; cores: readonly Co
 
 function HistoryHeatmap({ node, cores, range }: { node: string; cores: readonly CoreInfo[]; range: HistoryRange }) {
   const keys = useMemo(() => cores.map((c) => `cpu.core${c.id}.util`), [cores]);
-  const [state, setState] = useState<{ store: LiveStore; empty: boolean } | { error: string } | null>(null);
+  const [state, setState] = useState<{ store: LiveStore; empty: boolean } | { error: unknown } | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -69,7 +68,7 @@ function HistoryHeatmap({ node, cores, range }: { node: string; cores: readonly 
           setState({ store, empty: resp.ts.length === 0 });
         })
         .catch((e: unknown) => {
-          if (!cancelled) setState({ error: e instanceof Error ? e.message : String(e) });
+          if (!cancelled) setState({ error: e });
         });
     };
     load();
@@ -85,22 +84,14 @@ function HistoryHeatmap({ node, cores, range }: { node: string; cores: readonly 
   if ('error' in state) {
     return (
       <div className="nb-heatmap__problem" style={{ minHeight: height }}>
-        <ProblemState
-          compact
-          message="History unavailable"
-          cause={state.error}
-          fix="The console could not return per-core history for this range. Retry, or switch to Live."
-          onRetry={() => { historyCache.clear(); setState(null); setAttempt((a) => a + 1); }}
-        />
+        <HistoryUnavailable node={node} error={state.error} onRetry={() => { historyCache.clear(); setState(null); setAttempt((a) => a + 1); }} />
       </div>
     );
   }
   if (state.empty) {
     return (
       <div className="nb-heatmap__problem" style={{ minHeight: height }}>
-        <EmptyState icon={ChartLine} title="No data in this range" compact>
-          Per-core history appears once {node} has reported for a while.
-        </EmptyState>
+        <NoDataInRange node={node} what="Per-core history" />
       </div>
     );
   }

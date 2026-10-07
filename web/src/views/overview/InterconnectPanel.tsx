@@ -1,17 +1,15 @@
 // ConnectX-7 links between nodes: per rail, link state and rate, live throughput in both directions with a
 // restrained flow animation (speed bucket set at most once per sample; CSS animates transform only), and
 // errors/drops over the recent window when there are any.
-import { ArrowLeft, ArrowRight, CircleCheck, CircleSlash, Server, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CircleCheck, CircleSlash, TriangleAlert } from 'lucide-react';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
-import { StatusPill } from '../../design/components/StatusPill';
 import { useNow } from '../../design/useNow';
 import { bitrateParts, DASH, formatAgo, text } from '../../lib/format';
 import type { NodeStatus } from '../../lib/types';
 import { spanPhrase } from '../shared/live';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
-import { useNodeDisplayStatus } from '../../store/attention';
 import { liveStore } from '../../store/live';
 import { shallowEqual, useAcross } from './hooks';
 import { flowLevel, linkLoad, type Link, type Rail } from './model';
@@ -114,28 +112,32 @@ function LinkSummary({ links }: { links: readonly Link[] }) {
   );
 }
 
-function NodeEnd({ id }: { id: string }) {
-  const status = useNodeDisplayStatus(id);
-  const known = useCluster((s) => id in s.nodes);
+/** Column head: which way the column's traffic flows. The left column is a → b, the right one b → a (drawn ← so a stays
+ *  on the left in both). A node the console does not monitor says so. */
+function DirHead({ a, b, dir }: { a: string; b: string; dir: 'right' | 'left' }) {
+  const knownA = useCluster((s) => a in s.nodes);
+  const knownB = useCluster((s) => b in s.nodes);
+  const Arrow = dir === 'right' ? ArrowRight : ArrowLeft;
+  const name = (id: string, known: boolean) => (known ? id : `${id} (not monitored)`);
   return (
-    <div className="ov-ic__end">
-      <Server aria-hidden="true" className="ov-ic__end-icon" />
-      <span className="ov-ic__end-name">{id}</span>
-      {known ? <StatusPill status={status} variant="inline" size="sm" /> : <span className="ov-dim t-caption">Not monitored</span>}
-    </div>
+    <span className="ov-ic__dir" aria-hidden="true">
+      {name(a, knownA)}
+      <Arrow />
+      {name(b, knownB)}
+    </span>
   );
 }
 
+/** One link as a small table: a row per rail, a column per direction. */
 function LinkView({ link }: { link: Link }) {
   return (
     <div className="ov-ic__link">
-      <NodeEnd id={link.a} />
-      <div className="ov-ic__rails">
-        {link.rails.map((r) => (
-          <RailView key={r.name} link={link} rail={r} />
-        ))}
-      </div>
-      <NodeEnd id={link.b} />
+      <span className="ov-ic__corner" aria-hidden="true" />
+      <DirHead a={link.a} b={link.b} dir="right" />
+      <DirHead a={link.a} b={link.b} dir="left" />
+      {link.rails.map((r) => (
+        <RailView key={r.name} link={link} rail={r} />
+      ))}
     </div>
   );
 }
@@ -198,7 +200,7 @@ function RailView({ link, rail }: { link: Link; rail: Rail }) {
 
   return (
     <div className={`ov-rail${st.stale ? ' ov-rail--stale' : ''}`}>
-      <div className="ov-rail__head">
+      <div className="ov-rail__label">
         <span className="ov-rail__name">{rail.label}</span>
         <span className="ov-rail__meta">
           {waiting ? (
@@ -209,7 +211,7 @@ function RailView({ link, rail }: { link: Link; rail: Rail }) {
               {linkUp ? 'Active' : st.state ? `Down (${st.state.toLowerCase()})` : 'Down'}
             </span>
           )}
-          {rateText ? <span className="num ov-dim"> · {rateText}</span> : null}
+          {rateText ? <span className="num ov-dim">{rateText}</span> : null}
           {st.errors || st.drops ? (
             <span className="ov-flag tone-warn">
               <TriangleAlert aria-hidden="true" />
@@ -250,17 +252,16 @@ export function InterconnectSkeleton() {
     <Panel title="Interconnect" subtitle="ConnectX-7 direct links · live" className="ov-ic" busy>
       <div className="ov-ic__links">
         <div className="ov-ic__link">
-          <div className="ov-ic__end"><Skeleton width={56} height={14} /></div>
-          <div className="ov-ic__rails">
-            {[0, 1].map((i) => (
-              <div key={i} className="ov-rail">
-                <div className="ov-rail__head"><Skeleton width={52} height={12} /><Skeleton width={140} height={12} /></div>
-                <div className="ov-lane"><Skeleton height={6} radius={3} /></div>
-                <div className="ov-lane"><Skeleton height={6} radius={3} /></div>
-              </div>
-            ))}
-          </div>
-          <div className="ov-ic__end"><Skeleton width={56} height={14} /></div>
+          <span className="ov-ic__corner" />
+          <Skeleton width={110} height={12} />
+          <Skeleton width={110} height={12} />
+          {[0, 1].map((i) => (
+            <div key={i} className="ov-rail">
+              <div className="ov-rail__label"><Skeleton width={52} height={12} /><Skeleton width={96} height={12} /></div>
+              <div className="ov-lane"><Skeleton height={6} radius={3} /></div>
+              <div className="ov-lane"><Skeleton height={6} radius={3} /></div>
+            </div>
+          ))}
         </div>
       </div>
     </Panel>

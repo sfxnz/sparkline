@@ -23,7 +23,7 @@ Self-approved per the user's instruction ("no waiting for my decisions"). It is 
                └───────┬────────┘
                        │ WS /api/v1/stream + REST (Bearer console token / cookie)
                ┌───────▼────────┐
-               │  web (React)   │ Vite + React 18 + TS strict, uPlot, motion, zustand, wouter,
+               │  web (React)   │ Vite + React 19 + TS strict, uPlot, motion, zustand, wouter,
                └────────────────┘ lucide-react. Live buffers live outside React (typed arrays).
 ```
 
@@ -33,19 +33,26 @@ The wire contract is `server/sparkline/common/schema.py`. The frontend mirrors i
 ### Repository layout
 ```
 server/  pyproject.toml, sparkline/{common,agent,console,bench}, tests/
+         sparkline/agent/bench/: registry, runner, probes; sparkline/bench/payloads/: the whitelisted payload
+         scripts (run on the nodes, inside the PyTorch container where a GPU is needed)
 web/     Vite app (src/{app,design,charts,store,lib,views}), tests (vitest), e2e (playwright)
-bench/   whitelisted benchmark payload scripts (run on nodes, inside docker where GPU needed)
-deploy/  install.sh, sparkline-agent.service, sparkline.service, docker-compose.yml, Dockerfile
+deploy/  install.sh, systemd/{sparkline-agent.service, sparkline.service, sparkline-agent-benchmarks.conf},
+         Dockerfile (console image), docker-compose.yml, console.example.toml
 ```
+(As built: the payloads live inside the Python package rather than a top-level `bench/`, so an installed
+agent carries them. `README.md` documents installation.)
 
 ### Ports, auth, binding
 - Agent `:9750`, console `:9700`.
-- Config: `/etc/sparkline/{agent,console}.toml` (or `--config`); env overrides `SPARKLINE_*`.
+- Config: `/etc/sparkline/{agent,console}.toml` (or `--config` / `SPARKLINE_CONFIG`). Environment overrides:
+  `SPARKLINE_TOKEN`, `SPARKLINE_AGENT_TOKEN`, `SPARKLINE_BIND`, `SPARKLINE_PORT`, `SPARKLINE_DATA_DIR`.
+  Precedence: flag > environment > file > default.
 - **Binding:** the default `bind = "auto"` resolves to the node's private LAN IP. The server refuses to bind a public
   (non-RFC1918/CGNAT/loopback/link-local) address unless `--allow-public` is passed. `0.0.0.0` is refused unless it is explicit.
 - **Auth:** the console uses `console_token`. The browser exchanges it at `/api/v1/auth/login` for an HttpOnly
   SameSite=Strict cookie. The API also accepts `Authorization: Bearer`. Agents use `agent_token`, sent by the
-  console only. Tokens are compared with `hmac.compare_digest`. `install.sh` generates tokens.
+  console only. Tokens are compared with `hmac.compare_digest`. `install.sh` generates tokens. An agent with
+  no token starts only on loopback.
 - **No arbitrary execution:** benchmarks are a fixed registry. Parameters are validated by pydantic (enums, bounded ints).
   Commands are built as argv lists (never `shell=True`). Each job runs in its own process group, so cancel →
   SIGTERM, then SIGKILL after 5 s, plus `docker rm -f` of the named container.
@@ -60,13 +67,13 @@ deploy/  install.sh, sparkline-agent.service, sparkline.service, docker-compose.
 | `GET /api/v1/history?node=&keys=a,b&from=&to=&points=600` → `HistoryResponse` | downsampled series (proxied to the agent) |
 | `GET /api/v1/live?node=&seconds=900` → `HistoryResponse` | the console's in-memory recent buffer (fast bootstrap) |
 | `GET/PUT /api/v1/alerts/rules`; `GET /api/v1/events?since=&limit=`; `POST /api/v1/events/{id}/ack` | alerts |
-| `GET /api/v1/settings`, `PUT /api/v1/settings` (energy £/kWh rate, sample interval) | settings |
+| `GET /api/v1/settings`, `PUT /api/v1/settings` (energy rate and currency, stale/offline thresholds, regression %) | settings |
 | `DELETE /api/v1/history?node=` (body `{confirm:"DELETE"}`) | clear history |
 | `GET /api/v1/bench/catalog`; `GET/POST /api/v1/bench/runs`; `GET /api/v1/bench/runs/{id}`; `POST …/{id}/cancel`; `DELETE …/{id}`; `GET …/{id}/export?format=json\|csv`; `PUT /api/v1/bench/baselines/{bench_id}` `{run_id}`; `GET /api/v1/bench/compare?ids=` | benchmarks |
 | `GET /healthz` (no auth) | liveness |
 
-The agent exposes the same shapes for a single node: `GET /api/v1/info`, `WS /api/v1/stream`, `GET /api/v1/history`,
-`DELETE /api/v1/history`, `GET/POST /api/v1/bench/...`, and `GET /healthz`.
+The agent exposes the same shapes for a single node: `GET /api/v1/info`, `GET /api/v1/snapshot`, `WS /api/v1/stream`,
+`GET /api/v1/history`, `DELETE /api/v1/history`, `GET/POST /api/v1/bench/...`, and `GET /healthz`.
 
 Live samples are full `Sample` objects (~3–5 kB) per node per tick. Processes are refreshed every 5 s (they are the
 most expensive collector), and `procs` is `null` on the ticks in between.
@@ -89,7 +96,7 @@ Rollups store avg/min/max per key per bucket. `energy_j` stores the last value, 
 | GPU | util, SM/graphics clock vs max, temp vs slowdown/shutdown, power, energy, P-state, throttle reasons (decoded), % time power/thermal capped, per-process GPU memory | power limit, memory clock, fan, FB memory, ECC, PCIe throughput |
 | Unified memory | used/available/total, breakdown GPU-allocated / process anon / page cache / shared / kernel / other, swap, PSI pressure | — |
 | CPU | per-core util heatmap grouped X925 (performance) vs A725 (efficiency), per-core freq, util by type, load avg, PSI | per-core temp |
-| Network | CX7 rails A/B: link state, RDMA state/rate, rx/tx throughput (PHY counters), errors/discards; LAN rx/tx | — |
+| Network | CX7 rails A/B: link state, RDMA state/rate, rx/tx throughput (netdev bytes + RDMA port counters per rail; the port-wide PHY counters would count both rails), errors/discards (port-wide PHY counters attributed once, to rail A); LAN rx/tx | — |
 | Storage | NVMe read/write B/s, IOPS, busy %, capacity per mount, NVMe temps | — |
 | Thermals/power | all hwmon sensors grouped (SoC ACPI zones, NVMe, NIC ASIC), GPU temp, GPU power + energy kWh/£ | fans, whole-system power |
 | Processes | top by GPU mem / RSS / CPU; container name (docker cgroup → name), model name (HF path / `--model` heuristics) | per-process GPU util when NVML returns no samples |
@@ -108,8 +115,9 @@ Rollups store avg/min/max per key per bucket. `energy_j` stores the last value, 
    dialog (duration, thermal/power impact, effect on running workloads) → live run view (progress, phase, telemetry
    overlay) → results. History table, compare `/benchmarks/compare?ids=`, baselines + regression flags, export
    JSON/CSV, shareable summary card (PNG via canvas).
-5. **Settings** `/settings`: theme (system/dark/light), reduced transparency, energy rate £/kWh, sample interval, clear
-   history (confirm), tokens/help.
+5. **Settings** `/settings`: theme (system/dark/light), reduced transparency, energy rate and currency, stale/offline
+   thresholds, regression threshold, clear history per node (confirm), about/help. The sample interval is
+   `interval_ms` in each node's `agent.toml`, not a UI setting.
 6. **Wall mode** `/wall`: full-screen, large type, no chrome, auto cycles nothing (stable), big status per node.
 - Global: sidebar nav, connection indicator, time-range picker (Live/5m/1h/24h/7d), ⌘K palette, `?` shortcuts.
 
@@ -118,9 +126,9 @@ Rollups store avg/min/max per key per bucket. `energy_j` stores the last value, 
 | id | What | Tooling | Notes |
 |---|---|---|---|
 | `gpu-matmul` | dense GEMM TFLOPS for BF16/FP16/FP8/FP4 (where supported) | PyTorch container (`torch.matmul`, `torch._scaled_mm`, FP4 via `torch._scaled_mm` with `float4_e2m1fn_x2` if available) | sizes 4096–16384 |
-| `mem-bandwidth` | UMA bandwidth from GPU (copy/triad kernel via torch) and CPU (numpy/STREAM-style, threads per core type) | container + host python | |
+| `mem-bandwidth` | UMA bandwidth from GPU (copy/triad via torch on device) and CPU (pinned threads per core type, torch CPU ops) | PyTorch container (both sides) | |
 | `cpu-throughput` | single- and multi-core throughput, pinned to X925 vs A725 sets | host Python + `taskset` style affinity (`os.sched_setaffinity`) | |
-| `nccl-allreduce` | NCCL `all_reduce_perf` across nodes | binary if present, else built inside the PyTorch container | 2 nodes |
+| `nccl-allreduce` | NCCL all-reduce bandwidth sweep across nodes (algbw/busbw like nccl-tests) | `torch.distributed` (NCCL backend) in the PyTorch container, one rank per node; `all_reduce_perf` is not used because it needs an MPI launcher across nodes | 2 nodes |
 | `rdma-bw-lat` | `ib_write_bw` / `ib_write_lat` over the CX7 rail | perftest (installed) | 2 nodes, server/client orchestration |
 | `storage-fio` | seq/rand read/write profiles | `fio` if present, else built-in O_DIRECT runner (labelled) | test file in data dir, removed after |
 | `llm-inference` | TTFT, prefill tok/s, decode tok/s, memory footprint | OpenAI-compatible endpoint (vLLM/TRT-LLM/llama.cpp server), streaming | engine-agnostic |

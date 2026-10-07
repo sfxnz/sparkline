@@ -48,14 +48,18 @@ test('production build keeps backdrop blur and the sidebar stays sticky with onl
   const sidebar = page.locator('.sidebar');
   const css = await sidebar.evaluate((el) => {
     const cs = getComputedStyle(el);
-    return { blur: cs.backdropFilter, position: cs.position, left: cs.borderLeftWidth, top: cs.borderTopWidth, right: cs.borderRightWidth };
+    return { blur: cs.backdropFilter, left: cs.borderLeftWidth, top: cs.borderTopWidth, right: cs.borderRightWidth };
   });
   expect(css.blur).not.toBe('none');
-  expect(css).toMatchObject({ position: 'sticky', left: '0px', top: '0px' });
+  expect(css).toMatchObject({ left: '0px', top: '0px' });
   expect(css.right).not.toBe('0px');
+  // The material runs the full scroll height; its contents are the sticky part.
+  const inner = page.locator('.sidebar__inner');
+  expect(await inner.evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
   await page.mouse.wheel(0, 300);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
-  expect(await sidebar.evaluate((el) => el.getBoundingClientRect().top)).toBe(0);
+  expect(await inner.evaluate((el) => el.getBoundingClientRect().top)).toBe(0);
+  expect(await sidebar.evaluate((el) => el.getBoundingClientRect().bottom)).toBeGreaterThanOrEqual(480);
   // Content now scrolls under the toolbar: it becomes a material with a hairline.
   await expect(page.locator('.toolbar')).toHaveClass(/is-scrolled/);
   expect(await page.locator('.toolbar').evaluate((el) => getComputedStyle(el).backdropFilter)).not.toBe('none');

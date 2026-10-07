@@ -77,7 +77,7 @@ class Job:
     """Context handed to a bench function: progress/results/logging and subprocess helpers."""
 
     def __init__(
-        self, runner: BenchRunner, req: BenchStartRequest, bench: Bench, params: Params, env
+        self, runner: BenchRunner, req: BenchStartRequest, bench: Bench, params: Params, env: probes.Env
     ) -> None:
         self.runner = runner
         self.req = req
@@ -164,11 +164,11 @@ class Job:
         if msg.get("ready"):
             self.set_ready()
         if isinstance(msg.get("error"), dict):
-            e = msg["error"]
+            err = msg["error"]
             self.payload_error = Problem(
-                message=str(e.get("message", "Benchmark failed")),
-                cause=str(e.get("cause", "")),
-                fix=str(e.get("fix", "")),
+                message=str(err.get("message", "Benchmark failed")),
+                cause=str(err.get("cause", "")),
+                fix=str(err.get("fix", "")),
             )
 
     def make_dir(self) -> Path:

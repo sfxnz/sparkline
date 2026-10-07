@@ -1,4 +1,4 @@
-"""Environment checks for benchmark availability: Docker + image, GPU, perftest, RoCE GIDs, fio."""
+"""Environment checks for benchmark availability: Docker + image, GPU, perftest, RoCE GIDs, fio, CPU cap."""
 
 from __future__ import annotations
 
@@ -88,6 +88,18 @@ def port_listening(port: int, proc_root: str = "/proc") -> bool:
     return False
 
 
+def cpu_quota(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> float | None:
+    """CPUs this process's cgroup v2 may use (cpu.max), None if uncapped or unknown."""
+    try:
+        with open(os.path.join(proc_root, "self", "cgroup")) as f:
+            path = next(ln.split(":", 2)[2].strip() for ln in f if ln.startswith("0::"))
+        with open(os.path.join(cgroup_root, path.lstrip("/"), "cpu.max")) as f:
+            quota, period = f.read().split()
+        return None if quota == "max" else int(quota) / int(period)
+    except (OSError, StopIteration, ValueError):
+        return None
+
+
 @dataclass
 class Env:
     """One snapshot of what this node can run (refreshed by the runner every few seconds)."""
@@ -102,6 +114,7 @@ class Env:
     fio: str | None = None
     all_reduce_perf: str | None = None
     work_dir: Problem | None = None
+    cpu_cap: Problem | None = None  # benchmarks that run as agent children would be throttled
 
 
 def probe(info: NodeInfo, image: str, work_dir: str, sock_path: str = DOCKER_SOCK) -> Env:
@@ -161,6 +174,14 @@ def probe(info: NodeInfo, image: str, work_dir: str, sock_path: str = DOCKER_SOC
             cause=f"{work_dir}: {e}",
             fix="Set bench_work_dir in the agent config to a writable directory on the NVMe drive",
         )
+    cap = cpu_quota()
+    if cap is not None:
+        env.cpu_cap = Problem(
+            message=f"sparkline-agent is CPU-capped on {node}",
+            cause=f"Its cgroup allows {cap:g} CPUs (cpu.max), which would throttle this benchmark "
+            "and skew its results",
+            fix=f"Run `sudo ./deploy/install.sh agent --enable-benchmarks` on {node}",
+        )
     return env
 
 
@@ -178,8 +199,8 @@ def availability(bench_id: str, env: Env) -> tuple[Problem | None, str]:
         note = f"{why}, so torch.distributed (NCCL backend) in the PyTorch container is used."
         return docker or env.gpu or env.rdma, note
     if bench_id == "rdma-bw-lat":
-        return env.perftest or env.rdma, ""
+        return env.perftest or env.rdma or env.cpu_cap, ""
     if bench_id == "storage-fio":
         note = "" if env.fio else "fio is not installed, so the built-in O_DIRECT runner is used."
-        return env.work_dir, note
-    return None, ""
+        return env.work_dir or env.cpu_cap, note
+    return env.cpu_cap, ""  # cpu-throughput, llm-inference: host processes under the agent's cgroup

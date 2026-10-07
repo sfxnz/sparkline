@@ -25,7 +25,7 @@ function BigValue({ value, parts, className }: { value: number | null; parts: Fo
   const text = useCallback((n: number) => parts(n, unit || undefined).value, [parts, unit]);
   return (
     <span className={`wall-value ${className ?? ''}`}>
-      <AnimatedNumber value={value} format={text} className="wall-value__num" />
+      <AnimatedNumber value={value} format={text} scale={unit} className="wall-value__num" />
       {unit && value != null ? <span className="wall-value__unit">{unit}</span> : null}
     </span>
   );

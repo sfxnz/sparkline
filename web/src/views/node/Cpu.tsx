@@ -90,7 +90,7 @@ function CpuView({ node, info }: { node: string; info: NodeInfo }) {
             <CoreGrid node={node} cores={info.cores} />
           </div>
         </Panel>
-        <Panel title="Utilisation by core type">
+        <Panel title="Utilisation by core type" subtitle="Average across the cores of each kind">
           <TimeSeriesChart node={node} title="CPU utilisation by core type" series={typeSeries} format={pct} yMin={0} yMax={100} height={282} />
         </Panel>
       </div>
@@ -102,7 +102,7 @@ function CpuView({ node, info }: { node: string; info: NodeInfo }) {
 function heatmapSubtitle(groups: ReturnType<typeof groupCores>): string {
   const parts = groups.map((g) => `${g.name.toLowerCase()} cores${g.model ? ` (${g.model}${g.maxMhz ? `, up to ${(g.maxMhz / 1000).toFixed(2)} GHz` : ''})` : ''}`);
   const text = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} above ${parts[parts.length - 1] ?? ''}` : (parts[0] ?? 'cores');
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)}. One row per core; brighter is busier.`;
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}. One row per core, coloured by utilisation (scale below).`;
 }
 
 /** "5 min 3.10 · 15 min 2.95" (from the latest sample: the 5/15-minute loads are not kept in history). */

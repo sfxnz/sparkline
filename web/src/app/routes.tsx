@@ -24,8 +24,13 @@ export const paths = {
   login: '/login',
 };
 
-/** The benchmark suite is its own chunk. */
+/** The benchmark suite is its own chunk. So are the pages the first paint never needs (the startup bundle stays
+ *  lean: overview, node shell and the stream plumbing). */
 export const Benchmarks = lazy(() => import('../views/Benchmarks'));
+export const Alerts = lazy(() => import('../views/Alerts'));
+export const Settings = lazy(() => import('../views/Settings'));
+export const Wall = lazy(() => import('../views/Wall'));
+export const Login = lazy(() => import('./Login').then((m) => ({ default: m.Login })));
 
 /** Large title for the toolbar. */
 export function pageTitle(location: string): string {

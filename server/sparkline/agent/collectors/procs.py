@@ -9,9 +9,13 @@ import pwd
 import re
 import socket
 import time
+from typing import TYPE_CHECKING, Any
 
 from ...common.schema import ProcSample
 from . import read_once
+
+if TYPE_CHECKING:
+    from .gpu import GpuCollector
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +30,44 @@ _HF = re.compile(r"models--[^/\s]+?--([^/\s]+)")
 _MODEL_ARG = re.compile(r"--model(?:-path)?(?:=|\s+)(\S+)")
 _GGUF = re.compile(r"([^/\s]+)\.gguf\b")
 _MODELS_DIR = re.compile(r"/models/([^/\s]+)")
+
+
+# Secrets in argv (vLLM --api-key, --hf-token, NAME_TOKEN=..., sk-... keys) never leave the node:
+# /proc/<pid>/cmdline is readable only by local users; samples go to every console session over LAN HTTP.
+_SECRET_FLAG = re.compile(
+    r"^--?(?:[a-z0-9]+[-_])*(?:api[-_]?key|token|password|passwd|secret|credentials?)(?:[-_][a-z0-9]+)*$",
+    re.I,
+)
+_SECRET_ENV = re.compile(r"^([A-Za-z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD)[A-Za-z0-9_]*)=.+$")
+_SECRET_TEXT = [
+    (re.compile(r"\b(sk|hf)([-_])[A-Za-z0-9_-]{8,}"), r"\1\2***"),  # OpenAI-style and Hugging Face keys
+    (re.compile(r"(://[^:/@\s]+:)[^@\s]+@"), r"\1***@"),  # user:password@ in URLs
+]
+REDACTED = "***"
+
+
+def redact_argv(argv: list[str]) -> list[str]:
+    """argv with secret values replaced by ***: `--api-key X`, `--api-key=X`, `HF_TOKEN=X`, `sk-…`, `hf_…`."""
+    out: list[str] = []
+    hide_next = False
+    for arg in argv:
+        if hide_next and not arg.startswith("-"):
+            out.append(REDACTED)
+            hide_next = False
+            continue
+        hide_next = False
+        flag, eq, _ = arg.partition("=")
+        if _SECRET_FLAG.match(flag):
+            if eq:
+                arg = f"{flag}={REDACTED}"
+            else:
+                hide_next = True
+        elif m := _SECRET_ENV.match(arg):
+            arg = f"{m.group(1)}={REDACTED}"
+        for pat, rep in _SECRET_TEXT:
+            arg = pat.sub(rep, arg)
+        out.append(arg)
+    return out
 
 
 def container_id(cgroup_text: str) -> str | None:
@@ -58,7 +100,7 @@ def select_top(rows: dict[int, dict]) -> list[int]:
     return out[:MAX_PROCS]
 
 
-def docker_get(path: str, sock_path: str = DOCKER_SOCK, timeout: float = 1.0):
+def docker_get(path: str, sock_path: str = DOCKER_SOCK, timeout: float = 1.0) -> Any:
     """Minimal HTTP/1.0 GET against the Docker Engine API over its unix socket."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.settimeout(timeout)
@@ -104,7 +146,7 @@ def scan_procs() -> dict[int, tuple[str, int, int, int]]:
 class ProcsCollector:
     name = "procs"
 
-    def __init__(self, gpu=None, interval_s: float = 5.0) -> None:
+    def __init__(self, gpu: GpuCollector | None = None, interval_s: float = 5.0) -> None:
         self.gpu = gpu  # GpuCollector or None
         self.interval_s = interval_s
         self._last: float | None = None
@@ -171,7 +213,10 @@ class ProcsCollector:
         out = []
         for pid in select_top(rows):
             r = rows[pid]
-            raw = (read_once(f"/proc/{pid}/cmdline") or "").replace("\0", " ").strip()
+            argv = [a for a in (read_once(f"/proc/{pid}/cmdline") or "").split("\0") if a]
+            if len(argv) == 1:  # a process that rewrote its title into one string ("vllm: serve --api-key X")
+                argv = argv[0].split()
+            raw = " ".join(redact_argv(argv)).strip()
             cmd = raw or f"[{r['name']}]"  # kernel threads have no cmdline
             out.append(
                 ProcSample(

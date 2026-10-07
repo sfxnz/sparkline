@@ -17,6 +17,8 @@ import {
   filterRuns,
   formatValue,
   groupCatalog,
+  headlineCaption,
+  headlineDetail,
   headlineResults,
   headlineText,
   isLanHost,
@@ -216,6 +218,11 @@ describe('values and deltas', () => {
     expect(headlineText([a, c])).toBe('800 TFLOPS'); // flagged headline first
     expect(headlineText([a])).toBe('400 TFLOPS');
     expect(headlineText([])).toBe('—');
+    // The caption names the metric and the nodes, in the order of the values.
+    expect(headlineCaption([a, b])).toBe(`${a.label} · ${a.node_id} / ${b.node_id}`);
+    expect(headlineCaption([])).toBe('');
+    const cpu = result({ metric: 'single_perf_mbps', label: 'Single core (Cortex-X925)', value: 201, unit: 'MB/s', node_id: 'spark1', extras: { workload: 'sha256+zlib' } });
+    expect(headlineDetail([cpu])).toBe('Single core (Cortex-X925). spark1: 201 MB/s. MB/s = input bytes processed per second by sha256+zlib.');
   });
 
   it('never shows an unsupported precision as a number', () => {
@@ -242,6 +249,7 @@ describe('history', () => {
   it('summarises params that differ from the defaults', () => {
     expect(paramsSummary(MATMUL, defaultParams(MATMUL))).toBe('Default parameters');
     expect(paramsSummary(MATMUL, { ...defaultParams(MATMUL), size: '16384', dtypes: ['fp8'] })).toBe('Precisions FP8 · Matrix size 16384');
+    expect(paramsSummary(RDMA, { ...defaultParams(RDMA), rail: 'B' })).toBe('Rail B');
   });
 });
 
@@ -435,5 +443,14 @@ describe('metadata snapshots', () => {
     expect(metaText('est_duration_s', 48.6).replace(/\s/g, ' ')).toBe('49 s'); // seconds read as a duration
     expect(isSmoke([result({ metric: 'bf16', value: 0.005, extras: { smoke: true } })])).toBe(true);
     expect(isSmoke([result({ metric: 'bf16', value: 95 })])).toBe(false);
+  });
+});
+
+describe('valueWithUnit matches the live screens', () => {
+  it('shows clocks in GHz and temperatures in whole degrees', () => {
+    expect(valueWithUnit(1884, 'MHz')).toBe('1.88 GHz');
+    expect(valueWithUnit(208, 'MHz')).toBe('208 MHz');
+    expect(valueWithUnit(88.04, '°C')).toBe('88 °C');
+    expect(valueWithUnit(412.3, 'TFLOPS')).toBe('412 TFLOPS');
   });
 });

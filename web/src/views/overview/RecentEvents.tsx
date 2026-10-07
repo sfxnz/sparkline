@@ -66,7 +66,12 @@ export function RecentEvents() {
           })}
         </ol>
       ) : (
-        <EmptyState icon={BellOff} title="No alerts. Everything’s quiet." compact>
+        <EmptyState
+          icon={BellOff}
+          title="No alerts. Everything’s quiet."
+          compact
+          action={<Link href={paths.alerts} className="btn btn--secondary btn--sm">Review alert rules</Link>}
+        >
           Threshold breaches, node outages and recoveries will appear here.
         </EmptyState>
       )}

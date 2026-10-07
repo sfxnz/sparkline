@@ -64,7 +64,8 @@
 .open-empty .t-footnote { margin-top: 2px; }
 
 /* ------------------------------------------------------------------ timeline */
-.tl { display: grid; gap: var(--space-4); }
+.tl { display: grid; gap: var(--space-4); container-type: inline-size; }
+
 .tl-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .tl-filters .ops-select { min-width: 9rem; }
 .tl-filters__count { margin-left: auto; }
@@ -121,6 +122,14 @@
 .tl-row__detail { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); margin-top: 1px; }
 .tl-row__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin-top: 6px; }
 .tl-row__node { padding-top: 1px; }
+/* Narrow (phone, large user font): the time sits above the title and the node chip below it, so the title keeps
+   the row's width instead of wrapping one word per line. */
+@container (max-width: 34rem) {
+  .tl-row { grid-template-columns: var(--rail) minmax(0, 1fr); row-gap: var(--space-1); }
+  .tl-row__rail { grid-column: 1; grid-row: 1 / span 3; }
+  .tl-row__time { grid-column: 2; grid-row: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); }
+  .tl-row__main, .tl-row__node { grid-column: 2; }
+}
 
 .tl-tag {
   display: inline-flex;
@@ -219,7 +228,8 @@
 
 .rules-throttle { border: 0; margin: 0; padding: 0; min-width: 0; }
 .rules-throttle legend { float: left; width: 100%; margin-bottom: 2px; line-height: var(--lh-footnote); }
-.rules-throttle__grid { clear: both; display: grid; grid-template-columns: repeat(3, minmax(0, max-content)); gap: 2px var(--space-5); }
+/* Columns in rem never squeeze a label under its neighbour: at large user font sizes they wrap to fewer columns. */
+.rules-throttle__grid { clear: both; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 2px var(--space-5); }
 .rules-check { display: inline-flex; align-items: center; min-height: 24px; /* WCAG 2.5.8 target spacing */ gap: 6px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-1); cursor: pointer; white-space: nowrap; }
 .rules-check input { margin: 0; width: 14px; height: 14px; accent-color: var(--accent-fill); }
 

@@ -1,15 +1,15 @@
 // Stacked area chart for a part-to-whole series (unified memory breakdown). Same data paths and behaviour as
 // TimeSeriesChart (live scroll from the LiveStore without React renders, history ranges, synced crosshair,
 // drag-zoom, data table) but each layer sits on the ones below it. Candidate for promotion into charts/.
-import { ChartLine, Table2, Undo2 } from 'lucide-react';
+import { Table2, Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { ChartDataTable } from '../../../charts/ChartDataTable';
 import { axisLabels, readChartTheme, timeAxis, useThemeVersion, withAlpha } from '../../../charts/theme';
 import { Button, IconButton } from '../../../design/components/Button';
-import { EmptyState } from '../../../design/components/EmptyState';
-import { ProblemState } from '../../../design/components/ProblemState';
+import { HistoryUnavailable } from '../../../charts/HistoryUnavailable';
+import { NoDataInRange } from '../../../charts/NoDataInRange';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { Tooltip } from '../../../design/components/Tooltip';
 import { serverNow, useCluster } from '../../../store/cluster';
@@ -111,6 +111,7 @@ export function StackedAreaChart({ node, title, series, format, height = 240, yM
   const [table, setTable] = useState<{ ts: number[]; values: (number | null)[][] } | null>(null);
   const showTable = table !== null;
   const [reloadKey, setReloadKey] = useState(0);
+  const [error, setError] = useState<unknown>(null);
   const tableId = useId();
   const keys = useMemo(() => series.map((s) => s.key), [series]);
   const keysId = keys.join('|');
@@ -259,7 +260,7 @@ export function StackedAreaChart({ node, title, series, format, height = 240, yM
             summarizeNow();
             set(r.ts.length ? 'ready' : 'empty');
           })
-          .catch(() => { if (!cancelled) set('error'); });
+          .catch((e: unknown) => { if (!cancelled) { setError(e); set('error'); } });
       };
       fetchOnce();
       const timer = setInterval(fetchOnce, historyRefreshMs(range));
@@ -314,11 +315,11 @@ export function StackedAreaChart({ node, title, series, format, height = 240, yM
           <div className="tschart__overlay" aria-hidden="true"><Skeleton height={height - 36} radius={10} /></div>
         ) : overlay === 'empty' ? (
           <div className="tschart__overlay">
-            <EmptyState icon={ChartLine} title="No data in this range" compact>Samples will appear here as soon as {node} reports them.</EmptyState>
+            <NoDataInRange node={node} />
           </div>
         ) : overlay === 'error' ? (
           <div className="tschart__overlay">
-            <ProblemState compact message="History unavailable" fix="The console could not return history for this range. Retry, or switch to Live." onRetry={() => { historyCache.clear(); setReloadKey((x) => x + 1); }} />
+            <HistoryUnavailable node={node} error={error} onRetry={() => { historyCache.clear(); setReloadKey((x) => x + 1); }} />
           </div>
         ) : null}
       </div>

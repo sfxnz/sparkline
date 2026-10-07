@@ -16,6 +16,7 @@ import statistics
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 from benchlib import fail, log, on_sigterm, progress, result
@@ -28,10 +29,27 @@ WORDS = TEXT.split()
 GENERIC_OWNERS = {"", "system", "openai", "organization-owner", "user", "owner"}
 
 
+def http_error(status: int, body: bytes) -> str:
+    """An endpoint's error, without echoing what it sent back: only an OpenAI-style error message is shown.
+    Anything else (an HTML page, another service's data) stays out of the run record and the browser."""
+    try:
+        obj = json.loads(body)
+    except ValueError:
+        obj = None
+    msg = None
+    if isinstance(obj, dict):
+        err = obj.get("error")
+        if isinstance(err, dict) and isinstance(err.get("message"), str):
+            msg = err["message"]
+        elif obj.get("object") == "error" and isinstance(obj.get("message"), str):  # vLLM
+            msg = obj["message"]
+    return f"HTTP {status}: {msg[:200]}" if msg else f"HTTP {status} (not an OpenAI error; body not shown)"
+
+
 def connect(base: str, timeout: float) -> tuple[http.client.HTTPConnection, str]:
     u = urlsplit(base)
     cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
-    return cls(u.hostname, u.port, timeout=timeout), u.path.rstrip("/")
+    return cls(cast(str, u.hostname), u.port, timeout=timeout), u.path.rstrip("/")
 
 
 def get_json(base: str, path: str) -> tuple[dict, dict]:
@@ -41,7 +59,7 @@ def get_json(base: str, path: str) -> tuple[dict, dict]:
         r = conn.getresponse()
         body = r.read()
         if r.status != 200:
-            raise OSError(f"GET {path} returned HTTP {r.status}: {body[:200]!r}")
+            raise OSError(f"GET {path} returned {http_error(r.status, body)}")
         return json.loads(body), {k.lower(): v for k, v in r.getheaders()}
     finally:
         conn.close()
@@ -63,13 +81,20 @@ def one_request(base: str, api: str, model: str, prompt: str, max_tokens: int) -
     else:
         body["prompt"] = prompt
         path = "/v1/completions"
-    out = {"ttft": None, "first": None, "last": None, "chunks": 0, "usage": None, "error": None}
+    out: dict[str, Any] = {
+        "ttft": None,
+        "first": None,
+        "last": None,
+        "chunks": 0,
+        "usage": None,
+        "error": None,
+    }
     t0 = time.perf_counter()
     try:
         conn.request("POST", prefix + path, json.dumps(body), {"Content-Type": "application/json"})
         r = conn.getresponse()
         if r.status != 200:
-            out["error"] = f"HTTP {r.status}: {r.read()[:300].decode(errors='replace')}"
+            out["error"] = http_error(r.status, r.read(4096))
             return out
         while True:
             line = r.readline()
@@ -153,8 +178,8 @@ def main() -> None:
     wall = time.perf_counter() - t0
     ok = [r for r in rs if r["error"] is None and r["ttft"] is not None]
     errors = [r["error"] or "no tokens streamed" for r in rs if r not in ok]
-    for e in errors[:3]:
-        log(f"request failed: {e}")
+    for err in errors[:3]:
+        log(f"request failed: {err}")
     if not ok:
         fail(
             "Every request failed",

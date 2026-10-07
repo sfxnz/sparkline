@@ -7,7 +7,7 @@ import contextlib
 import shutil
 import statistics
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -110,8 +110,8 @@ def _rail(job: Job, rail: str) -> tuple[Any, int]:
 async def nccl_allreduce(job: Job, p: NcclAllreduceParams) -> None:
     req = job.req
     rails = ["A", "B"] if p.rails == "both" else [p.rails]
-    usable = [(r, probes.rails(job.info).get(r)) for r in rails]
-    usable = [(r, n) for r, n in usable if n is not None and job.env.gids.get(r) is not None]
+    candidates = [(r, probes.rails(job.info).get(r)) for r in rails]
+    usable = [(r, n) for r, n in candidates if n is not None and job.env.gids.get(r) is not None]
     if not usable:
         _rail(job, rails[0])  # raises with a specific problem
     master = req.peer_ip or (usable[0][1].ipv4[0] if usable[0][1].ipv4 else None)
@@ -324,7 +324,7 @@ async def _every_sample(job: Job, fn: Callable[[Sample], None], stop: asyncio.Ev
             await asyncio.wait_for(stop.wait(), 0.25)
 
 
-async def _with_sampling(job: Job, coro, fn: Callable[[Sample], None]) -> Any:
+async def _with_sampling(job: Job, coro: Awaitable[Any], fn: Callable[[Sample], None]) -> Any:
     stop = asyncio.Event()
     task = asyncio.create_task(_every_sample(job, fn, stop))
     try:
@@ -451,7 +451,7 @@ async def thermal_soak(job: Job, p: ThermalSoakParams) -> None:
         if any(v is None for v in vals):
             return
         point = {"t": round(s.ts - t0, 2), **dict(zip(SOAK_KEYS, vals, strict=True)), "tflops": tflops}
-        job.append_series({k: [float(v)] for k, v in point.items()})
+        job.append_series({k: [float(v)] for k, v in point.items() if v is not None})  # (none are)
 
     dev = job.runner.payload_device
     args = ["--seconds", str(p.minutes * 60), "--size", p.size, "--device", dev]

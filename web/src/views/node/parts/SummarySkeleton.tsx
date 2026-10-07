@@ -4,7 +4,7 @@ import { Panel } from '../../../design/components/Panel';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { ChartSkeleton } from '../../placeholders';
 
-export const SUMMARY_STAT_LABELS = ['GPU utilisation', 'GPU temperature', 'GPU power', 'Memory available', 'CPU utilisation', 'CX7 in', 'CX7 out', 'Root disk used'] as const;
+export const SUMMARY_STAT_LABELS = ['GPU utilisation', 'GPU temperature', 'GPU power', 'Memory available', 'CPU utilisation', 'ConnectX-7 in', 'ConnectX-7 out', 'Root disk used'] as const;
 const CHARTS: readonly { title: string; wide?: boolean }[] = [
   { title: 'GPU utilisation' },
   { title: 'GPU power' },

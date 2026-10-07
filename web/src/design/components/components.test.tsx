@@ -126,7 +126,7 @@ describe('StatusPill', () => {
     expect(nodeDisplayStatus('online', 'warning')).toBe('warning');
     expect(nodeDisplayStatus('online', 'critical')).toBe('critical');
     expect(nodeDisplayStatus('offline', 'critical')).toBe('offline');
-    expect(nodeDisplayStatus('error')).toBe('critical');
+    expect(nodeDisplayStatus('error')).toBe('error');
     expect(nodeDisplayStatus('online', null, false)).toBe('stale');
     expect(nodeDisplayStatus('online', 'critical', false)).toBe('stale');
     expect(nodeDisplayStatus(undefined, null, false)).toBe('unknown');
@@ -163,6 +163,14 @@ describe('Stat / AnimatedNumber', () => {
     rerender(<AnimatedNumber value={90} format={fmt} />);
     expect(container.textContent).toBe('90');
     mm.mockRestore();
+  });
+
+  it('jumps instead of interpolating when the unit changes (never "48273 Mb/s")', async () => {
+    await import('../animate'); // the spring is loaded, so an unchanged unit would animate
+    await new Promise((r) => setTimeout(r, 0));
+    const { container, rerender } = render(<AnimatedNumber value={48_000} format={(n) => (n / 1000).toFixed(1)} scale="Gb/s" />);
+    rerender(<AnimatedNumber value={5} format={(n) => n.toFixed(1)} scale="Mb/s" />);
+    expect(container.textContent).toBe('5.0');
   });
 });
 

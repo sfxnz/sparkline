@@ -26,7 +26,9 @@ def parse_diskstats(text: str) -> dict[str, tuple[int, int, int, int, int]]:
     return out
 
 
-def disk_rates(prev, cur, elapsed: float) -> tuple[float, float, float, float, float]:
+def disk_rates(
+    prev: tuple[int, ...] | None, cur: tuple[int, ...], elapsed: float
+) -> tuple[float, float, float, float, float]:
     """-> (read_bps, write_bps, read_iops, write_iops, busy_pct). Sectors are always 512 B in diskstats."""
     if prev is None or elapsed <= 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0

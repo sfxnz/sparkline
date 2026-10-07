@@ -5,10 +5,11 @@
 // afterwards from the GPU telemetry the console saved with the run, else from the history API.
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
-import { formatBitrate, formatBytes, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
+import { formatBitrate, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
 import type { BenchRun, BenchSpec, NodeInfo } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
+import { formatBytesRate } from '../node/partsB/storage';
 import { alignByNode, isActive, parseRunSeries, type NodeSeries, type SeriesKind } from './model';
 import { RunChart, type Marker } from './RunChart';
 
@@ -25,12 +26,13 @@ export interface TelemetryChart {
   kind?: SeriesKind;
   yMin?: number;
   yMax?: number;
+  ySpan?: number;
 }
 
 const one = (key: string) => () => [key];
 const GPU: readonly TelemetryChart[] = [
   { id: 'gpu0.util', kind: 'util', title: 'GPU utilisation', keys: one('gpu0.util'), agg: 'max', format: (n) => formatPercent(n), yMin: 0, yMax: 100 },
-  { id: 'gpu0.temp_c', kind: 'temp_c', title: 'GPU temperature', keys: one('gpu0.temp_c'), agg: 'max', format: formatTemp },
+  { id: 'gpu0.temp_c', kind: 'temp_c', title: 'GPU temperature', keys: one('gpu0.temp_c'), agg: 'max', format: formatTemp, ySpan: 8 },
   { id: 'gpu0.power_w', kind: 'power_w', title: 'GPU power', keys: one('gpu0.power_w'), agg: 'max', format: formatWatts, yMin: 0 },
   { id: 'gpu0.sm_mhz', kind: 'sm_mhz', title: 'SM clock', keys: one('gpu0.sm_mhz'), agg: 'max', format: formatFreq, yMin: 0 },
 ];
@@ -39,10 +41,9 @@ const CPU: readonly TelemetryChart[] = [
   { id: 'cpu.mhz', title: 'CPU clock (mean of cores)', keys: (i) => (i?.cores ?? []).map((c) => `cpu.core${c.id}.mhz`), agg: 'mean', format: formatFreq, yMin: 0 },
 ];
 const disks = (i: NodeInfo | undefined) => (i?.disks ?? []).map((d) => d.name);
-const perSecond = (n: number) => `${formatBytes(n)}/s`;
 const STORAGE: readonly TelemetryChart[] = [
-  { id: 'disk.read', title: 'Disk read', keys: (i) => disks(i).map((d) => `disk.${d}.read_bps`), agg: 'sum', format: perSecond, yMin: 0 },
-  { id: 'disk.write', title: 'Disk write', keys: (i) => disks(i).map((d) => `disk.${d}.write_bps`), agg: 'sum', format: perSecond, yMin: 0 },
+  { id: 'disk.read', title: 'Disk read', keys: (i) => disks(i).map((d) => `disk.${d}.read_bps`), agg: 'sum', format: formatBytesRate, yMin: 0 },
+  { id: 'disk.write', title: 'Disk write', keys: (i) => disks(i).map((d) => `disk.${d}.write_bps`), agg: 'sum', format: formatBytesRate, yMin: 0 },
   { id: 'disk.busy', title: 'Disk busy', keys: (i) => disks(i).map((d) => `disk.${d}.busy_pct`), agg: 'max', format: (n) => formatPercent(n), yMin: 0, yMax: 100 },
 ];
 const rails = (i: NodeInfo | undefined) => (i?.net ?? []).filter((n) => n.role === 'interconnect').map((n) => n.name);
@@ -108,9 +109,14 @@ export function runFrame(run: BenchRun, now: number, expected: number, saved: bo
   const start = run.started_ts ?? run.created_ts;
   const end = run.finished_ts ?? now;
   if (isActive(run.status)) return [start - LEAD_S, Math.ceil(Math.max(now + 5, start + expected * 1.05) / 10) * 10]; // 10 s steps: no creep
-  // Saved series cover the run itself: a 10 % margin each side, so a 5 s run is not a sliver.
-  const margin = Math.max(2, (end - start) * 0.1);
-  return saved ? [start - margin, end + margin] : [start - LEAD_S, end + LEAD_S];
+  // Saved series cover the run itself: a 10 % margin each side, so a 5 s run is not a sliver. Live or history data
+  // has context around the run: up to LEAD_S each side, but no more than half the run's length (at least 5 s).
+  if (saved) {
+    const margin = Math.max(2, (end - start) * 0.1);
+    return [start - margin, end + margin];
+  }
+  const lead = Math.min(LEAD_S, Math.max(5, (end - start) * 0.5));
+  return [start - lead, end + lead];
 }
 
 /** Re-render at most once a second while any involved node streams samples. */
@@ -198,6 +204,7 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
           markers={markers}
           yMin={t.yMin}
           yMax={t.yMax}
+          ySpan={t.ySpan}
           loading={loading}
           emptyText={active ? 'Waiting for samples…' : 'No telemetry was recorded for this run'}
         />

@@ -35,6 +35,7 @@ from sparkline.agent.collectors.procs import (
     container_names,
     detect_model,
     parse_pid_stat,
+    redact_argv,
     select_top,
 )
 from sparkline.agent.collectors.storage import disk_rates, parse_diskstats, parse_mounts
@@ -266,6 +267,38 @@ def test_model_detection():
     assert detect_model("llama-server -m /srv/llm/mistral-7b.Q4_K_M.gguf") == "mistral-7b.Q4_K_M"
     assert detect_model("python serve.py /models/gemma-3") == "gemma-3"
     assert detect_model("/usr/bin/python3 -m http.server") is None
+
+
+def test_cmdline_secrets_are_redacted():
+    argv = ["vllm", "serve", "/models/Qwen3", "--api-key", "sk-LIVE-SECRET-123", "--port", "80"]
+    assert " ".join(redact_argv(argv)) == "vllm serve /models/Qwen3 --api-key *** --port 80"
+    flags = ["x", "--hf-token=hf_abcdefghijkl", "--password", "hunter2", "--secret-key", "s3"]
+    assert redact_argv(flags) == [
+        "x",
+        "--hf-token=***",
+        "--password",
+        "***",
+        "--secret-key",
+        "***",
+    ]
+    assert redact_argv(["env", "HF_TOKEN=hf_abcdefghijkl", "OPENAI_API_KEY=abc", "PATH=/usr/bin"]) == [
+        "env",
+        "HF_TOKEN=***",
+        "OPENAI_API_KEY=***",
+        "PATH=/usr/bin",
+    ]
+    # Key-shaped values and URL passwords anywhere; a flag without a value does not swallow the next flag.
+    anywhere = ["--header", "Bearer sk-proj-abcdefgh12", "http://u:pw@host/x", "--token", "--port"]
+    assert redact_argv(anywhere) == [
+        "--header",
+        "Bearer sk-***",
+        "http://u:***@host/x",
+        "--token",
+        "--port",
+    ]
+    # Ordinary flags that only look similar are kept.
+    keep = ["--max-num-batched-tokens", "8192", "--tokenizer", "/models/q", "--disable-auth", "x"]
+    assert redact_argv(keep) == keep
 
 
 def test_pid_stat_parse():

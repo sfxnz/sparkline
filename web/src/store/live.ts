@@ -248,6 +248,14 @@ export class LiveStore {
     for (const k of keys) this.keyListeners.get(k)?.forEach((cb) => { cb(); });
   }
 
+  /** Active subscriptions (sample + key), for the leak tests. */
+  listenerCount(): number {
+    let n = 0;
+    for (const set of this.sampleListeners.values()) n += set.size;
+    for (const set of this.keyListeners.values()) n += set.size;
+    return n;
+  }
+
   /** Approximate bytes held by typed arrays (used by the memory-bound test). */
   byteSize(): number {
     let total = 0;

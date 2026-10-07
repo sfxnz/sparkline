@@ -87,8 +87,10 @@ function agentHost(url: string): string | null {
 
 function metaItems(node: NodeState, now: number): string[] {
   const info = node.info;
-  if (!info) return [];
   const host = agentHost(node.url);
+  // Never connected: once the console has given up waiting (offline/error), say where it looks instead of a
+  // skeleton that would read as "still loading".
+  if (!info) return node.status !== 'connecting' && host ? [host] : [];
   return [
     info.hostname !== node.node_id ? info.hostname : null,
     host,

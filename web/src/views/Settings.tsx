@@ -60,7 +60,7 @@ function AppearanceSection() {
   const reduce = usePrefs((s) => s.reduceTransparency);
   const set = usePrefs((s) => s.set);
   return (
-    <Panel title="Appearance">
+    <Panel title="Appearance" subtitle="How Sparkline looks in this browser. Saved here only.">
       <div className="set-rows">
         <SettingRow id="set-theme" title="Theme" description="System follows your operating system's light or dark setting. Press T anywhere to switch.">
           <SegmentedControl label="Theme" options={THEMES} value={theme} onChange={(v) => { set({ theme: v }); }} />
@@ -78,7 +78,7 @@ function KeyboardSection() {
   const set = usePrefs((s) => s.set);
   const setHelp = useUi((s) => s.setHelp);
   return (
-    <Panel title="Keyboard">
+    <Panel title="Keyboard" subtitle="Move around Sparkline without the mouse.">
       <div className="set-rows">
         <SettingRow id="set-keys" title="Single-key shortcuts" description="G then O for Overview, 1–9 for nodes, T, W and ?. Turn off if keys fire by accident, for example with speech input. The command palette shortcut always works.">
           <Switch checked={single} onChange={(v) => { set({ singleKeyShortcuts: v }); }} labelledBy="set-keys-label" describedBy="set-keys-desc" />

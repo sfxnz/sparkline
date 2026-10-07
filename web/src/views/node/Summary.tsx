@@ -79,7 +79,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
             <LiveStat
               key={dir}
               nodeId={nodeId}
-              label={`CX7 ${dir}`}
+              label={`ConnectX-7 ${dir}`}
               select={dir === 'in' ? cx7Rx : cx7Tx}
               metric={dir === 'in' ? rxKeys : txKeys}
               format={bitrateParts}
@@ -97,13 +97,13 @@ export default function Summary({ nodeId }: NodeTabProps) {
       <CollectorErrors nodeId={nodeId} link />
 
       <div className="nsum__charts">
-        <Panel title="GPU utilisation" actions={<TabLink nodeId={nodeId} tab="gpu">GPU</TabLink>}>
+        <Panel title="GPU utilisation" subtitle="Share of time the GPU was busy" actions={<TabLink nodeId={nodeId} tab="gpu">GPU</TabLink>}>
           <TimeSeriesChart node={nodeId} title="GPU utilisation" series={UTIL_SERIES} format={pct} yMin={0} yMax={100} height={168} />
         </Panel>
         <Panel title="GPU power" subtitle="GPU rail only — not whole-system power" actions={<TabLink nodeId={nodeId} tab="gpu">GPU</TabLink>}>
           <TimeSeriesChart node={nodeId} title="GPU power" series={POWER_SERIES} format={formatWatts} yMin={0} height={168} />
         </Panel>
-        <Panel title="Unified memory" actions={<TabLink nodeId={nodeId} tab="memory">Memory</TabLink>}>
+        <Panel title="Unified memory" subtitle="Shared by CPU and GPU" actions={<TabLink nodeId={nodeId} tab="memory">Memory</TabLink>}>
           <TimeSeriesChart node={nodeId} title="Unified memory used" series={MEM_SERIES} format={formatBytes} yMin={0} yMax={memTotal ?? undefined} yIncrs={BYTE_INCRS} height={168} />
         </Panel>
         <Panel title="CPU utilisation" subtitle="By core type" actions={<TabLink nodeId={nodeId} tab="cpu">CPU</TabLink>}>

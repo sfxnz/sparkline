@@ -12,7 +12,7 @@ import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, get_args, get_origin
+from typing import Annotated, Any, Literal, cast, get_args, get_origin
 from urllib.parse import urlsplit
 
 import annotated_types
@@ -132,6 +132,8 @@ _MODEL_RE = re.compile(r"^[\w.\-/:]{1,200}$")
 
 
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")  # Tailscale & co. (100.100.100.100 is its local service)
+# Never an LLM endpoint: SSH, the Docker API and Sparkline's own default console and agent ports.
+_REFUSED_PORTS = {22: "SSH", 2375: "Docker's API", 2376: "Docker's API", 9700: "Sparkline", 9750: "Sparkline"}
 
 
 def check_base_url(url: str) -> str:
@@ -157,6 +159,8 @@ def check_base_url(url: str) -> str:
         raise ValueError(f"{host} is not a LAN or loopback address; Sparkline only tests LAN endpoints")
     if port == 0:
         raise ValueError("port must not be 0")
+    if port in _REFUSED_PORTS:
+        raise ValueError(f"port {port} is {_REFUSED_PORTS[port]}, not an OpenAI-compatible endpoint")
     path = parts.path.rstrip("/")
     if path.endswith("/v1"):
         path = path[:-3]
@@ -316,8 +320,9 @@ def bench_params(model: type[Params]) -> list[BenchParam]:
             kind, choices = "multi", [str(a) for a in get_args(get_args(ann)[0])]
         else:
             kind = {int: "int", float: "float", bool: "bool", str: "string"}[ann]  # type: ignore[index]
-        lo = next((m.ge for m in f.metadata if isinstance(m, annotated_types.Ge)), None)
-        hi = next((m.le for m in f.metadata if isinstance(m, annotated_types.Le)), None)
+        # Ge/Le bounds of these params are ints or floats; annotated_types only promises comparability
+        lo = cast(float | None, next((m.ge for m in f.metadata if isinstance(m, annotated_types.Ge)), None))
+        hi = cast(float | None, next((m.le for m in f.metadata if isinstance(m, annotated_types.Le)), None))
         extra = f.json_schema_extra if isinstance(f.json_schema_extra, dict) else {}
         out.append(
             BenchParam(

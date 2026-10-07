@@ -47,15 +47,16 @@ def test_demo_dynamics_and_scripted_episodes():
         a, b = m1.sample_at(T0 + t), m2.sample_at(T0 + t)
         assert abs(a.net[0].tx_bps - b.net[0].rx_bps) <= 0.002 * a.net[0].tx_bps + 1
     # spark1 thermal episode: hot, sw+hw thermal bits, clocks drop
-    hot = m1.sample_at(T0 + 40).gpu[0]
+    hot = m1.sample_at(T0 + 90).gpu[0]
     assert hot.temp_c > 85 and hot.throttle_mask & 0x20 and hot.throttle_mask & 0x40 and hot.sm_mhz < 2000
     # spark2 storage collector error: disk=[] and an error entry; other collectors still report
-    s = m2.sample_at(T0 + 105)
+    s = m2.sample_at(T0 + 245)
     assert s.disk == [] and "storage" in s.errors and s.fs
     # schedules
     m3 = DemoModel("spark3", T0)
-    assert [m3.link_state(T0 + x) for x in (10, 35, 60, 95)] == ["ok", "stall", "refused", "ok"]
-    assert m2.link_state(T0 + 85) == "stall" and m2.link_state(T0 + 95) == "ok"
+    states = [m3.link_state(T0 + x) for x in (10, 155, 180, 215, 305)]
+    assert states == ["ok", "stall", "refused", "ok", "stall"]
+    assert m2.link_state(T0 + 125) == "stall" and m2.link_state(T0 + 135) == "ok"
 
 
 def test_demo_history_resolution_and_determinism():
@@ -95,7 +96,7 @@ async def test_demo_failure_schedule_drives_stale_and_offline(tmp_path):
     The stall must exceed the 1 Hz agent's interval floor (2 * 1 s + 1 s) to count as stale."""
     store = Store(tmp_path / "c.sqlite")
     cluster = Cluster(store, Hub(), ConsoleSettings(stale_after_s=0.5, offline_after_s=30), demo=True)
-    src = DemoSource("spark3", cluster, time.time(), speed=5)
+    src = DemoSource("spark3", cluster, time.time() - 130 / 5, speed=5)  # 20 scenario-s before the stall
     cluster.add_source(src)
     await cluster.start()
     seen: list[str] = []

@@ -1,4 +1,5 @@
-"""Agent configuration: TOML file (``--config`` or /etc/sparkline/agent.toml) overridden by CLI flags."""
+"""Agent configuration. Precedence: CLI flag > ``SPARKLINE_*`` environment variable > TOML file
+(``--config``, ``$SPARKLINE_CONFIG`` or /etc/sparkline/agent.toml) > default."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import os
 import re
 import socket
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
 
 DEFAULT_PATH = "/etc/sparkline/agent.toml"
@@ -42,6 +44,8 @@ class AgentConfig:
     def validate(self) -> None:
         if not 250 <= self.interval_ms <= 5000:
             raise ValueError(f"interval_ms must be between 250 and 5000 (got {self.interval_ms})")
+        if self.token and len(self.token) < 16:
+            raise ValueError("token must be at least 16 characters (install.sh generates one)")
         if not 1 <= self.port <= 65535:
             raise ValueError(f"port out of range: {self.port}")
         if self.ring_seconds < 10 or self.procs_interval_s < 1:
@@ -56,8 +60,34 @@ class AgentConfig:
         return self.bench_work_dir or os.path.join(self.data_dir, "bench-work")
 
 
-def load_config(path: str | None = None, overrides: dict | None = None) -> AgentConfig:
+def env_overrides(env: Mapping[str, str]) -> dict:
+    """Config values from ``SPARKLINE_*`` variables (empty ones count as unset). The agent's token is the
+    shared agent token: ``SPARKLINE_AGENT_TOKEN``, or ``SPARKLINE_TOKEN`` when that is not set."""
+    out: dict = {}
+    for key, names in {
+        "token": ("SPARKLINE_AGENT_TOKEN", "SPARKLINE_TOKEN"),
+        "bind": ("SPARKLINE_BIND",),
+        "port": ("SPARKLINE_PORT",),
+        "data_dir": ("SPARKLINE_DATA_DIR",),
+    }.items():
+        name = next((n for n in names if env.get(n)), None)
+        if name is not None:
+            out[key] = env[name]
+    if "port" in out:
+        try:
+            out["port"] = int(out["port"])
+        except ValueError:
+            raise ValueError(f"SPARKLINE_PORT must be a port number (got {out['port']!r})") from None
+    return out
+
+
+def load_config(
+    path: str | None = None, overrides: dict | None = None, env: Mapping[str, str] | None = None
+) -> AgentConfig:
+    """``overrides`` are CLI flags (None = not given). ``env`` is the process environment (None: ignored)."""
     data: dict = {}
+    if path is None and env:
+        path = env.get("SPARKLINE_CONFIG") or None
     if path is None and os.path.exists(DEFAULT_PATH):
         path = DEFAULT_PATH
     if path is not None:
@@ -67,6 +97,7 @@ def load_config(path: str | None = None, overrides: dict | None = None) -> Agent
     unknown = set(data) - known
     if unknown:
         raise ValueError(f"unknown config keys in {path}: {', '.join(sorted(unknown))}")
+    data.update(env_overrides(env or {}))
     data.update({k: v for k, v in (overrides or {}).items() if v is not None})
     cfg = AgentConfig(**data)
     cfg.validate()

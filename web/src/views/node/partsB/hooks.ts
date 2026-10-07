@@ -13,17 +13,13 @@ export function useNodeInfo(node: string): NodeInfo | null {
   return useCluster((s) => s.nodes[node]?.info ?? null);
 }
 
-/** Epoch seconds of the node's newest sample in the browser (for "updated 12 s ago"). */
-export function useLastSampleTs(node: string, store: LiveStore = liveStore): number | null {
-  const sub = useCallback((cb: () => void) => store.subscribeSample(node, cb), [store, node]);
-  const get = () => store.lastTs(node);
-  return useSyncExternalStore(sub, get, get);
-}
-
 /** Whether the browser holds any data for this node: a live sample or seeded history (skeleton vs content). An
  *  offline node opened fresh still has its last minutes seeded from the console, shown dimmed. */
 export function useHasData(node: string, store: LiveStore = liveStore): boolean {
-  return useLastSampleTs(node, store) !== null;
+  // The snapshot is the boolean itself: a snapshot of the timestamp would re-render the whole tab on every sample.
+  const sub = useCallback((cb: () => void) => store.subscribeSample(node, cb), [store, node]);
+  const get = () => store.lastTs(node) !== null;
+  return useSyncExternalStore(sub, get, get);
 }
 
 export type KeyGetter = (key: string) => number | null;

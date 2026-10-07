@@ -58,6 +58,7 @@
 .bench-card__last:hover { text-decoration: none; }
 .bench-card__last:hover .bench-card__last-value { text-decoration: underline; text-underline-offset: 0.18em; }
 .bench-card__last-value { font-weight: 600; font-size: var(--fs-callout); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bench-card__last-what { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bench-card__last-when { color: var(--text-3); }
 .bench-card__last--none { color: var(--text-3); }
 
@@ -167,6 +168,7 @@
 .bench-hist__tools { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
 .bench-hist__bench { display: grid; gap: 1px; }
 .bench-hist__link { font-weight: 560; color: var(--text-1); }
+.bench-hist__result { display: inline-grid; justify-items: end; gap: 1px; }
 .bench-hist__params { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
 .bench-hist__is-baseline { font-size: var(--fs-footnote); font-weight: 560; color: var(--accent-text); }
 .bench-hist__none { display: inline-flex; align-items: center; gap: var(--space-2); }

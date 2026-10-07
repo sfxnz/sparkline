@@ -43,10 +43,12 @@ describe('clusterHealth', () => {
     expect(h.status).toBe('warning');
   });
 
-  it('reports a connection error as critical', () => {
+  it('reports a connection error as an error, not as critical', () => {
     const h = clusterHealth([{ id: 'spark1', status: 'error' }], none);
     expect(h.sentence).toBe('spark1 has a connection error');
-    expect(h.status).toBe('critical');
+    expect(h).toMatchObject({ status: 'error', label: 'Error' });
+    // A critical alert elsewhere still wins.
+    expect(clusterHealth([{ id: 'spark1', status: 'error' }, { id: 'spark2', status: 'online' }], { critical: 1, warning: 0 }).status).toBe('critical');
   });
 
   it('waits for nodes that have not connected yet', () => {

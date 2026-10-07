@@ -195,27 +195,18 @@
 @media (max-width: 760px) {
   .ngpu__stats, .nstats--8 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-.ngpu__throttle { display: grid; gap: var(--space-5); grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.ngpu__throttle { display: grid; gap: var(--space-6); grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+.nclock { display: flex; flex-direction: column; }
+.nclock .ncapped { margin-top: auto; }
+.nclock .throttle { margin-bottom: var(--space-4); }
+.nclock-time { display: grid; gap: 0; align-content: start; min-width: 0; padding-left: var(--space-6); border-left: var(--hairline) solid var(--separator); }
+.nclock-time__title { font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: var(--fw-headline); letter-spacing: var(--ls-headline); color: var(--text-1); }
+.nclock-time__sub { margin-bottom: var(--space-4); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 @media (max-width: 1100px) {
   .ngpu__throttle { grid-template-columns: minmax(0, 1fr); }
+  .nclock-time { padding: var(--space-5) 0 0; border-left: 0; border-top: var(--hairline) solid var(--separator); }
 }
 
-/* process cells */
-.nproc__name { display: grid; gap: 1px; min-width: 0; }
-.nproc__cmd { font-size: var(--fs-footnote); color: var(--text-3); max-width: 36ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nproc__tag {
-  display: inline-block;
-  max-width: 28ch;
-  padding: 1px 6px;
-  border-radius: var(--radius-xs);
-  background: var(--fill-2);
-  font-size: var(--fs-footnote);
-  color: var(--text-1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: middle;
-}
 .nproc__none { color: var(--text-3); }
 
 /* ------------------------------------------------------------------ memory */
@@ -298,9 +289,6 @@
 @media (min-width: 1360px) {
   .memlegend { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 }
-.nclock { display: flex; flex-direction: column; height: 100%; }
-.nclock .ncapped { margin-top: auto; }
-.nclock .throttle { margin-bottom: var(--space-4); }
 .ngpu__charts { display: grid; gap: var(--space-5); grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 1760px) {
   .ngpu__charts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -314,6 +302,6 @@
 .nmem-hero--stale .nmem-hero__headline,
 .nmem-hero--stale .memlegend * ,
 .ntable--stale td,
-.ntable--stale td :not(.nproc__tag),
+.ntable--stale td :not(.procs__badge, .procs__badge *),
 .npsi--stale.npsi--stale * { color: var(--text-3); }
 .npsi--stale :is(svg, canvas) { opacity: 0.5; }

@@ -55,7 +55,7 @@ export default function Memory({ nodeId }: NodeTabProps) {
             <PressureNow nodeId={nodeId} />
             <TimeSeriesChart node={nodeId} title="Memory pressure" series={PSI} format={pct1} yMin={0} yMax={5} height={120} />
           </Panel>
-          <Panel title="Swap">
+          <Panel title="Swap" subtitle="Memory paged out to disk">
             {swapTotal === 0 ? (
               <p className="nmuted">No swap is configured on {nodeId}.</p>
             ) : (

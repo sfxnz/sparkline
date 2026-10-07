@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 import psutil
@@ -25,7 +26,7 @@ SELF_LOG_EVERY_S = 60
 _EMPTY: dict[str, list | None] = {"gpu": [], "net": [], "disk": [], "fs": [], "temps": [], "procs": None}
 
 
-def _placeholder(field: str):
+def _placeholder(field: str) -> MemSample | CpuSample:
     if field == "mem":
         return MemSample(
             total=0,
@@ -117,11 +118,12 @@ class Sampler:
         return js
 
     @staticmethod
-    def _safe(fn, *args):
+    def _safe(fn: Callable[..., object], *args: object) -> object:
         try:
             return fn(*args)
         except Exception:
             log.exception("store operation failed")
+            return None
 
     def collect_once(self) -> str:
         """One tick: collect, record; returns the sample JSON."""
@@ -220,14 +222,14 @@ class Sampler:
         loop = asyncio.get_running_loop()
         merged = False
         if res == interval or self.store is None:
-            rows = await asyncio.to_thread(_ring_rows, ring, t_from, t_to)
+            rows = await asyncio.to_thread(_ring_rows, ring, t_from, t_to, keys)
         else:
             rows = await loop.run_in_executor(self._db, self.store.query, int(res), t_from, t_to)
             if ring_oldest is not None and t_to > ring_oldest:
                 # Whole buckets older than the ring; the newest part (incl. the open bucket, not in SQLite
                 # yet) comes from the ring. With nothing older (a young agent): the ring alone, at full rate.
                 older = [r for r in rows if r[0] + res / 2 <= ring_oldest]
-                recent = await asyncio.to_thread(_ring_rows, ring, max(t_from, ring_oldest), t_to)
+                recent = await asyncio.to_thread(_ring_rows, ring, max(t_from, ring_oldest), t_to, keys)
                 if older:
                     rows, merged = older + recent, True  # bucketed to one width below
                 else:
@@ -257,9 +259,16 @@ class Sampler:
             await asyncio.get_running_loop().run_in_executor(self._db, self.store.clear)
 
 
-def _ring_rows(ring: list[tuple[float, str]], t0: float, t1: float) -> list[tuple[float, dict]]:
+def _ring_rows(
+    ring: list[tuple[float, str]], t0: float, t1: float, keys: list[str] | None = None
+) -> list[tuple[float, dict]]:
+    """Ring samples in [t0, t1] as rows of {key: [avg, min, max]}, holding only ``keys`` (None: all). A full
+    250 ms ring is 3600 samples of ~150 keys: keeping every key for a 2-key chart costs ~90 MB of RSS."""
     out = []
     for ts, js in ring:
         if t0 <= ts <= t1:
-            out.append((ts, {k: [v, v, v] for k, v in flatten(Sample.model_validate_json(js)).items()}))
+            flat = flatten(Sample.model_validate_json(js))
+            if keys is not None:
+                flat = {k: flat[k] for k in keys if k in flat}
+            out.append((ts, {k: [v, v, v] for k, v in flat.items()}))
     return out

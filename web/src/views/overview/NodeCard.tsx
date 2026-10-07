@@ -213,7 +213,7 @@ function CardNotice() {
       </Button>
       {node.error?.fix ? <span className="ov-notice__fix"><InlineCode text={node.error.fix} /></span> : null}
       <span className="ov-notice__meta num">
-        Last values {ago}
+        {lastTs ? `Last values ${ago}` : 'No data received yet'}
         {secs !== null ? (secs > 0 ? ` · auto-retry in ${secs}\u00a0s` : ' · retrying…') : ''}
       </span>
     </div>
@@ -247,7 +247,7 @@ function StatBlock({ label, value, unit, format, footer, unsupported }: { label:
         <Unsupported reason={unsupported} />
       ) : (
         <span className="ov-stat__value">
-          <AnimatedNumber value={value} format={format} className="ov-stat__number" />
+          <AnimatedNumber value={value} format={format} scale={unit} className="ov-stat__number" />
           {value !== null ? <span className="ov-stat__unit">{unit}</span> : null}
         </span>
       )}
@@ -268,9 +268,9 @@ function Temperature() {
       headroom <= 0 ? (
         <span className="ov-flag tone-crit"><OctagonAlert aria-hidden="true" />At slowdown{why}</span>
       ) : headroom <= HEADROOM_WARN_C ? (
-        <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{headroom.toFixed(0)} °C</span> headroom{why}</span>
+        <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{headroom.toFixed(0)}&nbsp;°C</span> headroom{why}</span>
       ) : (
-        <><span className="num">{headroom.toFixed(0)} °C</span> headroom{why}</>
+        <><span className="num">{headroom.toFixed(0)}&nbsp;°C</span> headroom{why}</>
       );
   }
   return (

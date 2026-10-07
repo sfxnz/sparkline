@@ -51,8 +51,9 @@ const json = (body: unknown, method = 'POST'): RequestInit => ({
 const query = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
 export const api = {
-  /** 200 when the session is valid; throws ApiError('unauthorized') on 401. Body shape is not relied on. */
-  me: () => request<unknown>('/api/v1/auth/me'),
+  /** Always 200 from this console: `authenticated: false` when signed out (older consoles answered 401, which
+   *  throws ApiError('unauthorized')). */
+  me: () => request<{ authenticated?: boolean; auth_required?: boolean; demo?: boolean }>('/api/v1/auth/me'),
   login: (token: string) => request<unknown>('/api/v1/auth/login', json({ token })),
   logout: () => request<unknown>('/api/v1/auth/logout', { method: 'POST' }),
   /** Ask the console to reconnect to a node now instead of waiting for its backoff. */

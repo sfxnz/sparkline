@@ -38,7 +38,7 @@ export function Stat({ label, value, format, delta, stale, updatedAt, unsupporte
         </div>
       ) : (
         <div className="stat__value">
-          <AnimatedNumber value={value} format={textFor} className="stat__number" />
+          <AnimatedNumber value={value} format={textFor} scale={unit} className="stat__number" />
           {unit && target?.value !== DASH ? <span className="stat__unit">{unit}</span> : null}
           {delta ? (
             <span className={`stat__delta stat__delta--${delta.direction}`}>

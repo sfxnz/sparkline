@@ -1,0 +1,56 @@
+# Sparkline console under Docker Compose. Agents still run under systemd on each node (install.sh agent).
+#
+#   1. sudo install -d -m 0755 /etc/sparkline
+#      sudo install -m 0640 -g 10001 deploy/console.example.toml /etc/sparkline/console.toml
+#      sudoedit /etc/sparkline/console.toml          # tokens and [[nodes]]
+#   2. docker compose -f deploy/docker-compose.yml up -d --build
+#   3. Open http://<this host's LAN IP>:9700
+#
+# The container runs as uid/gid 10001, so the config must be readable by group 10001 (step 1).
+# Tokens can come from the environment instead of the file: put SPARKLINE_TOKEN and SPARKLINE_AGENT_TOKEN in
+# deploy/.env (chmod 600) or export them before `docker compose up`. Empty values are ignored.
+
+name: sparkline
+
+services:
+  console:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: sparkline:latest
+    # Host networking, so bind = "auto" in the config resolves to this host's private LAN IP, exactly as under
+    # systemd. Sparkline refuses 0.0.0.0 and public addresses. Port: `port` in the config (default 9700).
+    network_mode: host
+    restart: unless-stopped
+    command: ["--config", "/etc/sparkline/console.toml"]
+    environment:
+      SPARKLINE_TOKEN: ${SPARKLINE_TOKEN:-}
+      SPARKLINE_AGENT_TOKEN: ${SPARKLINE_AGENT_TOKEN:-}
+    volumes:
+      # Long syntax: fail if the config is missing instead of creating an empty directory in its place.
+      - type: bind
+        source: ${SPARKLINE_CONSOLE_TOML:-/etc/sparkline/console.toml}
+        target: /etc/sparkline/console.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: volume
+        source: sparkline-data
+        target: /var/lib/sparkline
+    # The console needs no privileges and writes only to its data volume.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  sparkline-data:

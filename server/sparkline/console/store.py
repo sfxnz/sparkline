@@ -69,6 +69,17 @@ class Store:
     def delete_session(self, sid: str) -> None:
         self.db.execute("DELETE FROM sessions WHERE id_hash=?", (_hash(sid),))
 
+    def bind_sessions_to_token(self, token: str) -> bool:
+        """Sessions belong to the token that issued them: when the configured token changes (a leaked token
+        was replaced), every existing session is deleted. Returns True when sessions were cleared."""
+        fp = hashlib.sha256(b"sparkline-session-token\0" + token.encode()).hexdigest()
+        old = self.kv_get("session_token_fp")
+        if old == fp:
+            return False
+        self.db.execute("DELETE FROM sessions")
+        self.kv_set("session_token_fp", fp)
+        return old is not None
+
     # -- kv -------------------------------------------------------------------------------------
     def kv_get(self, key: str) -> Any | None:
         row = self.db.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
@@ -104,7 +115,8 @@ class Store:
         node: str | None = None,
         severity: str | None = None,
     ) -> list[Event]:
-        where, args = [], []
+        where: list[str] = []
+        args: list[object] = []
         if since is not None:
             where.append("ts >= ?")
             args.append(since)

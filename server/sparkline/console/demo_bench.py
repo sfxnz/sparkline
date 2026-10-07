@@ -2,9 +2,10 @@
 
 The catalog, parameter validation, duration estimates and availability notes come from the agent's own
 registry (sparkline.agent.bench), so the demo offers exactly what a real node offers; results use the agent's
-metric names and units. Runs are time-compressed (the agent's estimate / 10; the thermal soak takes 60-90 s)
-and report plausible GB10 numbers with small run-to-run noise. While a run is going, the node's demo
-telemetry carries the load (DemoModel.bench_windows), so the telemetry overlay is alive. fio is "not
+metric names and units. Runs are time-compressed (the agent's estimate / 10; the thermal soak takes 60-90 s),
+which the catalog says, and report plausible GB10 numbers with small run-to-run noise. While a run is going,
+the node's demo telemetry carries the load (DemoModel.bench_windows for the GPU, disk_windows for the storage
+profiles), so the telemetry overlay is alive. fio is "not
 installed" on the demo nodes (built-in runner, noted), and spark3 has no ConnectX-7 peer, so 2-node
 benchmarks are unavailable there.
 """
@@ -18,8 +19,9 @@ import random
 import statistics
 import time
 from collections import deque
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any, Literal, cast
 
 from pydantic import ValidationError
 
@@ -49,7 +51,8 @@ from .bench import (
     threshold_text,
 )
 from .bench_store import BenchStore
-from .demo import DemoModel
+from .cluster import Cluster
+from .demo import DemoModel, DemoSource
 
 log = logging.getLogger("sparkline.console.demo_bench")
 SUITE_GIT = "demo"  # the real agent reports the suite's git hash
@@ -88,13 +91,30 @@ def _env(node: str, info: NodeInfo | None) -> probes.Env:
     return env
 
 
+COMPRESSED_NOTE = "Demo: runs are time-compressed to about a tenth of the estimated duration."
+# Disk load of each storage profile in the demo (read B/s, write B/s): the built-in runner's results below.
+DISK_LOAD = {
+    "seq_write": (0.0, 4.65e9),
+    "seq_read": (5.75e9, 0.0),
+    "rand_read": (65.5e6, 0.0),
+    "rand_write": (0.0, 76.6e6),
+}
+
+
 def demo_catalog(node: str, info: NodeInfo | None) -> list[BenchSpec]:
     env = _env(node, info)
     out = []
     for b in AGENT_REGISTRY.values():
         problem, note = probes.availability(b.id, env)
-        out.append(b.spec({node: problem}, note))
+        out.append(b.spec({node: problem}, f"{note} {COMPRESSED_NOTE}".strip()))
     return out
+
+
+def storage_windows(p: dict[str, Any], t0: float, duration: float) -> list[list[float]]:
+    """[start, end, read B/s, write B/s] per phase of a demo storage run (the test file is always written)."""
+    profiles = ["seq_write"] + [x for x in p.get("profiles", []) if x != "seq_write"]
+    step = duration / len(profiles)
+    return [[t0 + i * step, t0 + (i + 1) * step, *DISK_LOAD[x]] for i, x in enumerate(profiles)]
 
 
 def validate(bench_id: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -184,7 +204,14 @@ def phases(bench: str, p: dict[str, Any], peer_ip: str | None) -> list[tuple[str
     return [("Starting container", 0.4), ("Sustained load", 18.0)]  # thermal-soak
 
 
-def _r(metric: str, label: str, value: float, unit: str, better: str = "higher", **extras) -> BenchResult:
+def _r(
+    metric: str,
+    label: str,
+    value: float,
+    unit: str,
+    better: Literal["higher", "lower"] = "higher",
+    **extras: Any,
+) -> BenchResult:
     return BenchResult(
         metric=metric, label=label, value=round(value, 3), unit=unit, better=better, extras=extras
     )
@@ -298,12 +325,12 @@ def make_results(
     if bench == "rdma-bw-lat":
         out, rail = [], p["rail"]
         if "bw" in p["tests"]:
-            bw = {"4096": 141.0, "65536": 189.5, "1048576": 193.2}[p["msg_size"]] * n(0.006)
+            gbps = {"4096": 141.0, "65536": 189.5, "1048576": 193.2}[p["msg_size"]] * n(0.006)
             out.append(
                 _r(
                     "rdma_write_bw",
                     f"RDMA write bandwidth (rail {rail})",
-                    bw,
+                    gbps,
                     "Gb/s",
                     rail=rail,
                     msg_size=int(p["msg_size"]),
@@ -459,11 +486,12 @@ class _Sim:
     state: NodeBenchState
     duration: float
     window: list[float] | None = None
+    disk: list[list[float]] = field(default_factory=list)
     task: asyncio.Task | None = None
 
 
 class DemoBench:
-    def __init__(self, cluster):
+    def __init__(self, cluster: Cluster) -> None:
         self.cluster = cluster
         self.on_state: StateCallback | None = None
         self.current: dict[str, _Sim] = {}
@@ -541,7 +569,7 @@ class DemoBench:
 
     async def _run(self, sim: _Sim) -> None:
         req, st = sim.req, sim.state
-        model: DemoModel = self.cluster.sources[sim.node].model
+        model = cast(DemoSource, self.cluster.sources[sim.node]).model
         info = self.cluster.sources[sim.node].state.info
         p = req.params
         rng = random.Random(f"{req.run_id}{sim.node}")
@@ -551,6 +579,10 @@ class DemoBench:
             sim.window = [t0, t0 + sim.duration + 1, load]
             model.bench_windows.append(sim.window)
             del model.bench_windows[:-64]
+        if req.bench_id == "storage-fio":
+            sim.disk = storage_windows(p, t0, sim.duration)
+            model.disk_windows += sim.disk
+            del model.disk_windows[:-64]
         try:
             if req.role == "server":  # ib_write_bw server: listen until the client is done
                 await asyncio.sleep(0.6)
@@ -584,6 +616,8 @@ class DemoBench:
         finally:
             if sim.window:
                 sim.window[1] = min(sim.window[1], time.time())
+            for w in sim.disk:  # a cancelled run stops loading the disk
+                w[1] = min(w[1], time.time())
             extra = {"role": req.role, "params": p, **_extra(req.bench_id, info)}
             st.metadata = node_metadata(info, model, t0, time.time(), extra)
             if self.current.get(sim.node) is sim:
@@ -643,7 +677,11 @@ _SEED: list[tuple[str, list[str], dict, float, str, bool]] = [
 
 
 def seed_history(
-    store: BenchStore, models: dict[str, DemoModel], settings_pct: float, add_event, now: float | None = None
+    store: BenchStore,
+    models: dict[str, DemoModel],
+    settings_pct: float,
+    add_event: Callable[[Event], Event],
+    now: float | None = None,
 ) -> None:
     """Populate an empty demo DB with a believable history: baselines, a regression, a failure, a cancel.
     Runs keep their real (uncompressed) durations; they 'happened' on hardware."""
@@ -675,6 +713,8 @@ def seed_history(
             m = models[n]
             if bench in GPU_LOAD:
                 m.bench_windows.append([started, started + dur, GPU_LOAD[bench]])
+            if bench == "storage-fio":
+                m.disk_windows += storage_windows(params, started, dur)
             first = n == nodes[0]
             role = {
                 "nccl-allreduce": "rank0" if first else "rank1",
@@ -759,8 +799,13 @@ def _telemetry(run: BenchRun, node: str, m: DemoModel, t0: float, t1: float) -> 
 def _register_windows(store: BenchStore, models: dict[str, DemoModel]) -> None:
     """After a demo restart, put the stored runs' load back into the demo telemetry model."""
     for run in store.list(limit=60):
-        if run.bench_id not in GPU_LOAD or not run.started_ts or not run.finished_ts:
+        if not run.started_ts or not run.finished_ts:
             continue
         for n in run.nodes:
-            if n in models:
+            if n not in models:
+                continue
+            if run.bench_id in GPU_LOAD:
                 models[n].bench_windows.append([run.started_ts, run.finished_ts, GPU_LOAD[run.bench_id]])
+            elif run.bench_id == "storage-fio":
+                dur = run.finished_ts - run.started_ts
+                models[n].disk_windows += storage_windows(run.params, run.started_ts, dur)

@@ -180,7 +180,7 @@ for (const scheme of ['dark', 'light'] as const) {
     await check('confirmation dialog open');
     await page.keyboard.press('Escape');
 
-    // The demo takes spark3 offline on a schedule (stale ~30 s after start, unreachable until ~90 s, every 150 s).
+    // The demo takes spark3 offline on a schedule (stale ~150 s after start, unreachable until ~210 s, every 150 s).
     await page.goto('/node/spark3/gpu');
     await ready(page);
     const spark3 = page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^spark3/ });

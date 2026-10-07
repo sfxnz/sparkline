@@ -10,10 +10,10 @@ import { MAX_EVENTS, mergeEvents, useEvents } from './events';
 import { historyCache, seedLive } from './history';
 import { liveStore } from './live';
 
-async function checkAuth(): Promise<AuthResult> {
+export async function checkAuth(): Promise<AuthResult> {
   try {
-    await api.me();
-    return 'ok';
+    const me = await api.me();
+    return me.authenticated === false ? 'unauthorized' : 'ok';
   } catch (e) {
     if (e instanceof ApiError) return e.kind === 'unauthorized' ? 'unauthorized' : e.kind === 'unreachable' ? 'unreachable' : 'server';
     return 'unreachable';

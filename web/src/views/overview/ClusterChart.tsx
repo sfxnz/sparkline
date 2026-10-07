@@ -21,14 +21,14 @@ const pct = (n: number) => formatPercent(n);
 export function ClusterChart({ nodes }: { nodes: readonly string[] }) {
   const range = usePrefs((s) => s.timeRange);
   return (
-    <Panel title="GPU activity" subtitle={`Utilisation and GPU power per node · ${RANGE_TEXT[range]}`}>
+    <Panel title="GPU activity" subtitle={`Utilisation and GPU power per node, on shared scales · ${RANGE_TEXT[range]}`}>
       <div className="ov-chart">
         <span className="ov-chart__col t-eyebrow" aria-hidden="true">Utilisation</span>
         <span className="ov-chart__col t-eyebrow" aria-hidden="true">GPU power</span>
         {nodes.map((id) => (
           <div key={id} className="ov-chart__row">
             <TimeSeriesChart node={id} title={`${id} GPU utilisation`} series={[{ key: 'gpu0.util', label: id }]} format={pct} yMin={0} yMax={100} height={CHART_H} />
-            <TimeSeriesChart node={id} title={`${id} GPU power`} series={[{ key: 'gpu0.power_w', label: id }]} format={formatWatts} yMin={0} height={CHART_H} />
+            <TimeSeriesChart node={id} title={`${id} GPU power`} series={[{ key: 'gpu0.power_w', label: id }]} format={formatWatts} yMin={0} yGroup="overview-gpu-power" height={CHART_H} />
           </div>
         ))}
       </div>

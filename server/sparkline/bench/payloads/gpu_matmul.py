@@ -9,6 +9,7 @@ cannot run it, the result is reported with extras.unsupported=true and the reaso
 from __future__ import annotations
 
 import argparse
+import functools
 import time
 
 import torch
@@ -60,7 +61,7 @@ def operands(dtype: str, n: int, dev: str, fp8_scaling: str):
         size = _round_up(n, 128) * _round_up(n // block, 4)
         sa = torch.ones(size, device=dev).to(getattr(torch, sdt))
         sb = torch.ones(size, device=dev).to(getattr(torch, sdt))
-        fn = lambda a=a, b=b, sa=sa, sb=sb: torch._scaled_mm(a, b, sa, sb, out_dtype=torch.bfloat16)  # noqa: E731
+        fn = functools.partial(torch._scaled_mm, a, b, sa, sb, out_dtype=torch.bfloat16)
         try:
             fn()
             torch.cuda.synchronize()

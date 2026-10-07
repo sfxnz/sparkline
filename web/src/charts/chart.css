@@ -1,14 +1,17 @@
 .tschart { margin: 0; display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .tschart__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-1) var(--space-3);
   min-height: 26px;
-  flex-wrap: wrap;
 }
-.tschart__legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); list-style: none; margin: 0; padding: 0; }
-.tschart__legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+/* The legend wraps within its own box; the actions (time, stale badge, table) stay on the first line, so a long
+   legend costs one line, not two, and side-by-side charts keep their plots aligned. Only in a cell too narrow for
+   both (under 12rem of legend) do the actions drop below, instead of printing over the legend values. */
+.tschart__legend { flex: 1 1 12rem; min-width: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); list-style: none; margin: 0; padding: 0; }
+.tschart__legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); white-space: nowrap; }
 .tschart__legend-label { color: var(--text-2); }
 .tschart__legend-value { color: var(--text-1); font-weight: 600; min-width: 4.5ch; }
 .tschart__legend-time { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
@@ -20,7 +23,7 @@
 /* Threshold key: a dashed stroke in the line's status colour (with its label, so never colour alone). */
 .tschart__swatch--dashed { height: 0; background: none; border-top: 2px dashed var(--tone); width: 14px; }
 .tschart__threshold .tschart__legend-label { color: var(--tone-text); }
-.tschart__actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+.tschart__actions { flex: none; display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 .tschart__stale { font-size: var(--fs-footnote); color: var(--stale-text); }
 .tschart__plot-wrap { position: relative; }
 .tschart__plot { position: absolute; inset: 0; transition: opacity var(--dur-base) var(--ease-out), filter var(--dur-base) var(--ease-out); }
@@ -33,8 +36,26 @@
   display: grid;
   place-items: center;
   background: transparent;
+  overflow: hidden;
+  container-type: size;
 }
 .tschart__overlay > .skeleton { align-self: stretch; height: auto !important; }
+/* Empty and problem states fit inside the plot: long copy is clamped, and shorter plots drop the glyph, then the
+   detail labels and the fix, so nothing spills into the next card or under a neighbour's Retry button. */
+.tschart__overlay > .state { padding: var(--space-2) var(--space-3); max-height: 100%; }
+.tschart__overlay .state__details dd,
+.tschart__overlay .state__copy { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+@container (max-height: 239px) {
+  .tschart__overlay .state__glyph { display: none; }
+  .tschart__overlay .state__details dd { -webkit-line-clamp: 1; line-clamp: 1; }
+}
+@container (max-height: 199px) {
+  .tschart__overlay .state__details { margin-top: 0; padding: 6px var(--space-2); gap: 2px; }
+  .tschart__overlay .state__details dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+@container (max-height: 129px) {
+  .tschart__overlay .state__details > div + div { display: none; } /* the cause only; the fix needs more room */
+}
 
 /* uPlot overrides */
 .tschart .u-select { background: var(--accent-soft); border-left: 1px solid var(--accent); border-right: 1px solid var(--accent); }
@@ -59,4 +80,4 @@
 .heatmap__time { display: flex; justify-content: space-between; padding-left: 92px; font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text-3); margin-top: calc(-1 * var(--space-1)); }
 .heatmap__foot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); font-size: var(--fs-footnote); color: var(--text-2); min-height: var(--lh-footnote); }
 .heatmap__scale { display: inline-flex; align-items: center; gap: 6px; }
-.heatmap__ramp { width: 72px; height: 6px; border-radius: var(--radius-full); background: linear-gradient(90deg, color-mix(in srgb, var(--chart-1) 8%, transparent), var(--chart-1)); }
+.heatmap__ramp { width: 72px; height: 6px; border-radius: var(--radius-full); background: linear-gradient(90deg, var(--heat-0), var(--heat-1) 20%, var(--heat-2) 45%, var(--heat-3) 70%, var(--heat-4)); }

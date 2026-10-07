@@ -3,14 +3,20 @@
 
 State: $FAKE_DOCKER_STATE is a JSON file {"containers": [{"id", "run", "node"}], "calls": [[argv...]]}.
 Without it the fake knows no containers and records nothing, so tests never touch the real Docker daemon.
+Several fakes (and the test) update the state concurrently: each read-modify-write holds an flock on
+<state>.lock, and the file is replaced atomically so a plain reader never sees it half-written.
 """
 
+import fcntl
 import json
 import os
 import sys
 
 path = os.environ.get("FAKE_DOCKER_STATE")
 state = {"containers": [], "calls": []}
+if path:
+    lock = open(path + ".lock", "a")  # noqa: SIM115 - held until the process exits
+    fcntl.flock(lock, fcntl.LOCK_EX)
 if path and os.path.exists(path):
     with open(path) as f:
         state = json.load(f)
@@ -34,5 +40,7 @@ elif args[:2] == ["rm", "-f"]:
         if c.get("stuck") or target not in (c["id"], f"sparkline-bench-{c['run']}")
     ]
 if path:
-    with open(path, "w") as f:
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
         json.dump(state, f)
+    os.replace(tmp, path)

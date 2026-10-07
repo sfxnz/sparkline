@@ -95,6 +95,21 @@ def test_demo_telemetry_reflects_a_running_benchmark():
     assert m.sample_at(t + 200).gpu[0].util < 100  # back to the normal workload afterwards
 
 
+def test_demo_storage_run_loads_the_disk_and_says_runs_are_compressed():
+    m = DemoModel("spark1", T0)
+    t = T0 + 4000
+    p = validate("storage-fio", {})
+    windows = demo_bench.storage_windows(p, t, 4.0)
+    assert [w[:2] for w in windows] == [[t + i, t + i + 1] for i in range(4)]  # write file, then each profile
+    m.disk_windows += windows
+    during, after = m.sample_at(t + 0.5).disk[0], m.sample_at(t + 30).disk[0]
+    assert during.write_bps > 4e9 and during.busy_pct == 100  # next to a ~4.6 GB/s sequential-write result
+    assert m.sample_at(t + 1.5).disk[0].read_bps > 5e9  # then sequential read
+    assert after.write_bps < 1e8
+    desc = {s.id: s.description for s in demo_catalog("spark1", m.info)}
+    assert all(demo_bench.COMPRESSED_NOTE in d for d in desc.values())
+
+
 @pytest.fixture
 def demo(tmp_path, monkeypatch):
     monkeypatch.setattr(demo_bench, "demo_duration", lambda bench, p: 1.5)

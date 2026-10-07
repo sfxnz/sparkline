@@ -1,15 +1,15 @@
 // uPlot time series bound to the LiveStore (live) or the history loader (5m/1h/24h/7d).
-// Live mode scrolls continuously: each animation frame moves the x scale to [now - window, now], but only redraws
-// when the scroll has moved at least half a pixel or new data arrived, and stops entirely while offscreen or
-// while the tab is hidden. Data is copied from the ring buffers once per sample, never through React state.
-import { ChartLine, Table2, Undo2 } from 'lucide-react';
+// Live mode scrolls continuously: the x scale moves to [now - window, now] in the animation frame after the scroll
+// has moved half a pixel or new data arrived (sleeping in between), and stops entirely while offscreen or while
+// the tab is hidden. Data is copied from the ring buffers once per sample, never through React state.
+import { Table2, Undo2 } from 'lucide-react';
 import { Tooltip } from '../design/components/Tooltip';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { Button, IconButton } from '../design/components/Button';
-import { EmptyState } from '../design/components/EmptyState';
-import { ProblemState } from '../design/components/ProblemState';
+import { HistoryUnavailable } from './HistoryUnavailable';
+import { NoDataInRange } from './NoDataInRange';
 import { Skeleton } from '../design/components/Skeleton';
 import { Unsupported } from '../design/components/Unsupported';
 import { useNow } from '../design/useNow';
@@ -54,6 +54,9 @@ interface Props {
   /** Y-axis steps, e.g. BYTE_INCRS (from ./theme) for byte values. */
   yIncrs?: readonly number[];
   thresholds?: readonly Threshold[];
+  /** Charts with the same group share one y ceiling (the highest visible value among them), so small multiples
+   *  compare by eye: equal heights mean equal values. */
+  yGroup?: string;
   /** Force the unsupported state with this reason (otherwise derived from NodeInfo.unsupported). */
   unsupported?: string;
   /** 'hover': in Live mode the legend shows values only under the cursor, for panels whose stats already show the
@@ -83,6 +86,21 @@ function legendTime(ts: number): string {
   return d.toDateString() === new Date().toDateString() ? fmtLegendTime(d) : fmtLegendDay(d);
 }
 
+/** Per y group: each chart's highest visible value (keyed by a token per plot). */
+const yGroups = new Map<string, Map<object, number>>();
+
+/** Record `self`'s visible maximum in `group` and return the group's maximum (just `dmax` without a group). */
+export function sharedYMax(group: string | undefined, self: object, dmax: number): number {
+  if (!group) return dmax;
+  let g = yGroups.get(group);
+  if (!g) yGroups.set(group, (g = new Map<object, number>()));
+  if (Number.isFinite(dmax)) g.set(self, dmax);
+  else g.delete(self);
+  let top = dmax;
+  for (const v of g.values()) top = Number.isFinite(top) ? Math.max(top, v) : v;
+  return top;
+}
+
 /** Reason a metric key is not reported by this node, if listed in NodeInfo.unsupported (exact key or prefix). */
 export function unsupportedReason(info: NodeInfo | null | undefined, key: string): string | null {
   const u = info?.unsupported.find((x) => key === x.metric || key.startsWith(`${x.metric}.`));
@@ -101,6 +119,7 @@ export function TimeSeriesChart({
   yMax,
   yIncrs,
   thresholds,
+  yGroup,
   unsupported: unsupportedProp,
   legendValues = 'always',
   store = liveStore,
@@ -117,6 +136,12 @@ export function TimeSeriesChart({
   const legendRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const legendTimeRef = useRef<HTMLSpanElement>(null);
   const liveRef = useRef(live);
+  const nodeStale = nodeStatus === 'stale' || nodeStatus === 'offline' || nodeStatus === 'error';
+  /** The node stopped reporting (or the browser lost the console): its latest point is not "now". */
+  const notNow = nodeStale || connStatus !== 'live';
+  const staleRef = useRef(notNow);
+  /** The "Last updated N s ago" badge is showing: it already dates the idle legend, so the time is left out. */
+  const badgeRef = useRef(nodeStale && live);
   const hoverOnlyRef = useRef(legendValues === 'hover');
   const uRef = useRef<uPlot | null>(null);
   const dataRef = useRef<uPlot.AlignedData>([[]]);
@@ -125,7 +150,7 @@ export function TimeSeriesChart({
   const [paused, setPaused] = useState(false);
   // Load state is tagged with the data identity it belongs to; anything else reads as 'loading'.
   const [loadTagged, setLoadTagged] = useState<{ id: string; state: LoadState }>({ id: '', state: 'loading' });
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [summary, setSummary] = useState(title);
   const [showTable, setShowTable] = useState(false);
   const [tableData, setTableData] = useState<{ ts: number[]; values: (number | null)[][] } | null>(null);
@@ -134,11 +159,14 @@ export function TimeSeriesChart({
   const resetRef = useRef<() => void>(() => undefined);
 
   const [reloadKey, setReloadKey] = useState(0);
-  const keys = useMemo(() => series.map((s) => s.key), [series]);
-  const keysId = keys.join('|');
+  // Keyed by content, not identity: callers pass a fresh `series` literal on every render, and a new array here
+  // would destroy and rebuild the plot on every sample.
+  const keysId = JSON.stringify(series.map((s) => s.key));
+  const keys = useMemo(() => JSON.parse(keysId) as string[], [keysId]);
   const dataId = `${node}|${keysId}|${range}|${reloadKey}`;
   const load = loadTagged.id === dataId ? loadTagged.state : 'loading';
-  const labels = useMemo(() => series.map((s) => s.label), [series]);
+  const labelsId = JSON.stringify(series.map((s) => s.label));
+  const labels = useMemo(() => JSON.parse(labelsId) as string[], [labelsId]);
   const thresholdsId = JSON.stringify(thresholds ?? []);
   const unsupported =
     unsupportedProp ?? (keys.length && keys.every((k) => unsupportedReason(info, k)) ? unsupportedReason(info, keys[0] ?? '') : null);
@@ -162,12 +190,19 @@ export function TimeSeriesChart({
       const v = i === null ? null : d[k + 1]?.[i];
       el.textContent = blank ? '' : v == null || Number.isNaN(v) ? '—' : formatRef.current(v);
     });
-    // Live and idle, the legend is "now" (as the stats above it). Otherwise say which moment it shows, so the last
-    // bucket of a 24 h chart is never mistaken for the live value.
+    // Always say which moment the values are: "now" when live and idle, else the time under the cursor (or of the
+    // last bucket), so a latest sample is never read as an average shown nearby and the last bucket of a 24 h chart is
+    // never mistaken for the live value.
     const t = legendTimeRef.current;
     const ts = i === null ? undefined : xs[i];
-    if (t) t.textContent = (liveRef.current && idx == null) || ts === undefined ? '' : `at ${legendTime(ts)}`;
+    if (t) t.textContent = blank || ts === undefined || (idx == null && badgeRef.current) ? '' : liveRef.current && idx == null && !staleRef.current ? 'now' : `at ${legendTime(ts)}`;
   }, []);
+
+  useEffect(() => {
+    staleRef.current = notNow;
+    badgeRef.current = nodeStale && live;
+    paintLegend(null);
+  }, [notNow, nodeStale, live, paintLegend]);
 
   const updateSummary = useCallback(() => {
     const d = dataRef.current;
@@ -210,7 +245,9 @@ export function TimeSeriesChart({
     const thresholdList: Threshold[] = JSON.parse(thresholdsId) as Threshold[];
     let programmatic = false;
 
-    const yRange: uPlot.Range.Function = (_u, dmin, dmax) => {
+    const yToken = {};
+    const yRange: uPlot.Range.Function = (_u, dmin, dataMax) => {
+      const dmax = sharedYMax(yGroup, yToken, dataMax);
       const lo = Math.min(dmin, yMin ?? dmin);
       const hi = Math.max(dmax, yMax ?? dmax);
       if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [yMin ?? 0, yMax ?? 1];
@@ -344,10 +381,13 @@ export function TimeSeriesChart({
       const span = live ? liveWindowS : RANGE_SECONDS[range];
       setX(now - span, now);
     }
+    /** Restarts the live scroll loop (set below in Live mode). */
+    let resume: () => void = () => undefined;
     resetRef.current = () => {
       pausedRef.current = false;
       setPaused(false);
       resetView();
+      resume();
     };
 
     const ro = new ResizeObserver(() => {
@@ -361,6 +401,7 @@ export function TimeSeriesChart({
       let dirty = true;
       let lastNow = 0;
       let raf = 0;
+      let timer = 0;
       let visible = true;
       let lastSummary = 0;
       let state: LoadState = 'loading';
@@ -375,13 +416,24 @@ export function TimeSeriesChart({
         setLoad(state);
         return state;
       };
+      // The loop sleeps between redraws instead of polling every frame: a pending animation frame makes the
+      // browser run a full main-thread frame (style for every running CSS animation included) at 60 Hz, while the
+      // scroll only needs a redraw each time it has moved half a pixel. Wake-ups sit on a shared grid
+      // (multiples of the interval), so the charts of one screen redraw in the same frame. New data wakes it at once.
+      const sleep = (pxPerSec: number) => {
+        const step = Math.max(16, 500 / Math.max(pxPerSec, 1e-3));
+        const t = performance.now();
+        timer = window.setTimeout(() => {
+          timer = 0;
+          start();
+        }, Math.ceil((t + 1) / step) * step - t);
+      };
       const frame = () => {
         raf = 0;
-        if (!visible || document.hidden) return;
-        raf = requestAnimationFrame(frame);
-        if (pausedRef.current) return;
+        if (!visible || document.hidden || pausedRef.current) return;
         const now = serverNow();
         const pxPerSec = u.bbox.width / uPlot.pxRatio / liveWindowS;
+        sleep(pxPerSec);
         if (!dirty && (now - lastNow) * pxPerSec < 0.5) return;
         if (dirty) {
           pull();
@@ -399,8 +451,14 @@ export function TimeSeriesChart({
         setX(now - liveWindowS, now);
       };
       const start = () => {
-        if (!raf && visible && !document.hidden) raf = requestAnimationFrame(frame);
+        if (!raf && !timer && visible && !document.hidden) raf = requestAnimationFrame(frame);
       };
+      const wake = () => {
+        if (timer) clearTimeout(timer);
+        timer = 0;
+        start();
+      };
+      resume = wake;
       const io = new IntersectionObserver((entries) => {
         visible = entries.some((e) => e.isIntersecting);
         start();
@@ -413,7 +471,7 @@ export function TimeSeriesChart({
         // Offscreen charts do not draw, but their overlay and summary must not keep saying "no data" once data
         // has arrived: a cheap pull settles the state, and the plot draws on intersect.
         if (!visible && state !== 'ready' && pull() === 'ready') updateSummary();
-        start();
+        wake();
       });
       pull();
       u.setData(dataRef.current, false);
@@ -423,6 +481,7 @@ export function TimeSeriesChart({
       start();
       cleanups.push(() => {
         if (raf) cancelAnimationFrame(raf);
+        if (timer) clearTimeout(timer);
         io.disconnect();
         document.removeEventListener('visibilitychange', onVis);
         unsub();
@@ -445,7 +504,7 @@ export function TimeSeriesChart({
           })
           .catch((e: unknown) => {
             if (cancelled) return;
-            setError(e instanceof Error ? e.message : String(e));
+            setError(e);
             setLoad('error');
           });
       };
@@ -465,10 +524,11 @@ export function TimeSeriesChart({
       ro.disconnect();
       u.destroy();
       uRef.current = null;
+      if (yGroup) yGroups.get(yGroup)?.delete(yToken);
     };
     // `keysId`/`thresholdsId` stand in for the arrays; formatting goes through refs so it never recreates the plot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [node, keysId, labels, range, live, liveWindowS, height, yMin, yMax, yIncrs, thresholdsId, themeVersion, unsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
+  }, [node, keysId, labels, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, themeVersion, unsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
 
   if (unsupported) {
     return (
@@ -480,7 +540,6 @@ export function TimeSeriesChart({
     );
   }
 
-  const nodeStale = nodeStatus === 'stale' || nodeStatus === 'offline' || nodeStatus === 'error';
   const waiting = load === 'loading' || (live && load === 'empty' && (connStatus !== 'live' || nodeStatus === 'connecting' || !nodeStatus));
   const overlay = waiting ? 'loading' : load === 'empty' ? 'empty' : load === 'error' ? 'error' : null;
 
@@ -501,9 +560,11 @@ export function TimeSeriesChart({
               <span className="tschart__legend-label">{t.label}</span>
             </li>
           ))}
-          <li className="tschart__legend-time num" aria-hidden="true"><span ref={legendTimeRef} /></li>
         </ul>
         <div className="tschart__actions">
+          {/* Which moment the legend values are ("now", or the time under the cursor): at the row's end, so it never
+              wraps the legend onto a second line. */}
+          <span className="tschart__legend-time num" aria-hidden="true"><span ref={legendTimeRef} /></span>
           {nodeStale && live ? <StaleBadge node={node} store={store} /> : null}
           {paused ? (
             <Button size="sm" variant="secondary" icon={<Undo2 />} onClick={() => { resetRef.current(); }} className="tschart__chip">
@@ -534,19 +595,11 @@ export function TimeSeriesChart({
           </div>
         ) : overlay === 'empty' ? (
           <div className="tschart__overlay">
-            <EmptyState icon={ChartLine} title="No data in this range" compact>
-              Samples will appear here as soon as {node} reports them.
-            </EmptyState>
+            <NoDataInRange node={node} offerLive={rangeProp === undefined} />
           </div>
         ) : overlay === 'error' ? (
           <div className="tschart__overlay">
-            <ProblemState
-              compact
-              message="History unavailable"
-              cause={error ?? undefined}
-              fix="The console could not return history for this range. Retry, or switch to Live."
-              onRetry={() => { historyCache.clear(); setReloadKey((k) => k + 1); }}
-            />
+            <HistoryUnavailable node={node} error={error} offerLive={rangeProp === undefined} onRetry={() => { historyCache.clear(); setReloadKey((k) => k + 1); }} />
           </div>
         ) : null}
       </div>

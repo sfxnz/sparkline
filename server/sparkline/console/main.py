@@ -11,8 +11,9 @@ from pathlib import Path
 
 import uvicorn
 
+from ..common import logsafe
 from .app import create_app, validate_settings
-from .config import default_data_dir, load_config
+from .config import ConsoleConfig, default_data_dir, load_config
 
 
 def lock_data_dir(data_dir: Path) -> int:
@@ -32,11 +33,32 @@ def lock_data_dir(data_dir: Path) -> int:
     return fd
 
 
+def proxy_options(cfg: ConsoleConfig) -> dict:
+    """Forwarded headers are honoured only from the configured reverse proxies (never by default)."""
+    if not cfg.trusted_proxies:
+        return {"proxy_headers": False}
+    return {"proxy_headers": True, "forwarded_allow_ips": ",".join(cfg.trusted_proxies)}
+
+
+def container_hint(port: int, env: os._Environ[str] | dict[str, str]) -> str | None:
+    """In the Docker image, uvicorn prints the container's own address (e.g. 172.17.0.2), which the host
+    cannot open: say which address to use instead."""
+    if not env.get("SPARKLINE_CONTAINER"):
+        return None
+    return (
+        "Running in a container: the address below is the container's own. Open the host port you "
+        f"published, e.g. http://127.0.0.1:9701 for `docker run -p 127.0.0.1:9701:{port} ...`"
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="sparkline", description="Sparkline aggregator and web API")
-    p.add_argument("--config", type=Path, help="TOML config (default /etc/sparkline/console.toml)")
+    p.add_argument(
+        "--config", type=Path, help="TOML config (default $SPARKLINE_CONFIG or /etc/sparkline/console.toml)"
+    )
     p.add_argument("--bind", help='address to bind ("auto" = LAN IP of the default route)')
     p.add_argument("--port", type=int)
+    p.add_argument("--data-dir", type=Path, help="events, settings and benchmark results (console.sqlite)")
     p.add_argument("--demo", action="store_true", help="simulate three nodes, including failures")
     p.add_argument("--demo-speed", type=float, default=1.0, help="compress the demo failure schedule")
     p.add_argument(
@@ -53,24 +75,32 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(
         level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    logsafe.install()  # no token or session cookie in the log, even at debug
 
     def fail(msg: str) -> None:
         print(f"sparkline: {msg}", file=sys.stderr)
         sys.exit(2)
 
     try:
-        cfg = load_config(args.config)
+        cfg = load_config(args.config, os.environ)
     except (OSError, ValueError) as e:  # missing file, TOML or validation error
         fail(f"cannot load config: {e}")
     if args.bind:
         cfg.bind = args.bind
     if args.port:
         cfg.port = args.port
+    if args.data_dir:
+        cfg.data_dir = args.data_dir
     if args.web_dist:
         cfg.web_dist = args.web_dist
     if not args.demo:
         if not cfg.token or not cfg.agent_token:
-            fail("token and agent_token must be set in the config (or run with --demo)")
+            fail(
+                "token and agent_token must be set in the config or in SPARKLINE_TOKEN and "
+                "SPARKLINE_AGENT_TOKEN (or run with --demo)"
+            )
+        if len(cfg.token) < 16 or len(cfg.agent_token) < 16:
+            fail("token and agent_token must be at least 16 characters (install.sh generates them)")
         if not cfg.nodes:
             fail("no [[nodes]] configured (or run with --demo)")
     if args.demo_speed <= 0:
@@ -97,7 +127,10 @@ def main(argv: list[str] | None = None) -> None:
         cfg, data_dir, demo=args.demo, demo_speed=args.demo_speed, demo_empty_bench=args.demo_empty_bench
     )
     app.state.data_dir_lock = lock
-    uvicorn.run(app, host=host, port=cfg.port, log_level=args.log_level, proxy_headers=False)
+    hint = container_hint(cfg.port, os.environ)
+    if hint:
+        logging.getLogger("sparkline").info("%s", hint)
+    uvicorn.run(app, host=host, port=cfg.port, log_level=args.log_level, **proxy_options(cfg))
 
 
 if __name__ == "__main__":

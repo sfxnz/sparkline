@@ -126,7 +126,7 @@ export function RulesEditor() {
     ) : undefined;
 
   return (
-    <Panel title="Rules" subtitle="Thresholds that raise alerts. Changes apply to every node as soon as they are saved." flush={load.status === 'ready'} busy={load.status === 'loading'}>
+    <Panel className="alerts-rules" title="Rules" subtitle="Thresholds that raise alerts. Changes apply to every node as soon as they are saved." flush={load.status === 'ready'} busy={load.status === 'loading'}>
       {load.status === 'loading' ? (
         <RulesSkeleton />
       ) : load.status === 'error' ? (

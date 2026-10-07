@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import logging
+import os
 import sys
 
 import uvicorn
 
+from ..common import logsafe
 from ..common.netutil import resolve_bind
 from .app import create_app
 from .bench.runner import BenchRunner
@@ -22,7 +24,9 @@ log = logging.getLogger("sparkline-agent")
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="sparkline-agent", description="Sparkline node agent")
-    p.add_argument("--config", help="TOML config (default /etc/sparkline/agent.toml if present)")
+    p.add_argument(
+        "--config", help="TOML config (default $SPARKLINE_CONFIG, else /etc/sparkline/agent.toml if present)"
+    )
     p.add_argument("--bind", help='IP to listen on, or "auto" (default-route interface IP)')
     p.add_argument("--port", type=int)
     p.add_argument("--interval-ms", type=int, help="sample interval, 250..5000")
@@ -39,6 +43,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     a = parse_args(argv)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logsafe.install()  # no bearer token in the log, even at debug
     try:
         cfg = load_config(
             a.config,
@@ -51,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
                 "node_id": a.node_id,
                 "allow_public": a.allow_public,
             },
+            env=os.environ,
         )
         host = resolve_bind(cfg.bind, cfg.allow_public)
     except (OSError, ValueError) as e:
@@ -59,7 +65,8 @@ def main(argv: list[str] | None = None) -> int:
     if not cfg.token:
         if not ipaddress.ip_address(host).is_loopback:
             log.error(
-                "Refusing to start on %s without a token. Set `token` in the config or pass --token.", host
+                "Refusing to start on %s without a token. Set `token` in the config or SPARKLINE_AGENT_TOKEN",
+                host,
             )
             return 2
         log.warning("No token configured: API is unauthenticated (allowed only because bind is loopback)")

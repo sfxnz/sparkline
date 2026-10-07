@@ -1,10 +1,11 @@
 // Per-core CPU utilisation over time. Rows are grouped performance first, then efficiency, with a separator.
-// Colour is a single-hue accent ramp (status colours are reserved for status). Redraws once per sample.
+// Colour is the sequential --heat ramp: one hue, lightness ordered by value, legible on the panel in both themes
+// (status colours are reserved for status). Redraws once per sample.
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { CoreInfo } from '../lib/types';
 import { serverNow } from '../store/cluster';
 import { liveStore, type LiveStore } from '../store/live';
-import { fontScale, readChartTheme, setupCanvas, useThemeVersion, withAlpha } from './theme';
+import { fontScale, heatLut, readChartTheme, setupCanvas, useThemeVersion, withAlpha } from './theme';
 import './chart.css';
 
 interface Props {
@@ -86,12 +87,12 @@ export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight =
     const ctx = setupCanvas(canvas, w, height);
     if (!ctx) return;
     const theme = readChartTheme();
-    const accent = theme.series[0] ?? '#7286ff';
     const win = store.window(node, keys, serverNow() - windowS);
     const n = win.ts.length;
     const plotW = w - labelW;
     const colW = plotW / Math.max(1, windowS);
     const step = (store.latest(node)?.interval_ms ?? 1000) / 1000;
+    const heat = heatLut(theme.heat);
 
     ctx.font = `500 ${Math.round((theme.fontPx * 10) / 11)}px ${theme.fontFamily}`;
     ctx.textBaseline = 'middle';
@@ -114,8 +115,7 @@ export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight =
         const x0 = edges[2 * j] ?? 0;
         const x1 = edges[2 * j + 1] ?? 0;
         if (v == null || x1 <= x0) continue;
-        const a = 0.06 + 0.94 * Math.pow(Math.min(100, Math.max(0, v)) / 100, 0.8);
-        ctx.fillStyle = withAlpha(accent, a);
+        ctx.fillStyle = heat[Math.min(100, Math.max(0, Math.round(v)))] ?? '';
         ctx.fillRect(x0, y + 1, x1 - x0, rowHeight - 2);
       }
       if (focusRow === i) {

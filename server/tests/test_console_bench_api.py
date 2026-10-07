@@ -1,7 +1,7 @@
 """Benchmark orchestration end-to-end: fake agents (uvicorn threads) <-> real console over real sockets.
 
-Ports (29920-29929): 29920 fake agent n1, 29921 fake agent n2, 29922 console, 29923 fake agent n3 (killed
-mid-run), 29924 restartable console, 29925 fake agent n4 (restart tests).
+Ports (free ones, picked per run): fake agent n1, fake agent n2, console, fake agent n3 (killed mid-run),
+restartable console, fake agent n4 (restart tests).
 """
 
 from __future__ import annotations
@@ -20,13 +20,14 @@ from websockets.sync.client import connect as ws_connect
 
 sys.path.insert(0, str(Path(__file__).parent / "fixtures" / "console"))
 from fakeagent import INFO, ServerThread, bench_defaults, make_fake_agent  # noqa: E402
+from netports import free_ports  # noqa: E402
 
 from sparkline.common.schema import BenchRun, BenchSpec  # noqa: E402
 from sparkline.console import bench as bench_mod  # noqa: E402
 from sparkline.console.app import create_app  # noqa: E402
 from sparkline.console.config import ConsoleConfig  # noqa: E402
 
-N1, N2, CONSOLE, N3, CONSOLE2, N4 = 29920, 29921, 29922, 29923, 29924, 29925
+N1, N2, CONSOLE, N3, CONSOLE2, N4 = free_ports(6)
 BROWSER = {"Authorization": "Bearer browser-tok"}
 
 

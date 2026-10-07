@@ -1,0 +1,84 @@
+# Sparkline node agent: one per DGX Spark. Installed by deploy/install.sh, which rewrites /opt/sparkline
+# when --prefix is used. Check the sandbox with `systemd-analyze security sparkline-agent`.
+#
+# The agent reads NVML (/dev/nvidia*), sysfs, /proc and the ConnectX-7 counters, and serves its API on a
+# private LAN address. It needs no capabilities and writes only to its state directory.
+
+[Unit]
+Description=Sparkline node agent (telemetry and whitelisted benchmarks)
+Wants=network-online.target
+# network-online: bind = "auto" needs the LAN address to exist. docker: container names and benchmarks.
+After=network-online.target docker.service nvidia-persistenced.service
+
+[Service]
+Type=exec
+User=sparkline
+Group=sparkline
+ExecStart=/opt/sparkline/venv/bin/sparkline-agent --config /etc/sparkline/agent.toml
+Restart=on-failure
+RestartSec=5s
+# Exit status 2 means a configuration problem (bad TOML, unsafe bind, missing token). A restart won't fix it.
+RestartPreventExitStatus=2
+# /opt is read-only at runtime, so don't try to write .pyc files. The docker CLI (benchmarks only) keeps
+# its client config in the state directory, because the sparkline user has no home.
+Environment=PYTHONDONTWRITEBYTECODE=1 DOCKER_CONFIG=/var/lib/sparkline-agent/.docker
+
+# --- Files ------------------------------------------------------------------------------------------
+# History (SQLite) and benchmark scratch files live in /var/lib/sparkline-agent, created 0750 by systemd.
+StateDirectory=sparkline-agent
+StateDirectoryMode=0750
+UMask=0027
+# The whole filesystem is read-only except the data directory. If you set bench_work_dir to another
+# path, add it here with a drop-in (systemctl edit sparkline-agent).
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sparkline-agent
+# The agent never writes to home directories. read-only (not yes) keeps paths under /home visible, in
+# case bench_work_dir or a payload refers to one.
+ProtectHome=read-only
+PrivateTmp=yes
+# PrivateDevices stays off (the default), and nothing sets DeviceAllow=. NVML has to open /dev/nvidia*,
+# perftest has to open /dev/infiniband/uverbs*, and both are fixed by the driver. ProtectClock= is left
+# out for the same reason: it adds a DeviceAllow= rule, which would block every other device node.
+
+# --- Privileges -------------------------------------------------------------------------------------
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# --- Kernel -----------------------------------------------------------------------------------------
+# /proc/sys and /sys stay readable (counters, hwmon, cpufreq) but become read-only.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+# ProtectProc= is left at its default: the process table has to see every process, including the
+# containers that serve models.
+
+# --- Network ----------------------------------------------------------------------------------------
+# AF_INET/AF_INET6: the API and perftest's TCP handshake. AF_UNIX: the Docker socket (container names,
+# benchmarks). AF_NETLINK: interface addresses (getifaddrs) and RDMA device queries. No raw sockets.
+# The ethtool counters use an ordinary AF_INET ioctl, which works unprivileged.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+# The Docker socket (/run/docker.sock) needs no ReadWritePaths entry: connecting to a Unix socket is
+# allowed on a read-only mount. Access is still controlled by the socket's group (docker), which the
+# agent gets only through the benchmarks drop-in (install.sh --enable-benchmarks).
+
+# --- Resources --------------------------------------------------------------------------------------
+# The agent itself uses well under 1% of one core and roughly 100 MB. These caps are a safety net
+# against a runaway collector, not a budget. Benchmarks the agent launches run in this cgroup, so the
+# benchmarks drop-in lifts these caps; otherwise they would throttle the results.
+CPUQuota=50%
+MemoryHigh=384M
+MemoryMax=512M
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

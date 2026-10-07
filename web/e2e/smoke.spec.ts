@@ -63,7 +63,7 @@ test('command palette opens with Ctrl+K, filters, and closes with Escape', async
 });
 
 test('wrong token shows a helpful error', async ({ page }) => {
-  await page.route('**/api/v1/auth/me', (route) => route.fulfill({ status: 401, body: '' }));
+  await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { authenticated: false, auth_required: true, demo: false } }));
   await page.route('**/api/v1/auth/login', (route) => route.fulfill({ status: 401, body: '' }));
   await page.goto('/');
   await expect(page).toHaveURL(/\/login$/);
