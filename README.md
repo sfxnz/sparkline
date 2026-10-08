@@ -151,6 +151,20 @@ The container runs as uid/gid 10001 with a read-only root filesystem, no capabil
 it does under systemd. Data lives in the `sparkline-data` volume. Tokens can come from `SPARKLINE_TOKEN` and
 `SPARKLINE_AGENT_TOKEN` (exported, or in `deploy/.env` with mode 600) instead of the file.
 
+### Open it over Tailscale
+
+The console binds only to the LAN address. To reach it from other devices on your tailnet, let tailscaled
+proxy a tailnet port to it. This needs no change to Sparkline and no root if your user is a Tailscale operator:
+
+```sh
+tailscale serve --bg --http=9700 http://10.20.20.48:9700    # persists across reboots
+```
+
+Then open `http://spark1.<your-tailnet>.ts.net:9700` (or `http://spark1:9700` with MagicDNS). Use the name,
+not the 100.x address: `tailscale serve` routes by hostname. Tailscale forwards the Host header, so the
+console's Origin check passes. Tailnet traffic is already encrypted by WireGuard. Remove the proxy with
+`tailscale serve --http=9700 off`.
+
 ### Uninstall
 
 ```sh
