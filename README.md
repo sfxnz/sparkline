@@ -1,5 +1,8 @@
 # Sparkline
 
+[![CI](https://github.com/sfxnz/sparkline/actions/workflows/ci.yml/badge.svg)](https://github.com/sfxnz/sparkline/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Sparkline is a self-hosted dashboard for a small NVIDIA DGX Spark cluster. A lightweight agent on each
 Spark samples the GPU, unified memory, CPU cores, ConnectX-7 links, NVMe and thermals once a second. A
 console merges the nodes, keeps an alert timeline, runs whitelisted benchmarks and serves a web app that
@@ -9,6 +12,110 @@ never shown as zero.
 
 ![Cluster overview, dark theme](docs/screenshots/overview-dark.png)
 
+## Try it in one minute, no Spark needed
+
+The demo runs three simulated nodes on any x86_64 or arm64 machine with Docker:
+
+```sh
+docker run --rm -p 127.0.0.1:9701:9700 ghcr.io/sfxnz/sparkline --demo
+```
+
+Open http://127.0.0.1:9701. There is no sign-in. The first minute is calm. Over the next two minutes,
+spark1 has a thermal episode, spark2's stream stalls, and spark3 goes offline and comes back. Stop it with
+Ctrl+C. The log's `Uvicorn running on http://172.17.0.x:9700` is the
+container's own address, so use the port you published.
+
+To build the image yourself instead:
+
+```sh
+git clone https://github.com/sfxnz/sparkline.git && cd sparkline
+docker build -f deploy/Dockerfile -t sparkline .
+docker run --rm -p 127.0.0.1:9701:9700 sparkline --demo
+```
+
+Without Docker, follow the "Demo" section of [DEV.md](DEV.md). It runs the same demo from a Python venv and
+a web build.
+
+## How it fits together
+
+- **Agent** (`sparkline-agent`, port 9750). One per DGX Spark, running on the host under systemd. It samples
+  the hardware, keeps 30 days of history in SQLite and runs benchmarks, but only if you enable them.
+- **Console** (`sparkline`, port 9700). One per cluster, running on one of the Sparks or on any Linux box on
+  the same LAN. It merges the agents, keeps alerts and benchmark results, and serves the web app. Browsers
+  talk only to the console.
+
+The console reaches each agent with a shared agent token. You sign in to the console with a separate
+console token. The [Architecture](#architecture) section has the diagram.
+
+## Requirements
+
+| For | You need |
+|---|---|
+| Each node | A DGX Spark (GB10) on DGX OS or Ubuntu 24.04, with systemd and sudo. Python 3.12 or newer with `python3-venv` (or `uv` on root's PATH, since the installer runs under sudo). Internet access to PyPI at install time: dependencies are installed hash-pinned from `server/requirements.lock` |
+| The console | The same as a node (any Linux box with systemd works), plus Node.js 22.12 or newer to build the web app once. Or only Docker with Compose: the image builds everything itself |
+| Two nodes, one command | SSH key login from the first node to the second, `rsync`, and Docker on both nodes unless you pass `--no-benchmarks` |
+| Benchmarks (optional) | Docker, the NVIDIA Container Toolkit and `docker pull nvcr.io/nvidia/pytorch:26.07-py3` on each node for the GPU benchmarks. `sudo apt install perftest fio` for the RDMA benchmark and fio storage numbers |
+
+Other Linux machines, with or without an NVIDIA GPU, run the agent too, but Sparkline is built and tested for GB10. See
+[Limitations](#limitations).
+
+## Ports
+
+| Port | From → to | Used for |
+|---|---|---|
+| 9700/tcp | browser → console | The web app and its API |
+| 9750/tcp | console → each agent | Telemetry and benchmark control |
+| 29620/tcp | node ↔ node | The NCCL all-reduce benchmark only |
+| 18515/tcp | node ↔ node | The RDMA benchmark only |
+
+Both services listen only on a private LAN address and refuse 0.0.0.0 and public IPs. There is no built-in
+TLS: to reach the console from elsewhere, use Tailscale or a reverse proxy (see [Security model](#security-model)).
+The installers don't change your firewall. If you firewall traffic between the nodes, note that the NCCL
+benchmark also opens ephemeral TCP ports between the ConnectX-7 rail addresses, so allow all TCP between them.
+
+## Install on your Sparks
+
+Clone the repo and build the web app once, on the node that will run the console:
+
+```sh
+git clone https://github.com/sfxnz/sparkline.git && cd sparkline
+(cd web && npm ci && npm run build)
+```
+
+**Two Sparks, one command.** Run this on the first node, as your normal user. It calls sudo itself, and
+asks for your password on each node.
+
+```sh
+./deploy/install-cluster.sh --peer <ssh-host-of-the-second-node> --dry-run   # preview (copies the installer to the peer)
+./deploy/install-cluster.sh --peer <ssh-host-of-the-second-node>
+```
+
+It installs `sparkline-agent` on both nodes with one shared agent token, and fills in the ConnectX-7 `peers`
+from each node's RDMA interfaces. It then installs the console on the first node and prints its URL
+(`http://<LAN IP>:9700`) and the sign-in token. `--peer` defaults to `spark2`. Benchmarks are enabled by
+default, so both nodes need Docker (DGX OS ships it). Add `--no-benchmarks` for monitor-only agents.
+
+**One Spark.**
+
+```sh
+sudo ./install.sh agent                       # add --enable-benchmarks to allow benchmarks
+sudo ./install.sh console --nodes "$(hostname -s)=<the Agent URL printed by the line above>"
+```
+
+The console picks up the agent token from the agent's config on the same host.
+
+**Then** open the URL the installer printed and type the console token. If you lose it, run
+`sudo grep ^token /etc/sparkline/console.toml`.
+
+> **What the installer changes.** It creates the system user `sparkline`, the code and venv in
+> `/opt/sparkline`, config in `/etc/sparkline/*.toml` (mode 0640), history in `/var/lib/sparkline*`, and
+> sandboxed systemd units. With benchmarks enabled, the agent joins the **docker group, which is
+> root-equivalent**. Every installer takes `--dry-run`. `sudo ./install.sh uninstall --purge` removes
+> everything from the node it runs on. Run it on each node; on a second node set up by `install-cluster.sh`,
+> also delete `~/.cache/sparkline-install`. The sections below cover each step, Docker Compose, Tailscale and the security model.
+
+## Screenshots
+
 | | |
 |---|---|
 | ![Overview, light theme](docs/screenshots/overview-light.png) | ![GPU tab during a thermal episode: clock limits decoded into plain English](docs/screenshots/node-gpu-dark.png) |
@@ -17,8 +124,8 @@ never shown as zero.
 | ![A GPU matmul benchmark running, with live telemetry](docs/screenshots/bench-run-dark.png) | ![Two benchmark runs side by side, light theme](docs/screenshots/bench-compare-light.png) |
 | ![A node whose agent is unreachable: cause, fix and retry](docs/screenshots/offline-state-dark.png) | ![Wall mode at 1920×1080](docs/screenshots/wall-dark.png) |
 
-The memory, CPU, network and offline screenshots come from the real two-node cluster (taken while spark2's agent was
-stopped). The others come from `--demo`, which can show load, a thermal episode and benchmark runs on demand.
+The memory, CPU, network and offline screenshots come from a real two-node cluster (taken while spark2's agent
+was stopped). The others come from `--demo`, which can show load, a thermal episode and benchmark runs on demand.
 
 ## Features
 
@@ -47,43 +154,16 @@ stopped). The others come from `--demo`, which can show load, a thermal episode 
 - **Demo mode** (`--demo`): three simulated nodes, including a thermal episode, a stalled stream and a node
   that goes offline and comes back. No hardware or token needed.
 
-## Quick start: the demo in two commands
-
-With Docker, from the repo root:
-
-```sh
-docker build -f deploy/Dockerfile -t sparkline .
-docker run --rm -p 127.0.0.1:9701:9700 sparkline --demo
-```
-
-Open http://127.0.0.1:9701. (The log's `Uvicorn running on http://172.17.0.x:9700` is the container's own
-address; use the host port you published.) The demo needs no token, and its first minute is calm before
-the scripted episodes start. Without Docker, follow the "Demo" section of
-[DEV.md](DEV.md), which runs the same thing from a Python venv and a web build.
-
-## Install the whole cluster in one command
-
-On spark1, as your normal user, from the repo root (with `web/dist` built: `cd web && npm ci && npm run build`):
-
-```sh
-./deploy/install-cluster.sh            # add --dry-run first to see every action on both nodes
-```
-
-It installs `sparkline-agent` on spark1 and on its peer (ssh host `spark2`, override with `--peer`), with one
-shared agent token and the ConnectX-7 `peers` filled in from each node's RDMA interfaces. It then installs the
-console on spark1 and prints its URL (`http://<spark1 LAN IP>:9700`) and sign-in token. It asks for your sudo
-password on each node. Benchmarks are enabled by default (`--no-benchmarks` for monitor-only agents). The steps
-below do the same per node by hand.
 
 ## Install on the nodes (agent)
 
-Run this on every DGX Spark. You need sudo, Python 3.12 or newer with `python3-venv` (or `uv`), and internet
+Run this on every DGX Spark. You need sudo, Python 3.12 or newer with `python3-venv` (or `uv` on root's PATH), and internet
 access to PyPI for the Python dependencies.
 
 ```sh
-git clone <this repo> sparkline && cd sparkline
+git clone https://github.com/sfxnz/sparkline.git && cd sparkline
 sudo ./install.sh agent                       # monitor-only
-sudo ./install.sh agent --enable-benchmarks   # also allow benchmarks (see Security)
+sudo ./install.sh agent --enable-benchmarks   # also allow benchmarks (see Security model)
 ```
 
 The installer:
@@ -114,6 +194,8 @@ turns benchmarks back off.
 | Option | Meaning |
 |---|---|
 | `--enable-benchmarks` | Allow benchmarks: Docker access for the agent and lifted CPU/memory caps. Asks for confirmation. |
+| `--nodes LIST` | Console: the agents to poll, as `id=url` pairs, e.g. `spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750`. |
+| `--peers LIST` | Agent: the far ends of the ConnectX-7 rails as `id=ip` pairs, e.g. `spark2=10.100.8.2,spark2=10.100.9.2`. Written to `peers` in a new config. |
 | `--agent-token TOKEN` | Use this token instead of generating one (or set `SPARKLINE_AGENT_TOKEN`). |
 | `--bind ADDR`, `--port N` | Written into a new config. Defaults are `auto` and 9750 (agent) or 9700 (console). |
 | `--prefix DIR` | Code and venv location (default `/opt/sparkline`). |
@@ -128,8 +210,8 @@ The console can run on one of the Sparks (spark1, say) or on any Linux box on th
 ### With systemd
 
 ```sh
-(cd web && npm ci && npm run build)    # the installer builds it for you if web/dist is missing and npm is found
-sudo ./install.sh console --nodes spark1=http://10.20.20.48:9750,spark2=http://10.20.20.195:9750
+(cd web && npm ci && npm run build)    # the installer tries this itself if web/dist is missing
+sudo ./install.sh console --nodes spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750
 ```
 
 The console's `agent_token` comes from `--agent-token` or `SPARKLINE_AGENT_TOKEN`. If neither is set and an
@@ -157,7 +239,7 @@ The console binds only to the LAN address. To reach it from other devices on you
 proxy a tailnet port to it. This needs no change to Sparkline and no root if your user is a Tailscale operator:
 
 ```sh
-tailscale serve --bg --http=9700 http://10.20.20.48:9700    # persists across reboots
+tailscale serve --bg --http=9700 http://192.168.1.11:9700   # the console's LAN address; persists across reboots
 ```
 
 Then open `http://spark1.<your-tailnet>.ts.net:9700` (or `http://spark1:9700` with MagicDNS). Use the name,
@@ -185,7 +267,7 @@ Restart the service after editing: `sudo systemctl restart sparkline-agent` (or 
 | Key | Default | Meaning |
 |---|---|---|
 | `node_id` | short hostname | The node's own name (benchmark labels, logs). The console displays its `[[nodes]]` id, so keep the two the same. |
-| `bind` | `"auto"` | IP to listen on. `auto` is the IPv4 address of the default-route interface. See Security. |
+| `bind` | `"auto"` | IP to listen on. `auto` is the IPv4 address of the default-route interface. See [Security model](#security-model). |
 | `port` | `9750` | |
 | `token` | `""` | Shared agent token, at least 16 characters. Required unless `bind` is loopback. |
 | `interval_ms` | `1000` | Sample interval, 250 to 5000 ms. |
@@ -215,9 +297,9 @@ process list shows command-line arguments to every user.
 | `agent_token` | `""` | Must equal `token` in every node's `agent.toml` (at least 16 characters). |
 | `data_dir` | `/var/lib/sparkline` if writable, else `~/.local/share/sparkline` | `console.sqlite`: events, settings, benchmark results, sessions. `--demo` uses a `demo/` subdirectory, so simulated data never mixes with real data. |
 | `web_dist` | `<repo>/web/dist` | The built web app. The installer sets `/opt/sparkline/web/dist`. |
-| `[[nodes]]` | none | One table per agent: `id = "spark1"`, `url = "http://10.20.20.48:9750"`. |
+| `[[nodes]]` | none | One table per agent: `id = "spark1"`, `url = "http://192.168.1.11:9750"`. |
 | `[settings]` | see below | Initial values. Once you save in the app (Settings), the saved values in `console.sqlite` win. |
-| `trusted_proxies` | `[]` | IPs or networks of reverse proxies whose `X-Forwarded-For` / `X-Forwarded-Proto` headers are believed, e.g. `["127.0.0.1"]` for a proxy on the same host. See Security. |
+| `trusted_proxies` | `[]` | IPs or networks of reverse proxies whose `X-Forwarded-For` / `X-Forwarded-Proto` headers are believed, e.g. `["127.0.0.1"]` for a proxy on the same host. See [Security model](#security-model). |
 
 `[settings]` keys: `energy_rate_per_kwh` (0.28), `currency` ("£"), `stale_after_s` (5.0: a node with no
 sample for this long is shown as stale), `offline_after_s` (30.0) and `regression_pct` (5.0: a benchmark
@@ -406,8 +488,10 @@ Port-wide discard and CRC counters come from ethtool and are shown once per phys
 ## Development
 
 See [DEV.md](DEV.md) for running everything from the repo, the web dev server with hot reload, the demo,
-and the checks (ruff, pytest, TypeScript, ESLint, Vitest, Playwright with axe). The design and wire
+and the checks (ruff, mypy, pytest, TypeScript, ESLint, Vitest, Playwright with axe). The design and wire
 contract are in [PLAN.md](PLAN.md). The hardware findings are in [DISCOVERY.md](DISCOVERY.md).
+Issues and pull requests are welcome. Please run the checks in DEV.md before opening a pull request, and
+report security problems privately as described in [SECURITY.md](SECURITY.md).
 
 ## Architecture
 
@@ -451,3 +535,12 @@ One Python package (`server/`, package `sparkline`) provides both commands, `spa
   read from the cgroup's `cpu.max`) rather than letting a throttled run produce wrong numbers.
 - Agents run on the host, not in containers: they need NVML, `/proc` and sysfs of the machine they measure.
 - `install.sh` targets systemd-based Linux (DGX OS / Ubuntu 24.04) and needs PyPI access at install time.
+- Sparkline is built and tested on DGX Spark (GB10, aarch64). The agent also runs on other Linux machines, with or
+  without an NVIDIA GPU, but some views assume GB10. The memory view assumes CPU and GPU share memory, so
+  discrete-GPU memory is not shown correctly. On x86, core names read "Arm core", and the split into performance
+  and efficiency cores relies on per-core maximum frequency. Interconnect views label any RDMA link as ConnectX-7.
+
+## License
+
+[MIT](LICENSE). Sparkline is an independent project, not affiliated with or endorsed by NVIDIA. NVIDIA, DGX and
+ConnectX are trademarks of NVIDIA Corporation.

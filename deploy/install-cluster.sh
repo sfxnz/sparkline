@@ -23,7 +23,7 @@ Options:
   --peer HOST        ssh host of the other node (default spark2; must work with key auth)
   --no-benchmarks    install monitor-only agents (no docker group, CPU/memory caps kept)
   --dry-run          show what install.sh would do on each node, change nothing (still copies the
-                     installer to ~/projects/ai-lab/sparkline on the peer, so it can run there)
+                     installer to ~/.cache/sparkline-install on the peer, so it can run there)
   -y, --yes          don't ask for confirmation
 EOF
 }
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-REMOTE_DIR=projects/ai-lab/sparkline # relative to the peer's home
+REMOTE_DIR=.cache/sparkline-install # relative to the peer's home
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'install-cluster.sh: error: %s\n' "$*" >&2; exit 1; }
 [[ $(id -u) != 0 ]] || die "run as your normal user; it uses sudo where needed"

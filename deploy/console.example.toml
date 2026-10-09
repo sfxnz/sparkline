@@ -19,8 +19,8 @@ agent_token = ""
 
 [[nodes]]
 id = "spark1"
-url = "http://10.20.20.48:9750"
+url = "http://192.168.1.11:9750"   # the agent's LAN address
 
 [[nodes]]
 id = "spark2"
-url = "http://10.20.20.195:9750"
+url = "http://192.168.1.12:9750"

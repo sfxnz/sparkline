@@ -76,7 +76,7 @@ function TabSkeleton({ label, tab }: { label: string; tab: NodeTab }) {
   );
 }
 
-/** Agent host from the node URL ("http://10.20.20.48:9750" -> "10.20.20.48"). */
+/** Agent host from the node URL ("http://192.168.1.11:9750" -> "192.168.1.11"). */
 function agentHost(url: string): string | null {
   try {
     return new URL(url).hostname || null;

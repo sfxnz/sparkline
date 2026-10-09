@@ -14,3 +14,4 @@ web/playwright-report/
 var/
 web/.e2e-demo/
 web/screenshots/
+.env

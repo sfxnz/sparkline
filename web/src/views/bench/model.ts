@@ -158,7 +158,7 @@ export function validateParams(spec: BenchSpec, form: FormValues): { values: Par
             url = null;
           }
           if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname) errors[p.name] = 'Enter an http:// or https:// address';
-          else if (!isLanHost(url.hostname)) errors[p.name] = 'Use a LAN or loopback IP address (like http://10.20.20.48:8000) or localhost';
+          else if (!isLanHost(url.hostname)) errors[p.name] = 'Use a LAN or loopback IP address (like http://192.168.1.11:8000) or localhost';
           else values[p.name] = text;
         } else if (isModelParam(p) && text && !MODEL_RE.test(text)) { // empty: the agent picks the first served model
           errors[p.name] = 'Letters, digits and . _ - / : only (up to 200)';

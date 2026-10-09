@@ -3,6 +3,7 @@ name = "sparkline"
 version = "0.1.0"
 description = "Sparkline — live telemetry & benchmarking for NVIDIA DGX Spark clusters"
 requires-python = ">=3.12"
+license = "MIT"
 dependencies = [
   "fastapi>=0.115",
   "anyio>=4",  # imported directly (console stream task group); fastapi depends on it anyway

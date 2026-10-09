@@ -1,6 +1,6 @@
 # Sparkline — plan
 
-Self-approved per the user's instruction ("no waiting for my decisions"). It is grounded in [DISCOVERY.md](DISCOVERY.md).
+The design is grounded in [DISCOVERY.md](DISCOVERY.md).
 
 ## Architecture
 

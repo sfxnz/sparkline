@@ -1,3 +1,5 @@
+> Historical record: the self-review written while Sparkline was built. For using Sparkline, see the [README](../README.md).
+
 # Sparkline — final self-review
 
 The brief asks for a final self-review: go screen by screen, list anything that feels generic, clunky, misaligned or

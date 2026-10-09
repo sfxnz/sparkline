@@ -237,7 +237,7 @@ NodeStatus = Literal["connecting", "online", "stale", "offline", "error"]
 
 class Problem(BaseModel):
     message: str  # "Agent unreachable on spark2"
-    cause: str  # "Connection refused on 10.20.20.195:9750"
+    cause: str  # "Connection refused on 192.168.1.12:9750"
     fix: str  # "Check `systemctl status sparkline-agent` on spark2"
 
 

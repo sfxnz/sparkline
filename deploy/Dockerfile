@@ -8,7 +8,7 @@
 # server/requirements.lock. To update an image: docker buildx imagetools inspect <tag>, copy the Digest.
 
 # --- 1. web app ---------------------------------------------------------------------------------------
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS web
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -28,7 +28,9 @@ RUN python -m venv /opt/sparkline/venv \
 # --- 3. runtime ---------------------------------------------------------------------------------------
 FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
 LABEL org.opencontainers.image.title="Sparkline console" \
-      org.opencontainers.image.description="Live telemetry and benchmarking for NVIDIA DGX Spark clusters"
+      org.opencontainers.image.description="Live telemetry and benchmarking for NVIDIA DGX Spark clusters" \
+      org.opencontainers.image.source="https://github.com/sfxnz/sparkline" \
+      org.opencontainers.image.licenses="MIT"
 ENV PATH=/opt/sparkline/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 SPARKLINE_CONTAINER=1
 # Fixed uid/gid, so a host-mounted config can be made readable with `chgrp 10001`.
 RUN groupadd --system --gid 10001 sparkline \

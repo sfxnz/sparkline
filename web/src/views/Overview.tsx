@@ -82,11 +82,11 @@ function NoNodes() {
           <pre className="ov-empty__code">
             <code>{`[[nodes]]
 id = "spark1"
-url = "http://10.20.20.48:9750"
+url = "http://192.168.1.11:9750"
 
 [[nodes]]
 id = "spark2"
-url = "http://10.20.20.195:9750"`}</code>
+url = "http://192.168.1.12:9750"`}</code>
           </pre>
           <p>Each node runs <code>sparkline-agent</code> on port 9750 with the shared agent token.</p>
         </EmptyState>

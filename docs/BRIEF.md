@@ -1,3 +1,5 @@
+> Historical record: the brief Sparkline was built from. For using Sparkline, see the [README](../README.md).
+
 # Project: "Sparkline" — live telemetry & benchmarking dashboard for my NVIDIA DGX Spark cluster
 
 > Original brief from the owner (verbatim, except the product was renamed from "Spark Console" to "Sparkline" at the owner's request). Setup placeholders resolved in DISCOVERY.md: 2× DGX Spark

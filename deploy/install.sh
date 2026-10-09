@@ -2,7 +2,7 @@
 # Sparkline installer. One command per node:
 #
 #   sudo ./deploy/install.sh agent [--enable-benchmarks]                 # every DGX Spark
-#   sudo ./deploy/install.sh console --nodes spark1=http://10.20.20.48:9750,spark2=http://10.20.20.195:9750
+#   sudo ./deploy/install.sh console --nodes spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750
 #   sudo ./deploy/install.sh uninstall [--purge]
 #
 # Safe to re-run: code and units are refreshed, existing config and data are never overwritten.
@@ -21,7 +21,7 @@ Modes:
   uninstall             Stop and remove services and code. Config and data stay unless --purge.
 
 Options:
-  --nodes LIST          console: id=url pairs, e.g. spark1=http://10.20.20.48:9750,spark2=http://10.20.20.195:9750
+  --nodes LIST          console: id=url pairs, e.g. spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750
   --agent-token TOKEN   Use this agent token instead of generating one (or set SPARKLINE_AGENT_TOKEN, which keeps
                         it out of the process list). Every agent and the console must share one agent token.
   --peers LIST          agent: far ends of the ConnectX-7 rails as id=ip pairs, one per rail, so the UI can
@@ -126,6 +126,10 @@ say() { printf '==> %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
 warn() { printf 'install.sh: warning: %s\n' "$*" >&2; }
 skip() { printf '    skipped (%s): %s\n' "$1" "$2"; }
+# A dry run as a normal user can't see a root-only config, so it would preview a fresh install.
+if [[ $DRY_RUN == 1 && $IS_ROOT == 0 && -d $ETC && ! -r $ETC ]]; then
+	warn "can't read $ETC as $(id -un): existing configs look absent below; use sudo for an exact preview"
+fi
 
 # Run a command, or print it under --dry-run.
 run() {
@@ -434,7 +438,7 @@ write_console_config() {
 		[[ -z $BIND && -z $PORT && -z $NODES ]] || warn "--bind/--port/--nodes ignored: edit $ETC/console.toml instead"
 		return
 	fi
-	[[ -n $NODES ]] || die "--nodes is required for a new console, e.g. --nodes spark1=http://10.20.20.48:9750,spark2=http://10.20.20.195:9750"
+	[[ -n $NODES ]] || die "--nodes is required for a new console, e.g. --nodes spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750"
 	nodes=$(nodes_toml)
 	local_agent=$(p "$ETC/agent.toml")
 	if [[ -n $AGENT_TOKEN ]]; then

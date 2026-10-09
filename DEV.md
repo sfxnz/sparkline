@@ -6,6 +6,9 @@ Runtime files go in `var/`, which git ignores.
 
 ## One-time setup
 
+You need Python 3.12 or newer (with `uv`, or `python3-venv`) and Node.js 22.22.2 or newer on 22.x, 24.15 or newer on 24.x, or
+26 and later, for the web tests. Building the web app alone works from Node.js 22.12.
+
 ```sh
 cd server && uv venv && uv pip install -e '.[dev]'    # or: python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 cd ../web && npm ci
@@ -41,7 +44,7 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 
 ```toml
 node_id = "spark1"
-bind = "10.20.20.48"        # LAN IP. 0.0.0.0 and public addresses are refused.
+bind = "192.168.1.11"       # LAN IP. 0.0.0.0 and public addresses are refused.
 port = 9750
 token = "<agent token>"
 data_dir = "var/agent-data"
@@ -61,8 +64,8 @@ and never compared with GPU baselines. The catalog says so while it is on.
 To run the agent on spark2, copy the code over and start it the same way:
 
 ```sh
-rsync -a --delete --exclude .venv --exclude __pycache__ server/ spark2:~/projects/ai-lab/sparkline/server/
-ssh spark2 'cd ~/projects/ai-lab/sparkline/server && python3 -m venv .venv && .venv/bin/pip install -q -e .'
+rsync -a --delete --exclude .venv --exclude __pycache__ server/ spark2:~/sparkline/server/
+ssh spark2 'cd ~/sparkline/server && python3 -m venv .venv && .venv/bin/pip install -q -e .'
 ```
 
 **Console:** `var/console.toml`:
@@ -76,11 +79,11 @@ data_dir = "var/console-data"
 
 [[nodes]]
 id = "spark1"
-url = "http://10.20.20.48:9750"
+url = "http://192.168.1.11:9750"
 
 [[nodes]]
 id = "spark2"
-url = "http://10.20.20.195:9750"
+url = "http://192.168.1.12:9750"
 ```
 
 ```sh
@@ -102,9 +105,11 @@ SPARKLINE_URL=http://127.0.0.1:9701 npm run dev      # the same, against the dem
 ## Checks
 
 ```sh
-cd server && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest -q
-cd web && npm run typecheck && npm run lint && npm test && npm run build && npm run e2e
+(cd server && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy && .venv/bin/pytest -q)
+(cd web && npm run typecheck && npm run lint && npm test && npm run build && npm run e2e)
 ```
+
+Before the first `npm run e2e`, install its browser once: `(cd web && npx playwright install chromium)`.
 
 `npm run e2e` starts its own demo console (port `E2E_DEMO_PORT`, default 9702, data in the git-ignored `web/.e2e-demo/`)
 and a `vite preview` of the build proxying to it (port `E2E_PORT`, default 5180). Flow tests and axe checks run against

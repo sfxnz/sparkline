@@ -20,7 +20,7 @@ REPO_WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 class NodeConfig(BaseModel):
     id: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
-    url: str  # http://10.20.20.48:9750
+    url: str  # http://192.168.1.11:9750
 
 
 class ConsoleConfig(BaseModel):
