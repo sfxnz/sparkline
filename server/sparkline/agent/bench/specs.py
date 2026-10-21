@@ -177,7 +177,7 @@ class LlmInferenceParams(Params):
     )
     model: str = _param("", "Model", "Model name as served; empty picks the first from /v1/models.")
     api: Literal["chat", "completions"] = _param("chat", "API", "/v1/chat/completions or /v1/completions.")
-    prompt_tokens: int = _param(512, "Prompt length", "Approximate prompt size.", "tokens", ge=16, le=32768)
+    prompt_tokens: int = _param(512, "Prompt length", "Approximate prompt size.", "tokens", ge=16, le=65536)
     max_tokens: int = _param(128, "Output length", "max_tokens per request.", "tokens", ge=1, le=4096)
     concurrency: int = _param(1, "Concurrency", "Requests in flight at once.", ge=1, le=32)
     requests: int = _param(8, "Requests", "Total requests.", ge=1, le=512)
