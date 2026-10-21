@@ -3,17 +3,19 @@ reflects the load, seeded history with a baseline and a regression."""
 
 from __future__ import annotations
 
+import json
 import random
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
+from sparkline.agent.bench.runner import DETAIL_MAX_BYTES, LIVE_MAX_BYTES
 from sparkline.agent.bench.specs import REGISTRY as AGENT_REGISTRY
 from sparkline.common.schema import BenchRun, BenchSpec, Event
 from sparkline.console import demo_bench
 from sparkline.console.app import create_app
-from sparkline.console.bench import REGISTRY, validate_params
+from sparkline.console.bench import REGISTRY, params_key, validate_params
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel
 from sparkline.console.demo_bench import demo_catalog, demo_duration, make_results, validate
@@ -42,9 +44,13 @@ def test_demo_durations_are_compressed():
         real = AGENT_REGISTRY[b].estimate(AGENT_REGISTRY[b].validate(p))
         if b == "thermal-soak":
             assert demo_duration(b, p) == 60
+        elif b == "llm-inference":  # compressed less, so its streams can be watched
+            assert 6 <= demo_duration(b, p) <= real / 4
         else:
             assert demo_duration(b, p) == max(4.0, real / 10)
     assert demo_duration("thermal-soak", validate("thermal-soak", {"minutes": 30})) == 90
+    sweep = validate("llm-inference", {"concurrency": 32, "sweep": True})
+    assert 0.6 + 6 * 4 <= demo_duration("llm-inference", sweep) <= 60  # 6 levels, each on screen 4 s or more
 
 
 def _vals(bench: str, node: str = "spark1", seed: int = 0, role: str = "single", info=None, **over):
@@ -114,6 +120,7 @@ def test_demo_storage_run_loads_the_disk_and_says_runs_are_compressed():
     assert m.sample_at(t + 1.5).disk[0].read_bps > 5e9  # then sequential read
     assert after.write_bps < 1e8
     desc = {s.id: s.description for s in demo_catalog("spark1", m.info)}
+    assert desc.pop("llm-inference").endswith(demo_bench.LLM_NOTE)  # compressed less: streams to watch
     assert all(demo_bench.COMPRESSED_NOTE in d for d in desc.values())
 
 
@@ -175,8 +182,9 @@ def test_demo_rejects_what_the_agent_would(demo):
 
 def test_demo_history_is_seeded_with_a_baseline_and_a_regression(demo):
     runs = [BenchRun.model_validate(r) for r in demo.get("/api/v1/bench/runs").json()]
-    assert len(runs) == 12 and {r.bench_id for r in runs} == set(REGISTRY)
+    assert len(runs) == len(demo_bench._SEED) and {r.bench_id for r in runs} == set(REGISTRY)
     assert {r.status for r in runs} == {"succeeded", "failed", "cancelled"}
+    assert all(r.params_key == params_key(r.bench_id, r.params) for r in runs)  # as the console keys runs
     latest = runs[0]
     assert latest.bench_id == "gpu-matmul" and latest.baseline_run_id is not None
     bf16 = next(x for x in latest.results if x.metric == "bf16_tflops")
@@ -199,7 +207,113 @@ def test_demo_history_is_seeded_with_a_baseline_and_a_regression(demo):
 def test_demo_empty_bench_flag(tmp_path):
     cfg = ConsoleConfig(web_dist=tmp_path / "nodist")
     with TestClient(create_app(cfg, tmp_path / "data", demo=True)) as c:
-        assert len(c.get("/api/v1/bench/runs").json()) == 12
+        assert len(c.get("/api/v1/bench/runs").json()) == len(demo_bench._SEED)
     with TestClient(create_app(cfg, tmp_path / "data", demo=True, demo_empty_bench=True)) as c:
         assert c.get("/api/v1/bench/runs").json() == []
-        assert len(c.get("/api/v1/bench/catalog").json()) == 8
+        assert len(c.get("/api/v1/bench/catalog").json()) == 9
+
+
+def _compact(obj) -> int:
+    return len(json.dumps(obj, separators=(",", ":"), allow_nan=False))
+
+
+def test_demo_llm_streams_are_plausible_and_within_the_agents_limits():
+    p = validate("llm-inference", {"concurrency": 32, "sweep": True})
+    qwen = demo_bench.LlmDemo(p, "spark3", random.Random(3))
+    assert (qwen.sizes, qwen.counts) == ([1, 2, 4, 8, 16, 32], [8, 8, 8, 8, 16, 32])
+    levels = [qwen.summary(k) for k in range(6)]
+    assert 30 <= levels[0]["decode_tok_s_p50"] <= 60 and 150 <= levels[0]["ttft_p50_ms"] <= 600
+    decode = [lv["decode_tok_s_p50"] for lv in levels]
+    assert decode == sorted(decode, reverse=True)  # more streams: each one slower, ...
+    assert levels[-1]["ttft_p50_ms"] > 3 * levels[0]["ttft_p50_ms"]  # ... a longer wait, more output in all
+    assert levels[-1]["out_tok_s"] > 4 * levels[0]["out_tok_s"]
+    mid, end = qwen.snapshot(5, qwen.duration(5) / 2), qwen.snapshot(5, qwen.duration(5))
+    for snap in (mid, end):
+        assert (snap["kind"], snap["level"], snap["level_index"]) == ("llm-streams", 32, 5)
+        assert len(snap["streams"]) == 32 and _compact(snap) <= LIVE_MAX_BYTES
+    assert "decode" in {s["state"] for s in mid["streams"]} and any(s["think"] for s in mid["streams"])
+    assert [s["state"] for s in end["streams"]] == ["done"] * 32 and end["completed_levels"] == levels
+    times = [qwen.duration(0) * f for f in (0.1, 0.3, 0.6, 1.0)]  # one stream, request after request
+    chars = [qwen.snapshot(0, t)["streams"][0]["chars"] for t in times]
+    assert chars == sorted(chars) and chars[-1] > chars[0]
+    plain = demo_bench.LlmDemo(p, "spark1", random.Random(3))  # only spark3's Qwen reasons
+    assert not any(s["think"] for k in range(6) for s in plain.snapshot(k, plain.duration(k) / 2)["streams"])
+    results = qwen.results()
+    heads = [r.metric for r in results if r.extras.get("headline")]
+    assert heads == ["peak_output_tok_s", "decode_tok_s_c1", "ttft_p50_ms_c32"]
+    assert all(r.extras["level"] in qwen.sizes and r.extras["sweep"] for r in results[:-2])
+    val = {r.metric: r.value for r in results}
+    for lv in levels:  # the sweep table shows exactly the results' numbers, as the payload's does
+        n = lv["level"]
+        assert (val[f"decode_tok_s_total_c{n}"], val[f"decode_tok_s_c{n}"]) == (
+            lv["out_tok_s"],
+            lv["decode_tok_s_p50"],
+        )
+        assert (val[f"ttft_p50_ms_c{n}"], val[f"ttft_p95_ms_c{n}"]) == (lv["ttft_p50_ms"], lv["ttft_p95_ms"])
+    assert val["peak_output_tok_s"] == max(lv["out_tok_s"] for lv in levels)
+    one = demo_bench.LlmDemo(validate("llm-inference", {}), "spark1", random.Random(3)).results()
+    assert [r.metric for r in one] == [
+        "decode_tok_s",
+        "ttft_p50_ms",
+        "prefill_tok_s",
+        "ttft_p95_ms",
+        "decode_tok_s_total",
+        "serving_gpu_mem_gib",
+        "mem_used_delta_gib",
+    ]
+    big = validate("llm-inference", {"concurrency": 32, "requests": 512, "max_tokens": 4096, "sweep": True})
+    most = demo_bench.LlmDemo(big, "spark3", random.Random(3))  # the largest run the agent accepts
+    assert _compact(most.snapshot(5, most.duration(5) / 3)) <= LIVE_MAX_BYTES
+    detail = most.detail(6)
+    assert _compact(detail) <= DETAIL_MAX_BYTES and all(t["truncated"] for t in detail["timeline"].values())
+
+
+def test_runs_are_keyed_on_the_requests_they_send(demo):
+    body = {"bench_id": "llm-inference", "nodes": ["spark2"], "params": {"concurrency": 16, "requests": 4}}
+    r = demo.post("/api/v1/bench/runs", json={**body, "confirm": True})
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(r.json())
+    assert run.params["requests"] == 4 and '"requests":16' in run.params_key  # one request per stream
+    assert _wait(demo, run.id)["status"] == "succeeded"
+
+
+def test_demo_llm_sweep_streams_live_and_leaves_detail_and_results(demo):
+    body = {"bench_id": "llm-inference", "nodes": ["spark3"], "params": {"concurrency": 4, "sweep": True}}
+    r = demo.post("/api/v1/bench/runs", json={**body, "confirm": True})
+    assert r.status_code == 201, r.json()
+    seen, deadline = [], time.time() + 15
+    while time.time() < deadline:
+        run = demo.get(f"/api/v1/bench/runs/{r.json()['id']}").json()
+        if run["status"] not in ("queued", "running"):
+            break
+        seen.append(run["node_states"]["spark3"]["live"])
+        time.sleep(0.1)
+    done = BenchRun.model_validate(run)
+    assert done.status == "succeeded" and '"sweep":true' in done.params_key
+    assert done.params_key == params_key("llm-inference", done.params)
+    assert {x["level"] for x in seen if x} >= {1, 2}  # streams were live while it ran
+    st = done.node_states["spark3"]
+    assert st.live["level"] == 4 and [s["state"] for s in st.live["streams"]] == ["done"] * 4
+    assert [lv["level"] for lv in st.detail["llm"]["levels"]] == [1, 2, 4]
+    heads = [x.metric for x in done.results if x.extras.get("headline")]
+    assert heads == ["peak_output_tok_s", "decode_tok_s_c1", "ttft_p50_ms_c4"]
+    seeded = [x for x in demo.get("/api/v1/bench/runs").json() if x["bench_id"] == "llm-inference"]
+    assert seeded and all("sweep" not in x["params_key"] for x in seeded if not x["params"]["sweep"])
+
+
+def test_demo_history_holds_a_finished_sweep(demo):
+    sweeps = [x for x in demo.get("/api/v1/bench/runs?bench_id=llm-inference").json() if x["params"]["sweep"]]
+    assert len(sweeps) == 1 and sweeps[0]["status"] == "succeeded" and sweeps[0]["node_states"] == {}  # list
+    run = BenchRun.model_validate(demo.get(f"/api/v1/bench/runs/{sweeps[0]['id']}").json())
+    st = run.node_states["spark1"]
+    assert (st.status, st.live["kind"], st.live["level"]) == ("succeeded", "llm-streams", 32)
+    assert [s["state"] for s in st.live["streams"]] == ["done"] * 32
+    levels = st.detail["llm"]["levels"]
+    assert [lv["level"] for lv in levels] == st.live["levels"] == [1, 2, 4, 8, 16, 32]
+    assert set(st.detail["llm"]["timeline"]) == {"1", "2", "4", "8", "16", "32"}
+    assert _compact(st.live) <= LIVE_MAX_BYTES and _compact(st.detail) <= DETAIL_MAX_BYTES
+    heads = [x.metric for x in run.results if x.extras.get("headline")]
+    assert heads == ["peak_output_tok_s", "decode_tok_s_c1", "ttft_p50_ms_c32"]
+    assert {x.node_id for x in run.results} == {"spark1"}
+    took = (run.finished_ts or 0) - (run.started_ts or 0)  # as long as its requests took
+    assert took == pytest.approx(demo_bench.LLM_START_S + sum(lv["wall_s"] for lv in levels), abs=0.01)

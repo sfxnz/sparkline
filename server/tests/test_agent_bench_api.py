@@ -86,7 +86,7 @@ def test_catalog(client):
     r = client.get("/api/v1/bench/catalog", headers=AUTH)
     assert r.status_code == 200
     cat = r.json()
-    assert [s["id"] for s in cat][:3] == ["gpu-matmul", "mem-bandwidth", "cpu-throughput"] and len(cat) == 8
+    assert [s["id"] for s in cat][:3] == ["gpu-matmul", "mem-bandwidth", "cpu-throughput"] and len(cat) == 9
     assert all(s["availability"] == {"n1": None} for s in cat)
 
 

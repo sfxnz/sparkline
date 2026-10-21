@@ -1,14 +1,16 @@
 /// <reference lib="dom" />
 // Benchmark flows against the demo console (simulated, time-compressed runs; nothing touches real hardware):
-// configure -> confirm -> live progress -> results -> baseline -> compare -> export, the cancel flow, parameter
-// validation, and axe on every benchmark screen in both themes.
+// configure -> confirm -> live progress -> results -> baseline -> compare -> export, the cancel flow, the LLM
+// benchmark's live streams and concurrency sweep, the tool-calling evaluation, parameter validation, and axe on every
+// benchmark screen in both themes.
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 interface RunRow {
   id: string;
   bench_id: string;
   status: string;
+  params: Record<string, unknown>;
 }
 interface Spec {
   id: string;
@@ -45,6 +47,44 @@ async function seededRuns(page: Page): Promise<RunRow[]> {
   const res = await page.request.get('/api/v1/bench/runs?limit=200');
   expect(res.ok()).toBe(true);
   return (await res.json()) as RunRow[];
+}
+
+const label = (spec: Spec, name: string) => spec.params.find((p) => p.name === name)?.label ?? name;
+
+/** Configure from the catalog (`set` changes parameters), confirm, and land on the run's own page; returns its id. */
+async function runFromCatalog(page: Page, spec: Spec, set: (dialog: Locator) => Promise<void>): Promise<string> {
+  await page.goto('/benchmarks');
+  await catalogReady(page);
+  await page.getByRole('button', { name: `Configure ${spec.name}…` }).click();
+  const dialog = page.getByRole('dialog', { name: `Configure ${spec.name}` });
+  await set(dialog);
+  await dialog.getByRole('button', { name: /Review & run/ }).click();
+  await page.getByRole('dialog', { name: `Run ${spec.name}?` }).getByRole('button', { name: 'Run benchmark' }).click();
+  await expect(page).toHaveURL(/\/benchmarks\/runs\/[0-9a-z]+$/, { timeout: 10_000 });
+  return page.url().split('/').pop() ?? '';
+}
+
+/** LLM inference sweeping 1, 2, 4 and 8 streams (the demo plays it in about 30 s). */
+async function runLlmSweep(page: Page): Promise<Spec> {
+  const llm = (await catalog(page))['llm-inference'];
+  if (!llm) throw new Error('llm-inference missing from the catalog');
+  await runFromCatalog(page, llm, async (dialog) => {
+    await dialog.getByRole('textbox', { name: label(llm, 'concurrency') }).fill('8');
+    const sweep = dialog.getByRole('switch', { name: label(llm, 'sweep') });
+    await sweep.click();
+    await expect(sweep).toHaveAttribute('aria-checked', 'true');
+  });
+  return llm;
+}
+
+/** Axe on the current page in the light theme, then again after the system switches to dark. */
+async function axeBothThemes(page: Page, what: string) {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  expect(await axeViolations(page), `${what} (light)`).toEqual([]);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  expect(await axeViolations(page), `${what} (dark)`).toEqual([]);
 }
 
 // The flows start real (simulated) runs on the shared demo, so they run one after another.
@@ -134,6 +174,129 @@ test.describe.serial('benchmark flows', () => {
     await expect(page.locator('.bench-run__title-row')).toContainText('Cancelled');
     await expect(page.getByRole('progressbar', { name: 'Benchmark progress' })).toHaveCount(0);
   });
+
+  test('LLM inference shows every concurrent stream live, then the sweep, the timeline and the final outputs', async ({ page }) => {
+    test.setTimeout(120_000);
+    await runLlmSweep(page);
+    const streams = page.getByRole('region', { name: 'Concurrency streams' });
+    await expect(streams).toBeVisible({ timeout: 15_000 });
+    const rail = streams.getByRole('list', { name: 'Concurrency levels' });
+    await expect(rail.getByRole('listitem')).toHaveCount(4); // 1, 2, 4 and 8 streams
+
+    // A card's text grows while its request decodes (same request, more text a moment later).
+    const card = streams.getByRole('list', { name: /^Streams: / }).getByRole('button').first();
+    const sample = async () => ({ name: (await card.getAttribute('aria-label')) ?? '', text: (await card.locator('.strm-body').textContent()) ?? '' });
+    await expect.poll(async () => {
+      const a = await sample();
+      await page.waitForTimeout(300);
+      const b = await sample();
+      return a.name === b.name && b.name.includes('decoding') && b.text.length > a.text.length;
+    }, { timeout: 20_000 }).toBe(true);
+    await axeBothThemes(page, 'streams live');
+
+    // The rail advances a level at a time; a finished level shows its output.
+    await expect(rail.locator('[aria-current="step"]')).toContainText('8 streams', { timeout: 45_000 });
+    await expect(rail.getByRole('listitem').first()).toContainText('tok/s');
+    await expect(streams.getByRole('list', { name: /^Streams: / }).getByRole('listitem')).toHaveCount(8);
+
+    await expect(page.getByText(/^Completed in /)).toBeVisible({ timeout: 45_000 });
+    await expect(streams).toHaveCount(0);
+    const sweep = page.getByRole('region', { name: 'Concurrency sweep' });
+    await expect(sweep.getByRole('table', { name: 'Concurrency sweep, one row per level' }).getByRole('row')).toHaveCount(5); // header + 4 levels
+    await expect(page.getByRole('region', { name: 'Stream timeline' })).toContainText('at 8 streams');
+    const outputs = page.getByRole('region', { name: 'Final outputs' });
+    await outputs.getByText('Show 8 streams').click();
+    await expect(outputs.getByRole('list', { name: 'Final outputs' }).getByRole('listitem')).toHaveCount(8);
+    await axeBothThemes(page, 'sweep finished');
+  });
+
+  test('a cancelled LLM sweep says it stopped and keeps what it recorded', async ({ page }) => {
+    test.setTimeout(90_000);
+    const llm = await runLlmSweep(page);
+    const rail = page.getByRole('region', { name: 'Concurrency streams' }).getByRole('list', { name: 'Concurrency levels' });
+    await expect(rail.locator('[aria-current="step"]')).toContainText('2 streams', { timeout: 30_000 });
+    await page.getByRole('button', { name: 'Cancel run' }).click();
+    await page.getByRole('dialog', { name: `Stop ${llm.name}?` }).getByRole('button', { name: 'Stop benchmark' }).click();
+
+    await expect(page.getByText(/^The benchmark was stopped after .* What it recorded before it stopped is shown below\.$/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.bench-run__title-row')).toContainText('Cancelled');
+    await expect(page.getByRole('region', { name: 'Concurrency streams' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Concurrency sweep' })).toContainText(/Stopped during level \d of 4/);
+    const outputs = page.getByRole('region', { name: 'Final outputs' });
+    await expect(outputs).toContainText('when the run was cancelled');
+    await outputs.getByText(/^Show \d+ streams$/).click();
+    // Streams cut off mid-request read "stopped", never as if they had finished.
+    await expect(outputs.getByRole('list', { name: 'Final outputs' }).getByRole('button', { name: /: stopped/ }).first()).toBeVisible();
+  });
+
+  test('the tool-calling evaluation fills its board, then shows the score, every scenario and upstream’s JSON', async ({ page }) => {
+    test.setTimeout(150_000);
+    const te = (await catalog(page))['tool-eval'];
+    if (!te) throw new Error('tool-eval missing from the catalog');
+    const runId = await runFromCatalog(page, te, async (dialog) => {
+      await dialog.getByRole('combobox', { name: label(te, 'suite') }).selectOption('core');
+      await expect(dialog.getByText(/Estimated/)).toBeVisible();
+    });
+
+    const evaluation = page.getByRole('region', { name: 'Tool-calling evaluation' });
+    await expect(evaluation.getByRole('region', { name: 'Now running' })).toContainText(/Now running · \d+ of 15/, { timeout: 20_000 });
+    const board = evaluation.getByRole('group', { name: 'Scenario board' });
+    await expect(board.getByRole('button')).toHaveCount(15);
+    const graded = () => board.getByRole('button', { name: /, (passed|partial|failed|excluded)$/ }).count();
+    await expect.poll(graded, { timeout: 20_000 }).toBeGreaterThan(0);
+    const first = await graded();
+    await expect.poll(graded, { timeout: 20_000 }).toBeGreaterThan(first); // verdicts keep arriving
+    await axeBothThemes(page, 'evaluation live');
+
+    await expect(page.getByText(/^Completed in /)).toBeVisible({ timeout: 60_000 });
+    await expect(evaluation.getByRole('img', { name: /^Tool-calling score \d+%/ })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Score per category' })).toBeVisible();
+    const scenarios = page.getByRole('region', { name: 'Scenarios' });
+    const table = scenarios.getByRole('table', { name: 'Scenario results' });
+    await expect(table.getByRole('row')).toHaveCount(16); // header + 15
+
+    const filter = scenarios.getByRole('combobox', { name: 'Filter by result' });
+    await filter.selectOption('pass');
+    const passed = Number(/\((\d+)\)/.exec((await filter.locator('option:checked').textContent()) ?? '')?.[1]);
+    expect(passed).toBeGreaterThan(0);
+    await expect(table.getByRole('row')).toHaveCount(passed + 1);
+    await filter.selectOption('all');
+    await scenarios.getByRole('searchbox', { name: 'Search scenarios' }).fill('unit handling');
+    await expect(table.getByRole('row')).toHaveCount(2);
+    await table.getByRole('button', { name: 'Unit Handling' }).click();
+    const dialog = page.getByRole('dialog', { name: /^TC-04 · Unit Handling/ });
+    await expect(dialog.getByRole('list', { name: 'Upstream’s pass and fail criteria' }).getByRole('listitem')).toHaveCount(2);
+    await expect(dialog.getByRole('region', { name: 'Trace of TC-04' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+
+    const json = page.waitForEvent('download');
+    await evaluation.getByRole('button', { name: 'Download tool-eval-bench JSON' }).click();
+    expect((await json).suggestedFilename()).toBe(`tool-eval-bench-${runId}.json`);
+    await axeBothThemes(page, 'evaluation finished');
+  });
+});
+
+test('the seeded concurrency sweep opens from History, with a timeline per level and its data table', async ({ page }) => {
+  await page.goto('/benchmarks');
+  await catalogReady(page);
+  await page.getByLabel('Filter by benchmark').selectOption('llm-inference');
+  await page.getByRole('table', { name: 'Benchmark runs' }).getByRole('row').filter({ hasText: 'Concurrency 32' }).getByRole('link', { name: 'LLM inference' }).click();
+  await expect(page.getByRole('region', { name: 'Concurrency sweep' })).toContainText('6 levels');
+
+  const timeline = page.getByRole('region', { name: 'Stream timeline' });
+  await expect(timeline).toContainText('32 requests at 32 streams'); // the last level first
+  const levels = timeline.getByRole('radiogroup', { name: 'Level' });
+  await levels.getByRole('radio', { name: '8 streams' }).click();
+  await expect(timeline).toContainText('8 requests at 8 streams');
+  const toggle = timeline.getByRole('button', { name: 'Stream timeline: data table' });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(timeline.getByRole('table', { name: 'Requests at 8 streams' }).getByRole('row')).toHaveCount(9); // header + 8
+  await levels.getByRole('radio', { name: '16 streams' }).click();
+  await expect(timeline.getByRole('table', { name: 'Requests at 16 streams' }).getByRole('row')).toHaveCount(17);
+  await toggle.click();
+  await expect(timeline.getByRole('table')).toHaveCount(0);
 });
 
 test('parameters are validated before the confirmation step', async ({ page }) => {
@@ -176,15 +339,17 @@ for (const scheme of ['dark', 'light'] as const) {
     test.use({ colorScheme: scheme });
 
     test('every benchmark screen passes axe', async ({ page }) => {
-      test.setTimeout(60_000);
+      test.setTimeout(90_000);
       const specs = await catalog(page);
       const rdma = specs['rdma-bw-lat']?.name ?? '';
       const runs = await seededRuns(page);
       const done = runs.find((r) => r.bench_id === 'gpu-matmul' && r.status === 'succeeded');
       const soak = runs.find((r) => r.bench_id === 'thermal-soak' && r.status === 'succeeded');
       const failed = runs.find((r) => r.status === 'failed');
+      const sweep = runs.find((r) => r.bench_id === 'llm-inference' && r.status === 'succeeded' && r.params.concurrency === 32);
+      const evaluation = runs.find((r) => r.bench_id === 'tool-eval' && r.status === 'succeeded');
       const pair = runs.filter((r) => r.bench_id === 'gpu-matmul' && r.status === 'succeeded').slice(0, 2);
-      expect(done && soak && failed && pair.length === 2).toBeTruthy();
+      expect(done && soak && failed && sweep && evaluation && pair.length === 2).toBeTruthy();
 
       await page.goto('/benchmarks');
       await catalogReady(page);
@@ -206,7 +371,7 @@ for (const scheme of ['dark', 'light'] as const) {
       expect(await axeViolations(page), 'confirm').toEqual([]);
       await page.keyboard.press('Escape');
 
-      for (const [what, id] of [['completed run', done?.id], ['soak run', soak?.id], ['failed run', failed?.id]] as const) {
+      for (const [what, id] of [['completed run', done?.id], ['soak run', soak?.id], ['failed run', failed?.id], ['concurrency sweep', sweep?.id], ['tool-calling evaluation', evaluation?.id]] as const) {
         await page.goto(`/benchmarks/runs/${id ?? ''}`);
         await expect(page.getByRole('region', { name: /Telemetry during the run/ })).toBeVisible({ timeout: 15_000 });
         expect(await axeViolations(page), what).toEqual([]);

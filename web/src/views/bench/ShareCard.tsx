@@ -7,7 +7,7 @@ import { Button } from '../../design/components/Button';
 import { Dialog } from '../../design/components/Dialog';
 import type { BenchRun, BenchSpec } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
-import { formatDateTime, formatValue, headlineResults, nodesText, paramsSummary, resultDelta, runFacts, servedModel, signedFormat, unitText } from './model';
+import { formatDateTime, headlineResults, nodesText, paramsSummary, resultDelta, runFacts, servedModel, signedFormat, unitText } from './model';
 
 export const CARD_W = 600;
 export const CARD_H = 340;
@@ -198,7 +198,7 @@ export function ShareCardDialog({ run, spec, onClose }: { run: BenchRun; spec: B
       () => { setCopied('failed'); },
     );
   };
-  const heads = headlineResults(run.results, 3).map((r) => `${r.label} ${formatValue(r.value)} ${unitText(r.unit)}`).join(', ');
+  const heads = headlineResults(run.results, 3).map((r) => `${r.label} ${signedFormat(r)(r.value)} ${unitText(r.unit)}`).join(', ');
 
   return (
     <Dialog

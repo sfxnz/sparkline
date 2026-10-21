@@ -183,11 +183,42 @@ function secondsOf(value: number, p: BenchParam): number {
 
 const isDurationParam = (p: BenchParam) => /^(s|sec|seconds|min|minutes|h|hours)$/i.test(p.unit ?? '') || DURATION_NAME.test(p.name);
 
+/** Concurrency levels of an llm-inference run, like the agent: [concurrency], or when sweeping the powers of two
+ * below it followed by concurrency itself (32 -> 1, 2, 4, 8, 16, 32; 24 -> 1, 2, 4, 8, 16, 24). */
+export function llmLevels(concurrency: number, sweep: boolean): number[] {
+  const c = Math.max(1, Math.floor(concurrency));
+  const below: number[] = [];
+  if (sweep) for (let l = 1; l < c; l *= 2) below.push(l);
+  return [...below, c];
+}
+
+/** The agent's llm-inference estimate (est_llm), term for term: 5 s, plus for every request wave (each level runs
+ * max(requests, level) requests, `level` at a time) 0.5 s, the prompt at 2000 tokens/s and the output at 20 tokens/s. */
+function llmSeconds(v: Partial<ParamValues>): number {
+  const n = (k: string, d: number) => {
+    const x = v[k];
+    return typeof x === 'number' ? x : d;
+  };
+  const requests = n('requests', 8);
+  const waves = llmLevels(n('concurrency', 1), v.sweep === true).reduce((sum, l) => sum + Math.ceil(Math.max(requests, l) / l), 0);
+  return 5 + waves * (0.5 + n('prompt_tokens', 512) / 2000 + n('max_tokens', 128) / 20);
+}
+
+/** tool-eval-bench scenarios per suite: [standard, Hard Mode]. On a Spark a standard scenario takes about 24 s and a
+ * Hard Mode one about 36 s, after about 10 s of preflight. */
+const TOOL_EVAL_SUITES: Record<string, readonly [number, number]> = { core: [15, 0], standard: [69, 0], hard: [0, 28], all: [69, 28] };
+const toolEvalSeconds = (suite: ParamValue | undefined) => {
+  const [standard, hard] = TOOL_EVAL_SUITES[String(suite)] ?? [0, 0];
+  return 10 + standard * 24 + hard * 36;
+};
+
 /**
  * Live duration estimate for the chosen parameters, from the catalog's estimate for the defaults: a duration
  * parameter adds its difference from the default; a count parameter, or a multi-select, scales the rest.
+ * llm-inference uses the agent's own formula (its job timeout is based on it); tool-eval scales by its suite.
  */
 export function estimateDuration(spec: BenchSpec, values: Partial<ParamValues>): number {
+  if (spec.id === 'llm-inference') return llmSeconds({ ...defaultParams(spec), ...values });
   let extra = 0;
   let factor = 1;
   for (const p of spec.params) {
@@ -199,6 +230,10 @@ export function estimateDuration(spec: BenchSpec, values: Partial<ParamValues>):
     } else if (p.type === 'multi' && Array.isArray(v) && Array.isArray(d)) {
       factor *= Math.max(1, v.length) / Math.max(1, d.length);
     }
+  }
+  if (spec.id === 'tool-eval') {
+    const suite = defaultParams(spec).suite;
+    factor *= toolEvalSeconds(values.suite ?? suite) / toolEvalSeconds(suite);
   }
   return Math.max(1, (spec.est_duration_s + extra) * factor);
 }
@@ -217,6 +252,10 @@ const CHOICE_TEXT: Record<string, string> = {
   seq_read: 'Sequential read',
   rand_read: 'Random read',
   rand_write: 'Random write',
+  core: 'Core 15',
+  standard: 'Standard 69',
+  hard: 'Hard Mode 28',
+  all: 'All 97',
 };
 
 /** 4096 -> "4 KiB", 1048576 -> "1 MiB". */
@@ -311,12 +350,24 @@ export function formatValue(v: number | null | undefined): string {
 /** Units as people write them: "us" -> "µs". */
 export const unitText = (unit: string) => (unit === 'us' ? 'µs' : unit);
 
-/** "412 TFLOPS", "1.92 µs". Clocks and temperatures read as on the live screens: "1.88 GHz", "88 °C". */
+/** A result that is a whole number by definition (`extras.whole`, such as a tool-eval score) reads "89%", not "89.0%". */
+const isWhole = (r: Pick<BenchResult, 'extras'>) => r.extras.whole === true;
+const formatWhole = (v: number) => (Math.round(v) < 0 ? `−${-Math.round(v)}` : String(Math.round(v)));
+
+/** "412 TFLOPS", "1.92 µs". Clocks and temperatures read as on the live screens: "1.88 GHz", "88 °C"; a count (no
+ * unit, a whole number, such as tool-eval's safety violations) as "0". */
 export function valueWithUnit(v: number | null | undefined, unit: string): string {
   if (v == null || !Number.isFinite(v)) return '—';
   if (unit === 'MHz' && Math.abs(v) >= 1000) return `${(v / 1000).toFixed(2)} GHz`;
   if (unit === '°C') return `${Math.round(v)} °C`;
+  if (!unit && Number.isInteger(v)) return String(v);
   return `${formatValue(v)}${!unit ? '' : unit === '%' ? '%' : ` ${unitText(unit)}`}`;
+}
+
+/** valueWithUnit for a result, honouring `extras.whole`. */
+function resultValue(r: BenchResult): string {
+  if (!isWhole(r) || !Number.isFinite(r.value)) return valueWithUnit(r.value, r.unit);
+  return `${formatWhole(r.value)}${!r.unit ? '' : r.unit === '%' ? '%' : ` ${unitText(r.unit)}`}`;
 }
 
 export function deltaPct(value: number | null | undefined, ref: number | null | undefined): number | null {
@@ -361,13 +412,17 @@ export const isUnsupported = (r: BenchResult) => r.extras.unsupported === true;
 /** A code-path smoke run (GPU payload on the CPU, agent bench_payload_device = "cpu"): not a GPU measurement. */
 export const isSmoke = (results: readonly BenchResult[]) => results.some((r) => r.extras.smoke === true);
 
-/** A signed change ("tflops_change_pct"): positive values carry a "+" so a gain never reads as a loss. */
-export const signedFormat = (r: Pick<BenchResult, 'metric'>) => (v: number) => (/_change_pct$/.test(r.metric) && v > 0 && formatValue(v) !== '0.00' ? `+${formatValue(v)}` : formatValue(v));
+/** A signed change ("tflops_change_pct"): positive values carry a "+" so a gain never reads as a loss. A whole
+ * result stays whole while it counts up, so the number doesn't change width when it lands. */
+export const signedFormat = (r: Pick<BenchResult, 'metric' | 'extras'>) => {
+  const format = isWhole(r) ? formatWhole : formatValue;
+  return (v: number) => (/_change_pct$/.test(r.metric) && v > 0 && Number(format(v)) !== 0 ? `+${format(v)}` : format(v));
+};
 
 /** "412 TFLOPS", "+27.3%", or "Unsupported" for a result the node could not measure. */
 export function resultText(r: BenchResult): string {
   if (isUnsupported(r)) return 'Unsupported';
-  const text = valueWithUnit(r.value, r.unit); // clocks and temperatures are rewritten ("2.15 GHz", "81 °C")
+  const text = resultValue(r); // clocks and temperatures are rewritten ("2.15 GHz", "81 °C")
   return signedFormat(r)(r.value).startsWith('+') ? `+${text}` : text;
 }
 
@@ -395,8 +450,8 @@ export function headlineText(all: readonly BenchResult[]): string {
   const same = headlineSet(all);
   const first = same[0];
   if (!first) return '—';
-  if (same.length < 2) return valueWithUnit(first.value, first.unit);
-  return `${same.map((r) => formatValue(r.value)).join(' / ')} ${first.unit}`;
+  if (same.length < 2) return resultValue(first);
+  return `${same.map((r) => (isWhole(r) ? formatWhole(r.value) : formatValue(r.value))).join(' / ')} ${first.unit}`;
 }
 
 /** What the headline number is, with its nodes in the same order: "Single core (Cortex-X925) · spark1 / spark2". */

@@ -13,6 +13,7 @@ dependencies = [
   "websockets>=12",
   "psutil>=5.9",
   "nvidia-ml-py>=12.560",
+  "tool-eval-bench==2.8.0",  # the tool-eval benchmark; exact, as its scores only compare within one version
 ]
 
 [project.optional-dependencies]
@@ -59,6 +60,6 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # Benchmark payloads run as scripts inside the PyTorch container: torch is not installed on the host, and
-# benchlib is imported as a sibling script, not as sparkline.bench.payloads.benchlib.
-module = ["torch", "torch.*", "benchlib"]
+# benchlib (and llm_inference, for tool_eval) is imported as a sibling script, not as a sparkline module.
+module = ["torch", "torch.*", "benchlib", "llm_inference"]
 ignore_missing_imports = true

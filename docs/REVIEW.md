@@ -275,6 +275,10 @@ fixed. Highest severity first.
   - **LLM inference** ran only against vLLM with Qwen2.5-0.5B on spark1. Other engines (TRT-LLM, SGLang) and
     large models are untested. "Prefill tokens/s" is per request (prompt ÷ TTFT), so at concurrency > 1 it
     is well below the server's aggregate prefill rate.
+  - **Concurrency streams and the tool-call eval** (added 2026-10-21) have run only against local fake servers
+    and in `--demo`, never against a real model endpoint: both nodes were busy with measured workloads. The
+    live stream view, the concurrency sweep, tool-eval-bench's scores and timings, and the tool-calling check
+    are unverified on real hardware.
   - The **thermal soak** ran for 10 minutes, not 30. "Time throttled 0 %" does not mean the clocks held:
     GB10 eases the SM clock 1–2 % as it heats without setting a reason bit, which only clock CV and the
     lowest clock show.
@@ -324,7 +328,8 @@ fixed. Highest severity first.
 - **The confirm dialog's duration is a client-side guess.** It scales the catalog estimate per parameter, so for
   the storage benchmark with a shorter runtime per profile it said "≈ 25 s" where the agent estimated 4 s (the run
   view switches to the agent's estimate). Harmless but imprecise. In `--demo`, runs are also compressed to about a
-  tenth of the estimate; the catalog descriptions say so, but the confirm dialog still shows the real estimate.
+  tenth of the estimate (LLM inference plays at double speed, 4–60 s per level); the catalog descriptions say so,
+  but the confirm dialog still shows the real estimate.
 - **No built-in TLS; one agent token shared by all nodes.** Use a reverse proxy (with `trusted_proxies`) or a
   VPN beyond the LAN. The CSP is sent by the console only: `npm run e2e` runs behind `vite preview`, which does
   not send it, so the CSP was verified with a separate browser walk against the real console.

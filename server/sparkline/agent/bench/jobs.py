@@ -27,6 +27,7 @@ from .specs import (
     RdmaParams,
     StorageParams,
     ThermalSoakParams,
+    ToolEvalParams,
     nccl_sizes,
 )
 
@@ -309,6 +310,21 @@ def _storage_results(
 
 
 # ---------------------------------------------------------------------------------------------------------
+# Tool-call evaluation
+# ---------------------------------------------------------------------------------------------------------
+
+
+async def tool_eval(job: Job, p: ToolEvalParams) -> None:
+    """tool-eval-bench, run in-process by a host payload (it imports the package from the agent's venv)."""
+    args = ["--base-url", p.base_url, "--suite", p.suite]
+    if p.model:
+        args += ["--model", p.model]
+    if not p.thinking:
+        args.append("--no-think")
+    await job.run(job.host_argv("tool_eval.py", args))
+
+
+# ---------------------------------------------------------------------------------------------------------
 # Telemetry-assisted benches (LLM inference memory, thermal soak)
 # ---------------------------------------------------------------------------------------------------------
 
@@ -413,6 +429,8 @@ async def llm_inference(job: Job, p: LlmInferenceParams) -> None:
     ]
     if p.model:
         args += ["--model", p.model]
+    if p.sweep:
+        args.append("--sweep")
     await _with_sampling(job, job.run(job.host_argv("llm_inference.py", args)), track)
     if not job.state.results:
         return
@@ -547,5 +565,6 @@ JOBS: dict[str, JobFn] = {
     "rdma-bw-lat": rdma_bw_lat,
     "storage-fio": storage,
     "llm-inference": llm_inference,
+    "tool-eval": tool_eval,
     "thermal-soak": thermal_soak,
 }

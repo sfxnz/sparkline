@@ -24,6 +24,7 @@ from netports import free_ports
 from sparkline.agent.bench import jobs, probes, specs
 from sparkline.agent.bench import runner as runner_mod
 from sparkline.agent.bench.metadata import PAYLOAD_DIR
+from sparkline.agent.bench.parsers import parse_json_line
 from sparkline.agent.bench.runner import BenchRunner, Job, Rejected
 from sparkline.agent.collectors.procs import detect_model
 from sparkline.common.schema import (
@@ -227,6 +228,20 @@ async def test_cancel_kills_process_group_and_cleans_files(tmp_path):
     await wait_for(lambda: not alive(parent) and not alive(child), 5)  # both ignored SIGTERM -> SIGKILL
     assert not (tmp_path / "work" / "r1").exists()
     assert json.loads(msgs[-1])["run"]["status"] == "cancelled"
+
+
+async def test_cancel_keeps_what_the_payload_prints_while_exiting(tmp_path):
+    """The streaming payloads answer SIGTERM with a last live snapshot and a log line: the run keeps both."""
+    msgs: list[str] = []
+    r = make_runner(tmp_path, {"cpu-throughput": fake("goodbye")}, msgs)
+    await r.start(req())
+    await wait_for(lambda: r.get("r1").live == {"state": "running"})
+    r.cancel("r1")
+    await wait_for(lambda: r.current is None)
+    st = r.get("r1")
+    assert st.status == "cancelled" and st.live == {"state": "stopped"}
+    assert "stopped after SIGTERM" in st.log_tail
+    assert json.loads(msgs[-1])["run"]["live"] == {"state": "stopped"}
 
 
 async def test_cancel_removes_container(tmp_path):
@@ -854,6 +869,84 @@ async def test_cpu_smoke_mode_flags_every_result_smoke(tmp_path):
 
 
 # -----------------------------------------------------------------------------------------------------
+# Payload protocol: live snapshot and detail
+# -----------------------------------------------------------------------------------------------------
+
+
+async def test_live_replaces_detail_merges_and_both_publish_coalesced(tmp_path):
+    job = make_job(tmp_path, "llm-inference")
+    msgs: list[str] = []
+    job.runner.publish = msgs.append
+    job.handle({"live": {"done": 1, "streams": [{"slot": 0}]}})  # the first change publishes at once
+    job.handle({"live": {"done": 2}})  # replaced wholesale, never merged
+    job.handle({"detail": {"llm": {"levels": [1]}, "keep": True}})
+    job.handle({"detail": {"llm": {"levels": [1, 2]}}})  # top-level keys replace; the others stay
+    assert job.state.live == {"done": 2}
+    assert job.state.detail == {"llm": {"levels": [1, 2]}, "keep": True}
+    assert len(msgs) == 1  # the rest waits for the next publish slot
+    await wait_for(lambda: len(msgs) == 2)
+    run = json.loads(msgs[-1])["run"]
+    assert run["live"] == {"done": 2} and run["detail"] == {"llm": {"levels": [1, 2]}, "keep": True}
+
+
+async def test_oversized_live_and_detail_are_dropped_and_logged_once(tmp_path):
+    job = make_job(tmp_path, "llm-inference")
+    fits = {"t": "x" * (runner_mod.LIVE_MAX_BYTES - len('{"t":""}'))}  # exactly the limit as compact JSON
+    job.handle({"live": fits})
+    for _ in range(3):
+        job.handle({"live": {"t": "x" * runner_mod.LIVE_MAX_BYTES}})
+    assert job.state.live == fits  # the last snapshot that fitted stays
+    half = "x" * (runner_mod.DETAIL_MAX_BYTES // 2)
+    job.handle({"detail": {"a": half}})
+    for _ in range(3):
+        job.handle({"detail": {"b": half}})  # the total would pass 1 MiB: the whole update is dropped
+    assert list(job.state.detail) == ["a"]
+    job.handle({"detail": {"a": "small", "b": half}})  # replacing a key frees its share
+    assert job.state.detail == {"a": "small", "b": half}
+    assert job.state.log_tail == ["live snapshot too large, dropped", "detail too large, dropped"]
+
+
+async def test_live_and_detail_must_be_json_objects_of_limited_depth(tmp_path):
+    """Anything else is ignored with one log line per mistake and job; the job carries on."""
+
+    def nested(n: int) -> dict:
+        return json.loads('{"a":' * n + "1" + "}" * n)
+
+    job = make_job(tmp_path, "llm-inference")
+    job.handle({"live": {"ok": 1}, "detail": {"ok": 1}})
+    for bad in (None, [1, 2], "text", 3, nested(runner_mod.JSON_MAX_DEPTH + 1)):
+        for _ in range(2):
+            job.handle({"live": bad, "detail": bad})
+    assert job.state.live == {"ok": 1} and job.state.detail == {"ok": 1}
+    assert job.state.log_tail == [
+        "live snapshot is not a JSON object, ignored",
+        "detail is not a JSON object, ignored",
+        "live snapshot nested too deeply, dropped",
+        "detail nested too deeply, dropped",
+    ]
+    job.handle({"live": nested(runner_mod.JSON_MAX_DEPTH)})  # at the limit: kept
+    assert job.state.live == nested(runner_mod.JSON_MAX_DEPTH)
+
+
+async def test_benchlib_live_and_detail_helpers_speak_the_protocol(tmp_path, monkeypatch, capsys):
+    monkeypatch.syspath_prepend(PAYLOAD_DIR)
+    import benchlib
+
+    benchlib.live({"kind": "llm-streams", "tok_s": None})
+    benchlib.detail(llm={"levels": [1]}, scenarios=[])
+    msgs = [parse_json_line(ln) for ln in capsys.readouterr().out.splitlines()]
+    assert msgs == [
+        {"live": {"kind": "llm-streams", "tok_s": None}},
+        {"detail": {"llm": {"levels": [1]}, "scenarios": []}},
+    ]
+    job = make_job(tmp_path, "llm-inference")
+    for m in msgs:
+        job.handle(m)
+    assert job.state.live == {"kind": "llm-streams", "tok_s": None}
+    assert job.state.detail == {"llm": {"levels": [1]}, "scenarios": []}
+
+
+# -----------------------------------------------------------------------------------------------------
 # Host payloads (tiny real runs)
 # -----------------------------------------------------------------------------------------------------
 
@@ -1341,6 +1434,8 @@ async def test_llm_inference_end_to_end(tmp_path, fake_llm):
     await r.current.task
     st = r.get("r1")
     assert st.status == "succeeded", st.error
+    assert [s["state"] for s in st.live["streams"]] == ["done", "done"]  # the payload's live view arrives
+    assert st.detail["llm"]["levels"][0]["requests"] == 4
     res = {x.metric: x for x in st.results}
     assert {"ttft_p50_ms", "ttft_p95_ms", "prefill_tok_s", "decode_tok_s", "decode_tok_s_total"} <= set(res)
     assert res["ttft_p50_ms"].value >= 50 and res["ttft_p50_ms"].better == "lower"
@@ -1447,6 +1542,301 @@ async def test_llm_unreachable_endpoint_problem(tmp_path):
     await r.current.task
     st = r.get("r1")
     assert st.status == "failed" and st.error.message == "LLM endpoint unreachable"
+
+
+LIVE_KEYS = {"kind", "v", "level", "levels", "level_index", "requests", "done", "failed", "t", "tok_s"}
+LIVE_KEYS |= {"tok_s_hist", "ttft_p50_ms", "completed_levels", "streams"}
+STREAM_KEYS = {"slot", "req", "state", "tokens", "max", "ttft_ms", "tok_s", "peak_tok_s", "elapsed_ms"}
+STREAM_KEYS |= {"text", "chars", "think", "think_chars", "error"}
+LEVEL_KEYS = {"level", "requests", "ok", "failed", "wall_s", "out_tok_s", "decode_tok_s_p50"}
+LEVEL_KEYS |= {"decode_tok_s_p10", "itl_p50_ms", "ttft_p50_ms", "ttft_p95_ms", "prefill_tok_s_p50"}
+LEVEL_KEYS |= {"prompt_tokens", "completion_tokens"}
+
+
+class FakeStreams(FakeOpenAI):
+    """A reasoning model behind vLLM (or the engine `owner` names): `think` reasoning chunks, then answer
+    chunks, `delay` apart with `per_chunk` tokens each (as MTP sends them); usage in every chunk when the
+    request asks for continuous_usage_stats. Requests after the first `fail_after` get an OpenAI error."""
+
+    owner, delay, think, per_chunk, fail_after = "vllm", 0.01, 0, 1, None
+    bodies: list[dict] = []  # replaced per server
+    lock = threading.Lock()
+
+    def do_GET(self) -> None:
+        body = json.dumps({"data": [{"id": "fake/Model-8B", "owned_by": self.owner}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self) -> None:
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        with self.lock:
+            self.bodies.append(body)
+            failing = self.fail_after is not None and len(self.bodies) > self.fail_after
+        if failing:
+            err = json.dumps({"error": {"message": "server overloaded"}}).encode()
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(err)))
+            self.end_headers()
+            self.wfile.write(err)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        every = (body.get("stream_options") or {}).get("continuous_usage_stats")
+        n, sent, i = body["max_tokens"], 0, 0
+        try:
+            time.sleep(0.05)  # "prefill"
+            while sent < n:
+                k = min(self.per_chunk, n - sent)
+                words = " ".join(f"t{sent + j}" for j in range(k)) + " "
+                chunk: dict = {"choices": [{"index": 0, "delta": {"content": words}}]}
+                if i < self.think:
+                    chunk["choices"][0]["delta"] = {"reasoning_content": words}
+                sent, i = sent + k, i + 1
+                if every:
+                    chunk["usage"] = {"prompt_tokens": 130, "completion_tokens": sent}
+                self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+                self.wfile.flush()
+                time.sleep(self.delay)
+            usage = {"choices": [], "usage": {"prompt_tokens": 130, "completion_tokens": n}}
+            self.wfile.write(f"data: {json.dumps(usage)}\n\ndata: [DONE]\n\n".encode())
+        except OSError:  # the payload went away (cancelled)
+            pass
+
+
+@pytest.fixture
+def fake_streams():
+    """Starts FakeStreams servers configured by keyword (class attributes); returns (base URL, bodies)."""
+    servers = []
+
+    def start(**kw) -> tuple[str, list[dict]]:
+        handler = type("Fake", (FakeStreams,), {**kw, "bodies": []})
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True).start()  # quick shutdown
+        servers.append(srv)
+        return f"http://127.0.0.1:{srv.server_address[1]}", handler.bodies
+
+    yield start
+    for srv in servers:
+        srv.shutdown()
+        srv.server_close()
+
+
+def llm_payload(url: str, *args: str) -> tuple[int, list[dict]]:
+    argv = [sys.executable, "-u", os.path.join(PAYLOAD_DIR, "llm_inference.py"), "--json", "--base-url", url]
+    out = subprocess.run([*argv, *args], capture_output=True, text=True, timeout=60)
+    return out.returncode, [json.loads(ln) for ln in out.stdout.splitlines() if ln.startswith("{")]
+
+
+def finite(obj) -> bool:
+    """No NaN or inf anywhere (pydantic would send them on as null into typed fields)."""
+    if isinstance(obj, float):
+        return math.isfinite(obj)
+    if isinstance(obj, dict | list):
+        return all(finite(v) for v in (obj.values() if isinstance(obj, dict) else obj))
+    return True
+
+
+def test_llm_streams_report_live_snapshots_and_detail_and_keep_todays_results(fake_streams):
+    """3 streams take 5 requests (each starts its next one when its last ends); the model reasons for 3
+    chunks first. Snapshots follow every stream; the results are exactly those of runs before streams."""
+    url, bodies = fake_streams(delay=0.02, think=3)
+    args = ("--concurrency", "3", "--requests", "5", "--max-tokens", "30")
+    msgs = run_payload("llm_inference.py", "--base-url", url, *args)
+    assert finite(msgs)
+    assert all(b["stream_options"] == {"include_usage": True, "continuous_usage_stats": True} for b in bodies)
+    lives = [m["live"] for m in msgs if "live" in m]
+    assert all(set(x) == LIVE_KEYS for x in lives)
+    assert all((x["kind"], x["v"], x["levels"], x["requests"]) == ("llm-streams", 1, [3], 5) for x in lives)
+    assert all([s["slot"] for s in x["streams"]] == [0, 1, 2] for x in lives)
+    streams = [s for x in lives for s in x["streams"]]
+    assert all(set(s) == STREAM_KEYS and s["max"] == 30 for s in streams)
+    assert [s["state"] for s in lives[0]["streams"]] == ["idle"] * 3  # the level starts
+    rated = [s for s in streams if s["state"] == "decode" and s["tok_s"] is not None]
+    assert rated and all(20 < s["tok_s"] <= s["peak_tok_s"] < 80 and s["ttft_ms"] >= 50 for s in rated)
+    assert any(s["think"] for s in streams) and any(s["text"] for s in streams)
+    assert all(len(s["text"]) <= 280 and len(s["think"]) <= 160 for s in streams)
+    for slot in range(3):  # counts only grow, so the web can type exactly the appended characters
+        for key in ("chars", "think_chars"):
+            seen = [x["streams"][slot][key] for x in lives]
+            assert seen == sorted(seen)
+    assert 40 < max(x["tok_s"] or 0 for x in lives) < 200 and lives[-1]["tok_s_hist"][0] == 0
+    last = lives[-1]
+    assert [s["state"] for s in last["streams"]] == ["done"] * 3 and (last["done"], last["failed"]) == (5, 0)
+    assert {4, 5} <= {s["req"] for s in last["streams"]} and all(s["tokens"] == 30 for s in last["streams"])
+    [llm] = [m["detail"]["llm"] for m in msgs if "detail" in m]
+    [level] = llm["levels"]
+    assert set(level) == LEVEL_KEYS and last["completed_levels"] == [level]
+    assert (level["level"], level["requests"], level["ok"], level["failed"]) == (3, 5, 5, 0)
+    assert (level["prompt_tokens"], level["completion_tokens"]) == (650, 150)
+    timeline = llm["timeline"]["3"]
+    assert timeline["cols"] == ["slot", "req", "sent", "first", "end", "tokens", "ok"]
+    assert not timeline["truncated"]
+    assert [r[1] for r in timeline["rows"]] == [1, 2, 3, 4, 5]
+    assert all(r[2] <= r[3] <= r[4] and r[5:] == [30, 1] for r in timeline["rows"])
+    for slot in range(3):  # a slot sends its next request once its last one has ended
+        rows = [r for r in timeline["rows"] if r[0] == slot]
+        assert all(b[2] >= a[4] for a, b in zip(rows, rows[1:], strict=False))
+    res = [m["result"] for m in msgs if "result" in m]
+    assert [(r["metric"], r["label"], r["unit"], r["better"], "headline" in r["extras"]) for r in res] == [
+        ("decode_tok_s", "Decode tokens/s per request", "tok/s", "higher", True),
+        ("ttft_p50_ms", "Time to first token p50", "ms", "lower", True),
+        ("prefill_tok_s", "Prefill tokens/s", "tok/s", "higher", True),
+        ("ttft_p95_ms", "Time to first token p95", "ms", "lower", False),
+        ("decode_tok_s_total", "Output tokens/s, all requests", "tok/s", "higher", False),
+    ]
+    assert res[3]["extras"] == {
+        "engine": "vllm",
+        "model": "fake/Model-8B",
+        "requests": 5,
+        "failed": 0,
+        "concurrency": 3,
+        "prompt_tokens": 130,
+        "prompt_tokens_source": "usage",
+        "max_tokens": 30,
+        "api": "chat",
+    }
+    # one definition and one rounding: the level table shows exactly the results' numbers
+    val = {r["metric"]: r["value"] for r in res}
+    assert (val["decode_tok_s_total"], val["decode_tok_s"]) == (level["out_tok_s"], level["decode_tok_s_p50"])
+    assert (val["ttft_p50_ms"], val["ttft_p95_ms"]) == (level["ttft_p50_ms"], level["ttft_p95_ms"])
+    assert val["prefill_tok_s"] == level["prefill_tok_s_p50"]
+    phases = [m["phase"] for m in msgs if "phase" in m]
+    assert phases[:2] == ["Querying /v1/models", "3 streams · 0 of 5 done"]
+    assert phases[-2:] == ["3 streams · 5 of 5 done", "Done"]
+
+
+def test_llm_sweep_runs_each_level_in_turn_and_reports_it(fake_streams):
+    url, bodies = fake_streams(delay=0.005)
+    args = ("--concurrency", "4", "--requests", "2", "--max-tokens", "8", "--sweep")
+    msgs = run_payload("llm_inference.py", "--base-url", url, *args)
+    assert finite(msgs) and len(bodies) == 2 + 2 + 4  # at least one request per stream
+    lives = [m["live"] for m in msgs if "live" in m]
+    levels = sorted({(x["level_index"], x["level"], x["requests"]) for x in lives})
+    assert levels == [(0, 1, 2), (1, 2, 2), (2, 4, 4)]
+    assert all(x["levels"] == [1, 2, 4] and len(x["streams"]) == x["level"] for x in lives)
+    assert len(next(x for x in lives if x["level"] == 4)["completed_levels"]) == 2
+    llm = [m["detail"]["llm"] for m in msgs if "detail" in m]
+    assert [len(d["levels"]) for d in llm] == [1, 2, 3]  # each level's detail as it ends
+    done = [(lv["level"], lv["requests"], lv["ok"]) for lv in llm[-1]["levels"]]
+    assert done == [(1, 2, 2), (2, 2, 2), (4, 4, 4)]
+    for size, timeline in llm[-1]["timeline"].items():  # never more streams than the level's
+        assert {r[0] for r in timeline["rows"]} == set(range(int(size)))
+    res = [m["result"] for m in msgs if "result" in m]
+    per = ("decode_tok_s_total", "decode_tok_s", "ttft_p50_ms", "ttft_p95_ms")
+    assert [r["metric"] for r in res] == ["peak_output_tok_s"] + [f"{m}_c{n}" for n in (1, 2, 4) for m in per]
+    heads = [r["metric"] for r in res if r["extras"].get("headline")]
+    assert heads == ["peak_output_tok_s", "decode_tok_s_c1", "ttft_p50_ms_c4"]
+    by = {r["metric"]: r for r in res}
+    assert by["decode_tok_s_total_c1"]["label"] == "Output tokens/s · 1 stream"
+    assert by["decode_tok_s_c2"]["label"] == "Decode tokens/s per request · 2 streams"
+    p95 = by["ttft_p95_ms_c4"]
+    assert (p95["label"], p95["better"]) == ("Time to first token p95 · 4 streams", "lower")
+    assert all(r["extras"]["sweep"] is True and r["extras"]["engine"] == "vllm" for r in res)
+    for n, requests in ((1, 2), (2, 2), (4, 4)):
+        ex = by[f"ttft_p50_ms_c{n}"]["extras"]
+        assert (ex["level"], ex["concurrency"], ex["requests"], ex["failed"]) == (n, n, requests, 0)
+    peak = by["peak_output_tok_s"]
+    assert peak["value"] == max(by[f"decode_tok_s_total_c{n}"]["value"] for n in (1, 2, 4))
+    assert by[f"decode_tok_s_total_c{peak['extras']['level']}"]["value"] == peak["value"]
+    for lv in llm[-1]["levels"]:  # the sweep table shows exactly the results' numbers
+        n = lv["level"]
+        assert by[f"decode_tok_s_total_c{n}"]["value"] == lv["out_tok_s"]
+        assert by[f"decode_tok_s_c{n}"]["value"] == lv["decode_tok_s_p50"]
+        assert (by[f"ttft_p50_ms_c{n}"]["value"], by[f"ttft_p95_ms_c{n}"]["value"]) == (
+            lv["ttft_p50_ms"],
+            lv["ttft_p95_ms"],
+        )
+    phases = [m["phase"] for m in msgs if "phase" in m]
+    assert "Level 1 of 3 · 1 stream · 0 of 2 done" in phases
+    assert "Level 3 of 3 · 4 streams · 4 of 4 done" in phases
+    progress = [m["progress"] for m in msgs if "progress" in m]
+    assert progress == sorted(progress) and progress[-1] == 1.0
+
+
+@pytest.mark.parametrize("owner", ["vllm", "sglang"])
+def test_llm_live_tokens_are_exact_with_vllm_usage_in_every_chunk(fake_streams, owner):
+    """3 tokens per chunk (as MTP sends them): vLLM's usage in every chunk counts them while they stream.
+    Other engines get today's request body and a count of text chunks until their final usage."""
+    url, bodies = fake_streams(owner=owner, delay=0.03, per_chunk=3)
+    msgs = run_payload("llm_inference.py", "--base-url", url, "--requests", "1", "--max-tokens", "90")
+    vllm = owner == "vllm"
+    every = {"continuous_usage_stats": True} if vllm else {}
+    assert bodies[0]["stream_options"] == {"include_usage": True, **every}
+    decoding = [s for m in msgs if "live" in m for s in m["live"]["streams"] if s["state"] == "decode"]
+    if vllm:
+        assert all(s["tokens"] % 3 == 0 for s in decoding)
+        assert any((s["tok_s"] or 0) > 70 for s in decoding)  # ~100 tok/s; counting chunks says ~33
+    else:
+        assert decoding and all(s["tokens"] <= 30 for s in decoding)  # 30 chunks
+    final = [m["live"] for m in msgs if "live" in m][-1]["streams"][0]
+    assert (final["state"], final["tokens"]) == ("done", 90)  # the final usage, either way
+    res = {m["result"]["metric"]: m["result"] for m in msgs if "result" in m}
+    assert 70 < res["decode_tok_s"]["value"] < 110
+
+
+def test_llm_failed_requests_show_on_their_streams_and_a_failed_level_reports_nothing(fake_streams):
+    url, _ = fake_streams(fail_after=4)  # the 1- and 2-stream levels get 2 requests each; then all fail
+    args = ("--concurrency", "4", "--requests", "2", "--max-tokens", "4", "--sweep")
+    msgs = run_payload("llm_inference.py", "--base-url", url, *args)
+    err = "HTTP 503: server overloaded"
+    last = [m["live"] for m in msgs if "live" in m][-1]
+    assert (last["level"], last["done"], last["failed"]) == (4, 4, 4)
+    assert {(s["state"], s["error"], s["ttft_ms"]) for s in last["streams"]} == {("error", err, None)}
+    llm = [m["detail"]["llm"] for m in msgs if "detail" in m][-1]
+    failed = llm["levels"][2]
+    assert (failed["ok"], failed["failed"], failed["out_tok_s"], failed["ttft_p50_ms"]) == (0, 4, None, None)
+    assert all(r[3] is None and r[6] == 0 for r in llm["timeline"]["4"]["rows"])
+    res = [m["result"] for m in msgs if "result" in m]
+    assert not any(r["metric"].endswith("_c4") for r in res)
+    heads = [r["metric"] for r in res if r["extras"].get("headline")]
+    assert heads == ["peak_output_tok_s", "decode_tok_s_c1", "ttft_p50_ms_c2"]
+    logs = [m["log"] for m in msgs if "log" in m]
+    assert f"4 streams: request failed: {err}" in logs
+    assert "4 streams: every request failed, so this level has no results" in logs
+    rc, msgs = llm_payload(url, "--requests", "2")  # one level, nothing to report: the run fails
+    fix = "Check the model name and server logs"
+    assert rc == 1 and msgs[-1]["error"] == {"message": "Every request failed", "cause": err, "fix": fix}
+    assert [s["state"] for s in [m["live"] for m in msgs if "live" in m][-1]["streams"]] == ["error"]
+
+
+def test_llm_sigterm_stops_every_stream_at_once_and_leaves_a_last_snapshot(fake_streams):
+    """A cancel must not wait for blocked reads (the runner SIGKILLs after 5 s): the open connections are
+    shut, the payload exits well within a second and its last snapshot shows the streams it stopped."""
+    url, _ = fake_streams(delay=0.1)
+    argv = [sys.executable, "-u", os.path.join(PAYLOAD_DIR, "llm_inference.py"), "--json", "--base-url", url]
+    argv += ["--concurrency", "2", "--max-tokens", "500"]
+    p = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
+    assert p.stdout is not None
+    for line in p.stdout:  # until both streams are decoding
+        m = json.loads(line)
+        if "live" in m and [s["state"] for s in m["live"]["streams"]] == ["decode", "decode"]:
+            break
+    t = time.monotonic()
+    p.send_signal(signal.SIGTERM)
+    rest = p.stdout.read()
+    assert p.wait(5) == 143 and time.monotonic() - t < 1.0
+    last = json.loads(rest.splitlines()[-1])
+    assert [s["state"] for s in last["live"]["streams"]] == ["decode", "decode"]
+
+
+def test_llm_payload_levels_are_the_registrys(monkeypatch):
+    monkeypatch.syspath_prepend(PAYLOAD_DIR)
+    from llm_inference import levels
+
+    assert all(levels(c, s) == specs.levels(c, s) for c in range(1, 33) for s in (False, True))
+
+
+async def test_llm_job_asks_the_payload_for_a_sweep(tmp_path):
+    for sweep in (False, True):
+        job = make_job(tmp_path, "llm-inference", {"sweep": sweep})
+        calls = capture(job)
+        await jobs.llm_inference(job, job.params)
+        assert ("--sweep" in calls[0]["argv"]) is sweep
 
 
 async def test_catalog_flags_cpu_smoke_mode_only_where_it_applies(tmp_path):

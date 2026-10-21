@@ -22,6 +22,8 @@ def test_json_lines():
     assert parse_json_line('{"progress": 0.5, "phase": "x"}') == {"progress": 0.5, "phase": "x"}
     assert parse_json_line('  {"result": {"metric": "m"}}\n') == {"result": {"metric": "m"}}
     assert parse_json_line('{"ready": true}') == {"ready": True}
+    assert parse_json_line('{"live": {"done": 1}}') == {"live": {"done": 1}}
+    assert parse_json_line('{"detail": {"llm": {}}}') == {"detail": {"llm": {}}}
     assert parse_json_line("plain text") is None
     assert parse_json_line("{not json") is None
     assert parse_json_line('{"other": 1}') is None  # JSON, but not a protocol message

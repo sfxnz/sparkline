@@ -13,6 +13,7 @@ from sparkline.agent.bench.specs import (
     StorageParams,
     bench_params,
     check_base_url,
+    levels,
     nccl_sizes,
     validation_message,
 )
@@ -26,6 +27,7 @@ IDS = [
     "rdma-bw-lat",
     "storage-fio",
     "llm-inference",
+    "tool-eval",
     "thermal-soak",
 ]
 
@@ -153,6 +155,21 @@ def test_estimates_scale_with_params():
     assert nccl_sizes("16")[0] == 8 and nccl_sizes("16")[-1] == 16 * 2**20
 
 
+def test_llm_sweep_levels_and_their_estimate():
+    assert levels(32, True) == [1, 2, 4, 8, 16, 32] and levels(24, True) == [1, 2, 4, 8, 16, 24]
+    assert levels(1, True) == [1] and levels(3, True) == [1, 2, 3] and levels(32, False) == [32]
+    b = REGISTRY["llm-inference"]
+    wave = 0.5 + 512 / 2000 + 128 / 20
+    assert b.estimate(b.validate({})) == pytest.approx(5 + 8 * wave)  # as before sweeps
+    assert b.estimate(b.validate({"concurrency": 32})) == pytest.approx(5 + wave)  # one request per stream
+    # 8 requests at 1, 2, 4 and 8 streams, then one per stream at 16 and 32: 8 + 4 + 2 + 1 + 1 + 1 waves
+    assert b.estimate(b.validate({"concurrency": 32, "sweep": True})) == pytest.approx(5 + 17 * wave)
+    sweep = {p.name: p for p in bench_params(LlmInferenceParams)}["sweep"]
+    assert (sweep.type, sweep.default, sweep.label) == ("bool", False, "Sweep concurrency")
+    with pytest.raises(ValidationError):
+        b.validate({"sweep": "sometimes"})
+
+
 def P(msg: str) -> Problem:
     return Problem(message=msg, cause="c", fix="f")
 
@@ -169,10 +186,12 @@ def test_availability_mapping():
     assert probes.availability("storage-fio", env) == (None, "")
     assert probes.availability("cpu-throughput", env)[0] is None
     assert probes.availability("llm-inference", env)[0] is None
+    assert probes.availability("tool-eval", env)[0] is None
+    assert probes.availability("tool-eval", probes.Env(tool_eval=P("no package")))[0].message == "no package"
     env = probes.Env(rdma=P("no rails"))
     assert probes.availability("nccl-allreduce", env)[0].message == "no rails"
     env = probes.Env(cpu_cap=P("capped"))
-    for i in ("cpu-throughput", "llm-inference", "storage-fio", "rdma-bw-lat"):
+    for i in ("cpu-throughput", "llm-inference", "tool-eval", "storage-fio", "rdma-bw-lat"):
         assert probes.availability(i, env)[0].message == "capped"
     for i in ("gpu-matmul", "thermal-soak", "mem-bandwidth", "nccl-allreduce"):  # in containers
         assert probes.availability(i, env)[0] is None

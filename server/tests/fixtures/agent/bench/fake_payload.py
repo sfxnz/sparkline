@@ -66,3 +66,13 @@ elif mode == "chatty":
         emit(progress=i / 200)
         time.sleep(0.005)
     emit(result={"metric": "m", "label": "M", "value": 1.0, "unit": "u"})
+elif mode == "goodbye":  # like llm_inference.py / tool_eval.py: a last live snapshot and log line on SIGTERM
+
+    def bye(*_):
+        emit(live={"state": "stopped"})
+        emit(log="stopped after SIGTERM")
+        sys.exit(143)
+
+    signal.signal(signal.SIGTERM, bye)
+    emit(live={"state": "running"})
+    time.sleep(600)

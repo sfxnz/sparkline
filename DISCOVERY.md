@@ -17,7 +17,8 @@ Everything below was observed directly. Metrics not listed here are not shown as
 Workload at probe time: a TP=2 inference job (`serve_stats.py`, container `c5-2B-r0`,
 `nvcr.io/nvidia/pytorch:26.07-py3`) using ~86 GB of GPU-allocated memory and ~90% GPU utilisation **on both
 nodes**. Heavy benchmarks would disrupt it, so at first the benchmark suite was verified in dry-run and demo mode
-only. Every benchmark was later run on both idle nodes: see "Measured on hardware (2026-10-07)" below.
+only. Every benchmark was later run on both idle nodes: see "Measured on hardware (2026-10-07)" below. The
+tool-call eval (`tool-eval`), added on 2026-10-21, has not run against a real model endpoint yet.
 
 ## GPU — NVIDIA GB10 (Blackwell, CC 12.1, 6144 CUDA cores)
 
@@ -122,6 +123,7 @@ counters come from `.../counters/` and `.../hw_counters/` (e.g. `symbol_error`, 
 | nccl-tests (`all_reduce_perf`) | ❌ | ❌ | Not used: it needs an MPI launcher across nodes. The NCCL benchmark uses `torch.distributed` (NCCL backend) in the PyTorch container and reports the same algbw/busbw |
 | `fio` | ❌ | ❌ | Uses fio if installed. Otherwise a built-in O_DIRECT runner, clearly labelled |
 | LLM engine | vLLM images present, custom servers | same | Engine-agnostic: an OpenAI-compatible endpoint with streaming TTFT/decode timing |
+| tool-eval-bench (PyPI) | ✅ 2.8.0 in the dev venv | — | The tool-call eval imports it from the agent's venv; `install.sh` installs it hash-pinned from `server/requirements.lock`. The endpoint needs tool calling enabled (vLLM `--enable-auto-tool-choice --tool-call-parser …`) |
 | `sudo` without a password | ❌ | — | `install.sh` must be run with sudo (`--dry-run` and `--destdir` work without). Dev runs use user-space processes |
 
 ## Measured on hardware (2026-10-07)

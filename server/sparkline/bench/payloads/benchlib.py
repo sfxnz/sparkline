@@ -4,7 +4,10 @@ Protocol: one JSON object per stdout line, read by the agent's runner:
   {"progress": 0..1, "phase": "..."}   {"result": {BenchResult fields}}
   {"series": {key: [values]}} (appended to the run's series)
   {"gauge": {key: value}} (latest value only; the agent samples it on its own clock, e.g. soak TFLOPS)
+  {"live": {...}} (replaces the run's live snapshot; <= 256 KiB of compact JSON)
+  {"detail": {key: ...}} (top-level keys replace the run's detail keys; <= 1 MiB in all)
   {"log": "..."}   {"ready": true}   {"error": {"message", "cause", "fix"}}
+live/detail nest at most 64 levels and hold no NaN/inf (round, and use null for a missing number).
 """
 
 from __future__ import annotations
@@ -34,6 +37,14 @@ def result(metric: str, label: str, value: float, unit: str, better: str = "high
             "extras": extras,
         }
     )
+
+
+def live(snapshot: dict) -> None:
+    emit(live=snapshot)
+
+
+def detail(**parts) -> None:
+    emit(detail=parts)
 
 
 def log(text: str) -> None:

@@ -374,6 +374,10 @@ export interface NodeBenchState {
   metadata: Record<string, unknown>;
   error: Problem | null;
   log_tail: string[];
+  /** What the payload is doing now (bounded snapshot, replaced on every update). Absent in older runs; validate its shape. */
+  live?: Record<string, unknown>;
+  /** Structured per-run detail (top-level keys merge). Absent in older runs; validate its shape. */
+  detail?: Record<string, unknown>;
 }
 
 /** GET /api/v1/bench/compare?ids=a,b,c */

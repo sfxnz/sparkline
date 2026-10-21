@@ -415,6 +415,8 @@ class NodeBenchState(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     error: Problem | None = None
     log_tail: list[str] = Field(default_factory=list)
+    live: dict[str, Any] = Field(default_factory=dict)  # what the payload is doing now (bounded); replaced
+    detail: dict[str, Any] = Field(default_factory=dict)  # structured per-run detail; top-level keys merge
 
 
 BenchRun.model_rebuild()

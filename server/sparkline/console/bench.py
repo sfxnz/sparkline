@@ -53,6 +53,7 @@ REGISTRY = [
     "rdma-bw-lat",
     "storage-fio",
     "llm-inference",
+    "tool-eval",
     "thermal-soak",
 ]
 # One collective measured across the nodes: its results belong to the cluster (node_id None), not to rank 0.
@@ -73,6 +74,8 @@ TELEMETRY_MAX = 1800
 TELEMETRY_STEP_S = 0.75  # agent samples at 1 Hz arrive 0.93-1.07 s apart; faster agents are thinned
 LOG_TAIL = 60
 _B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
+# Params added after release: left out of params_key while neutral, so older runs keep matching baselines.
+KEY_NEUTRAL: dict[str, dict[str, Any]] = {"llm-inference": {"sweep": False}}
 
 
 class BenchError(Exception):
@@ -86,6 +89,17 @@ class BenchError(Exception):
 
 def canonical(params: dict[str, Any]) -> str:
     return json.dumps(params, sort_keys=True, separators=(",", ":"))
+
+
+def params_key(bench_id: str, params: dict[str, Any]) -> str:
+    """Baseline identity of validated params: canonical JSON, leaving out KEY_NEUTRAL params while neutral.
+    llm-inference without a sweep counts the requests it sends (at least one per stream since 2026-10-21), so
+    an older run with Requests below Concurrency, which sent fewer at once, is never compared with it."""
+    neutral = KEY_NEUTRAL.get(bench_id, {})
+    key = {k: v for k, v in params.items() if k not in neutral or v != neutral[k]}
+    if bench_id == "llm-inference" and not params.get("sweep"):
+        key["requests"] = max(params["requests"], params["concurrency"])
+    return canonical(key)
 
 
 def new_run_id(now: float | None = None) -> str:
@@ -616,7 +630,7 @@ class BenchManager:
             status="queued",
             created_ts=now,
             phase="Starting",
-            params_key=canonical(params),
+            params_key=params_key(spec.id, params),
             metadata={"bench_name": spec.name},
         )
         act = _Active(run=run, name=spec.name, last_broadcast=now)  # nothing goes out while dispatching

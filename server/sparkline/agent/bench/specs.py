@@ -180,7 +180,43 @@ class LlmInferenceParams(Params):
     prompt_tokens: int = _param(512, "Prompt length", "Approximate prompt size.", "tokens", ge=16, le=65536)
     max_tokens: int = _param(128, "Output length", "max_tokens per request.", "tokens", ge=1, le=4096)
     concurrency: int = _param(1, "Concurrency", "Requests in flight at once.", ge=1, le=32)
-    requests: int = _param(8, "Requests", "Total requests.", ge=1, le=512)
+    requests: int = _param(
+        8, "Requests", "Total requests (per level when sweeping, at least one per stream).", ge=1, le=512
+    )
+    sweep: bool = _param(
+        False,
+        "Sweep concurrency",
+        "Run 1, 2, 4 … streams up to Concurrency, one level after another, and compare them.",
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def _url(cls, v: str) -> str:
+        return check_base_url(v)
+
+    @field_validator("model")
+    @classmethod
+    def _model(cls, v: str) -> str:
+        if v and not _MODEL_RE.match(v):
+            raise ValueError("model name may only contain letters, digits and . - / : _ (max 200)")
+        return v
+
+
+class ToolEvalParams(Params):
+    base_url: str = _param(
+        "http://127.0.0.1:8000",
+        "Endpoint",
+        "OpenAI-compatible server (vLLM, TRT-LLM, llama.cpp, SGLang...) on a private or loopback address.",
+    )
+    model: str = _param("", "Model", "Model name as served; empty picks the first from /v1/models.")
+    suite: Literal["core", "standard", "hard", "all"] = _param(
+        "standard",
+        "Scenarios",
+        "Core 15 takes a few minutes; Standard 69, the upstream default, about 20-30 min on a Spark.",
+    )
+    thinking: bool = _param(
+        True, "Thinking", "Off sends enable_thinking=false to the chat template (upstream's --no-think)."
+    )
 
     @field_validator("base_url")
     @classmethod
@@ -259,9 +295,31 @@ def est_storage(p: StorageParams) -> float:
     return 1.0 + p.size_mib * 2**20 / 1.5e9 + reads * p.runtime_s
 
 
+def levels(concurrency: int, sweep: bool) -> list[int]:
+    """Streams per level of an LLM run: [concurrency], or when sweeping the powers of two below it and then
+    concurrency itself (32 -> 1, 2, 4, 8, 16, 32; 24 -> 1, 2, 4, 8, 16, 24). Each level runs
+    max(requests, level) requests."""
+    out, k = [], 1
+    while sweep and k < concurrency:
+        out.append(k)
+        k *= 2
+    return [*out, concurrency]
+
+
 def est_llm(p: LlmInferenceParams) -> float:
-    waves = math.ceil(p.requests / p.concurrency)
+    waves = sum(math.ceil(max(p.requests, c) / c) for c in levels(p.concurrency, p.sweep))
     return 5.0 + waves * (0.5 + p.prompt_tokens / 2000 + p.max_tokens / 20)
+
+
+# tool-eval-bench 2.8.0 suites: (standard scenarios, Hard Mode scenarios). Not imported from the package: the
+# catalog must load (and say what is missing) on an agent without it.
+TOOL_EVAL_SUITES = {"core": (15, 0), "standard": (69, 0), "hard": (0, 28), "all": (69, 28)}
+
+
+def est_tool_eval(p: ToolEvalParams) -> float:
+    """DGX Spark owners report 12-26 s per scenario with a thinking model; Hard Mode runs longer chains."""
+    standard, hard = TOOL_EVAL_SUITES[p.suite]
+    return 10.0 + 24.0 * standard + 36.0 * hard  # + the endpoint and tool-calling checks
 
 
 def est_soak(p: ThermalSoakParams) -> float:
@@ -451,11 +509,14 @@ REGISTRY: dict[str, Bench] = {
             "llm-inference",
             "LLM inference",
             "inference",
-            "Time to first token and prefill and decode speed of a model you are already serving. "
+            "Time to first token and prefill and decode speed of a model you are already serving, with every "
+            "concurrent stream shown live. "
             "Streams requests to an OpenAI-compatible endpoint you are already serving (vLLM, TRT-LLM, "
             "llama.cpp, SGLang...) and measures time to first token, prefill and decode tokens/s, and the "
-            "memory footprint seen by the agent. The endpoint may itself span both nodes (TP=2); the run "
-            "measures it from this node.",
+            "memory footprint seen by the agent. Every request in flight is shown live with its state, text, "
+            "time to first token and tokens/s. Optionally it sweeps concurrency levels (1, 2, 4 … streams up "
+            "to Concurrency) with results per level; each level sends at least one request per stream. The "
+            "endpoint may itself span both nodes (TP=2); the run measures it from this node.",
             _impact(
                 "medium",
                 "medium",
@@ -465,6 +526,25 @@ REGISTRY: dict[str, Bench] = {
             ),
             LlmInferenceParams,
             est_llm,
+        ),
+        Bench(
+            "tool-eval",
+            "Tool-call eval",
+            "inference",
+            "Scores how well the served model uses tools, from picking the right one to resisting prompt "
+            "injection. Runs tool-eval-bench 2.8.0 (SeraphimSerapis, MIT) against an OpenAI-compatible "
+            "endpoint: every scenario is a multi-turn chat with mock tools, graded pass (2 points), partial "
+            "(1) or fail (0); the score is points earned ÷ points possible × 100. Scenarios that time out or "
+            "hit server errors are excluded and reported as the share graded.",
+            _impact(
+                "medium",
+                "medium",
+                True,
+                "Sends real requests to the chosen server for several minutes; other users of that server "
+                "will see slower responses.",
+            ),
+            ToolEvalParams,
+            est_tool_eval,
         ),
         Bench(
             "thermal-soak",

@@ -132,6 +132,7 @@ Rollups store avg/min/max per key per bucket. `energy_j` stores the last value, 
 | `rdma-bw-lat` | `ib_write_bw` / `ib_write_lat` over the CX7 rail | perftest (installed) | 2 nodes, server/client orchestration |
 | `storage-fio` | seq/rand read/write profiles | `fio` if present, else built-in O_DIRECT runner (labelled) | test file in data dir, removed after |
 | `llm-inference` | TTFT, prefill tok/s, decode tok/s, memory footprint | OpenAI-compatible endpoint (vLLM/TRT-LLM/llama.cpp server), streaming | engine-agnostic |
+| `tool-eval` | tool-calling score (pass/partial/fail per multi-turn scenario with mock tools) | tool-eval-bench 2.8.0 as a library in a host payload, OpenAI-compatible endpoint | needs the server's tool-call parser |
 | `thermal-soak` | 10–30 min sustained GEMM; clocks, throttling, temps over time | PyTorch container | heavy |
 
 Each run records driver/CUDA/NVML versions, GPU name/UUID, clocks and temps at start and end, agent version, suite git hash,
@@ -140,3 +141,30 @@ hostnames, params, and timestamps. Regression = a result worse than the baseline
 ## Phases
 (a) agent + console + streaming + demo · (b) web shell + design system · (c) live views · (d) benchmarks ·
 (e) polish / a11y / perf / tests / 24 h soak. Each phase is committed separately.
+
+## 2026-10-21: concurrency streams and tool-call eval
+
+- **live/detail on NodeBenchState.** `live` is a bounded snapshot of what the payload is doing, replaced by each
+  `{"live": …}` line; `detail` holds per-run records, and each `{"detail": …}` line replaces only its top-level
+  keys. The agent drops a snapshot over 256 KiB, a detail update that would pass 1 MiB in all, values nested over
+  64 levels and non-objects (logged once per job). Both are saved with the run (and its JSON export) and stripped
+  from `list()`; their defaults keep older runs and agents valid (SCHEMA_VERSION stays 1).
+- **Streams.** A level runs L stream slots in a closed loop (a slot sends its next request when its last one
+  ends). `sweep` runs 1, 2, 4 … streams up to `concurrency`; every level runs max(`requests`, L) requests, also
+  without the sweep. Snapshots every 0.25 s; `detail.llm` gets each finished level's summary and request
+  timeline. On vLLM, `stream_options.continuous_usage_stats` keeps live token counts exact when one chunk holds
+  several tokens (MTP, speculative decoding).
+- **Baselines.** `params_key` leaves out params added after release while they hold their neutral default
+  (`KEY_NEUTRAL`, so far `sweep: false`), so existing llm-inference baselines still match.
+- **Clean SIGTERM.** The LLM payload stops its workers and shuts their sockets so blocked reads return, sends a
+  last snapshot and exits within about a second instead of waiting for SIGKILL; tool-eval cancels its task and
+  exits 143 after a last snapshot.
+- **Tool-call eval.** tool-eval-bench runs as a library in a host payload (`tool_eval.py`, the agent venv's
+  Python) through `api.run_benchmark(persist=False)`, with callbacks that never raise. `tool-eval-bench==2.8.0`
+  comes from PyPI, hash-pinned in `requirements.lock`, and runs with upstream's defaults, so scores match its CLI
+  and sparkrun. A preflight tool call fails the run when the server rejects tool calls; a run with nothing graded
+  fails, and exclusions are reported as the share graded. Scores compare only within one version and config
+  fingerprint (both in the score's extras).
+- **Demo.** LLM runs play at 2× real time with every level 4–60 s on screen, so the streams can be watched;
+  tool-eval uses upstream's scenario registry and scoring. The seeded history has a finished 32-stream sweep and
+  a finished evaluation.

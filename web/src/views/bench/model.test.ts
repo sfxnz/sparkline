@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BenchCompare, Sample } from '../../lib/types';
+import type { BenchCompare, BenchParam, BenchSpec, Sample } from '../../lib/types';
 import { boundRuns, mergeRun } from '../../store/bench';
 import { CATALOG, LLM, MATMUL, RDMA, SOAK, result, run } from './fixtures';
 import {
@@ -22,6 +22,7 @@ import {
   headlineResults,
   headlineText,
   isLanHost,
+  llmLevels,
   nodesText,
   paramText,
   paramsSummary,
@@ -30,6 +31,7 @@ import {
   resultDelta,
   resultText,
   runnableNodes,
+  signedFormat,
   soakStats,
   splitDescription,
   toForm,
@@ -165,6 +167,35 @@ describe('duration estimate', () => {
   it('adds the difference of a duration parameter, in its unit', () => {
     expect(estimateDuration(RDMA, { rail: 'A', duration_s: 30 })).toBe(60);
     expect(estimateDuration(SOAK, { minutes: 30 })).toBe(1800);
+  });
+
+  const param = (name: string, type: BenchParam['type'], d: unknown, choices: string[] | null = null): BenchParam => ({ name, label: name, type, default: d, min: null, max: null, choices, unit: null, help: null });
+  it('is the agent’s own llm-inference estimate, over every level of a sweep', () => {
+    expect(llmLevels(32, true)).toEqual([1, 2, 4, 8, 16, 32]);
+    expect(llmLevels(24, true)).toEqual([1, 2, 4, 8, 16, 24]);
+    expect(llmLevels(1, true)).toEqual([1]);
+    expect(llmLevels(8, false)).toEqual([8]);
+    const spec: BenchSpec = {
+      ...LLM,
+      est_duration_s: 62.2,
+      params: [param('prompt_tokens', 'int', 512), param('max_tokens', 'int', 128), param('concurrency', 'int', 1), param('requests', 'int', 8), param('sweep', 'bool', false)],
+    };
+    const d = defaultParams(spec);
+    // Expected values from server/sparkline/agent/bench/specs.py est_llm for the same parameters.
+    expect(estimateDuration(spec, d)).toBeCloseTo(62.248, 6);
+    expect(estimateDuration(spec, { ...d, prompt_tokens: 65536 })).toBeCloseTo(322.344, 6);
+    expect(estimateDuration(spec, { ...d, concurrency: 8 })).toBeCloseTo(12.156, 6);
+    expect(estimateDuration(spec, { ...d, max_tokens: 16, concurrency: 32, requests: 32 })).toBeCloseTo(6.556, 6);
+    expect(estimateDuration(spec, { ...d, concurrency: 32, sweep: true })).toBeCloseTo(126.652, 6);
+    expect(estimateDuration(spec, { ...d, concurrency: 24, requests: 16, sweep: true, max_tokens: 256 })).toBeCloseTo(438.792, 6);
+  });
+  it('follows the tool-eval suite, Hard Mode scenarios taking longer', () => {
+    const suite = param('suite', 'enum', 'standard', ['core', 'standard', 'hard', 'all']);
+    const spec: BenchSpec = { ...LLM, id: 'tool-eval', est_duration_s: 1666, params: [param('base_url', 'string', 'http://127.0.0.1:8000'), param('model', 'string', ''), suite, param('thinking', 'bool', true)] };
+    const d = defaultParams(spec);
+    expect(estimateDuration(spec, d)).toBe(1666);
+    expect(['core', 'hard', 'all'].map((s) => Math.round(estimateDuration(spec, { ...d, suite: s })))).toEqual([370, 1018, 2674]);
+    expect(suite.choices?.map((c) => choiceLabel(c, suite))).toEqual(['Core 15', 'Standard 69', 'Hard Mode 28', 'All 97']);
   });
 });
 
@@ -490,5 +521,20 @@ describe('valueWithUnit matches the live screens', () => {
     expect(valueWithUnit(208, 'MHz')).toBe('208 MHz');
     expect(valueWithUnit(88.04, '°C')).toBe('88 °C');
     expect(valueWithUnit(412.3, 'TFLOPS')).toBe('412 TFLOPS');
+  });
+  it('shows a count (no unit) as a whole number, not "0.00"', () => {
+    expect(valueWithUnit(0, '')).toBe('0'); // tool-eval's safety violations
+    expect(valueWithUnit(2, '')).toBe('2');
+  });
+  it('shows a result that is whole by definition (extras.whole, a tool-eval score) without decimals', () => {
+    const score = result({ metric: 'score', unit: '%', value: 89, extras: { headline: true, whole: true } });
+    expect(resultText(score)).toBe('89%');
+    expect(headlineText([score])).toBe('89%');
+    expect(signedFormat(score)(88.6)).toBe('89'); // counting up stays whole
+    expect(headlineText([{ ...score, node_id: 'spark1' }, { ...score, node_id: 'spark2', value: 92 }])).toBe('89 / 92 %');
+    // Measured percentages keep 3 significant figures, even when they land on a whole number.
+    expect(resultText(result({ metric: 'tflops_change_pct', value: -12, unit: '%' }))).toBe('−12.0%');
+    expect(resultText(result({ metric: 'completion_rate', value: 86.7, unit: '%' }))).toBe('86.7%');
+    expect(valueWithUnit(89, '%')).toBe('89.0%');
   });
 });

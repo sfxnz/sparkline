@@ -1,7 +1,8 @@
 """Fan-out of live messages to browser WebSocket clients with bounded per-client queues.
 
 Samples and pings are droppable (oldest dropped first under backpressure); node_status and event messages
-are never dropped. A client whose priority queue still overflows is disconnected rather than buffered forever.
+are never dropped. A client whose priority queue still overflows (in messages or bytes) is disconnected rather
+than buffered forever.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ log = logging.getLogger("sparkline.console.hub")
 
 SAMPLE_QUEUE = 64  # ~20 s of 3 nodes at 1 Hz
 PRIORITY_QUEUE = 2000
+PRIORITY_BYTES = 32 * 2**20  # bench broadcasts carry live/detail data (tens to hundreds of KB each)
 
 
 class _Sender(Protocol):
@@ -28,6 +30,7 @@ class Client:
         self.session = session  # sign-in session id when authenticated by cookie
         self.samples: deque[str] = deque(maxlen=SAMPLE_QUEUE)
         self.priority: deque[str] = deque()
+        self.priority_bytes = 0  # length of the queued priority messages (JSON text)
         self.wake = asyncio.Event()
         self.dropped = 0
         self.overflowed = False
@@ -39,10 +42,11 @@ class Client:
                 self.dropped += 1
             self.samples.append(text)
         else:
-            if len(self.priority) >= PRIORITY_QUEUE:
+            if len(self.priority) >= PRIORITY_QUEUE or self.priority_bytes + len(text) > PRIORITY_BYTES:
                 self.overflowed = True
             else:
                 self.priority.append(text)
+                self.priority_bytes += len(text)
         self.wake.set()
 
     def kick(self) -> None:
@@ -55,7 +59,11 @@ class Client:
             await self.wake.wait()
             self.wake.clear()
             while (self.priority or self.samples) and not (self.overflowed or self.kicked):
-                text = self.priority.popleft() if self.priority else self.samples.popleft()
+                if self.priority:
+                    text = self.priority.popleft()
+                    self.priority_bytes -= len(text)
+                else:
+                    text = self.samples.popleft()
                 await self.ws.send_text(text)
         if self.overflowed:
             log.warning("browser client overflowed its event queue; disconnecting it")

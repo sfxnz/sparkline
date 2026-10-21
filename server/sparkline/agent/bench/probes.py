@@ -1,7 +1,9 @@
-"""Environment checks for benchmark availability: Docker + image, GPU, perftest, RoCE GIDs, fio, CPU cap."""
+"""Environment checks for benchmark availability: Docker + image, GPU, perftest, RoCE GIDs, fio, CPU cap,
+tool-eval-bench."""
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -115,6 +117,7 @@ class Env:
     all_reduce_perf: str | None = None
     work_dir: Problem | None = None
     cpu_cap: Problem | None = None  # benchmarks that run as agent children would be throttled
+    tool_eval: Problem | None = None  # the tool-eval payload imports tool-eval-bench from the agent's venv
 
 
 def probe(info: NodeInfo, image: str, work_dir: str, sock_path: str = DOCKER_SOCK) -> Env:
@@ -182,6 +185,13 @@ def probe(info: NodeInfo, image: str, work_dir: str, sock_path: str = DOCKER_SOC
             "and skew its results",
             fix=f"Run `sudo ./deploy/install.sh agent --enable-benchmarks` on {node}",
         )
+    if importlib.util.find_spec("tool_eval_bench") is None:
+        env.tool_eval = Problem(
+            message=f"tool-eval-bench isn't installed on {node}",
+            cause="The agent's Python environment doesn't include the tool-eval-bench package.",
+            fix="Reinstall the agent (`sudo ./deploy/install.sh agent --enable-benchmarks` installs the "
+            "pinned version), or for a dev agent run `server/.venv/bin/pip install tool-eval-bench==2.8.0`.",
+        )
     return env
 
 
@@ -203,4 +213,6 @@ def availability(bench_id: str, env: Env) -> tuple[Problem | None, str]:
     if bench_id == "storage-fio":
         note = "" if env.fio else "fio is not installed, so the built-in O_DIRECT runner is used."
         return env.work_dir or env.cpu_cap, note
+    if bench_id == "tool-eval":
+        return env.tool_eval or env.cpu_cap, ""
     return env.cpu_cap, ""  # cpu-throughput, llm-inference: host processes under the agent's cgroup

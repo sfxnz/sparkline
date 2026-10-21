@@ -53,6 +53,9 @@ HISTORY = 20
 PUBLISH_MIN_S = 0.5
 WORK_MARKER = ".sparkline-bench-run"  # marks a run's work dir, so the sweep only ever deletes those
 CPU_SMOKE_BENCHES = ("gpu-matmul", "mem-bandwidth", "thermal-soak")  # the payloads that honour --device cpu
+LIVE_MAX_BYTES = 256 * 1024  # compact JSON of one {"live": ...} snapshot; it is re-sent with every publish
+DETAIL_MAX_BYTES = 1024 * 1024  # compact JSON of a run's whole detail
+JSON_MAX_DEPTH = 64  # live/detail nesting; pydantic can't serialize > 255 levels or load stored runs > ~197
 
 
 class BenchError(Exception):
@@ -71,6 +74,18 @@ class Rejected(Exception):
 
 
 JobFn = Callable[["Job", Any], Awaitable[None]]
+
+
+def _too_deep(value: Any) -> bool:
+    """Whether a parsed JSON value nests objects/arrays more than JSON_MAX_DEPTH levels deep (walked level
+    by level, as json.loads accepts deeper documents than Python's recursion limit)."""
+    level: list[Any] = [value]
+    for _ in range(JSON_MAX_DEPTH):
+        nested = [v for v in level if isinstance(v, dict | list)]
+        if not nested:
+            return False
+        level = [c for v in nested for c in (v.values() if isinstance(v, dict) else v)]
+    return any(isinstance(v, dict | list) for v in level)
 
 
 class Job:
@@ -95,6 +110,7 @@ class Job:
         self.timeout_s = bench.timeout_s(params)
         self.est_s = bench.estimate(params)
         self._log: deque[str] = deque(maxlen=LOG_TAIL)
+        self._logged_once: set[str] = set()
         self.task: asyncio.Task | None = None
         self.begun = False  # the task has started executing (cancelling before that never reaches it)
         self.cancel_requested = False
@@ -122,6 +138,22 @@ class Job:
         self._log.append(line.rstrip()[:500])
         self.state.log_tail = list(self._log)
         self.changed()
+
+    def _log_once(self, line: str) -> None:
+        """Payload mistakes may repeat on every line: log each once per job, not a flooded log tail."""
+        if line not in self._logged_once:
+            self._logged_once.add(line)
+            self.log(line)
+
+    def _usable_object(self, what: str, value: Any) -> bool:
+        """live/detail values must be JSON objects nested at most JSON_MAX_DEPTH levels."""
+        if not isinstance(value, dict):
+            self._log_once(f"{what} is not a JSON object, ignored")
+            return False
+        if _too_deep(value):
+            self._log_once(f"{what} nested too deeply, dropped")
+            return False
+        return True
 
     def add_result(self, **kw: Any) -> None:
         kw.setdefault("node_id", self.node_id)
@@ -159,6 +191,19 @@ class Job:
             for k, v in msg["gauge"].items():
                 with contextlib.suppress(TypeError, ValueError):
                     self.gauges[str(k)[:64]] = float(v)
+        if "live" in msg and self._usable_object("live snapshot", msg["live"]):
+            if len(json.dumps(msg["live"], separators=(",", ":"))) > LIVE_MAX_BYTES:
+                self._log_once("live snapshot too large, dropped")
+            else:
+                self.state.live = msg["live"]  # replaced wholesale
+                self.changed()
+        if "detail" in msg and self._usable_object("detail", msg["detail"]):
+            detail = {**self.state.detail, **msg["detail"]}  # top-level keys replace
+            if len(json.dumps(detail, separators=(",", ":"))) > DETAIL_MAX_BYTES:
+                self._log_once("detail too large, dropped")
+            else:
+                self.state.detail = detail
+                self.changed()
         if "log" in msg:
             self.log(str(msg["log"]))
         if msg.get("ready"):
@@ -242,9 +287,11 @@ class Job:
             ) from None
         lines: deque[str] = deque(maxlen=5000)
         watcher = asyncio.create_task(self._watch_port(ready_port, proc)) if ready_port else None
-        try:
-            assert proc.stdout is not None
-            while raw := await proc.stdout.readline():
+        assert proc.stdout is not None
+        stdout = proc.stdout
+
+        async def read() -> None:
+            while raw := await stdout.readline():
                 line = raw.decode(errors="replace").rstrip("\n")
                 lines.append(line)
                 msg = parse_json_line(line)
@@ -252,12 +299,20 @@ class Job:
                     self.handle(msg)
                 elif line.strip():
                     self.log(line)
+
+        try:
+            await read()
             rc = await proc.wait()
         finally:
             if watcher:
                 watcher.cancel()
             if await self.runner._terminate(proc) and argv[:2] == ["docker", "run"]:
                 self.docker_killed = True
+            # Cancelled or timed out: keep what the payload printed while exiting (its last live snapshot, a
+            # log line). It has exited, so this ends at once; the bound covers a straggler holding the pipe.
+            with contextlib.suppress(Exception):
+                async with asyncio.timeout(1):
+                    await read()
         if check and rc != 0:
             raise BenchError(self.payload_error or self._exit_problem(argv, rc, list(lines)))
         return rc, list(lines)

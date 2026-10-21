@@ -32,6 +32,7 @@ from sparkline.console.bench import (
     canonical,
     merge_description,
     new_run_id,
+    params_key,
     rail_ip,
     regression_title,
     runs_csv,
@@ -294,6 +295,56 @@ def test_params_key_gates_baseline_comparison(tmp_path):
     assert same.metadata["regression_pct"] == 5.0  # the threshold the flags were set with
 
 
+def test_params_key_leaves_out_params_added_later_while_they_are_neutral():
+    """llm-inference runs stored before its sweep param existed keep matching new runs that don't sweep."""
+    new = validate_params(AGENT_REGISTRY["llm-inference"].spec({}), {"concurrency": 4, "requests": 16})
+    old = canonical({k: v for k, v in new.items() if k != "sweep"})  # what the console stored back then
+    assert new["sweep"] is False and params_key("llm-inference", new) == old
+    swept = params_key("llm-inference", {**new, "sweep": True})
+    assert swept != old and '"sweep":true' in swept
+    gemm = validate_params(AGENT_REGISTRY["gpu-matmul"].spec({}), {})
+    assert params_key("gpu-matmul", gemm) == canonical(gemm)
+
+
+def test_llm_runs_are_keyed_on_the_requests_they_send(tmp_path):
+    """Every stream gets a request now, so Requests below Concurrency sends Concurrency requests. A baseline
+    stored before that sent fewer, fewer at once: it no longer matches (no false regression), while one with
+    Requests >= Concurrency still matches exactly."""
+    spec = AGENT_REGISTRY["llm-inference"].spec({})
+    mgr, _ = _manager(tmp_path)
+
+    def run(rid: str, ttft: float, old: bool = False, **over) -> BenchRun:
+        params = validate_params(spec, over)
+        if old:  # stored before sweeps: no sweep param, the plain canonical key
+            params = {k: v for k, v in params.items() if k != "sweep"}
+        key = canonical(params) if old else params_key("llm-inference", params)
+        res = [_res("ttft_p50_ms", ttft, "lower")]
+        return BenchRun(
+            id=rid,
+            bench_id="llm-inference",
+            params=params,
+            nodes=["spark1"],
+            status="succeeded",
+            created_ts=time.time(),
+            params_key=key,
+            results=res,
+        )
+
+    for base in (run("few", 200.0, old=True, concurrency=16, requests=8), run("most", 200.0, old=True)):
+        mgr.store.save(base)
+        mgr.store.set_baseline("llm-inference", base.params_key, base.id)
+    now = run("now", 300.0, concurrency=16, requests=8)  # 16 requests, 16 at once: slower, as it should be
+    assert '"requests":16' in now.params_key
+    assert mgr._compare_baseline(now) == [] and now.baseline_run_id is None and not now.results[0].regression
+    same = run("same", 300.0)  # 8 requests one at a time, as before
+    assert same.params_key == mgr.store.get("most").params_key
+    assert len(mgr._compare_baseline(same)) == 1 and same.baseline_run_id == "most"
+    both = [validate_params(spec, {"concurrency": 16, "requests": n}) for n in (8, 16)]
+    assert params_key("llm-inference", both[0]) == params_key("llm-inference", both[1])  # the same workload
+    swept = [params_key("llm-inference", {**p, "sweep": True}) for p in both]  # each level sends its own max
+    assert swept[0] != swept[1] and '"requests":8' in swept[0]
+
+
 def test_store_lists_filters_and_deletes(tmp_path):
     mgr, _ = _manager(tmp_path)
     st = mgr.store
@@ -405,6 +456,39 @@ def test_unsuccessful_runs_discard_partial_results_but_keep_series(tmp_path):
         mgr._finalize(act)
         saved = mgr.store.get(run.id)
         assert saved.status == status and saved.results == [] and saved.series["spark1.t"] == [0.0, 1.0]
+
+
+class _Browser:
+    async def send_text(self, data: str) -> None:  # never pumped: broadcasts stay queued for the test
+        pass
+
+
+def test_live_and_detail_stay_with_the_run_but_not_in_list_copies(tmp_path):
+    """Node states are kept verbatim: live/detail go out with every broadcast and are stored with the run (GET
+    run, export); list copies leave them out with the rest of node_states."""
+    mgr, cluster = _manager(tmp_path)
+    browser = cluster.hub.add(_Browser())
+    run = _run("r", canonical({}), 0.0, status="running")
+    run.results = []
+    mgr.active[run.id] = _Active(run=run, name="GPU matmul")
+    live = {"kind": "llm-streams", "streams": [{"slot": 0, "tok_s": None}]}
+    detail = {"llm": {"levels": [{"level": 1, "out_tok_s": 46.1}]}}
+    st = NodeBenchState(
+        run_id="r", bench_id="gpu-matmul", node_id="spark1", status="running", live=live, detail=detail
+    )
+    mgr.on_node_state("spark1", st)
+    done = st.model_copy(update={"status": "succeeded", "results": [_res("tflops", 1.0)]})
+    mgr.on_node_state("spark1", done)
+    sent = [json.loads(m) for m in browser.priority]
+    states = [m["run"]["node_states"]["spark1"] for m in sent if m["type"] == "bench"]
+    assert [s["status"] for s in states] == ["running", "succeeded"]
+    assert all(s["live"] == live and s["detail"] == detail for s in states)
+    saved = mgr.get("r")  # finished: read back from the store
+    assert saved.status == "succeeded" and "r" not in mgr.active
+    assert saved.node_states["spark1"].live == live and saved.node_states["spark1"].detail == detail
+    assert [r.node_states for r in mgr.list(None, None, None, 10)] == [{}]
+    old = NodeBenchState.model_validate({"run_id": "r", "bench_id": "b", "node_id": "n", "status": "running"})
+    assert old.live == {} and old.detail == {}  # stored runs and agents from before these fields
 
 
 def test_smoke_results_never_compare_with_measurements():

@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-PAYLOAD_KEYS = ("progress", "result", "series", "gauge", "log", "ready", "error")
+PAYLOAD_KEYS = ("progress", "result", "series", "gauge", "log", "ready", "error", "live", "detail")
 
 
 def parse_json_line(line: str) -> dict[str, Any] | None:

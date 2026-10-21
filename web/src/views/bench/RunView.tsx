@@ -52,6 +52,8 @@ import { BetterHint, DeltaBadge, RunStatusPill } from './parts';
 import { RunTelemetry } from './RunTelemetry';
 import { ShareCardDialog } from './ShareCard';
 import { SoakPanel } from './SoakPanel';
+import { StreamsSection } from './streams/StreamsSection';
+import { ToolEvalSection } from './tooleval/ToolEvalSection';
 
 export function RunView({ id }: { id: string }) {
   const { run, missing, gone, refetch } = useRun(id);
@@ -235,9 +237,15 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
         <Panel label="Benchmark cancelled">
           <EmptyState icon={CircleSlash} title="Cancelled" action={<Button variant="secondary" icon={<RotateCw />} onClick={runAgain}>Run again</Button>}>
             The benchmark was stopped after {stopwatch(elapsed(run, now))}. Its containers and temp files were removed, and partial results were discarded.
+            {/* The stream and scenario views below keep what was recorded; say so rather than contradict them. */}
+            {Object.values(run.node_states ?? {}).some((st) => Object.keys(st.live ?? {}).length || Object.keys(st.detail ?? {}).length) ? ' What it recorded before it stopped is shown below.' : null}
           </EmptyState>
         </Panel>
       )}
+
+      {/* Per-benchmark views lead the page for these benchmarks, so they come before the telemetry. */}
+      {run.bench_id === 'llm-inference' ? <StreamsSection run={run} spec={spec} /> : null}
+      {run.bench_id === 'tool-eval' ? <ToolEvalSection run={run} spec={spec} /> : null}
 
       {active || run.started_ts != null ? (
         <Panel title={active ? 'Live telemetry' : 'Telemetry during the run'} subtitle={run.nodes.length > 1 ? 'One line per node · dashed rules mark the run' : 'Dashed rules mark the run'}>

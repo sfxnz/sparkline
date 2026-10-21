@@ -122,10 +122,13 @@ The console picks up the agent token from the agent's config on the same host.
 | ![Unified memory breakdown on spark1, light theme](docs/screenshots/node-memory-light.png) | ![Per-core heatmap of spark1's performance and efficiency cores](docs/screenshots/node-cpu-dark.png) |
 | ![ConnectX-7 rails on spark1](docs/screenshots/network-dark.png) | ![Alerts: open alerts and the event timeline](docs/screenshots/alerts-dark.png) |
 | ![A GPU matmul benchmark running, with live telemetry](docs/screenshots/bench-run-dark.png) | ![Two benchmark runs side by side, light theme](docs/screenshots/bench-compare-light.png) |
+| ![An LLM inference sweep at 8 concurrent streams: every stream's text, state and tokens/s, live](docs/screenshots/bench-streams-dark.png) | ![A finished concurrency sweep from 1 to 32 streams: output, decode speed and time to first token per level, light theme](docs/screenshots/bench-sweep-light.png) |
+| ![A tool-calling evaluation running: the score so far, the scenario board and the latest verdicts](docs/screenshots/bench-tool-eval-dark.png) | ![A finished tool-calling evaluation: score, rating, safety gate and share graded, light theme](docs/screenshots/bench-tool-eval-score-light.png) |
 | ![A node whose agent is unreachable: cause, fix and retry](docs/screenshots/offline-state-dark.png) | ![Wall mode at 1920×1080](docs/screenshots/wall-dark.png) |
 
 The memory, CPU, network and offline screenshots come from a real two-node cluster (taken while spark2's agent
 was stopped). The others come from `--demo`, which can show load, a thermal episode and benchmark runs on demand.
+The concurrency-stream and tool-calling screenshots show its simulated runs: no model was involved.
 
 ## Features
 
@@ -145,10 +148,12 @@ was stopped). The others come from `--demo`, which can show load, a thermal epis
   the normal interface counters), and errors and drops for both ConnectX-7 rails, plus LAN throughput.
 - **Alerts.** Editable thresholds (GPU temperature, throttling, memory, node offline, link down, disk full,
   NVMe temperature) and an event timeline with acknowledgement.
-- **Benchmarks.** Eight whitelisted, parameter-validated jobs, from GEMM TFLOPS to a 30-minute thermal soak.
-  Each one states its duration and impact up front, asks for confirmation, shows live telemetry while it
-  runs, cancels cleanly, and saves results with full metadata. Baselines, regression flags, side-by-side
-  comparison, JSON/CSV export and a shareable summary card are included.
+- **Benchmarks.** Nine whitelisted, parameter-validated jobs, from GEMM TFLOPS to a 30-minute thermal soak
+  and a tool-calling evaluation of your served model. Each one states its duration and impact up front, asks
+  for confirmation, shows live telemetry while it runs, cancels cleanly, and saves results with full
+  metadata. The LLM benchmark shows every concurrent stream as it generates and can sweep concurrency levels;
+  the tool-calling evaluation shows each scenario's verdict as it finishes. Baselines, regression flags,
+  side-by-side comparison, JSON/CSV export and a shareable summary card are included.
 - **Wall mode, command palette and keyboard shortcuts.** Dark and light themes that follow the system, with
   reduced-motion and reduced-transparency support.
 - **Demo mode** (`--demo`): three simulated nodes, including a thermal episode, a stalled stream and a node
@@ -344,8 +349,17 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   process leaves the node (`--api-key`, `--hf-token`, `--password`, `--secret…`, `NAME_TOKEN=`/`NAME_KEY=`,
   `sk-…` and `hf_…` keys, URL passwords all become `***`). Both services mask `Authorization` and `Cookie`
   header values in their logs, even at `--log-level debug`. The LLM benchmark never copies an endpoint's
-  response body into a run error (only an OpenAI-style error message), and refuses SSH, Docker API and
-  Sparkline ports as endpoints.
+  response body into a run error (only an OpenAI-style error message). It and the tool-calling evaluation
+  refuse SSH, Docker API and Sparkline ports as endpoints.
+- **Model output is stored with the run.** For its stream view, the LLM benchmark keeps the last 280
+  characters of each stream's answer and 160 of its reasoning, and a timeline of its requests (times and token
+  counts). The tool-calling evaluation keeps each scenario's trace (prompts, tool calls and the model's
+  replies, cut to 4,000 characters) and its result in tool-eval-bench's own format. The traces are
+  tool-eval-bench's logs: they, its scenario summaries and its lines in the run's log can include up to about
+  200 characters of an error response from your server, stored like the rest of the trace. All of it is saved
+  with the run in `console.sqlite`, included in its JSON export and visible to anyone signed in to the
+  console. The web app shows it as plain text, never as HTML or Markdown. tool-eval-bench's tools are mocks:
+  nothing the model asks for is executed.
 - **An agent without a token** starts only on a loopback address, and then answers only local, non-browser
   requests.
 - **No shell execution.** No endpoint runs commands. Benchmarks are a fixed registry, and every parameter is
@@ -357,8 +371,8 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   `/etc/systemd/system/sparkline-agent.service.d/10-benchmarks.conf`. Anyone who controls a process in the
   docker group can control the host. Enable benchmarks only on machines where that trade-off is acceptable.
   Without the flag the agent is monitor-only: GPU benchmarks report Docker as unavailable, the host-side
-  benchmarks (CPU, storage, RDMA, LLM) report the agent as CPU-capped, and container names in the process
-  table fall back to short container ids.
+  benchmarks (CPU, storage, RDMA, LLM inference, tool-calling evaluation) report the agent as CPU-capped, and
+  container names in the process table fall back to short container ids.
 - **systemd sandboxing.** Both services run as the unprivileged `sparkline` user, with no capabilities,
   `NoNewPrivileges`, a read-only filesystem except their state directory (`ProtectSystem=strict`), a private
   /tmp, a system-call filter, and network access limited to IPv4, IPv6, Unix and netlink sockets. The agent
@@ -401,7 +415,8 @@ Benchmarks run only when you confirm them in the console. One job runs per node 
 | NCCL all-reduce (`nccl-allreduce`) | All-reduce bus bandwidth between the two nodes over the CX7 rails | about 10 s | Medium: stalls a TP=2 job | Docker + PyTorch image, 2 nodes |
 | RDMA bandwidth and latency (`rdma-bw-lat`) | `ib_write_bw` / `ib_write_lat` over one CX7 rail | about 10 s | Low: saturates that rail | `perftest`, 2 nodes |
 | NVMe storage (`storage-fio`) | Sequential 1 MiB and random 4 KiB read/write: MB/s, IOPS, p99 latency | about 35 s | Low, but heavy disk I/O | `fio` (optional) |
-| LLM inference (`llm-inference`) | TTFT, prefill and decode tokens/s, memory footprint | seconds to minutes, depending on the model | Medium: real requests to your server | An OpenAI-compatible endpoint on the LAN |
+| LLM inference (`llm-inference`) | TTFT, prefill and decode tokens/s, memory footprint, with a live view of every concurrent stream and an optional sweep over concurrency levels | seconds to minutes, depending on the model | Medium: real requests to your server | An OpenAI-compatible endpoint on the LAN |
+| Tool-call eval (`tool-eval`) | How well the served model uses tools: tool-eval-bench's multi-turn scenarios with mock tools, graded pass, partial or fail into a 0–100 score, with category scores and a trace per scenario | Core (15 scenarios) a few minutes, Standard (69, the default) 20–30 min, Hard Mode (28) about 15 min, all 97 30–45 min, depending on the model | Medium: real requests to your server, for minutes | An OpenAI-compatible endpoint on the LAN with tool calling enabled (vLLM: `--enable-auto-tool-choice --tool-call-parser …`) |
 | Thermal soak (`thermal-soak`) | Clock stability, throttling, temperature and TFLOPS drift under sustained load | 10 to 30 min | High: holds the GPU at full load | Docker + PyTorch image |
 
 Notes:
@@ -414,6 +429,25 @@ Notes:
 - Without `fio`, the storage benchmark uses a built-in O_DIRECT runner. The method is recorded with the
   results, and results from different methods are never compared. Install fio with `sudo apt install fio`.
 - `sudo apt install perftest` enables the RDMA benchmark.
+- The LLM benchmark keeps Concurrency streams busy: each one sends its next request as soon as its last one
+  ends, and a level runs the larger of Requests and its number of streams. With **Sweep concurrency** it
+  runs 1, 2, 4 … streams up to Concurrency, one level after another (24 gives 1, 2, 4, 8, 16, 24), and
+  reports output tokens/s, decode tokens/s per request and TTFT for each level, plus the peak. While it
+  runs, every stream shows its state (waiting for the first token, decoding, done), its tokens, recent
+  tokens/s and the end of its text; afterwards the run keeps a timeline of every request. On vLLM it asks for
+  usage in every streamed chunk (`continuous_usage_stats`), so live token counts stay exact when one chunk
+  carries several tokens (MTP or speculative decoding).
+- The tool-calling evaluation runs [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench)
+  2.8.0 (SeraphimSerapis, MIT) in a host process under the agent, with tool-eval-bench's defaults
+  (temperature 0, 120 s per request, 8 turns, one scenario at a time). The agent installs it hash-pinned from
+  `server/requirements.lock`; an agent installed before it was added says "tool-eval-bench isn't installed"
+  until you re-run `install.sh agent --enable-benchmarks`. Before the scenarios, one tool-calling request
+  checks the server: if it rejects tool calls (vLLM without `--enable-auto-tool-choice`), the run stops with
+  the fix instead of scoring the few scenarios that got through. Thinking models also need a reasoning parser
+  (vLLM `--reasoning-parser …`); without one the run warns that reasoning text arrives in the answer, which
+  lowers the score. Scenarios that time out or hit server errors are excluded and the share graded is shown
+  with the score; a run in which nothing could be graded fails. The run page offers tool-eval-bench's own
+  JSON result for comparing with its CLI, sparkrun or Spark Arena.
 - Each result records driver, CUDA and NVML versions, GPU name and UUID, clocks and temperatures at start and
   end, agent version, the suite's git hash (when run from a checkout) and SHA-256, hostnames, parameters and
   timestamps.
@@ -434,6 +468,7 @@ caveats.
 | NCCL all-reduce, both rails | ~22.5 GB/s bus bandwidth at 1 GiB, ~13 µs for 8 B |
 | Thermal soak, 10 min at 8192 | ~95 TFLOPS BF16, under 1 % drop first to last minute, ~81 °C peak, SM clock ~2.15–2.18 GHz, no throttle reasons |
 | LLM inference | depends on your model and server; Qwen2.5-0.5B on vLLM decodes ~160 tokens/s per request |
+| Tool-call eval | not measured on these nodes yet. The score depends on the model and how it is served (chat template, tool-call and reasoning parsers, thinking on or off), not on the Spark, which mostly sets how long a run takes |
 
 Each CX7 rail is its own PCIe Gen5 x4 link (~109 Gb/s of payload), but both rails share one 200 Gb/s port: run
 together they carry ~185 Gb/s, which is the ceiling NCCL reaches.
@@ -530,9 +565,18 @@ One Python package (`server/`, package `sparkline`) provides both commands, `spa
   `agent_token`.
 - Only GPU 0 is charted (a DGX Spark has one GPU). The cross-node benchmarks assume two nodes.
 - GPU benchmarks need the PyTorch image already pulled, and the docker group (root-equivalent).
-- Host-side benchmarks (CPU, storage, RDMA, LLM) run inside the agent's cgroup. Without
-  `--enable-benchmarks` the agent is capped at half a core, so the catalog marks them unavailable ("CPU-capped",
-  read from the cgroup's `cpu.max`) rather than letting a throttled run produce wrong numbers.
+- Host-side benchmarks (CPU, storage, RDMA, LLM inference, tool-calling evaluation) run inside the agent's
+  cgroup. Without `--enable-benchmarks` the agent is capped at half a core, so the catalog marks them unavailable
+  ("CPU-capped", read from the cgroup's `cpu.max`) rather than letting a throttled run produce wrong numbers.
+- Tool-calling scores compare only between runs of the same tool-eval-bench version and settings (scenarios,
+  thinking on or off); each run records the version and tool-eval-bench's config fingerprint. Sparkline pins
+  2.8.0. In 2.8.0 a thinking model can lose TC-45: its `tool_choice: "required"` check allows 256 tokens, and
+  a model that spends them thinking or answers in prose gets the scenario excluded, so the share graded drops
+  below 100 % (tool-eval-bench issue #299). A score with exclusions isn't comparable with a complete run.
+- Since 2026-10-21 the LLM benchmark runs at least one request per stream: each level runs the larger of
+  Requests and its number of streams, with or without the sweep. Runs with Requests below Concurrency
+  therefore aren't compared with runs made before that, which sent fewer requests at once; set a new baseline
+  for such a configuration.
 - Agents run on the host, not in containers: they need NVML, `/proc` and sysfs of the machine they measure.
 - `install.sh` targets systemd-based Linux (DGX OS / Ubuntu 24.04) and needs PyPI access at install time.
 - Sparkline is built and tested on DGX Spark (GB10, aarch64). The agent also runs on other Linux machines, with or
@@ -542,5 +586,7 @@ One Python package (`server/`, package `sparkline`) provides both commands, `spa
 
 ## License
 
-[MIT](LICENSE). Sparkline is an independent project, not affiliated with or endorsed by NVIDIA. NVIDIA, DGX and
-ConnectX are trademarks of NVIDIA Corporation.
+[MIT](LICENSE). The tool-calling evaluation uses
+[tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench) by SeraphimSerapis (MIT), installed from
+PyPI. Sparkline is an independent project, not affiliated with or endorsed by NVIDIA. NVIDIA, DGX and ConnectX
+are trademarks of NVIDIA Corporation.

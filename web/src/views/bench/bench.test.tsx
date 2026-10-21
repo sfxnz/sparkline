@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCluster } from '../../store/cluster';
 import { ConfigureDialog } from './ConfigureDialog';
-import { MATMUL, RDMA, result } from './fixtures';
+import { LLM, MATMUL, RDMA, result } from './fixtures';
 import { History } from './History';
 import { Availability, DeltaBadge } from './parts';
 import { deltaLook } from './model';
@@ -33,6 +33,14 @@ describe('ConfigureDialog', () => {
     expect(screen.getByText('Disrupts running workloads')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
     expect(onRun).toHaveBeenCalledWith(['spark1'], { dtypes: ['bf16', 'fp16', 'fp8'], size: '8192', iterations: 100 });
+  });
+
+  it('offers choices too long for equal segments on a phone as a select', () => {
+    const choice = (name: string, label: string, choices: string[]) => ({ name, label, type: 'enum' as const, default: choices[0], min: null, max: null, choices, unit: null, help: null });
+    const spec = { ...LLM, params: [choice('api', 'API', ['chat', 'completions']), choice('suite', 'Scenarios', ['standard', 'core', 'hard', 'all'])] };
+    render(<ConfigureDialog spec={spec} open onClose={() => undefined} onRun={() => undefined} />);
+    expect(screen.getByRole('radiogroup', { name: 'API' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Scenarios' })).toHaveDisplayValue('Standard 69');
   });
 
   it('picks a source and a target for two-node benches, with the rail next to them', () => {

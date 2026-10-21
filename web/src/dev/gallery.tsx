@@ -25,6 +25,8 @@ import type { CoreInfo, Sample } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { liveStore } from '../store/live';
+import { StreamsGallery } from '../views/bench/streams/StreamsGallery';
+import { ToolEvalGallery } from '../views/bench/tooleval/ToolEvalGallery';
 import '../views/views.css';
 
 const GiB = 1024 ** 3;
@@ -149,6 +151,8 @@ function Gallery() {
         </div>
       </Tabs>
       <ConfirmDialog open={confirm} onCancel={() => { setConfirm(false); }} onConfirm={() => { setConfirm(false); }} title="Clear history on spark1?" consequences={['Deletes 7 days of stored telemetry', 'Live data keeps streaming', 'This cannot be undone']} confirmLabel="Clear history" destructive confirmPhrase="DELETE" />
+      <StreamsGallery />
+      <ToolEvalGallery />
     </div>
   );
 }

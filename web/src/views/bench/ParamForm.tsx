@@ -32,7 +32,13 @@ function boundsText(p: BenchParam): string | null {
 }
 
 const SEGMENTED_MAX = 4;
-const segmentable = (p: BenchParam) => (p.choices?.length ?? 0) <= SEGMENTED_MAX && (p.choices ?? []).every((c) => choiceLabel(c, p).length <= 12);
+/** Segments share the width equally, so the count times the longest label must also fit a phone-width dialog (about
+ * 32 characters: "16 MiB" … "1024 MiB" does, "Core 15" … "Hard Mode 28" gets a select). */
+const segmentable = (p: BenchParam) => {
+  const longest = Math.max(0, ...(p.choices ?? []).map((c) => choiceLabel(c, p).length));
+  const count = p.choices?.length ?? 0;
+  return count <= SEGMENTED_MAX && longest <= 12 && count * longest <= 32;
+};
 
 export function ParamForm({ params, values, errors, onChange, skip = [] }: Props) {
   const shown = params.filter((p) => !skip.includes(p.name));
