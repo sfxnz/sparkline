@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import time
 
 import psutil
 
@@ -54,20 +55,26 @@ def iface_ipv4(name: str) -> list[str]:
     return [a.address for a in psutil.net_if_addrs().get(name, []) if a.family == socket.AF_INET]
 
 
-def resolve_bind(bind: str, allow_public: bool = False) -> str:
+def resolve_bind(bind: str, allow_public: bool = False, auto_wait_s: float = 120.0) -> str:
     """Turn a configured bind value into a concrete IP, refusing unsafe binds.
 
-    "auto" -> IPv4 of the default-route interface. 0.0.0.0/:: and public addresses are refused unless
-    ``allow_public``. Raises ValueError with an actionable message.
+    "auto" -> IPv4 of the default-route interface, waiting up to ``auto_wait_s`` for it to appear (at boot
+    network-online.target can be reached by other links before the LAN has its route). 0.0.0.0/:: and
+    public addresses are refused unless ``allow_public``. Raises ValueError with an actionable message.
     """
     bind = bind.strip()
     if bind == "auto":
-        iface = default_route_iface()
-        ips = iface_ipv4(iface) if iface else []
+        deadline = time.monotonic() + auto_wait_s
+        while True:
+            iface = default_route_iface()
+            ips = iface_ipv4(iface) if iface else []
+            if ips or time.monotonic() >= deadline:
+                break
+            time.sleep(1)
         if not ips:
             raise ValueError(
                 'bind = "auto" could not find an IPv4 address on the default-route interface'
-                f" ({iface or 'no default route'}). Set bind to an explicit LAN IP."
+                f" ({iface or 'no default route'}) after {auto_wait_s:g} s. Set bind to an explicit LAN IP."
             )
         ip = ips[0]
     else:
