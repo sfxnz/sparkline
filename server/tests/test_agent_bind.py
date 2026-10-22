@@ -43,7 +43,16 @@ def test_resolve_bind_auto(monkeypatch):
         resolve_bind("auto")
     monkeypatch.setattr(netutil, "default_route_iface", lambda: None)
     with pytest.raises(ValueError, match="no default route"):
-        resolve_bind("auto")
+        resolve_bind("auto", auto_wait_s=0)
+
+
+def test_resolve_bind_auto_waits_for_route(monkeypatch):
+    # At boot the LAN route can appear a few seconds after the service starts.
+    routes = iter([None, None, "enP7s7"])
+    monkeypatch.setattr(netutil, "default_route_iface", lambda: next(routes))
+    monkeypatch.setattr(netutil, "iface_ipv4", lambda name: ["10.20.20.48"])
+    monkeypatch.setattr(netutil.time, "sleep", lambda s: None)
+    assert resolve_bind("auto") == "10.20.20.48"
 
 
 def test_config_file_and_overrides(tmp_path):
