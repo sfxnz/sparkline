@@ -168,3 +168,20 @@ hostnames, params, and timestamps. Regression = a result worse than the baseline
 - **Demo.** LLM runs play at 2× real time with every level 4–60 s on screen, so the streams can be watched;
   tool-eval uses upstream's scenario registry and scoring. The seeded history has a finished 32-stream sweep and
   a finished evaluation.
+
+## 2026-10-27: tool-eval seed and trials
+
+- **Params.** `trials` (1–10, default 1) and `seed` (a string of digits, "" for none: the params model has no
+  optional int) map onto tool-eval-bench's `--trials` and `--seed`; Scenarios "All 97" was already its
+  `--hardmode`. Both are in `KEY_NEUTRAL`, so earlier runs keep matching baselines; the estimate (and so the job
+  timeout) scales with the trials.
+- **Payload.** The trials run one after another in one task (SIGTERM still cancels at once), each the same
+  `run_benchmark` request, as the CLI's loop. Statistics come from upstream: each trial's envelope is rescored
+  with `score_results` (as the CLI's `_score_stored_trial`) and aggregated with `cli.run_io.aggregate_trials`;
+  the envelope is the last trial's with `trial_statistics`, the safety union and `metadata.trials`, like
+  `--json --trials`. A trial with nothing graded fails the run. Live: `trial`, `trials`, `seed`, `trial_scores`,
+  a `history` of points per trial on each tile and record (records are replaced per trial, so they end as the
+  last trial's). Summary: `trials`, `seed`, `trial_stats` (null for one trial). With several trials the
+  results are means: score (the headline, with σ, CI and range in its extras), categories, deployability,
+  responsiveness, median turn latency; plus `score_stddev`, `pass_at_k`, `pass_hat_k`. One trial reports
+  exactly as before.

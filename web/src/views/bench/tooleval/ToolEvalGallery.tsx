@@ -17,6 +17,10 @@ const STATES: readonly [keyof typeof FIXTURES, string][] = [
   ['capped', 'Finished · exclusions and a safety cap (All 97)'],
   ['cancelled', 'Cancelled after 23 of 69'],
   ['ungraded', 'Failed · nothing could be graded (Core 15)'],
+  ['trialsFirst', 'Running · trial 1 of 4 (Standard 69, no trial finished yet)'],
+  ['trialsLive', 'Running · trial 4 of 8, seed 42 (Standard 69)'],
+  ['trialsDone', 'Finished · 8 trials, seed 42 (Standard 69)'],
+  ['trialsCancelled', 'Cancelled in trial 3 of 5'],
 ];
 
 export function ToolEvalGallery() {

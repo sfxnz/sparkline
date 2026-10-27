@@ -197,6 +197,14 @@ describe('duration estimate', () => {
     expect(['core', 'hard', 'all'].map((s) => Math.round(estimateDuration(spec, { ...d, suite: s })))).toEqual([370, 1018, 2674]);
     expect(suite.choices?.map((c) => choiceLabel(c, suite))).toEqual(['Core 15', 'Standard 69', 'Hard Mode 28', 'All 97']);
   });
+  it('runs the tool-eval suite once per trial; the seed takes no time', () => {
+    const suite = param('suite', 'enum', 'standard', ['core', 'standard', 'hard', 'all']);
+    const spec: BenchSpec = { ...LLM, id: 'tool-eval', est_duration_s: 1666, params: [suite, param('trials', 'int', 1), param('seed', 'string', '')] };
+    const d = defaultParams(spec);
+    expect(estimateDuration(spec, d)).toBe(1666);
+    expect(estimateDuration(spec, { ...d, trials: 8, seed: '42' })).toBe(1666 * 8);
+    expect(Math.round(estimateDuration(spec, { ...d, suite: 'core', trials: 3 }))).toBe(370 * 3);
+  });
 });
 
 describe('progress', () => {

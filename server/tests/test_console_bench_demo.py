@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from sparkline.agent.bench.runner import DETAIL_MAX_BYTES, LIVE_MAX_BYTES
 from sparkline.agent.bench.specs import REGISTRY as AGENT_REGISTRY
-from sparkline.common.schema import BenchRun, BenchSpec, Event
+from sparkline.common.schema import BenchRun, BenchSpec, Event, NodeBenchState
 from sparkline.console import demo_bench
 from sparkline.console.app import create_app
 from sparkline.console.bench import REGISTRY, params_key, validate_params
@@ -121,6 +121,7 @@ def test_demo_storage_run_loads_the_disk_and_says_runs_are_compressed():
     assert after.write_bps < 1e8
     desc = {s.id: s.description for s in demo_catalog("spark1", m.info)}
     assert desc.pop("llm-inference").endswith(demo_bench.LLM_NOTE)  # compressed less: streams to watch
+    assert desc["tool-eval"].endswith(demo_bench.TE_NOTE)  # trials compressed more: still watchable
     assert all(demo_bench.COMPRESSED_NOTE in d for d in desc.values())
 
 
@@ -317,3 +318,165 @@ def test_demo_history_holds_a_finished_sweep(demo):
     assert {x.node_id for x in run.results} == {"spark1"}
     took = (run.finished_ts or 0) - (run.started_ts or 0)  # as long as its requests took
     assert took == pytest.approx(demo_bench.LLM_START_S + sum(lv["wall_s"] for lv in levels), abs=0.01)
+
+
+def _tool_eval(node: str = "spark1", rng: str = "x", **over) -> demo_bench.ToolEvalDemo:
+    return demo_bench.ToolEvalDemo(validate("tool-eval", over), node, random.Random(rng))
+
+
+def test_demo_tool_eval_single_trial_is_unchanged():
+    te = _tool_eval(rng="xspark1standard", suite="standard")
+    results = {r.metric: r for r in te.bench_results()}
+    st = te.node_state("r", "spark1", T0, T0 + 1)
+    final = st.detail["tool_eval"]
+    # the values the demo gave for this rng state before trials existed
+    assert (final["final_score"], final["total_points"], final["fingerprint"]) == (92, 127, "12add3861cfd")
+    missed = {t["id"]: t["points"] for t in st.live["board"] if t["points"] != 2}
+    assert missed == {"TC-32": 0, "TC-34": 1, "TC-54": 1, "TC-57": 1, "TC-58": 0, "TC-60": 0, "TC-65": 0}
+    assert (results["median_turn_ms"].value, results["deployability"].value) == (2520.9, 81.0)
+    assert (final["trials"], final["seed"], final["trial_stats"]) == (1, None, None)
+    assert final["envelope"]["metadata"]["trials"] == 1 and "trial_statistics" not in final["envelope"]
+    live = st.live
+    assert (live["trial"], live["trials"], live["seed"]) == (1, 1, None)
+    assert [x["trial"] for x in live["trial_scores"]] == [1] and live["trial_scores"][0]["score"] == 92
+    assert all(t["history"] == [t["points"]] for t in live["board"])
+    assert st.detail["te:TC-32"]["history"] == [0] and all(x["trial"] == 1 for x in live["recent"])
+    assert {"score_stddev", "pass_at_k", "pass_hat_k"}.isdisjoint(results)
+    assert results["score"].extras["whole"] is True and results["score"].extras["total_points"] == 127
+    assert all((r.extras["trials"], r.extras["seed"]) == (1, None) for r in results.values())
+    assert not any(line.startswith("Trial") for line in st.log_tail)
+    assert st.log_tail[-1].startswith("Score 92 (")
+    assert [x[0] for x in demo_bench.phases("tool-eval", te.p, None)][2] == "Scenario 1 of 69 · TC-01 " + (
+        te.scenarios[0].title
+    )
+
+
+def test_demo_tool_eval_trials_aggregate_as_upstream_does():
+    from tool_eval_bench.cli.run_io import aggregate_trials
+    from tool_eval_bench.domain.scenarios import rating_for_score
+    from tool_eval_bench.runner.orchestrator import score_results
+
+    te = _tool_eval(rng="t", suite="standard", trials=4)
+    results = {r.metric: r for r in te.bench_results()}
+    st = te.node_state("r", "spark1", T0, T0 + 1)
+    final, live, stats = st.detail["tool_eval"], st.live, st.detail["tool_eval"]["trial_stats"]
+    # every trial played: the board and records show the last, with each scenario's points in every trial
+    assert (live["trial"], live["trials"], live["done"], live["seed"]) == (4, 4, 69, None)
+    assert [x["trial"] for x in live["trial_scores"]] == [1, 2, 3, 4]
+    assert all(len(t["history"]) == 4 and t["history"][-1] == t["points"] for t in live["board"])
+    records = {k[3:]: v for k, v in st.detail.items() if k.startswith("te:")}
+    assert len(records) == 69 and all(r["history"] == records[r["id"]]["history"] for r in live["board"])
+    # upstream's own statistics over the trials, scored as its CLI scores each one
+    summaries = [score_results(r, te.scenarios, alpha=0.7) for r in te.by_trial]
+    agg = aggregate_trials(summaries)
+    assert stats["scores"] == [s.final_score for s in summaries] == [x["score"] for x in live["trial_scores"]]
+    assert (stats["mean"], stats["stddev"], stats["median"]) == (
+        agg["final_score_mean"],
+        agg["final_score_stddev"],
+        agg["final_score_median"],
+    )
+    assert stats["ci95"] == list(agg["final_score_ci95"]) and stats["min"] == min(stats["scores"])
+    assert (stats["pass_at_k"], stats["pass_hat_k"], stats["reliability_gap"]) == (
+        agg["pass_at_k"],
+        agg["pass_hat_k"],
+        agg["reliability_gap"],
+    )
+    assert stats["per_scenario"] == agg["per_scenario"] and stats["per_category"] == agg["per_category"]
+    assert stats["rating"] == rating_for_score(round(stats["mean"]))
+    assert {k: v["points"] for k, v in agg["per_scenario"].items()} == {
+        k: r["history"] for k, r in records.items()
+    }
+    flaky = [k for k, v in agg["per_scenario"].items() if v["pass_at_k"] and not v["pass_hat_k"]]
+    assert stats["flaky"] == flaky and 1 <= len(flaky) <= 8  # most scenarios give the same verdict each trial
+    assert stats["never"] == [k for k, v in agg["per_scenario"].items() if not v["pass_at_k"]]
+    assert (stats["graded"], stats["completion_rate"]) == (4 * 69, 100.0)
+    env = final["envelope"]
+    assert env["trial_statistics"]["final_score_mean"] == stats["mean"] and env["metadata"]["trials"] == 4
+    assert final["final_score"] == stats["scores"][-1] and (final["trials"], final["seed"]) == (4, None)
+    # the results: the mean and its spread, Pass@k and Pass^k
+    score = results["score"]
+    assert score.value == stats["mean"] and "whole" not in score.extras and "total_points" not in score.extras
+    assert (score.extras["stddev"], score.extras["ci95_low"], score.extras["ci95_high"]) == (
+        stats["stddev"],
+        *stats["ci95"],
+    )
+    assert (score.extras["graded"], score.extras["rating"]) == (4 * 69, stats["rating"])
+    assert (results["pass_at_k"].label, results["pass_hat_k"].label) == ("Pass@4", "Pass^4")
+    assert (results["score_stddev"].unit, results["score_stddev"].better) == ("pts", "lower")
+    heads = [m for m, r in results.items() if r.extras.get("headline")]
+    assert heads == ["score", "score_stddev", "pass_at_k", "pass_hat_k", "completion_rate", "median_turn_ms"]
+    turn = [s.to_dict()["median_turn_ms"] for s in summaries]
+    assert results["median_turn_ms"].value == round(sum(turn) / 4, 1)
+    cat = results["cat_a"]
+    assert cat.value == agg["per_category"]["A"]["mean_percent"] and "whole" not in cat.extras
+    assert all((r.extras["trials"], r.extras["seed"]) == (4, None) for r in results.values())
+    assert [x for x in st.log_tail if x.startswith("Trial ")] == [
+        f"Trial {t + 1} of 4: score {s} ({r})"
+        for t, (s, r) in enumerate(zip(stats["scores"], stats["ratings"], strict=True))
+    ]
+    assert st.log_tail[-1].startswith(f"Mean score {stats['mean']} ± {stats['stddev']} over 4 trials")
+    # the same rng state gives the same run; a seed fixes how the later trials vary, and is reported
+    assert _tool_eval(rng="t", suite="standard", trials=4).by_trial == te.by_trial
+    a, b = (_tool_eval(rng=x, suite="core", trials=3, seed="42") for x in ("a", "b"))
+    assert a.by_trial[0] != b.by_trial[0] and a.seed == 42
+    seeded = {r.metric: r for r in a.bench_results()}
+    assert seeded["score"].extras["seed"] == 42
+    assert a.summary()["envelope"]["config"]["seed"] == 42
+
+
+def test_demo_tool_eval_trials_replay_the_board():
+    te = _tool_eval(node="spark3", rng="r", suite="core", trials=3)
+    labels = [x[0] for x in demo_bench.phases("tool-eval", te.p, None)]
+    assert (
+        len(labels) == 2 + 3 * 15
+        and labels[2 + 15] == f"Trial 2 of 3 · Scenario 1 of 15 · TC-01 {te.scenarios[0].title}"
+    )
+    st = NodeBenchState(run_id="r", bench_id="tool-eval", node_id="spark3", status="running")
+    te.show(st, 0, 15, None)
+    te.show(st, 1, 2, T0)  # trial 2: two scenarios done, the third running
+    live = st.live
+    assert (live["trial"], live["done"], [x["trial"] for x in live["trial_scores"]]) == (2, 2, [1])
+    assert [t["status"] for t in live["board"][:4]] == [te.status(0), te.status(1), "running", "pending"]
+    assert [len(t["history"]) for t in live["board"][:4]] == [2, 2, 1, 1]
+    assert [len(st.detail[f"te:{s.id}"]["history"]) for s in te.scenarios[:4]] == [2, 2, 1, 1]
+    assert [x["trial"] for x in live["recent"]] == [2, 2, 1, 1, 1]
+    assert [x["id"] for x in live["recent"]] == ["TC-02", "TC-01", "TC-15", "TC-14", "TC-13"]
+    assert st.log_tail == [
+        f"Trial 1 of 3: score {live['trial_scores'][0]['score']} ({live['trial_scores'][0]['rating']})"
+    ]
+    # a K-trial run takes √K times one trial in the demo, not K times
+    one, four = (
+        demo_duration("tool-eval", validate("tool-eval", {"suite": "all", "trials": k})) for k in (1, 4)
+    )
+    assert four == pytest.approx(2 * one)
+
+
+def test_demo_tool_eval_trials_run_live_and_history_holds_one(demo):
+    body = {
+        "bench_id": "tool-eval",
+        "nodes": ["spark2"],
+        "params": {"suite": "core", "trials": 2, "seed": "7"},
+    }
+    r = demo.post("/api/v1/bench/runs", json={**body, "confirm": True})
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(_wait(demo, r.json()["id"]))
+    assert run.status == "succeeded", run.error
+    st = run.node_states["spark2"]
+    stats = st.detail["tool_eval"]["trial_stats"]
+    assert (st.live["trial"], st.live["trials"], st.live["seed"], len(stats["scores"])) == (2, 2, 7, 2)
+    score = next(x for x in run.results if x.metric == "score")
+    assert score.value == stats["mean"] and score.extras["seed"] == 7  # make_results replays the live run
+    listed = demo.get("/api/v1/bench/runs?bench_id=tool-eval").json()
+    seeded = [x for x in listed if x["params"]["trials"] > 1 and x["id"] != run.id]
+    assert [(x["params"]["suite"], x["params"]["trials"], x["params"]["seed"]) for x in seeded] == [
+        ("all", 4, "42")
+    ]
+    assert [(x["params"]["suite"], x["params"]["trials"], x["params"]["seed"]) for x in seeded] == [
+        ("all", 4, "42")
+    ]
+    run = BenchRun.model_validate(demo.get(f"/api/v1/bench/runs/{seeded[0]['id']}").json())
+    st = run.node_states["spark1"]
+    assert (st.live["trial"], st.live["done"], len(st.live["trial_scores"])) == (4, 97, 4)
+    assert all(len(t["history"]) == 4 for t in st.live["board"])
+    assert _compact(st.live) <= LIVE_MAX_BYTES and _compact(st.detail) <= DETAIL_MAX_BYTES
+    assert next(x for x in run.results if x.metric == "pass_at_k").label == "Pass@4"

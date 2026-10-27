@@ -75,7 +75,10 @@ TELEMETRY_STEP_S = 0.75  # agent samples at 1 Hz arrive 0.93-1.07 s apart; faste
 LOG_TAIL = 60
 _B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 # Params added after release: left out of params_key while neutral, so older runs keep matching baselines.
-KEY_NEUTRAL: dict[str, dict[str, Any]] = {"llm-inference": {"sweep": False}}
+KEY_NEUTRAL: dict[str, dict[str, Any]] = {
+    "llm-inference": {"sweep": False},
+    "tool-eval": {"trials": 1, "seed": ""},
+}
 
 
 class BenchError(Exception):

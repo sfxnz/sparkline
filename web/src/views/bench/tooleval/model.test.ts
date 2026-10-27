@@ -13,25 +13,31 @@ import {
   formatRate,
   formatSeconds,
   formatTokens,
+  historyMean,
+  historyText,
   noCallsText,
   nodeEval,
   parseLive,
   parseRating,
   parseRecord,
   parseSummary,
+  plotDomain,
   pyRound,
   quarter,
   scorePct,
+  spread,
   subtitle,
   tally,
   toolCallList,
+  trialOutcome,
+  trialRecords,
   viewKind,
   weakestCategory,
   type Live,
   type Tile,
 } from './model';
 
-const tile = (id: string, cat: string, status: Tile['status'], s: number | null = null, points: number | null = null): Tile => ({ id, cat, title: id, difficulty: 2, status, points, s });
+const tile = (id: string, cat: string, status: Tile['status'], s: number | null = null, points: number | null = null): Tile => ({ id, cat, title: id, difficulty: 2, status, points, s, history: [] });
 
 const live = (p: Partial<Live>): Live => ({
   version: '2.8.0',
@@ -50,6 +56,10 @@ const live = (p: Partial<Live>): Live => ({
   warnings: [],
   board: [],
   recent: [],
+  trial: 1,
+  trials: 1,
+  seed: null,
+  trialScores: [],
   ...p,
 });
 
@@ -105,6 +115,98 @@ describe('parsing', () => {
     expect(evalNodes(run).map((e) => e.node)).toEqual(['spark1']);
     expect(evalNodes({ nodes: ['spark1'], node_states: undefined })).toEqual([]);
     expect(evalNodes(FIXTURES.waiting())).toEqual([]);
+  });
+});
+
+describe('trials', () => {
+  it('reads the trial, the seed, finished trials’ scores and each tile’s history; a single run is trial 1 of 1', () => {
+    const l = parseLive({
+      kind: 'tool-eval',
+      trial: 9,
+      trials: 4,
+      seed: 42,
+      trial_scores: [{ trial: 1, score: 87, rating: '★★★★ Good', points: 120, max_points: 138, excluded: 0 }, 'x', { score: 85 }],
+      board: [{ id: 'TC-01', status: 'pending', history: [2, null, 1, 'x', Number.NaN] }],
+      recent: [{ id: 'TC-01', status: 'pass', trial: 3 }],
+    });
+    expect(l).toMatchObject({ trial: 4, trials: 4, seed: 42 }); // never past the last trial
+    expect(l?.trialScores).toEqual([
+      { trial: 1, score: 87, rating: '★★★★ Good', points: 120, maxPoints: 138, excluded: 0 },
+      { trial: 3, score: 85, rating: '', points: null, maxPoints: null, excluded: 0 }, // numbered by its place when unnumbered
+    ]);
+    expect(l?.board[0]?.history).toEqual([2, null, 1]);
+    expect(l?.recent[0]?.trial).toBe(3);
+    expect(parseLive({ kind: 'tool-eval', seed: -1 })).toMatchObject({ trial: 1, trials: 1, seed: null, trialScores: [] });
+    expect(parseLive({ kind: 'tool-eval', seed: 4.5 })?.seed).toBeNull();
+    expect(parseRecord({ id: 'TC-01', status: 'pass', history: [2, 2, null] })?.history).toEqual([2, 2, null]);
+    expect(parseRecord({ id: 'TC-01', status: 'pass' })?.history).toEqual([]);
+  });
+
+  it('reads the summary’s trials and statistics; one trial has none', () => {
+    const one = parseSummary({ final_score: 88, trials: 1, seed: null, trial_stats: null });
+    expect(one).toMatchObject({ trials: 1, seed: null, trialStats: null });
+    expect(parseSummary({})).toMatchObject({ trials: 1, seed: null, trialStats: null }); // older agents
+    const s = parseSummary({
+      final_score: 86,
+      trials: 3,
+      seed: 7,
+      trial_stats: {
+        scores: [87, 'x', 85],
+        mean: 86,
+        ci95: [84.1],
+        rating: '★★★★ Good',
+        pass_at_k: 92.3,
+        flaky: ['TC-07', 3],
+        per_category: { A: { label: 'Tool Selection', mean_percent: 91.7, stddev_percent: 4.1 }, B: 'no' },
+        per_scenario: { 'TC-07': { mean: 1.5, points: [2, 1, null], pass_at_k: true } },
+        graded: 288,
+      },
+    });
+    expect(s).toMatchObject({ trials: 3, seed: 7 });
+    expect(s?.trialStats).toMatchObject({ scores: [87, 85], mean: 86, stddev: null, ci95: null, passAtK: 92.3, passHatK: null, flaky: ['TC-07'], never: [], graded: 288 });
+    expect(s?.trialStats?.perCategory).toEqual({ A: { label: 'Tool Selection', meanPercent: 91.7, stddevPercent: 4.1 } });
+    expect(s?.trialStats?.perScenario['TC-07']).toEqual({ mean: 1.5, stddev: null, points: [2, 1, null], passAtK: true, passHatK: false });
+    expect(parseSummary({ trial_stats: { ci95: [86.1, 88.6] } })?.trialStats?.ci95).toEqual([86.1, 88.6]);
+  });
+
+  it('keeps only this trial’s records while a later trial runs (the rest are a trial behind)', () => {
+    const recs = [parseRecord({ id: 'TC-01', status: 'pass', history: [2, 2, 1] }), parseRecord({ id: 'TC-02', status: 'pass', history: [2, 2] })].filter((r) => r !== null);
+    expect(trialRecords(live({ trial: 3, trials: 4 }), recs).map((r) => r.id)).toEqual(['TC-01']);
+    expect(trialRecords(live({}), recs)).toBe(recs); // a single run: every record
+    expect(trialRecords(null, recs)).toBe(recs);
+    // In the fixture's trial 4 of 8, 30 scenarios ran again; the other 39 still show trial 3.
+    const ev = nodeEval('spark1', FIXTURES.trialsLive().node_states?.spark1);
+    expect(ev.records).toHaveLength(69);
+    expect(trialRecords(ev.live, ev.records)).toHaveLength(30);
+    expect(boardTiles(ev.live, trialRecords(ev.live, ev.records), true).filter((t) => t.status === 'pending')).toHaveLength(38);
+  });
+
+  it('reads points as verdicts, sums them up and measures the spread like Python’s statistics', () => {
+    expect([2, 1, 0, null].map(trialOutcome)).toEqual(['pass', 'partial', 'fail', 'excluded']);
+    expect(historyText([2, 2, 1, null, 2])).toBe('3 passed, 1 partial, 1 excluded');
+    expect(historyMean([2, 1, null])).toBe(1.5);
+    expect(historyMean([null])).toBeNull();
+    expect(spread([])).toEqual({ mean: null, stddev: null });
+    expect(spread([87])).toEqual({ mean: 87, stddev: null });
+    const s = spread([87, 85, 90, 88]);
+    expect(s.mean).toBe(87.5);
+    expect(s.stddev).toBeCloseTo(2.0817, 4); // statistics.stdev([87, 85, 90, 88])
+  });
+
+  it('fits the per-trial plot’s axis to the scores on round numbers', () => {
+    expect(plotDomain([85, 90, 86.1, 88.6])).toEqual({ lo: 80, hi: 95, ticks: [80, 85, 90, 95] });
+    expect(plotDomain([99, 100])).toEqual({ lo: 90, hi: 100, ticks: [90, 95, 100] });
+    expect(plotDomain([3])).toEqual({ lo: 0, hi: 10, ticks: [0, 5, 10] });
+    expect(plotDomain([40, 95])).toEqual({ lo: 35, hi: 100, ticks: [40, 60, 80, 100] });
+    expect(plotDomain([])).toMatchObject({ lo: 0, hi: 100 });
+  });
+
+  it('scores the eight-trial fixture: the mean of every trial, the last trial’s verdicts', () => {
+    const s = nodeEval('spark1', FIXTURES.trialsDone().node_states?.spark1).summary;
+    expect(s).toMatchObject({ trials: 8, seed: 42, score: 82 });
+    expect(s?.trialStats).toMatchObject({ scores: [88, 83, 86, 88, 85, 86, 85, 82], mean: 85.4, stddev: 2.1, rating: '★★★★ Good', passAtK: 85.5, passHatK: 65.2, reliabilityGap: 20.3 });
+    expect(s?.trialStats?.flaky).toHaveLength(14);
+    expect(s?.trialStats?.never).toHaveLength(10);
   });
 });
 
@@ -214,6 +316,9 @@ describe('filter', () => {
     expect(filterRecords(recs, 'all', 'timed out').map((r) => r.id)).toEqual(['TC-46']);
     expect(filterRecords(recs, 'partial', 'safety & bound')).toEqual([]);
     expect(filterRecords(recs, 'all', '  ')).toHaveLength(97);
+    expect(filterRecords(recs, 'flaky', '', { flaky: ['TC-34', 'TC-01'], never: [] }).map((r) => r.id)).toEqual(['TC-01', 'TC-34']);
+    expect(filterRecords(recs, 'never', 'injection', { flaky: [], never: ['TC-34', 'TC-02'] }).map((r) => r.id)).toEqual(['TC-34']);
+    expect(filterRecords(recs, 'flaky', '')).toEqual([]);
   });
 });
 
@@ -224,6 +329,8 @@ describe('text', () => {
     expect(subtitle({ version: '2.8.0', suite: 'standard', total: 69, thinking: true, model: '' })).toBe('tool-eval-bench 2.8.0 · Standard 69 · thinking on');
     expect(subtitle({ version: '', suite: '', total: 12, thinking: null, model: '' })).toBe('tool-eval-bench · 12 scenarios');
     expect(subtitle({ version: '', suite: '', total: 0, thinking: null, model: '' })).toBe('tool-eval-bench');
+    expect(subtitle({ version: '2.8.0', suite: 'all', total: 97, thinking: true, model: 'm', trials: 8, seed: '42' })).toBe('tool-eval-bench 2.8.0 · All 97 · 8 trials · seed 42 · thinking on · m');
+    expect(subtitle({ version: '2.8.0', suite: 'core', total: 15, thinking: null, model: '', trials: 1, seed: '0' })).toBe('tool-eval-bench 2.8.0 · Core 15 · seed 0');
     expect([formatMs(830.2), formatMs(2400), formatMs(14_200), formatMs(null)]).toEqual(['830 ms', '2.4 s', '14 s', '—']);
     expect([formatSeconds(8.44), formatSeconds(24.4), formatSeconds(72), formatSeconds(null)]).toEqual(['8.4 s', '24 s', '1 min 12 s', '—']);
     expect([formatTokens(4410), formatTokens(81_234), formatTokens(1_234_567), formatTokens(null)]).toEqual(['4,410', '81k', '1.2M', '—']);

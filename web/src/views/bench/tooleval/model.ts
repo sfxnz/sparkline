@@ -38,6 +38,17 @@ const count = (v: unknown): number => Math.max(0, Math.round(num(v) ?? 0));
 const bool = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
 const strs = (v: unknown, max: number): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, max) : []);
 const nums = (v: unknown, max: number): number[] => (Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number' && Number.isFinite(x)).slice(0, max) : []);
+/** Trials a run can have (the param allows 1-10; more is kept in case a later agent allows it). */
+const MAX_TRIALS = 64;
+
+/** A scenario's points in each trial: 0-2, null when that trial excluded it (anything else is dropped). */
+const trialPoints = (v: unknown): TrialPoints[] =>
+  Array.isArray(v) ? v.filter((x): x is TrialPoints => x === null || (typeof x === 'number' && Number.isFinite(x))).slice(0, MAX_TRIALS) : [];
+/** The sampling seed: a non-negative whole number, else none. */
+const seedOf = (v: unknown): number | null => {
+  const n = num(v);
+  return n !== null && Number.isInteger(n) && n >= 0 ? n : null;
+};
 const labels = (v: unknown): Record<string, string> =>
   isObj(v) ? Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === 'string')) : {};
 
@@ -57,6 +68,68 @@ export function pyRound(x: number): number {
 /** Points earned ÷ points possible × 100, rounded like upstream; null before anything was graded. */
 export const scorePct = (points: number, max: number): number | null => (max > 0 ? pyRound((points / max) * 100) : null);
 
+// ------------------------------------------------------------------------------------------------ trials
+
+/** One trial's points for a scenario (0-2), null when that trial excluded it. */
+export type TrialPoints = number | null;
+
+/** A trial's points as its verdict: 2 a pass, 1 a partial, 0 a fail, null excluded. */
+export const trialOutcome = (p: TrialPoints): Outcome => (p === null ? 'excluded' : p >= 2 ? 'pass' : p >= 1 ? 'partial' : 'fail');
+
+/** Verdicts over the trials, worst last: "6 passed, 1 partial, 1 excluded" (zero counts left out). */
+export function historyText(h: readonly TrialPoints[]): string {
+  const c: Record<Outcome, number> = { pass: 0, partial: 0, fail: 0, excluded: 0 };
+  for (const p of h) c[trialOutcome(p)]++;
+  const words: Record<Outcome, string> = { pass: 'passed', partial: 'partial', fail: 'failed', excluded: 'excluded' };
+  return OUTCOMES.filter((o) => c[o]).map((o) => `${c[o]} ${words[o]}`).join(', ');
+}
+
+/** Mean points of the graded trials, for sorting scenarios by how reliably they pass; null when none was graded. */
+export function historyMean(h: readonly TrialPoints[]): number | null {
+  const graded = h.filter((p): p is number => p !== null);
+  return graded.length ? graded.reduce((a, b) => a + b, 0) / graded.length : null;
+}
+
+/** Mean and sample standard deviation (like Python's statistics.stdev) of finished trials' scores; the spread needs
+ * two. */
+export function spread(xs: readonly number[]): { mean: number | null; stddev: number | null } {
+  if (!xs.length) return { mean: null, stddev: null };
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  if (xs.length < 2) return { mean, stddev: null };
+  return { mean, stddev: Math.sqrt(xs.reduce((a, x) => a + (x - mean) ** 2, 0) / (xs.length - 1)) };
+}
+
+/** One decimal, as upstream reports trial statistics: "87.4", "90.0". */
+export const oneDecimal = (n: number): string => n.toFixed(1);
+
+export interface TrialScore {
+  trial: number;
+  score: number | null;
+  rating: string;
+  points: number | null;
+  maxPoints: number | null;
+  excluded: number;
+}
+
+/**
+ * The axis of the per-trial score plot: the scores (and their interval) with a little room, on round numbers, at
+ * least 10 points wide and inside 0-100, with a tick every 5, 10 or 20 points.
+ */
+export function plotDomain(values: readonly number[]): { lo: number; hi: number; ticks: number[] } {
+  const xs = values.filter((v) => Number.isFinite(v));
+  if (!xs.length) return { lo: 0, hi: 100, ticks: [0, 20, 40, 60, 80, 100] };
+  let lo = Math.max(0, Math.floor((Math.min(...xs) - 2) / 5) * 5);
+  let hi = Math.min(100, Math.ceil((Math.max(...xs) + 2) / 5) * 5);
+  if (hi - lo < 10) {
+    hi = Math.min(100, lo + 10);
+    lo = Math.max(0, hi - 10);
+  }
+  const step = hi - lo <= 20 ? 5 : hi - lo <= 50 ? 10 : 20;
+  const ticks: number[] = [];
+  for (let t = Math.ceil(lo / step) * step; t <= hi; t += step) ticks.push(t);
+  return { lo, hi, ticks };
+}
+
 // ------------------------------------------------------------------------------------------------ live snapshot
 
 export interface Tile {
@@ -68,6 +141,8 @@ export interface Tile {
   points: number | null;
   /** Seconds the scenario took (finished ones). */
   s: number | null;
+  /** Points in each trial it finished, this one included once it finished (multi-trial runs only). */
+  history: TrialPoints[];
 }
 
 export interface Current {
@@ -84,6 +159,8 @@ export interface Recent {
   outcome: Outcome;
   points: number | null;
   summary: string;
+  /** The trial it finished in (null from agents before trials). */
+  trial: number | null;
 }
 
 export interface Live {
@@ -104,18 +181,30 @@ export interface Live {
   warnings: string[];
   board: Tile[];
   recent: Recent[];
+  /** The trial running now (1-based) of `trials`; 1 of 1 for a single run. Counts and points above are this trial's. */
+  trial: number;
+  trials: number;
+  seed: number | null;
+  /** Finished trials' scores, in order. */
+  trialScores: TrialScore[];
 }
 
 /** The payload's live snapshot (`kind: "tool-eval"`), or null for anything else. */
 export function parseLive(v: unknown): Live | null {
   if (!isObj(v) || v.kind !== 'tool-eval') return null;
   const board = (Array.isArray(v.board) ? v.board : []).flatMap((t): Tile[] =>
-    isObj(t) && str(t.id) ? [{ id: str(t.id), cat: str(t.cat), title: str(t.title), difficulty: num(t.difficulty), status: tileStatusOf(t.status), points: num(t.points), s: num(t.s) }] : [],
+    isObj(t) && str(t.id)
+      ? [{ id: str(t.id), cat: str(t.cat), title: str(t.title), difficulty: num(t.difficulty), status: tileStatusOf(t.status), points: num(t.points), s: num(t.s), history: trialPoints(t.history) }]
+      : [],
   );
   const recent = (Array.isArray(v.recent) ? v.recent : []).flatMap((r): Recent[] => {
     const outcome = isObj(r) ? outcomeOf(r.status, r.excluded) : null;
-    return isObj(r) && str(r.id) && outcome ? [{ id: str(r.id), outcome, points: num(r.points), summary: str(r.summary) }] : [];
+    return isObj(r) && str(r.id) && outcome ? [{ id: str(r.id), outcome, points: num(r.points), summary: str(r.summary), trial: num(r.trial) }] : [];
   });
+  const trialScores = (Array.isArray(v.trial_scores) ? v.trial_scores : []).slice(0, MAX_TRIALS).flatMap((t, i): TrialScore[] =>
+    isObj(t) ? [{ trial: count(t.trial) || i + 1, score: num(t.score), rating: str(t.rating), points: num(t.points), maxPoints: num(t.max_points), excluded: count(t.excluded) }] : [],
+  );
+  const trials = Math.max(1, count(v.trials), trialScores.length);
   const c = isObj(v.counts) ? v.counts : {};
   const cur = v.current;
   return {
@@ -137,6 +226,10 @@ export function parseLive(v: unknown): Live | null {
     warnings: strs(v.warnings, 20),
     board,
     recent: recent.slice(0, 5),
+    trial: Math.min(trials, Math.max(1, count(v.trial))),
+    trials,
+    seed: seedOf(v.seed),
+    trialScores,
   };
 }
 
@@ -168,6 +261,8 @@ export interface ScenarioRecord {
   toolCalls: string[];
   budgetExceeded: boolean;
   trace: string;
+  /** Points in each trial so far, this record's (the latest) last; one entry per finished trial. */
+  history: TrialPoints[];
 }
 
 /** One finished scenario (`detail["te:<ID>"]`), or null when it is not one. */
@@ -200,6 +295,7 @@ export function parseRecord(v: unknown): ScenarioRecord | null {
     toolCalls: strs(v.tool_calls, 64),
     budgetExceeded: v.budget_exceeded === true,
     trace: str(v.trace),
+    history: trialPoints(v.history),
   };
 }
 
@@ -220,6 +316,84 @@ export interface CapabilityScore {
   earned: number;
   max: number;
   percent: number | null;
+}
+
+export interface CategorySpread {
+  label: string;
+  meanPercent: number | null;
+  stddevPercent: number | null;
+}
+
+export interface ScenarioSpread {
+  mean: number | null;
+  stddev: number | null;
+  points: TrialPoints[];
+  passAtK: boolean;
+  passHatK: boolean;
+}
+
+/** Upstream's statistics over the trials (null for a single trial). Percentages are of the graded scenarios. */
+export interface TrialStats {
+  scores: number[];
+  ratings: string[];
+  mean: number | null;
+  stddev: number | null;
+  median: number | null;
+  ci95: readonly [number, number] | null;
+  min: number | null;
+  max: number | null;
+  /** The mean's rating, safety-capped if any trial was. */
+  rating: string;
+  /** Passed in at least one trial / in every trial, and the difference (points). */
+  passAtK: number | null;
+  passHatK: number | null;
+  reliabilityGap: number | null;
+  /** Passed in some trials, not all; never passed. */
+  flaky: string[];
+  never: string[];
+  perCategory: Record<string, CategorySpread>;
+  perScenario: Record<string, ScenarioSpread>;
+  completionRate: number | null;
+  /** Scenario runs graded over all trials. */
+  graded: number | null;
+  /** Every trial's violations together. */
+  safetyWarnings: string[];
+}
+
+export function parseTrialStats(v: unknown): TrialStats | null {
+  if (!isObj(v)) return null;
+  const ci = nums(v.ci95, 2);
+  const lo = ci[0];
+  const hi = ci[1];
+  return {
+    scores: nums(v.scores, MAX_TRIALS),
+    ratings: strs(v.ratings, MAX_TRIALS),
+    mean: num(v.mean),
+    stddev: num(v.stddev),
+    median: num(v.median),
+    ci95: lo !== undefined && hi !== undefined ? [lo, hi] : null,
+    min: num(v.min),
+    max: num(v.max),
+    rating: str(v.rating),
+    passAtK: num(v.pass_at_k),
+    passHatK: num(v.pass_hat_k),
+    reliabilityGap: num(v.reliability_gap),
+    flaky: strs(v.flaky, 200),
+    never: strs(v.never, 200),
+    perCategory: isObj(v.per_category)
+      ? Object.fromEntries(Object.entries(v.per_category).flatMap(([k, c]) => (isObj(c) ? [[k, { label: str(c.label), meanPercent: num(c.mean_percent), stddevPercent: num(c.stddev_percent) }]] : [])))
+      : {},
+    perScenario: isObj(v.per_scenario)
+      ? Object.fromEntries(
+          Object.entries(v.per_scenario).flatMap(([k, s]) =>
+            isObj(s) ? [[k, { mean: num(s.mean), stddev: num(s.stddev), points: trialPoints(s.points), passAtK: s.pass_at_k === true, passHatK: s.pass_hat_k === true }]] : [],
+          ),
+        )
+      : {},
+    completionRate: num(v.completion_rate),
+    graded: num(v.graded),
+    safetyWarnings: strs(v.safety_warnings, 200),
+  };
 }
 
 export interface Summary {
@@ -249,6 +423,10 @@ export interface Summary {
   capabilities: CapabilityScore[];
   /** Upstream's result envelope (its own JSON format), for the download. */
   envelope: Record<string, unknown> | null;
+  /** Trials run (the fields above are the last one's, like upstream's JSON) and the seed; statistics when over 1. */
+  trials: number;
+  seed: number | null;
+  trialStats: TrialStats | null;
 }
 
 /** The run summary (`detail.tool_eval`), or null. */
@@ -286,6 +464,9 @@ export function parseSummary(v: unknown): Summary | null {
       isObj(c) && str(c.capability) ? [{ capability: str(c.capability), label: str(c.label), earned: count(c.earned), max: count(c.max), percent: pct(c) }] : [],
     ),
     envelope: isObj(v.envelope) ? v.envelope : null,
+    trials: Math.max(1, count(v.trials)),
+    seed: seedOf(v.seed),
+    trialStats: parseTrialStats(v.trial_stats),
   };
 }
 
@@ -332,7 +513,16 @@ export const scenarioNumber = (id: string): number => Number(/\d+/.exec(id)?.[0]
 
 export const byScenario = (a: { id: string }, b: { id: string }) => scenarioNumber(a.id) - scenarioNumber(b.id) || a.id.localeCompare(b.id);
 
-const fromRecord = (r: ScenarioRecord): Tile => ({ id: r.id, cat: r.category, title: r.title, difficulty: r.difficulty, status: r.outcome, points: r.points, s: r.durationS });
+const fromRecord = (r: ScenarioRecord): Tile => ({ id: r.id, cat: r.category, title: r.title, difficulty: r.difficulty, status: r.outcome, points: r.points, s: r.durationS, history: r.history });
+
+/**
+ * The records of the trial running now. Every trial replaces a scenario's record, so while trial 3 runs one not yet
+ * re-run still holds trial 2's (its history is a trial short): that one is not this trial's verdict.
+ */
+export function trialRecords(live: Live | null, records: readonly ScenarioRecord[]): readonly ScenarioRecord[] {
+  if (!live || live.trials <= 1) return records;
+  return records.filter((r) => r.history.length >= live.trial);
+}
 
 /**
  * Every scenario of the run in run order: the live board with finished scenarios taken from their records (which
@@ -440,14 +630,19 @@ export function weakestCategory(s: Summary): string {
   return worst?.category ?? '';
 }
 
-export type Filter = 'all' | Outcome;
+/** A result, or (over several trials) upstream's flaky / never-passed scenarios. */
+export type Filter = 'all' | Outcome | 'flaky' | 'never';
 
 /** Records matching the result filter and a free-text search over id, title, category, summary and failure kind. */
-export function filterRecords(records: readonly ScenarioRecord[], filter: Filter, query: string): ScenarioRecord[] {
+export function filterRecords(
+  records: readonly ScenarioRecord[],
+  filter: Filter,
+  query: string,
+  consistency: { flaky: readonly string[]; never: readonly string[] } = { flaky: [], never: [] },
+): ScenarioRecord[] {
   const q = query.trim().toLowerCase();
-  return records.filter(
-    (r) => (filter === 'all' || r.outcome === filter) && (!q || [r.id, r.title, r.categoryLabel, r.summary, failureKindText(r.failureKind)].some((s) => s.toLowerCase().includes(q))),
-  );
+  const match = (r: ScenarioRecord) => (filter === 'all' ? true : filter === 'flaky' || filter === 'never' ? consistency[filter].includes(r.id) : r.outcome === filter);
+  return records.filter((r) => match(r) && (!q || [r.id, r.title, r.categoryLabel, r.summary, failureKindText(r.failureKind)].some((s) => s.toLowerCase().includes(q))));
 }
 
 // ------------------------------------------------------------------------------------------------ text
@@ -461,12 +656,14 @@ export const SUITE_SHAPE: Record<string, readonly number[]> = {
   all: [3, 3, 4, 3, 3, 3, 3, 5, 10, 3, 13, 4, 3, 3, 6, 28],
 };
 
-/** "tool-eval-bench 2.8.0 · Standard 69 · thinking on · Qwen3-30B-A3B": the suite named as in the run's parameters
- * (parts that are unknown are left out). */
-export function subtitle(p: { version: string; suite: string; total: number; thinking: boolean | null; model: string }): string {
+/** "tool-eval-bench 2.8.0 · Standard 69 · 8 trials · seed 42 · thinking on · Qwen3-30B-A3B": the suite named as in the
+ * run's parameters (parts that are unknown are left out, and a single trial goes unsaid). */
+export function subtitle(p: { version: string; suite: string; total: number; thinking: boolean | null; model: string; trials?: number; seed?: string }): string {
   return [
     `tool-eval-bench${p.version ? ` ${p.version}` : ''}`,
     p.suite ? choiceLabel(p.suite) : p.total ? scenarios(p.total) : '',
+    p.trials && p.trials > 1 ? `${p.trials} trials` : '',
+    p.seed ? `seed ${p.seed}` : '',
     p.thinking === null ? '' : `thinking ${p.thinking ? 'on' : 'off'}`,
     p.model,
   ]

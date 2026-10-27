@@ -1,7 +1,8 @@
 // Test and preview fixtures for the tool-calling evaluation: upstream's real tool-eval-bench 2.8.0 scenario registry
 // (ids, titles, categories, what each checks, its pass and fail criteria, the prompt and the reference trace's tool
 // calls) and runs built from it at every stage (before the first snapshot, early, mid and late, finished clean,
-// finished with exclusions and a safety cap, cancelled), shaped exactly like the payload's live snapshot and detail.
+// finished with exclusions and a safety cap, cancelled, and runs of several trials), shaped exactly like the payload's
+// live snapshot and detail.
 import type { BenchRun, NodeBenchState, RunStatus } from '../../../lib/types';
 import { run as benchRun } from '../fixtures';
 import { pyRound } from './model';
@@ -404,6 +405,36 @@ function record(s: Scenario): Record<string, unknown> {
   };
 }
 
+/** rand() with its bits mixed again (murmur3's finalizer): keys that differ only at the end still spread evenly. */
+function mixed(key: string): number {
+  let h = Math.floor(rand(key) * 2 ** 32);
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 2 ** 32;
+}
+
+/** Points as the trials' history records them: null for an excluded scenario. */
+const trialPts = (s: Scenario): number | null => (s.v.outcome === 'excluded' ? null : POINTS[s.v.outcome]);
+
+/**
+ * Trial t's verdicts (t = 0 is the plan's own). About one scenario in six is unstable: in some trials a pass slips to a
+ * partial or a fail (rarely a timeout) and a partial or a fail passes, as sampling does even with a seed; the rest
+ * repeat, so a run of trials has steady, flaky and never-passing scenarios.
+ */
+function trialList(list: readonly Scenario[], t: number): Scenario[] {
+  return list.map((s) => {
+    const id = s.row[0];
+    const r = mixed(`${id}:t${t}`);
+    if (t === 0 || s.v.outcome === 'excluded' || mixed(`${id}:unstable`) > 0.17 || r > 0.45) return s;
+    const v: Verdict =
+      s.v.outcome !== 'pass' ? { outcome: 'pass', summary: PASSED[id] ?? passWords(s.row[6]) }
+      : r < 0.03 ? { outcome: 'excluded', summary: 'Request timed out after 120 s', kind: 'timeout' }
+      : r < 0.14 ? { outcome: 'fail', summary: 'Answered from memory this time instead of calling a tool.', kind: 'wrong_tool' }
+      : { outcome: 'partial', summary: 'Called the right tool but dropped an argument this time.', kind: 'wrong_args' };
+    return { ...s, v };
+  });
+}
+
 function ratingFor(score: number, capped: boolean): string {
   if (capped) return score >= 60 ? '★★★ Adequate (safety-capped)' : score >= 40 ? '★★ Weak (safety-capped)' : '★ Poor (safety-capped)';
   return score >= 90 ? '★★★★★ Excellent' : score >= 75 ? '★★★★ Good' : score >= 60 ? '★★★ Adequate' : score >= 40 ? '★★ Weak' : '★ Poor';
@@ -495,9 +526,86 @@ function summary(list: readonly Scenario[], suite: Suite, thinking: boolean): Re
   };
 }
 
+/** Upstream's statistics over the trials (fixture-grade: a normal-approximation interval). */
+function trialStats(trials: readonly (readonly Scenario[])[], suite: Suite, thinking: boolean): Record<string, unknown> {
+  const sums = trials.map((l) => summary(l, suite, thinking) as { final_score: number; rating: string; categories: { category: string; label: string; percent: number }[]; safety_warnings: string[] });
+  const scores = sums.map((x) => x.final_score);
+  const k = scores.length;
+  const mean = sum(scores) / k;
+  const sd = (xs: readonly number[], m: number) => (xs.length > 1 ? Math.sqrt(sum(xs.map((x) => (x - m) ** 2)) / (xs.length - 1)) : 0);
+  const stddev = sd(scores, mean);
+  const sorted = [...scores].sort((a, b) => a - b);
+  const median = k % 2 ? (sorted[k >> 1] ?? 0) : ((sorted[k / 2 - 1] ?? 0) + (sorted[k / 2] ?? 0)) / 2;
+  const half = (1.96 * stddev) / Math.sqrt(k);
+  const ids = (trials[0] ?? []).map((s) => s.row[0]);
+  const points = ids.map((_, i) => trials.map((l) => (l[i] ? trialPts(l[i]) : null)));
+  const graded = points.map((ps) => ps.filter((p): p is number => p !== null));
+  const scored = ids.flatMap((id, i) => ((graded[i] ?? []).length ? [{ id, ps: graded[i] ?? [] }] : []));
+  const atK = scored.filter((x) => x.ps.includes(2));
+  const hatK = scored.filter((x) => x.ps.every((p) => p === 2));
+  const pct = (n: number) => round1((n / scored.length) * 100);
+  const capped = sums.some((x) => /safety-capped/.test(x.rating));
+  const cats = (sums[0]?.categories ?? []).map((c) => {
+    const ps = sums.map((x) => x.categories.find((y) => y.category === c.category)?.percent ?? 0);
+    const m = sum(ps) / k;
+    return [c.category, { label: c.label, mean_percent: round1(m), stddev_percent: round1(sd(ps, m)) }] as const;
+  });
+  const runs = trials.reduce((a, l) => a + l.length, 0);
+  const gradedRuns = sum(graded.map((g) => g.length));
+  return {
+    scores,
+    ratings: sums.map((x) => x.rating),
+    mean: round1(mean),
+    stddev: round1(stddev),
+    median,
+    ci95: [round1(mean - half), round1(mean + half)],
+    min: sorted[0],
+    max: sorted.at(-1),
+    rating: ratingFor(pyRound(mean), capped),
+    pass_at_k: pct(atK.length),
+    pass_hat_k: pct(hatK.length),
+    reliability_gap: round1(pct(atK.length) - pct(hatK.length)),
+    flaky: atK.filter((x) => !hatK.includes(x)).map((x) => x.id),
+    never: scored.filter((x) => !x.ps.includes(2)).map((x) => x.id),
+    per_category: Object.fromEntries(cats),
+    per_scenario: Object.fromEntries(
+      ids.map((id, i) => {
+        const g = graded[i] ?? [];
+        const m = g.length ? sum(g) / g.length : 0;
+        return [id, { mean: round1(m), stddev: round1(sd(g, m)), points: points[i], pass_at_k: g.includes(2), pass_hat_k: g.length > 0 && g.every((p) => p === 2) }];
+      }),
+    ),
+    completion_rate: round1((gradedRuns / runs) * 100),
+    graded: gradedRuns,
+    safety_warnings: [...new Set(sums.flatMap((x) => x.safety_warnings))],
+  };
+}
+
+/** `detail.tool_eval` of a run of one or more trials: the last trial's, with the trials, the seed and the statistics. */
+function trialsSummary(trials: readonly (readonly Scenario[])[], suite: Suite, thinking: boolean, seed: number | null): Record<string, unknown> {
+  const last = summary(trials.at(-1) ?? [], suite, thinking);
+  if (trials.length < 2) return { ...last, trials: 1, seed, trial_stats: null };
+  const stats = trialStats(trials, suite, thinking);
+  const envelope = last.envelope as Record<string, unknown>;
+  return {
+    ...last,
+    trials: trials.length,
+    seed,
+    trial_stats: stats,
+    envelope: {
+      ...envelope,
+      trial_statistics: stats,
+      safety_warnings: stats.safety_warnings,
+      safety_gate: { passed: !(stats.safety_warnings as string[]).length, warnings: stats.safety_warnings },
+      metadata: { ...(envelope.metadata as Record<string, unknown>), trials: trials.length },
+    },
+  };
+}
+
 interface SnapshotOptions {
   suite: Suite;
   thinking: boolean;
+  seed: number | null;
   warnings: readonly string[];
   active: boolean;
   /** Epoch seconds when scenarios began, and when the running one started. */
@@ -505,11 +613,14 @@ interface SnapshotOptions {
   currentTs: number;
 }
 
-/** The live snapshot after `done` scenarios (the next one running while the run is active). */
-function snapshot(list: readonly Scenario[], done: number, o: SnapshotOptions): Record<string, unknown> {
+/** The live snapshot after `done` scenarios of trial `cur` (0-based; the next one running while the run is active). */
+function snapshot(trials: readonly (readonly Scenario[])[], cur: number, done: number, o: SnapshotOptions): Record<string, unknown> {
+  const list = trials[cur] ?? [];
   const fin = list.slice(0, done);
+  // Every verdict so far in the order it came: earlier trials whole, then this one's.
+  const order = [...trials.slice(0, cur).flatMap((l, t) => l.map((s) => [s, t] as const)), ...fin.map((s) => [s, cur] as const)];
   const graded = fin.filter((s) => s.v.outcome !== 'excluded');
-  const cur = o.active ? list[done] : undefined;
+  const run = o.active ? list[done] : undefined;
   const n = (out: Outcome) => fin.filter((s) => s.v.outcome === out).length;
   return {
     kind: 'tool-eval',
@@ -525,7 +636,7 @@ function snapshot(list: readonly Scenario[], done: number, o: SnapshotOptions): 
     max_points: graded.length * 2,
     counts: { pass: n('pass'), partial: n('partial'), fail: n('fail'), excluded: n('excluded') },
     started_ts: o.startedTs,
-    current: cur ? { id: cur.row[0], title: cur.row[4], category: cur.row[1], difficulty: cur.row[2], expected: cur.row[5], started_ts: o.currentTs } : null,
+    current: run ? { id: run.row[0], title: run.row[4], category: run.row[1], difficulty: run.row[2], expected: run.row[5], started_ts: o.currentTs } : null,
     cat_labels: Object.fromEntries([...new Set(list.map((s) => s.row[1]))].map((c) => [c, CAT_LABELS[c] ?? c])),
     warnings: [...o.warnings],
     board: list.map((s, i) => ({
@@ -533,11 +644,19 @@ function snapshot(list: readonly Scenario[], done: number, o: SnapshotOptions): 
       cat: s.row[1],
       title: s.row[4],
       difficulty: s.row[2],
-      status: i < done ? s.v.outcome : cur && i === done ? 'running' : 'pending',
+      status: i < done ? s.v.outcome : run && i === done ? 'running' : 'pending',
       points: i < done && s.v.outcome !== 'excluded' ? POINTS[s.v.outcome] : null,
       s: i < done ? s.durationS : null,
+      history: trials.length > 1 ? trials.slice(0, i < done ? cur + 1 : cur).map((l) => (l[i] ? trialPts(l[i]) : null)) : i < done ? [trialPts(s)] : [],
     })),
-    recent: fin.slice(-5).reverse().map((s) => ({ id: s.row[0], status: s.v.outcome, points: POINTS[s.v.outcome], summary: s.v.summary })),
+    recent: order.slice(-5).reverse().map(([s, t]) => ({ id: s.row[0], status: s.v.outcome, points: POINTS[s.v.outcome], summary: s.v.summary, trial: t + 1 })),
+    trial: cur + 1,
+    trials: trials.length,
+    seed: o.seed,
+    trial_scores: trials.slice(0, cur).map((l, t) => {
+      const x = summary(l, o.suite, o.thinking);
+      return { trial: t + 1, score: x.final_score, rating: x.rating, points: x.total_points, max_points: x.max_points, excluded: (x.excluded as string[]).length };
+    }),
   };
 }
 
@@ -559,6 +678,10 @@ export interface EvalRunOptions {
   now?: number;
   /** Seconds the running scenario has been going. */
   currentElapsed?: number;
+  /** Trials in the run, the one running now (1-based; the last once ended) and the seed. */
+  trials?: number;
+  trial?: number;
+  seed?: number;
 }
 
 /** A tool-eval run at any stage; with several nodes each later node is 7 scenarios behind the one before. */
@@ -567,15 +690,21 @@ export function evalRun(o: EvalRunOptions): BenchRun {
   const status = o.status ?? 'running';
   const thinking = o.thinking ?? true;
   const nodes = o.nodes ?? ['spark1'];
-  const list = REGISTRY.filter((r) => inSuite(r, suite)).map((r) => scenario(r, o.plan ?? 'strong'));
+  const base = REGISTRY.filter((r) => inSuite(r, suite)).map((r) => scenario(r, o.plan ?? 'strong'));
+  const kTrials = o.trials ?? 1;
+  const trials = Array.from({ length: kTrials }, (_, t) => trialList(base, t));
   const active = status === 'running' || status === 'queued';
+  const cur = Math.min(kTrials, o.trial ?? (active ? 1 : kTrials)) - 1;
+  const list = trials[cur] ?? base;
+  const seed = o.seed ?? null;
   const done = o.done === undefined ? (active ? 0 : list.length) : o.done;
   const now = o.now ?? NOW;
   const running = o.currentElapsed ?? 8;
   const preflight = 10;
-  const ran = (k: number) => sum(list.slice(0, Math.max(0, k)).map((s) => s.durationS));
+  const ran = (n: number) => sum(list.slice(0, Math.max(0, n)).map((s) => s.durationS)) + cur * sum(list.map((s) => s.durationS));
   const startedTs = active ? now - running - ran(done ?? 0) - preflight : T0;
   const finishedTs = active ? null : startedTs + preflight + ran(done ?? 0) + 2;
+  const pts = (i: number, upto: number) => trials.slice(0, upto).map((l) => (l[i] ? trialPts(l[i]) : null));
 
   const node_states: Record<string, NodeBenchState> = Object.fromEntries(
     nodes.map((node, i) => {
@@ -584,17 +713,25 @@ export function evalRun(o: EvalRunOptions): BenchRun {
       const excluded = list.slice(0, k ?? 0).filter((s) => s.v.outcome === 'excluded').map((s) => s.row[0]);
       const note = `${excluded.length} of ${list.length} scenarios ${excluded.length === 1 ? 'was' : 'were'} excluded after timeouts or server errors (${excluded.join(', ')}); the score covers only the graded ones.`;
       const warnings = [...(o.warnings ?? []), ...(!active && status !== 'cancelled' && k === list.length && excluded.length ? [note] : [])];
-      const detail: Record<string, unknown> = Object.fromEntries(list.slice(0, k ?? 0).map((s) => [`te:${s.row[0]}`, record(s)]));
-      if (status === 'succeeded' && k === list.length) detail.tool_eval = summary(list, suite, thinking);
-      const cur = active && k !== null && k < list.length ? list[k] : undefined;
+      // Each scenario's latest record: this trial's once it ran in it, else the trial before's.
+      const detail: Record<string, unknown> = Object.fromEntries(
+        list.flatMap((s, j) => {
+          const prev = trials[cur - 1]?.[j];
+          if (j < (k ?? 0)) return [[`te:${s.row[0]}`, { ...record(s), history: pts(j, cur + 1) }]];
+          return prev && k !== null ? [[`te:${s.row[0]}`, { ...record(prev), history: pts(j, cur) }]] : [];
+        }),
+      );
+      if (status === 'succeeded' && k === list.length && cur === kTrials - 1) detail.tool_eval = trialsSummary(trials, suite, thinking, seed);
+      const next = active && k !== null && k < list.length ? list[k] : undefined;
+      const prefix = kTrials > 1 ? `Trial ${cur + 1} of ${kTrials} · ` : '';
       const st: NodeBenchState = {
         run_id: o.id,
         bench_id: 'tool-eval',
         node_id: node,
         role: 'single',
         status,
-        progress: k === null ? 0.02 : active ? 0.05 + (0.93 * k) / list.length : 1,
-        phase: k === null ? 'Checking tool calling' : cur ? `Scenario ${k + 1} of ${list.length} · ${cur.row[0]} ${cur.row[4]}` : 'Done',
+        progress: k === null ? 0.02 : active ? 0.05 + (0.93 * (cur * list.length + k)) / (list.length * kTrials) : 1,
+        phase: k === null ? 'Checking tool calling' : next ? `${prefix}Scenario ${k + 1} of ${list.length} · ${next.row[0]} ${next.row[4]}` : 'Done',
         ready: true,
         started_ts: startedTs,
         finished_ts: finishedTs,
@@ -606,7 +743,7 @@ export function evalRun(o: EvalRunOptions): BenchRun {
         ...(k === null
           ? {}
           : {
-              live: snapshot(list, k, { suite, thinking, warnings, active, startedTs: startedTs + preflight, currentTs: now - running }),
+              live: snapshot(trials, cur, k, { suite, thinking, seed, warnings, active, startedTs: startedTs + preflight, currentTs: now - running }),
               detail,
             }),
       };
@@ -614,11 +751,13 @@ export function evalRun(o: EvalRunOptions): BenchRun {
     }),
   );
   const first = node_states[nodes[0] ?? ''];
+  // As the console stores them: trials and the seed (a string, "" for none) only where a run set them.
+  const params = { base_url: ENDPOINT, model: '', suite, thinking, ...(o.trials === undefined && o.seed === undefined ? {} : { trials: kTrials, seed: seed === null ? '' : String(seed) }) };
   return benchRun({
     id: o.id,
     bench_id: 'tool-eval',
-    params: { base_url: ENDPOINT, model: '', suite, thinking },
-    params_key: JSON.stringify({ base_url: ENDPOINT, model: '', suite, thinking }),
+    params,
+    params_key: JSON.stringify(params),
     nodes: [...nodes],
     status,
     created_ts: startedTs - 1,
@@ -643,4 +782,8 @@ export const FIXTURES = {
   cancelled: () => evalRun({ id: 'te-cancelled', status: 'cancelled', done: 23 }),
   /** Every request failed (HTTP 503): nothing could be graded, so the run failed without a summary. */
   ungraded: () => evalRun({ id: 'te-ungraded', suite: 'core', plan: 'down', status: 'failed' }),
+  trialsFirst: (now = NOW) => evalRun({ id: 'te-trials-first', trials: 4, trial: 1, done: 40, now, currentElapsed: 5 }),
+  trialsLive: (now = NOW) => evalRun({ id: 'te-trials-live', trials: 8, trial: 4, seed: 42, done: 30, now, currentElapsed: 12 }),
+  trialsDone: () => evalRun({ id: 'te-trials-done', trials: 8, seed: 42, status: 'succeeded' }),
+  trialsCancelled: () => evalRun({ id: 'te-trials-cancelled', trials: 5, trial: 3, status: 'cancelled', done: 23 }),
 };

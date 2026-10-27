@@ -1,11 +1,12 @@
 // The scenario board: every scenario of the run as a small tile, grouped by category (A to P) with each category's
 // score so far. Tiles are buttons with a tooltip (title, verdict, the evaluator's summary); a finished one opens the
-// scenario dialog. The whole board is one tab stop: arrow keys move between tiles (up and down jump category).
+// scenario dialog. The whole board is one tab stop: arrow keys move between tiles (up and down jump category). Over
+// several trials each tile also shows the scenario's verdict in every trial so far, as pips.
 import { memo, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { Tooltip } from '../../../design/components/Tooltip';
-import { formatSeconds, isOutcome, scenarioNumber, STATUS_LOOK, type BoardGroup, type Tile } from './model';
-import { CategoryTag, StatusGlyph } from './parts';
+import { formatSeconds, historyText, isOutcome, scenarioNumber, STATUS_LOOK, type BoardGroup, type Tile } from './model';
+import { CategoryTag, HistoryPips, StatusGlyph } from './parts';
 
 interface Props {
   groups: readonly BoardGroup[];
@@ -16,10 +17,12 @@ interface Props {
   latest?: string;
   /** Lay categories out in two columns when there is room (the board is the page's width). */
   wide?: boolean;
+  /** Trials in the run: over 1, tiles show each trial's verdict. */
+  trials?: number;
   label: string;
 }
 
-export function Board({ groups, summaries, onOpen, latest, wide, label }: Props) {
+export function Board({ groups, summaries, onOpen, latest, wide, trials = 1, label }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const hint = useId();
   const [stop, setStop] = useState<string | null>(null);
@@ -60,7 +63,7 @@ export function Board({ groups, summaries, onOpen, latest, wide, label }: Props)
   return (
     // Keyboard handling for the tiles inside (each is a focusable button); the group only routes arrow keys.
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-    <div ref={ref} className={`te-board${wide ? ' te-board--wide' : ''}`} role="group" aria-label={label} aria-describedby={hint} onKeyDown={onKeyDown} onFocus={onFocus}>
+    <div ref={ref} className={`te-board${wide ? ' te-board--wide' : ''}${trials > 1 ? ' te-board--trials' : ''}`} role="group" aria-label={label} aria-describedby={hint} onKeyDown={onKeyDown} onFocus={onFocus}>
       <p id={hint} className="visually-hidden">Arrow keys move between scenarios; Enter opens a finished one.</p>
       {groups.map((g) => (
         <div key={g.cat} className="te-cat" role="group" aria-label={`${g.cat} · ${g.label || 'Other'}: ${g.percent === null ? '' : `${g.percent}%, `}${g.done} of ${g.tiles.length} done`}>
@@ -75,7 +78,7 @@ export function Board({ groups, summaries, onOpen, latest, wide, label }: Props)
           </div>
           <ul className="te-tiles">
             {g.tiles.map((t) => (
-              <BoardTile key={t.id} tile={t} summary={summaries.get(t.id) ?? ''} tabStop={t.id === tabStop} latest={t.id === latest} onOpen={onOpen} />
+              <BoardTile key={t.id} tile={t} summary={summaries.get(t.id) ?? ''} tabStop={t.id === tabStop} latest={t.id === latest} pips={trials > 1} onOpen={onOpen} />
             ))}
           </ul>
         </div>
@@ -95,46 +98,54 @@ interface TileProps {
   summary: string;
   tabStop: boolean;
   latest: boolean;
+  pips: boolean;
   onOpen: (id: string) => void;
 }
 
 /** Every snapshot re-creates the tiles; one re-renders only when what it shows changed (2 updates/s × 97 tiles). */
 const sameTile = (a: TileProps, b: TileProps) =>
-  a.summary === b.summary && a.tabStop === b.tabStop && a.latest === b.latest && a.onOpen === b.onOpen &&
-  a.tile.id === b.tile.id && a.tile.status === b.tile.status && a.tile.points === b.tile.points && a.tile.s === b.tile.s && a.tile.title === b.tile.title;
+  a.summary === b.summary && a.tabStop === b.tabStop && a.latest === b.latest && a.pips === b.pips && a.onOpen === b.onOpen &&
+  a.tile.id === b.tile.id && a.tile.status === b.tile.status && a.tile.points === b.tile.points && a.tile.s === b.tile.s && a.tile.title === b.tile.title &&
+  a.tile.history.join() === b.tile.history.join();
 
-const BoardTile = memo(function BoardTile({ tile, summary, tabStop, latest, onOpen }: TileProps) {
+const BoardTile = memo(function BoardTile({ tile, summary, tabStop, latest, pips, onOpen }: TileProps) {
   const look = STATUS_LOOK[tile.status];
   const finished = isOutcome(tile.status);
+  const trials = pips && tile.history.length ? `; trials so far: ${historyText(tile.history)}` : '';
   return (
     <li>
-      <Tooltip content={<TileTip tile={tile} summary={summary} />}>
+      <Tooltip content={<TileTip tile={tile} summary={summary} pips={pips} />}>
         <button
           type="button"
           data-id={tile.id}
-          className={`te-tile is-${tile.status}${look.tone ? ` tone-${look.tone}` : ''}${latest ? ' is-latest' : ''}`}
+          className={`te-tile is-${tile.status}${look.tone ? ` tone-${look.tone}` : ''}${latest ? ' is-latest' : ''}${pips ? ' te-tile--trials' : ''}`}
           tabIndex={tabStop ? 0 : -1}
-          aria-label={`${tile.id}, ${look.label.toLowerCase()}`}
+          aria-label={`${tile.id}, ${look.label.toLowerCase()}${trials}`}
           aria-disabled={finished ? undefined : true}
           onClick={finished ? () => { onOpen(tile.id); } : undefined}
         >
-          <span className="te-tile__num">{shortId(tile.id)}</span>
-          <StatusGlyph status={tile.status} />
+          <span className="te-tile__top">
+            <span className="te-tile__num">{shortId(tile.id)}</span>
+            <StatusGlyph status={tile.status} />
+          </span>
+          {pips ? <HistoryPips history={tile.history} /> : null}
         </button>
       </Tooltip>
     </li>
   );
 }, sameTile);
 
-function TileTip({ tile, summary }: { tile: Tile; summary: string }) {
+function TileTip({ tile, summary, pips }: { tile: Tile; summary: string; pips: boolean }) {
   const look = STATUS_LOOK[tile.status];
+  const lead = pips ? `This trial: ${look.label.toLowerCase()}` : look.label;
   const facts = isOutcome(tile.status)
-    ? [look.label, tile.status === 'excluded' || tile.points === null ? '' : `${tile.points} of 2 points`, tile.s === null ? '' : formatSeconds(tile.s)]
-    : [look.label];
+    ? [lead, tile.status === 'excluded' || tile.points === null ? '' : `${tile.points} of 2 points`, tile.s === null ? '' : formatSeconds(tile.s)]
+    : [lead];
   return (
     <span className="te-tip">
       <span className="te-tip__title">{tile.title ? `${tile.id} · ${tile.title}` : tile.id}</span>
       <span className="te-tip__facts">{facts.filter(Boolean).join(' · ')}</span>
+      {pips && tile.history.length ? <span className="te-tip__facts">Trials so far: {historyText(tile.history)}</span> : null}
       {summary ? <span className="te-tip__summary">{summary.length > 180 ? `${summary.slice(0, 179)}…` : summary}</span> : null}
     </span>
   );

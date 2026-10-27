@@ -1,6 +1,8 @@
 // Every finished scenario in a sortable table, filtered by result and searched by text; a row opens the scenario
 // dialog: what it checks, upstream's pass and fail criteria, the evaluator's verdict, the tool calls made, latency
-// per turn, tokens and the trace. Model-produced text (summaries, notes, tool calls, traces) is always plain text.
+// per turn, tokens and the trace. Over several trials each row also shows the scenario's verdict per trial, and the
+// filter finds the flaky and never-passed ones. Model-produced text (summaries, notes, tool calls, traces) is always
+// plain text.
 import { CircleCheck, CircleX, Search, ShieldAlert } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Dialog } from '../../../design/components/Dialog';
@@ -13,16 +15,20 @@ import {
   formatMs,
   formatSeconds,
   formatTokens,
+  historyMean,
+  historyText,
   noCallsText,
   OUTCOMES,
   scenarioNumber,
   scenarios,
   toolCallList,
+  trialOutcome,
+  STATUS_LOOK,
   type Filter,
   type Outcome,
   type ScenarioRecord,
 } from './model';
-import { CategoryTag, DifficultyDots, VerdictPill } from './parts';
+import { CategoryTag, DifficultyDots, HistoryPips, StatusGlyph, VerdictPill } from './parts';
 
 const FILTERS: readonly { value: Filter; label: string }[] = [
   { value: 'all', label: 'All results' },
@@ -32,14 +38,43 @@ const FILTERS: readonly { value: Filter; label: string }[] = [
   { value: 'excluded', label: 'Excluded' },
 ];
 
+/** Over several trials: upstream's flaky (passed in some trials, not all) and never-passed scenarios. */
+const CONSISTENCY: readonly { value: Filter; label: string }[] = [
+  { value: 'flaky', label: 'Flaky' },
+  { value: 'never', label: 'Never passed' },
+];
+
 /** Worst first when sorting by result. */
 const RESULT_ORDER: Record<Outcome, number> = { fail: 0, partial: 1, excluded: 2, pass: 3 };
 
-export function ScenariosPanel({ records, total, incomplete, onOpen }: { records: readonly ScenarioRecord[]; total: number; incomplete?: boolean; onOpen: (id: string) => void }) {
+const NO_IDS: readonly string[] = [];
+
+interface PanelProps {
+  records: readonly ScenarioRecord[];
+  total: number;
+  incomplete?: boolean;
+  /** Trials in the run: over 1, rows show each trial's verdict. */
+  trials?: number;
+  /** Upstream's flaky and never-passed scenarios (a finished run of several trials), offered as filters. */
+  flaky?: readonly string[];
+  never?: readonly string[];
+  onOpen: (id: string) => void;
+}
+
+export function ScenariosPanel({ records, total, incomplete, trials = 1, flaky = NO_IDS, never = NO_IDS, onOpen }: PanelProps) {
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
-  const rows = useMemo(() => filterRecords(records, filter, query), [records, filter, query]);
-  const counts = useMemo(() => Object.fromEntries(OUTCOMES.map((o) => [o, records.filter((r) => r.outcome === o).length])) as Record<Outcome, number>, [records]);
+  const multi = trials > 1;
+  const rows = useMemo(() => filterRecords(records, filter, query, { flaky, never }), [records, filter, query, flaky, never]);
+  const counts = useMemo(
+    () => ({
+      ...(Object.fromEntries(OUTCOMES.map((o) => [o, records.filter((r) => r.outcome === o).length])) as Record<Outcome, number>),
+      flaky: records.filter((r) => flaky.includes(r.id)).length,
+      never: records.filter((r) => never.includes(r.id)).length,
+    }),
+    [records, flaky, never],
+  );
+  const filters = multi && (flaky.length || never.length) ? [...FILTERS, ...CONSISTENCY] : FILTERS;
   const columns = useMemo<Column<ScenarioRecord>[]>(
     () => [
       { id: 'id', header: 'ID', sortValue: (r) => scenarioNumber(r.id), render: (r) => <span className="te-id num">{r.id}</span> },
@@ -65,25 +100,38 @@ export function ScenariosPanel({ records, total, incomplete, onOpen }: { records
         ),
       },
       { id: 'difficulty', header: 'Difficulty', sortValue: (r) => r.difficulty, render: (r) => <DifficultyDots value={r.difficulty} /> },
-      { id: 'result', header: 'Result', sortValue: (r) => RESULT_ORDER[r.outcome], render: (r) => <VerdictPill outcome={r.outcome} /> },
+      { id: 'result', header: multi ? 'Last trial' : 'Result', sortValue: (r) => RESULT_ORDER[r.outcome], render: (r) => <VerdictPill outcome={r.outcome} /> },
+      ...(multi
+        ? [
+            {
+              id: 'trials',
+              header: 'Trials',
+              // Least reliable first when sorting up: by the mean points over the graded trials.
+              sortValue: (r: ScenarioRecord) => historyMean(r.history),
+              render: (r: ScenarioRecord) => (r.history.length ? <HistoryPips history={r.history} size="md" label={`Per trial: ${historyText(r.history)}`} /> : <span className="t-tertiary">—</span>),
+            },
+          ]
+        : []),
       { id: 'points', header: 'Points', align: 'end', sortValue: (r) => (r.outcome === 'excluded' ? null : r.points), render: (r) => (r.outcome === 'excluded' || r.points === null ? <span className="t-tertiary">—</span> : r.points) },
       { id: 'time', header: 'Time', align: 'end', sortValue: (r) => r.durationS, render: (r) => formatSeconds(r.durationS) },
       { id: 'turns', header: 'Turns', align: 'end', sortValue: (r) => r.turns, render: (r) => r.turns ?? '—' },
       { id: 'kind', header: 'Failure kind', sortValue: (r) => failureKindText(r.failureKind) || null, render: (r) => <span className="t-secondary">{failureKindText(r.failureKind) || '—'}</span> },
     ],
-    [onOpen],
+    [onOpen, multi],
   );
   const shown = rows.length === records.length ? scenarios(records.length) : `${rows.length} of ${scenarios(records.length)}`;
+  // Each record is the scenario's latest trial: the last one's once the run finished.
+  const which = multi ? (incomplete ? ' · each one’s latest trial' : ` · showing trial ${trials} of ${trials}’s verdicts`) : '';
   return (
     <Panel
       title="Scenarios"
-      subtitle={incomplete ? `${shown} finished of ${total} · select one for its criteria, tool calls and trace` : `${shown} · select one for its criteria, tool calls and trace`}
+      subtitle={incomplete ? `${shown} finished of ${total}${which} · select one for its criteria, tool calls and trace` : `${shown}${which} · select one for its criteria, tool calls and trace`}
       flush
       className="te-scen"
       actions={
         <div className="te-filters">
           <Select size="sm" aria-label="Filter by result" value={filter} onChange={(e) => { setFilter(e.target.value as Filter); }}>
-            {FILTERS.map((f) => (
+            {filters.map((f) => (
               <option key={f.value} value={f.value}>
                 {f.label} ({f.value === 'all' ? records.length : counts[f.value]})
               </option>
@@ -147,6 +195,27 @@ function DialogBody({ r }: { r: ScenarioRecord }) {
           </div>
           <span />
         </div>
+      ) : null}
+
+      {r.history.length > 1 ? (
+        <section className="te-dlg__sec">
+          <h3 className="te-dlg__h">Every trial</h3>
+          <ol className="te-dtrials">
+            {r.history.map((p, i) => {
+              const o = trialOutcome(p);
+              return (
+                <li key={i} className={`tone-${STATUS_LOOK[o].tone ?? 'stale'}`}>
+                  <StatusGlyph status={o} />
+                  <span>
+                    <span className="te-dtrials__n">Trial {i + 1}</span>
+                    <span className="te-dtrials__v">{STATUS_LOOK[o].label}</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+          <p className="t-secondary te-dlg__none">The verdict, tool calls and trace below are from trial {r.history.length}, the latest.</p>
+        </section>
       ) : null}
 
       <section className="te-dlg__sec">
