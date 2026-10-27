@@ -60,6 +60,7 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # Benchmark payloads run as scripts inside the PyTorch container: torch is not installed on the host, and
-# benchlib (and llm_inference, for tool_eval) is imported as a sibling script, not as a sparkline module.
+# benchlib (and llm_inference, for tool_eval and llm_showcase) is imported as a sibling script, not as a
+# sparkline module.
 module = ["torch", "torch.*", "benchlib", "llm_inference"]
 ignore_missing_imports = true

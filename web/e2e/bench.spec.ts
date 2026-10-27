@@ -1,8 +1,8 @@
 /// <reference lib="dom" />
 // Benchmark flows against the demo console (simulated, time-compressed runs; nothing touches real hardware):
 // configure -> confirm -> live progress -> results -> baseline -> compare -> export, the cancel flow, the LLM
-// benchmark's live streams and concurrency sweep, the tool-calling evaluation, parameter validation, and axe on every
-// benchmark screen in both themes.
+// benchmark's live streams and concurrency sweep, the LLM showcase's streams and outputs, the tool-calling evaluation,
+// parameter validation, and axe on every benchmark screen in both themes.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -227,6 +227,41 @@ test.describe.serial('benchmark flows', () => {
     await outputs.getByText(/^Show \d+ streams$/).click();
     // Streams cut off mid-request read "stopped", never as if they had finished.
     await expect(outputs.getByRole('list', { name: 'Final outputs' }).getByRole('button', { name: /: stopped/ }).first()).toBeVisible();
+  });
+
+  test('LLM showcase streams every prompt side by side, then keeps each stream’s whole text to copy', async ({ page, context }) => {
+    test.setTimeout(90_000);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const sc = (await catalog(page))['llm-showcase'];
+    if (!sc) throw new Error('llm-showcase missing from the catalog');
+    await runFromCatalog(page, sc, async (dialog) => {
+      await dialog.getByRole('textbox', { name: label(sc, 'streams') }).fill('6');
+      await dialog.getByRole('textbox', { name: label(sc, 'max_tokens') }).fill('1024'); // long enough to watch
+      await dialog.getByRole('textbox', { name: label(sc, 'temperature') }).fill('0.9'); // a float parameter
+      await dialog.getByRole('radio', { name: 'Mixed' }).click();
+    });
+
+    const streams = page.getByRole('region', { name: 'Streams' });
+    await expect(streams).toBeVisible({ timeout: 15_000 });
+    const list = streams.getByRole('list', { name: /^Streams: / });
+    await expect(list.getByRole('listitem')).toHaveCount(6);
+    // Each card is named by its prompt, not a request number.
+    await expect(list.getByRole('button').first()).toHaveAttribute('aria-label', /^Stream #01: (waiting|decoding|done), \S/);
+    await expect(list.locator('.strm-card__prompt')).toHaveCount(6);
+    await expect(streams.getByText('Server tok/s')).toBeVisible({ timeout: 10_000 });
+    await axeBothThemes(page, 'showcase live');
+
+    await expect(page.getByText(/^Completed in /)).toBeVisible({ timeout: 60_000 });
+    await expect(streams).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Concurrency sweep' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Stream timeline' })).toHaveCount(0);
+    const outputs = page.getByRole('region', { name: 'Final outputs' });
+    await expect(outputs.getByRole('list', { name: 'Final outputs' }).getByRole('listitem')).toHaveCount(6); // open, no disclosure
+    await expect(outputs.getByRole('region', { name: 'Text of stream #01' })).toBeVisible();
+    await outputs.getByRole('button', { name: 'Copy all' }).click();
+    await expect(outputs.getByRole('status')).toHaveText('Copied all 6 streams as Markdown');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^## Stream #01\n\n> \S[\s\S]*## Stream #06\n/);
+    await axeBothThemes(page, 'showcase finished');
   });
 
   test('the tool-calling evaluation fills its board, then shows the score, every scenario and upstream’s JSON', async ({ page }) => {

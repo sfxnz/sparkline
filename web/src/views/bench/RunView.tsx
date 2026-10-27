@@ -244,7 +244,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
       )}
 
       {/* Per-benchmark views lead the page for these benchmarks, so they come before the telemetry. */}
-      {run.bench_id === 'llm-inference' ? <StreamsSection run={run} spec={spec} /> : null}
+      {run.bench_id === 'llm-inference' || run.bench_id === 'llm-showcase' ? <StreamsSection run={run} spec={spec} /> : null}
       {run.bench_id === 'tool-eval' ? <ToolEvalSection run={run} spec={spec} /> : null}
 
       {active || run.started_ts != null ? (

@@ -364,3 +364,92 @@ export function llmRun(p: Partial<BenchRun> & { live?: Record<string, unknown>; 
     ...rest,
   });
 }
+
+// ------------------------------------------------------------------------------------------------ llm-showcase
+
+/** One prompt per answer above (same order), as a showcase stream would send it. */
+export const PROMPTS = [
+  'Summarise a short article about a coastal town that lost its fishing fleet and found new work.',
+  'In one paragraph, sum up a guide to baking sourdough at home.',
+  'Summarise a report comparing three ways to cool a small server room.',
+  'Give a short summary of an article about volunteers restoring a 1930s railway carriage.',
+  'Summarise a study on whether walking a route helps people remember it.',
+  'Summarise an 1847 letter from a ship’s surgeon crossing to Halifax.',
+  'Explain, in a short summary, why rivers meander and form oxbow lakes.',
+  'Summarise a beginner’s guide to taking up running without getting hurt.',
+];
+/** The live snapshot's label: whitespace collapsed, at most 60 characters. */
+const labelOf = (p: string) => (p.length > 60 ? `${p.slice(0, 59).trimEnd()}…` : p);
+
+/** The showcase's parameters as the agent's catalog reports them. */
+export const SHOWCASE_SPEC: BenchSpec = {
+  ...LLM,
+  id: 'llm-showcase',
+  name: 'LLM showcase',
+  description: 'Watch a model you are already serving answer several prompts at once, side by side.',
+  est_duration_s: 30.6,
+  params: [
+    { name: 'base_url', label: 'Endpoint', type: 'string', default: 'http://127.0.0.1:8000', min: null, max: null, choices: null, unit: null, help: null },
+    { name: 'model', label: 'Model', type: 'string', default: '', min: null, max: null, choices: null, unit: null, help: null },
+    { name: 'streams', label: 'Streams', type: 'int', default: 4, min: 1, max: 32, choices: null, unit: null, help: null },
+    { name: 'prompt_type', label: 'Prompts', type: 'enum', default: 'text', min: null, max: null, choices: ['text', 'structural', 'mixed'], unit: null, help: null },
+    { name: 'max_tokens', label: 'Output length', type: 'int', default: 512, min: 64, max: 2048, choices: null, unit: 'tokens', help: null },
+    { name: 'fill_to_max', label: 'Fill to output length', type: 'bool', default: true, min: null, max: null, choices: null, unit: null, help: null },
+    { name: 'temperature', label: 'Temperature', type: 'float', default: 0.7, min: 0, max: 2, choices: null, unit: null, help: null },
+    { name: 'thinking', label: 'Thinking', type: 'bool', default: false, min: null, max: null, choices: null, unit: null, help: null },
+  ],
+};
+
+export const showcaseParams = (streams: number, maxTokens = 512) => ({ base_url: 'http://10.20.20.48:8000', model: '', streams, prompt_type: 'text', max_tokens: maxTokens, fill_to_max: true, temperature: 0.7, thinking: false });
+
+/** An llm-inference snapshot made a showcase one: the flag, the server's rate and each stream's prompt. `promptOf`
+ * picks a slot's prompt, to match its answer (stream() writes answer `slot`, the simulator `req + slot`). */
+export function asShowcase(snap: Record<string, unknown>, serverTokS: number | null = 182.4, promptOf: (slot: number, req: number) => number = (slot) => slot): Record<string, unknown> {
+  const streams = (snap.streams as Record<string, unknown>[]).map((s) => {
+    const slot = Number(s.slot);
+    return { ...s, label: labelOf(PROMPTS[promptOf(slot, Number(s.req)) % PROMPTS.length] ?? '') };
+  });
+  return { ...snap, showcase: true, server_tok_s: serverTokS, streams };
+}
+
+/** Four showcase streams mid-run: reasoning then answer, answer only, waiting, done. */
+export const SHOWCASE_LIVE_4 = asShowcase(LIVE_4);
+
+export interface ShowcaseInit {
+  state?: 'done' | 'error' | 'stopped';
+  chars?: number;
+  think_chars?: number;
+  tokens?: number;
+  error?: string | null;
+}
+
+/** A finished showcase's detail: per stream its prompt and whole text. */
+export function showcaseDetail(streams: number, p: { each?: (slot: number) => ShowcaseInit; serverTokS?: boolean; fill?: { requested: boolean; applied: boolean }; truncated?: boolean } = {}): Record<string, unknown> {
+  return {
+    showcase: {
+      streams: Array.from({ length: streams }, (_, slot) => {
+        const o = p.each?.(slot) ?? {};
+        const state = o.state ?? 'done';
+        return {
+          slot,
+          prompt: PROMPTS[slot % PROMPTS.length],
+          state,
+          text: written(ANSWERS, slot, o.chars ?? (state === 'done' ? 1400 + slot * 37 : 0)),
+          think: written(THOUGHTS, slot, o.think_chars ?? 0),
+          tokens: o.tokens ?? (state === 'done' ? 512 : 0),
+          ttft_ms: state === 'done' || o.chars ? r1(190 + slot * 11.3) : null,
+          decode_tok_s: state === 'done' ? r1(46.2 - slot * 0.7) : null,
+          error: o.error ?? null,
+        };
+      }),
+      server_tok_s: p.serverTokS === false ? null : { median: 181.6, max: 188.2, samples: 40 },
+      fill_to_max: p.fill ?? { requested: true, applied: true },
+      truncated: p.truncated ?? false,
+    },
+  };
+}
+
+/** An llm-showcase run on spark1. */
+export function showcaseRun(p: Partial<BenchRun> & { live?: Record<string, unknown>; detail?: Record<string, unknown> } = {}): BenchRun {
+  return llmRun({ id: 'sc1', bench_id: 'llm-showcase', params: showcaseParams(4), ...p });
+}

@@ -1,4 +1,4 @@
-/* Concurrency streams (llm-inference run view). Design tokens only; status colours only through .tone-* classes
+/* Concurrency streams (llm-inference and llm-showcase run views). Design tokens only; status colours only through .tone-* classes
    (the accent stands in for "decoding", which is activity rather than status). */
 
 .strm-tone-accent { --tone: var(--accent); --tone-text: var(--accent-text); --tone-bg: var(--accent-soft); }
@@ -49,6 +49,8 @@
   padding-bottom: var(--space-5); border-bottom: var(--hairline) solid var(--separator);
 }
 .strm-stats > .stat { padding-left: var(--space-5); border-left: var(--hairline) solid var(--separator); }
+/* a fourth stat: the server's own tokens/s (llm-showcase) */
+.strm-stats--server { grid-template-columns: minmax(0, 1.9fr) repeat(4, minmax(0, 1fr)); }
 .strm-hero { display: grid; grid-template-columns: auto minmax(5rem, 1fr); align-items: end; gap: var(--space-2) var(--space-5); min-width: 0; }
 .strm-hero__text { display: grid; gap: 2px; min-width: 0; }
 .strm-hero__label { font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 500; color: var(--text-2); }
@@ -70,13 +72,14 @@
 
 @container (max-width: 56rem) {
   .strm-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .strm-stats--server { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .strm-hero { grid-column: 1 / -1; }
   .strm-stats > .stat:nth-child(2) { padding-left: 0; border-left: 0; }
 }
 @container (max-width: 34rem) {
   .strm-rail { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .strm-rail__step .strm-rail__bar { border-radius: var(--radius-full) !important; }
-  .strm-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .strm-stats, .strm-stats--server { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .strm-stats > .stat:nth-child(4) { padding-left: 0; border-left: 0; }
   .strm-hero { grid-template-columns: minmax(0, 1fr); }
 }
@@ -125,6 +128,12 @@ button.strm-card:hover { background: var(--fill-2); border-color: var(--separato
 .strm-card__unit { font-size: var(--fs-caption); font-weight: 500; color: var(--text-3); }
 .strm-card__dash { font-size: var(--fs-callout); color: var(--text-3); }
 .strm-card--large .strm-card__num { font-size: var(--fs-headline); }
+/* a showcase stream's prompt, one line under the head */
+.strm-card__prompt {
+  display: block; min-width: 0; margin-top: -2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 500; color: var(--text-2);
+}
+.strm-card--compact .strm-card__prompt { margin-top: -1px; font-size: var(--fs-caption); line-height: var(--lh-caption); }
 @container (max-width: 12.5rem) {
   .strm-card .strm-pill { padding: 0 5px; }
   .strm-card .strm-pill .status__label, .strm-card .strm-card__unit { display: none; }
@@ -305,3 +314,30 @@ button.strm-card:hover { background: var(--fill-2); border-color: var(--separato
 .strm-outputs__details > summary svg { width: 15px; height: 15px; transition: transform var(--dur-fast) var(--ease-out); }
 .strm-outputs__details[open] > summary svg { transform: rotate(90deg); }
 .strm-outputs__details > .strm-grid { margin-top: var(--space-4); }
+
+/* showcase final outputs: the whole text, each card scrolling on its own */
+.strm-out__note { margin: 0 0 var(--space-4); }
+.strm-out__prompt {
+  margin: 0; padding-left: var(--space-2); border-left: 2px solid var(--separator-strong);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
+  font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 500; color: var(--text-2); text-wrap: pretty;
+}
+.strm-out__scroll {
+  --body-lh: 1.125rem;
+  flex: 1 1 auto; min-height: 6rem; max-height: 16rem; overflow: auto; overscroll-behavior: contain;
+  margin-right: -6px; padding-right: 6px; border-radius: var(--radius-xs);
+  scrollbar-width: thin; scrollbar-color: var(--separator-strong) transparent;
+}
+.strm-card--large .strm-out__scroll { --body-lh: 1.25rem; max-height: 22rem; }
+.strm-out__text {
+  font-family: var(--font-mono); font-size: var(--fs-footnote); line-height: var(--body-lh); color: var(--text-1);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.strm-card--large .strm-out__text { font-size: var(--fs-subheadline); }
+.strm-out__text .strm-think { margin-bottom: var(--space-2); }
+.strm-out__empty { margin: 0; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
+.strm-out__meta { align-items: center; overflow: visible; }
+.strm-out__meta .btn { flex: none; margin-right: -6px; }
+/* Visible, so the Copy button's focus ring is not clipped: the facts stay on one line and drop the leading dot. */
+.strm-out__meta .strm-card__facts { flex-wrap: nowrap; margin-left: 0; overflow: hidden; white-space: nowrap; }
+.strm-out__meta .strm-card__facts > span:first-child::before { display: none; }

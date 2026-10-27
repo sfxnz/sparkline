@@ -46,6 +46,8 @@ def test_demo_durations_are_compressed():
             assert demo_duration(b, p) == 60
         elif b == "llm-inference":  # compressed less, so its streams can be watched
             assert 6 <= demo_duration(b, p) <= real / 4
+        elif b == "llm-showcase":  # likewise: the streams play at double speed, 4 s at least
+            assert 4.6 <= demo_duration(b, p) <= real / 3
         else:
             assert demo_duration(b, p) == max(4.0, real / 10)
     assert demo_duration("thermal-soak", validate("thermal-soak", {"minutes": 30})) == 90
@@ -121,6 +123,7 @@ def test_demo_storage_run_loads_the_disk_and_says_runs_are_compressed():
     assert after.write_bps < 1e8
     desc = {s.id: s.description for s in demo_catalog("spark1", m.info)}
     assert desc.pop("llm-inference").endswith(demo_bench.LLM_NOTE)  # compressed less: streams to watch
+    assert desc.pop("llm-showcase").endswith(demo_bench.SHOWCASE_NOTE)
     assert desc["tool-eval"].endswith(demo_bench.TE_NOTE)  # trials compressed more: still watchable
     assert all(demo_bench.COMPRESSED_NOTE in d for d in desc.values())
 
@@ -211,7 +214,7 @@ def test_demo_empty_bench_flag(tmp_path):
         assert len(c.get("/api/v1/bench/runs").json()) == len(demo_bench._SEED)
     with TestClient(create_app(cfg, tmp_path / "data", demo=True, demo_empty_bench=True)) as c:
         assert c.get("/api/v1/bench/runs").json() == []
-        assert len(c.get("/api/v1/bench/catalog").json()) == 9
+        assert len(c.get("/api/v1/bench/catalog").json()) == len(REGISTRY)
 
 
 def _compact(obj) -> int:
@@ -318,6 +321,107 @@ def test_demo_history_holds_a_finished_sweep(demo):
     assert {x.node_id for x in run.results} == {"spark1"}
     took = (run.finished_ts or 0) - (run.started_ts or 0)  # as long as its requests took
     assert took == pytest.approx(demo_bench.LLM_START_S + sum(lv["wall_s"] for lv in levels), abs=0.01)
+
+
+def test_demo_showcase_streams_start_and_end_together_and_keep_every_answer():
+    p = validate("llm-showcase", {"streams": 8, "prompt_type": "mixed", "thinking": True})
+    show = demo_bench.ShowcaseDemo(p, "spark1", random.Random(3))
+    ends = [s.end for s in show.streams]
+    assert max(ends) / min(ends) < 1.15 and all(s.tokens == 512 for s in show.streams)  # filled to the length
+    mid, end = show.snapshot(show.duration / 2), show.snapshot(show.duration)
+    for snap in (mid, end):
+        assert (snap["kind"], snap["v"], snap["level"], snap["levels"], snap["level_index"]) == (
+            "llm-streams",
+            1,
+            8,
+            [8],
+            0,
+        )
+        assert snap["showcase"] is True and snap["completed_levels"] == [] and snap["requests"] == 8
+        assert isinstance(snap["server_tok_s"], float) and len(snap["streams"]) == 8
+    labels = [s["label"] for s in mid["streams"]]
+    assert labels[0].startswith("Write a JSON inventory") and labels[1].startswith("Write a short story")
+    assert all(len(x) <= 60 for x in labels) and len(set(labels)) == 8
+    assert {s["state"] for s in mid["streams"]} == {"decode"} and all(s["think"] for s in mid["streams"])
+    assert mid["tok_s"] == pytest.approx(sum(s["tok_s"] for s in mid["streams"]), abs=0.1)
+    assert all(s["tok_s"] <= s["peak_tok_s"] for s in mid["streams"])
+    assert 20 <= mid["tok_s"] <= 400 and mid["server_tok_s"] == pytest.approx(mid["tok_s"], rel=0.1)
+    assert [s["state"] for s in end["streams"]] == ["done"] * 8 and end["done"] == 8
+    detail = show.detail()
+    assert set(detail) == {"streams", "server_tok_s", "fill_to_max", "truncated"}
+    assert detail["fill_to_max"] == {"requested": True, "applied": True} and not detail["truncated"]
+    for row, live in zip(
+        detail["streams"], end["streams"], strict=True
+    ):  # the whole text; the live tail ends it
+        assert row["state"] == "done" and row["prompt"].endswith(demo_bench.SHOWCASE_FILL)
+        assert len(row["text"]) == live["chars"] > 280 and row["text"].endswith(live["text"])
+        assert row["think"].endswith(live["think"]) and row["tokens"] == 512
+    assert (
+        "\n" in detail["streams"][0]["text"] and "\n" not in detail["streams"][1]["text"]
+    )  # JSON, then prose
+    server = detail["server_tok_s"]
+    assert server["samples"] > 10 and server["median"] <= server["max"]
+    results = show.results()
+    assert [(r.metric, bool(r.extras.get("headline"))) for r in results] == [
+        ("output_tok_s", True),
+        ("decode_tok_s", True),
+        ("ttft_p50_ms", True),
+        ("server_tok_s_median", False),
+    ]
+    val = {r.metric: r.value for r in results}
+    assert val["server_tok_s_median"] == server["median"] and 15 <= val["decode_tok_s"] <= 45
+    assert results[0].extras["prompt_type"] == "mixed" and results[0].extras["simulated"] is True
+    stopped = show.detail(show.duration / 2)  # cancelled half-way
+    assert {s["state"] for s in stopped["streams"]} == {"stopped"}
+    assert all(0 < s["tokens"] < 512 and s["decode_tok_s"] is None for s in stopped["streams"])
+    early = demo_bench.ShowcaseDemo(
+        validate("llm-showcase", {"fill_to_max": False}), "spark1", random.Random(3)
+    )
+    assert early.detail()["fill_to_max"] == {"requested": False, "applied": False}
+    assert not any(s.prompt.endswith(demo_bench.SHOWCASE_FILL) for s in early.streams)
+    big = validate("llm-showcase", {"streams": 32, "max_tokens": 2048, "thinking": True})
+    most = demo_bench.ShowcaseDemo(big, "spark3", random.Random(3))  # the largest run the agent accepts
+    assert _compact(most.snapshot(most.duration / 3)) <= LIVE_MAX_BYTES
+    assert _compact({"showcase": most.detail()}) <= 900_000 < DETAIL_MAX_BYTES
+
+
+def test_demo_showcase_runs_live_cancels_with_its_answers_and_history_holds_one(demo):
+    body = {"bench_id": "llm-showcase", "nodes": ["spark2"], "params": {"streams": 3}, "confirm": True}
+    r = demo.post("/api/v1/bench/runs", json=body)
+    assert r.status_code == 201, r.json()
+    seen, deadline = [], time.time() + 15
+    while time.time() < deadline:
+        run = demo.get(f"/api/v1/bench/runs/{r.json()['id']}").json()
+        if run["status"] not in ("queued", "running"):
+            break
+        seen.append(run["node_states"]["spark2"]["live"])
+        time.sleep(0.1)
+    done = BenchRun.model_validate(run)
+    assert done.status == "succeeded" and any(x and x["showcase"] for x in seen)
+    st = done.node_states["spark2"]
+    assert [s["state"] for s in st.live["streams"]] == ["done"] * 3
+    assert [s["state"] for s in st.detail["showcase"]["streams"]] == ["done"] * 3
+    assert [x.metric for x in done.results if x.extras.get("headline")] == [
+        "output_tok_s",
+        "decode_tok_s",
+        "ttft_p50_ms",
+    ]
+    r = demo.post("/api/v1/bench/runs", json=body)
+    time.sleep(0.8)
+    demo.post(f"/api/v1/bench/runs/{r.json()['id']}/cancel")
+    cancelled = BenchRun.model_validate(_wait(demo, r.json()["id"]))
+    assert cancelled.status == "cancelled"
+    rows = cancelled.node_states["spark2"].detail["showcase"]["streams"]
+    assert {s["state"] for s in rows} == {"stopped"} and all(s["text"] for s in rows)
+    [seeded] = demo.get("/api/v1/bench/runs?bench_id=llm-showcase").json()[2:]  # newest first
+    run = BenchRun.model_validate(demo.get(f"/api/v1/bench/runs/{seeded['id']}").json())
+    assert run.status == "succeeded" and run.params["streams"] == 8 and run.params["prompt_type"] == "mixed"
+    st = run.node_states["spark1"]
+    assert st.live["showcase"] is True and [s["state"] for s in st.live["streams"]] == ["done"] * 8
+    assert len(st.detail["showcase"]["streams"]) == 8 and st.detail["showcase"]["server_tok_s"]["samples"]
+    assert {x.metric for x in run.results} >= {"output_tok_s", "decode_tok_s", "ttft_p50_ms"}
+    took = (run.finished_ts or 0) - (run.started_ts or 0)  # as long as its streams took
+    assert took == pytest.approx(demo_bench.LLM_START_S + st.live["t"], abs=0.01)
 
 
 def _tool_eval(node: str = "spark1", rng: str = "x", **over) -> demo_bench.ToolEvalDemo:

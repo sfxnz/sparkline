@@ -10,6 +10,7 @@ from sparkline.agent.bench.specs import (
     REGISTRY,
     GpuMatmulParams,
     LlmInferenceParams,
+    LlmShowcaseParams,
     StorageParams,
     bench_params,
     check_base_url,
@@ -27,6 +28,7 @@ IDS = [
     "rdma-bw-lat",
     "storage-fio",
     "llm-inference",
+    "llm-showcase",
     "tool-eval",
     "thermal-soak",
 ]
@@ -82,6 +84,13 @@ def test_bench_params_derivation():
         ("llm-inference", {"model": "a b"}),
         ("llm-inference", {"model": "$(whoami)"}),
         ("llm-inference", {"model": "x" * 201}),
+        ("llm-showcase", {"streams": 33}),
+        ("llm-showcase", {"max_tokens": 63}),
+        ("llm-showcase", {"max_tokens": 2049}),
+        ("llm-showcase", {"temperature": 2.5}),
+        ("llm-showcase", {"prompt_type": "poem"}),
+        ("llm-showcase", {"model": "$(whoami)"}),
+        ("llm-showcase", {"base_url": "http://8.8.8.8:8000"}),
         ("thermal-soak", {"minutes": 0}),
         ("thermal-soak", {"minutes": 61}),
         ("rdma-bw-lat", {"rail": "C"}),
@@ -170,6 +179,31 @@ def test_llm_sweep_levels_and_their_estimate():
         b.validate({"sweep": "sometimes"})
 
 
+def test_llm_showcase_params_and_estimate():
+    b = REGISTRY["llm-showcase"]
+    assert (b.category, b.impact.note) == ("inference", REGISTRY["llm-inference"].impact.note)
+    ps = {p.name: p for p in bench_params(LlmShowcaseParams)}
+    assert list(ps) == [
+        "base_url",
+        "model",
+        "streams",
+        "prompt_type",
+        "max_tokens",
+        "fill_to_max",
+        "temperature",
+        "thinking",
+    ]
+    assert (ps["streams"].default, ps["streams"].min, ps["streams"].max) == (4, 1, 32)
+    assert ps["prompt_type"].choices == ["text", "structural", "mixed"]
+    assert (ps["max_tokens"].min, ps["max_tokens"].max, ps["max_tokens"].unit) == (64, 2048, "tokens")
+    assert (ps["temperature"].type, ps["temperature"].default, ps["temperature"].max) == ("float", 0.7, 2)
+    assert (ps["fill_to_max"].default, ps["thinking"].default) == (True, False)
+    assert b.estimate(b.validate({})) == pytest.approx(5 + 512 / 20)
+    assert b.estimate(b.validate({"streams": 9, "max_tokens": 2048})) == pytest.approx(5 + 2048 / 20 * 3)
+    p = b.validate({"base_url": "http://10.20.20.48:8000/v1", "temperature": 0})
+    assert p.base_url == "http://10.20.20.48:8000" and p.temperature == 0
+
+
 def P(msg: str) -> Problem:
     return Problem(message=msg, cause="c", fix="f")
 
@@ -186,12 +220,13 @@ def test_availability_mapping():
     assert probes.availability("storage-fio", env) == (None, "")
     assert probes.availability("cpu-throughput", env)[0] is None
     assert probes.availability("llm-inference", env)[0] is None
+    assert probes.availability("llm-showcase", env)[0] is None
     assert probes.availability("tool-eval", env)[0] is None
     assert probes.availability("tool-eval", probes.Env(tool_eval=P("no package")))[0].message == "no package"
     env = probes.Env(rdma=P("no rails"))
     assert probes.availability("nccl-allreduce", env)[0].message == "no rails"
     env = probes.Env(cpu_cap=P("capped"))
-    for i in ("cpu-throughput", "llm-inference", "tool-eval", "storage-fio", "rdma-bw-lat"):
+    for i in ("cpu-throughput", "llm-inference", "llm-showcase", "tool-eval", "storage-fio", "rdma-bw-lat"):
         assert probes.availability(i, env)[0].message == "capped"
     for i in ("gpu-matmul", "thermal-soak", "mem-bandwidth", "nccl-allreduce"):  # in containers
         assert probes.availability(i, env)[0] is None
