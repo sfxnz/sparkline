@@ -1,5 +1,5 @@
-// The hero of a running llm-inference benchmark: every concurrent request as a live card, the sweep's levels, the
-// aggregate output and where each stream stands. Before the first snapshot the same layout stands in as placeholders,
+// The hero of a running llm-inference (or llm-showcase) benchmark: every concurrent request as a live card, the
+// sweep's levels, the aggregate output and where each stream stands. Before the first snapshot the same layout stands in as placeholders,
 // so the panel never opens as an empty box. Level changes are announced once; nothing else is.
 import { Check, CircleX, LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
@@ -35,6 +35,7 @@ const tokS = (n: number) => formatTokS(n);
 const toneClass = (state: CardState) => (STATE_LOOK[state].tone === 'accent' ? 'strm-tone-accent' : `tone-${STATE_LOOK[state].tone}`);
 const tokSText = (n: number) => `${formatTokS(n)} tok/s`;
 const msParts: Formatter = (n, unit) => (unit === 's' || (!unit && n >= 1000) ? { value: formatValue(n / 1000), unit: 's' } : { value: formatValue(n), unit: 'ms' });
+const tokSParts: Formatter = (n) => ({ value: formatTokS(n), unit: 'tok/s' });
 const ofParts = (total: number): Formatter => (n) => ({ value: String(Math.round(n)), unit: `of ${total}` });
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -67,7 +68,7 @@ export function LivePanel({ snap, requests, actions }: { snap: LiveSnapshot; req
   const opened = open === null ? undefined : snap.streams.find((s) => s.slot === open);
   return (
     <Panel
-      title="Concurrency streams"
+      title={snap.showcase ? 'Streams' : 'Concurrency streams'}
       subtitle={`${plural(snap.level, 'stream', 'streams')} in flight${sweeping ? ` · level ${snap.level_index + 1} of ${snap.levels.length}` : ''}`}
       actions={
         <div className="strm-actions">
@@ -82,7 +83,7 @@ export function LivePanel({ snap, requests, actions }: { snap: LiveSnapshot; req
         <StatRow snap={snap} />
         <Grid density={density} count={n} label={`Streams: ${countsText(stateCounts(snap.streams))}`}>
           {snap.streams.map((s) => (
-            <StreamCard key={s.slot} stream={s} text={seen.texts.get(s.slot)} state={cardState(s, true)} density={density} requests={snap.requests} live onOpen={setOpen} />
+            <StreamCard key={s.slot} stream={s} text={seen.texts.get(s.slot)} state={cardState(s, true)} density={density} requests={snap.requests} showcase={snap.showcase} live onOpen={setOpen} />
           ))}
         </Grid>
       </div>
@@ -93,6 +94,7 @@ export function LivePanel({ snap, requests, actions }: { snap: LiveSnapshot; req
           state={cardState(opened, true)}
           live
           requests={snap.requests}
+          showcase={snap.showcase}
           context={sweeping ? `${levelText} · ${plural(snap.level, 'stream', 'streams')}` : plural(snap.level, 'stream', 'streams')}
           onClose={() => { setOpen(null); }}
         />
@@ -170,8 +172,9 @@ function StatRow({ snap }: { snap: LiveSnapshot }) {
   const hist = snap.tok_s_hist;
   const peak = Math.max(0, snap.tok_s ?? 0, ...hist.map((v) => v ?? 0));
   const sweeping = snap.levels.length > 1;
+  const server = snap.server_tok_s !== null;
   return (
-    <div className="strm-stats">
+    <div className={`strm-stats${server ? ' strm-stats--server' : ''}`}>
       <div className="strm-hero">
         <div className="strm-hero__text">
           <span className="strm-hero__label">Aggregate output</span>
@@ -179,7 +182,7 @@ function StatRow({ snap }: { snap: LiveSnapshot }) {
             <AnimatedNumber value={snap.tok_s} format={tokS} className="strm-hero__num" />
             <span className="strm-hero__unit">tok/s</span>
           </span>
-          <span className="strm-hero__foot">All streams over the last 2 s{peak > 0 ? ` · peak ${formatTokS(peak)}` : ''}</span>
+          <span className="strm-hero__foot">{snap.showcase ? 'Sum of the decoding streams' : 'All streams over the last 2 s'}{peak > 0 ? ` · peak ${formatTokS(peak)}` : ''}</span>
         </div>
         <div className="strm-hero__trend">
           {hist.length > 1 ? <Sparkline label={sweeping ? 'Aggregate output this level' : 'Aggregate output'} values={hist} format={tokSText} height={48} min={0} /> : null}
@@ -200,17 +203,18 @@ function StatRow({ snap }: { snap: LiveSnapshot }) {
         }
       />
       <Stat label="Time to first token" value={snap.ttft_p50_ms} format={msParts} footer={sweeping ? 'Median this level' : 'Median so far'} />
+      {server ? <Stat label="Server tok/s" value={snap.server_tok_s} format={tokSParts} footer="The server’s own count" /> : null}
     </div>
   );
 }
 
 /** Before the first snapshot: the panel as it will look, with the planned levels and one placeholder per stream. */
-export function LiveSkeleton({ endpoint, levels, requests }: { endpoint: string; levels: readonly number[]; requests: number }) {
+export function LiveSkeleton({ endpoint, levels, requests, title = 'Concurrency streams' }: { endpoint: string; levels: readonly number[]; requests: number; title?: string }) {
   const count = levels[0] ?? 1;
   const density = densityFor(count, 'auto');
   return (
     <Panel
-      title="Concurrency streams"
+      title={title}
       subtitle={
         <span className="strm-connecting">
           <LoaderCircle aria-hidden="true" className="strm-spin" />

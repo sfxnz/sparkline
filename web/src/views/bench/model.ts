@@ -204,6 +204,16 @@ function llmSeconds(v: Partial<ParamValues>): number {
   return 5 + waves * (0.5 + n('prompt_tokens', 512) / 2000 + n('max_tokens', 128) / 20);
 }
 
+/** The agent's llm-showcase estimate (est_showcase), term for term: 5 s, plus the output at 20 tokens/s for every
+ * wave of 4 streams. */
+function showcaseSeconds(v: Partial<ParamValues>): number {
+  const n = (k: string, d: number) => {
+    const x = v[k];
+    return typeof x === 'number' ? x : d;
+  };
+  return 5.0 + (n('max_tokens', 512) / 20) * Math.ceil(n('streams', 4) / 4);
+}
+
 /** tool-eval-bench scenarios per suite: [standard, Hard Mode]. On a Spark a standard scenario takes about 24 s and a
  * Hard Mode one about 36 s, after about 10 s of preflight. */
 const TOOL_EVAL_SUITES: Record<string, readonly [number, number]> = { core: [15, 0], standard: [69, 0], hard: [0, 28], all: [69, 28] };
@@ -215,10 +225,12 @@ const toolEvalSeconds = (suite: ParamValue | undefined) => {
 /**
  * Live duration estimate for the chosen parameters, from the catalog's estimate for the defaults: a duration
  * parameter adds its difference from the default; a count parameter, or a multi-select, scales the rest.
- * llm-inference uses the agent's own formula (its job timeout is based on it); tool-eval scales by its suite.
+ * llm-inference and llm-showcase use the agent's own formulas (their job timeouts are based on them); tool-eval scales
+ * by its suite.
  */
 export function estimateDuration(spec: BenchSpec, values: Partial<ParamValues>): number {
   if (spec.id === 'llm-inference') return llmSeconds({ ...defaultParams(spec), ...values });
+  if (spec.id === 'llm-showcase') return showcaseSeconds({ ...defaultParams(spec), ...values });
   let extra = 0;
   let factor = 1;
   for (const p of spec.params) {
@@ -256,6 +268,9 @@ const CHOICE_TEXT: Record<string, string> = {
   standard: 'Standard 69',
   hard: 'Hard Mode 28',
   all: 'All 97',
+  text: 'Text',
+  structural: 'Structural',
+  mixed: 'Mixed',
 };
 
 /** 4096 -> "4 KiB", 1048576 -> "1 MiB". */

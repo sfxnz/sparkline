@@ -112,6 +112,7 @@ def one_request(
     max_tokens: int,
     live_usage: bool = False,
     slot: Slot | None = None,
+    extra: dict | None = None,
 ) -> dict:
     conn, prefix = connect(base, 300)
     body: dict = {"model": model, "max_tokens": max_tokens, "stream": True, "temperature": 0}
@@ -124,6 +125,8 @@ def one_request(
     else:
         body["prompt"] = prompt
         path = "/v1/completions"
+    if extra:  # sampling and engine fields of another benchmark (llm_showcase)
+        body.update(extra)
     out: dict[str, Any] = {
         "ttft": None,
         "first": None,

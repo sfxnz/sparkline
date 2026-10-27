@@ -215,4 +215,4 @@ def availability(bench_id: str, env: Env) -> tuple[Problem | None, str]:
         return env.work_dir or env.cpu_cap, note
     if bench_id == "tool-eval":
         return env.tool_eval or env.cpu_cap, ""
-    return env.cpu_cap, ""  # cpu-throughput, llm-inference: host processes under the agent's cgroup
+    return env.cpu_cap, ""  # cpu-throughput, llm-inference, llm-showcase: host processes in the agent cgroup

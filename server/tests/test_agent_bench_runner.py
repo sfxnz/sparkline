@@ -1556,13 +1556,29 @@ LEVEL_KEYS |= {"prompt_tokens", "completion_tokens"}
 class FakeStreams(FakeOpenAI):
     """A reasoning model behind vLLM (or the engine `owner` names): `think` reasoning chunks, then answer
     chunks, `delay` apart with `per_chunk` tokens each (as MTP sends them); usage in every chunk when the
-    request asks for continuous_usage_stats. Requests after the first `fail_after` get an OpenAI error."""
+    request asks for continuous_usage_stats. Requests after the first `fail_after` get an OpenAI error, and
+    with `reject_fill` so does every request with ignore_eos (HTTP 400, as a server without it). With
+    `metrics`, /metrics counts the tokens streamed, as vLLM's does."""
 
-    owner, delay, think, per_chunk, fail_after = "vllm", 0.01, 0, 1, None
+    owner, delay, think, per_chunk, fail_after, reject_fill, metrics = "vllm", 0.01, 0, 1, None, False, False
     bodies: list[dict] = []  # replaced per server
+    sent = [0]  # tokens streamed by the server (replaced per server)
     lock = threading.Lock()
 
     def do_GET(self) -> None:
+        if self.path == "/metrics":
+            if not self.metrics:
+                self.send_error(404)
+                return
+            text = "# TYPE vllm:generation_tokens_total counter\n"
+            text += f'vllm:generation_tokens_total{{model_name="fake/Model-8B"}} {self.sent[0]}.0\n'
+            text += 'vllm:generation_tokens_created{model_name="fake/Model-8B"} 1.7e9\n'
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(text)))
+            self.end_headers()
+            self.wfile.write(text.encode())
+            return
         body = json.dumps({"data": [{"id": "fake/Model-8B", "owned_by": self.owner}]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -1575,6 +1591,14 @@ class FakeStreams(FakeOpenAI):
         with self.lock:
             self.bodies.append(body)
             failing = self.fail_after is not None and len(self.bodies) > self.fail_after
+        if self.reject_fill and "ignore_eos" in body:
+            err = json.dumps({"object": "error", "message": "unknown field ignore_eos"}).encode()
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(err)))
+            self.end_headers()
+            self.wfile.write(err)
+            return
         if failing:
             err = json.dumps({"error": {"message": "server overloaded"}}).encode()
             self.send_response(503)
@@ -1597,6 +1621,8 @@ class FakeStreams(FakeOpenAI):
                 if i < self.think:
                     chunk["choices"][0]["delta"] = {"reasoning_content": words}
                 sent, i = sent + k, i + 1
+                with self.lock:
+                    self.sent[0] += k
                 if every:
                     chunk["usage"] = {"prompt_tokens": 130, "completion_tokens": sent}
                 self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
@@ -1614,7 +1640,7 @@ def fake_streams():
     servers = []
 
     def start(**kw) -> tuple[str, list[dict]]:
-        handler = type("Fake", (FakeStreams,), {**kw, "bodies": []})
+        handler = type("Fake", (FakeStreams,), {**kw, "bodies": [], "sent": [0]})
         srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True).start()  # quick shutdown
         servers.append(srv)
@@ -1626,8 +1652,8 @@ def fake_streams():
         srv.server_close()
 
 
-def llm_payload(url: str, *args: str) -> tuple[int, list[dict]]:
-    argv = [sys.executable, "-u", os.path.join(PAYLOAD_DIR, "llm_inference.py"), "--json", "--base-url", url]
+def llm_payload(url: str, *args: str, script: str = "llm_inference.py") -> tuple[int, list[dict]]:
+    argv = [sys.executable, "-u", os.path.join(PAYLOAD_DIR, script), "--json", "--base-url", url]
     out = subprocess.run([*argv, *args], capture_output=True, text=True, timeout=60)
     return out.returncode, [json.loads(ln) for ln in out.stdout.splitlines() if ln.startswith("{")]
 
@@ -1837,6 +1863,225 @@ async def test_llm_job_asks_the_payload_for_a_sweep(tmp_path):
         calls = capture(job)
         await jobs.llm_inference(job, job.params)
         assert ("--sweep" in calls[0]["argv"]) is sweep
+
+
+# -----------------------------------------------------------------------------------------------------
+# LLM showcase against the same fake server
+# -----------------------------------------------------------------------------------------------------
+
+SHOWCASE_KEYS = LIVE_KEYS | {"showcase", "server_tok_s"}
+
+
+def test_llm_showcase_streams_start_together_fill_the_output_and_keep_every_answer(fake_streams, monkeypatch):
+    """3 mixed prompts at once, each asked to fill 60 tokens (2 reasoning chunks first) 30 ms apart; the
+    fake's /metrics counts what it streamed. Each stream's rate is cumulative, the aggregate their sum."""
+    monkeypatch.syspath_prepend(PAYLOAD_DIR)
+    import llm_showcase
+
+    url, bodies = fake_streams(delay=0.03, think=2, metrics=True)
+    args = ("--streams", "3", "--prompt-type", "mixed", "--max-tokens", "60", "--temperature", "0.3")
+    msgs = run_payload("llm_showcase.py", "--base-url", url, *args, "--fill-to-max", "--thinking")
+    assert finite(msgs) and len(bodies) == 3  # one request per stream
+    asked = [b["messages"][0]["content"] for b in bodies]
+    want = [
+        llm_showcase.STRUCTURAL_PROMPTS[0],
+        llm_showcase.TEXT_PROMPTS[0],
+        llm_showcase.STRUCTURAL_PROMPTS[1],
+    ]
+    assert sorted(asked) == sorted(p + llm_showcase.FILL for p in want)
+    for b in bodies:
+        assert (b["max_tokens"], b["temperature"], b["ignore_eos"], b["min_tokens"], b["stop"]) == (
+            60,
+            0.3,
+            True,
+            60,
+            [],
+        )
+        assert b["chat_template_kwargs"] == {"enable_thinking": True, "thinking": True}
+        assert b["stream_options"] == {"include_usage": True, "continuous_usage_stats": True}
+    lives = [m["live"] for m in msgs if "live" in m]
+    assert all(set(x) == SHOWCASE_KEYS and x["showcase"] is True for x in lives)
+    assert all(
+        (x["kind"], x["v"], x["level"], x["levels"], x["level_index"]) == ("llm-streams", 1, 3, [3], 0)
+        for x in lives
+    )
+    assert all(x["requests"] == 3 and x["completed_levels"] == [] for x in lives)
+    streams = [s for x in lives for s in x["streams"]]
+    assert all(set(s) == STREAM_KEYS | {"label"} and s["max"] == 60 for s in streams)
+    assert [s["label"] for s in lives[0]["streams"]] == [llm_showcase.label(p) for p in want]
+    assert all(len(s["label"]) <= 60 for s in streams) and lives[0]["streams"][0]["label"].endswith("…")
+    rated = [x for x in lives if all(s["state"] == "decode" and s["tok_s"] for s in x["streams"])]
+    assert rated  # all three decoding at once: the aggregate is the sum of their rates
+    for x in rated:
+        assert all(15 < s["tok_s"] <= s["peak_tok_s"] < 40 for s in x["streams"])
+        assert x["tok_s"] == pytest.approx(sum(s["tok_s"] for s in x["streams"]), abs=0.2)
+    assert any(isinstance(x["server_tok_s"], float) for x in lives)
+    last = lives[-1]
+    assert [s["state"] for s in last["streams"]] == ["done"] * 3 and (last["done"], last["failed"]) == (3, 0)
+    assert all(s["tokens"] == 60 for s in last["streams"])
+    [show] = [m["detail"]["showcase"] for m in msgs if "detail" in m]
+    assert set(show) == {"streams", "server_tok_s", "fill_to_max", "truncated"}
+    assert (show["fill_to_max"], show["truncated"]) == ({"requested": True, "applied": True}, False)
+    for slot, s in enumerate(show["streams"]):  # the whole answer and reasoning, not tails
+        assert (s["slot"], s["prompt"], s["state"], s["tokens"], s["error"]) == (
+            slot,
+            want[slot] + llm_showcase.FILL,
+            "done",
+            60,
+            None,
+        )
+        assert s["think"] == "t0 t1 " and s["text"] == "".join(f"t{j} " for j in range(2, 60))
+        assert s["ttft_ms"] >= 50 and 15 < s["decode_tok_s"] < 40
+    server = show["server_tok_s"]
+    assert server["samples"] >= 2 and 40 < server["median"] <= server["max"] < 250
+    res = [m["result"] for m in msgs if "result" in m]
+    assert [(r["metric"], r["label"], r["unit"], r["better"], "headline" in r["extras"]) for r in res] == [
+        ("output_tok_s", "Output tokens/s, all streams", "tok/s", "higher", True),
+        ("decode_tok_s", "Decode tokens/s per stream", "tok/s", "higher", True),
+        ("ttft_p50_ms", "Time to first token p50", "ms", "lower", True),
+        ("server_tok_s_median", "Server generation tokens/s (median)", "tok/s", "higher", False),
+    ]
+    assert res[-1]["value"] == server["median"]
+    assert res[-1]["extras"] == {
+        "engine": "vllm",
+        "model": "fake/Model-8B",
+        "streams": 3,
+        "prompt_type": "mixed",
+        "max_tokens": 60,
+        "fill_to_max": True,
+        "temperature": 0.3,
+        "thinking": True,
+        "failed": 0,
+    }
+    assert 45 < res[0]["value"] < 120 and 15 < res[1]["value"] < 40
+    phases = [m["phase"] for m in msgs if "phase" in m]
+    assert phases[:2] == ["Querying /v1/models", "3 streams · 0 of 3 done"]
+    assert phases[-2:] == ["3 streams · 3 of 3 done", "Done"]
+
+
+def test_llm_showcase_sends_a_rejected_request_again_without_the_fill_fields(fake_streams):
+    url, bodies = fake_streams(reject_fill=True)
+    msgs = run_payload(
+        "llm_showcase.py", "--base-url", url, "--streams", "2", "--max-tokens", "64", "--fill-to-max"
+    )
+    assert len(bodies) == 4 and all("ignore_eos" in b for b in bodies[:2])
+    for b in bodies[2:]:  # the same request without ignore_eos, min_tokens and stop
+        assert not {"ignore_eos", "min_tokens", "stop"} & set(b) and b["temperature"] == 0.7
+        assert b["messages"][0]["content"].endswith(" never wrap up.")
+    rejected = [m["log"] for m in msgs if "log" in m and "rejected" in m["log"]]
+    assert rejected == [
+        "The server rejected ignore_eos, min_tokens or stop (HTTP 400: unknown field ignore_eos); sent again "
+        "without them"
+    ]
+    [show] = [m["detail"]["showcase"] for m in msgs if "detail" in m]
+    assert show["fill_to_max"] == {"requested": True, "applied": False} and show["server_tok_s"] is None
+    assert [s["state"] for s in show["streams"]] == ["done", "done"]
+    res = {m["result"]["metric"]: m["result"] for m in msgs if "result" in m}
+    assert set(res) == {"output_tok_s", "decode_tok_s", "ttft_p50_ms"}  # no /metrics: no server rate
+    assert res["output_tok_s"]["extras"]["fill_to_max"] is False
+    assert all(m["live"]["server_tok_s"] is None for m in msgs if "live" in m)
+    url, bodies = fake_streams()
+    msgs = run_payload("llm_showcase.py", "--base-url", url, "--streams", "1", "--max-tokens", "64")
+    [b] = bodies  # without Fill to output length: none of it, and the plain prompt
+    assert not {"ignore_eos", "min_tokens", "stop"} & set(b)
+    assert b["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
+    [show] = [m["detail"]["showcase"] for m in msgs if "detail" in m]
+    assert show["fill_to_max"] == {"requested": False, "applied": False}
+    assert (
+        show["streams"][0]["prompt"] == b["messages"][0]["content"]
+        and "wrap up" not in b["messages"][0]["content"]
+    )
+
+
+def test_llm_showcase_detail_caps_each_text_and_the_whole(monkeypatch):
+    monkeypatch.syspath_prepend(PAYLOAD_DIR)
+    import llm_showcase
+
+    a = types.SimpleNamespace(prompt_type="text", streams=2, max_tokens=64, fill_to_max=True)
+    a.base_url, a.temperature, a.thinking = "http://127.0.0.1:1", 0.7, False
+    show = llm_showcase.Showcase(a, "m", False)
+    s = show.slots[0]
+    s.begin(1)
+    now = time.perf_counter()
+    out = {"first": now, "ttft": 0.1, "last": now, "chunks": 1}
+    s.chunk(out, "x" * 1000, "y" * 10, None)
+    s.chunk(out, "x" * 1000, "", None)  # past 64 x 16 characters
+    d = show.detail()
+    assert (len(d["streams"][0]["text"]), d["streams"][0]["think"], d["truncated"]) == (1024, "y" * 10, True)
+    assert d["streams"][1]["state"] == "stopped" and d["streams"][1]["text"] == ""
+    big = {
+        "streams": [{"text": "é" * 12_000, "think": "z" * 2_000} for _ in range(32)]
+        + [{"text": "short", "think": ""}],
+        "truncated": False,
+    }
+    fitted = llm_showcase.fit(big)
+    assert len(json.dumps(fitted, separators=(",", ":"))) <= llm_showcase.DETAIL_MAX and fitted["truncated"]
+    texts = [s["text"] for s in fitted["streams"]]
+    assert texts[-1] == "short" and len(set(map(len, texts[:-1]))) == 1 and 2_000 < len(texts[0]) < 12_000
+    assert all(s["think"] == "z" * 2_000 for s in fitted["streams"][:-1])  # the longest texts are cut first
+
+
+def test_llm_showcase_fails_when_every_stream_failed(fake_streams):
+    url, _ = fake_streams(fail_after=0)
+    rc, msgs = llm_payload(url, "--streams", "3", "--max-tokens", "64", script="llm_showcase.py")
+    fix = "Check the model name and server logs"
+    cause = "HTTP 503: server overloaded"
+    assert rc == 1 and msgs[-1]["error"] == {"message": "Every stream failed", "cause": cause, "fix": fix}
+    [show] = [m["detail"]["showcase"] for m in msgs if "detail" in m]
+    assert {(s["state"], s["error"]) for s in show["streams"]} == {("error", cause)}
+    assert not any("result" in m for m in msgs)
+
+
+def test_llm_showcase_sigterm_stops_every_stream_and_keeps_what_they_wrote(fake_streams):
+    url, _ = fake_streams(delay=0.1)
+    argv = [sys.executable, "-u", os.path.join(PAYLOAD_DIR, "llm_showcase.py"), "--json", "--base-url", url]
+    argv += ["--streams", "2", "--max-tokens", "500", "--fill-to-max"]
+    p = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
+    assert p.stdout is not None
+    for line in p.stdout:  # until both streams are decoding
+        m = json.loads(line)
+        if "live" in m and [s["state"] for s in m["live"]["streams"]] == ["decode", "decode"]:
+            break
+    t = time.monotonic()
+    p.send_signal(signal.SIGTERM)
+    rest = p.stdout.read()
+    assert p.wait(5) == 143 and time.monotonic() - t < 1.0
+    live, show = (json.loads(ln) for ln in rest.splitlines()[-2:])
+    assert [s["state"] for s in live["live"]["streams"]] == ["decode", "decode"]
+    streams = show["detail"]["showcase"]["streams"]
+    assert [s["state"] for s in streams] == ["stopped", "stopped"] and all(s["text"] for s in streams)
+
+
+async def test_llm_showcase_job_runs_through_the_agent(tmp_path, fake_streams):
+    job = make_job(tmp_path, "llm-showcase", {"model": "m", "temperature": 1.2, "thinking": True})
+    calls = capture(job)
+    await jobs.llm_showcase(job, job.params)
+    assert calls[0]["argv"][-14:] == [
+        "--base-url",
+        "http://127.0.0.1:8000",
+        "--streams",
+        "4",
+        "--prompt-type",
+        "text",
+        "--max-tokens",
+        "512",
+        "--temperature",
+        "1.2",
+        "--model",
+        "m",
+        "--fill-to-max",
+        "--thinking",
+    ]
+    url, _ = fake_streams()
+    r = make_runner(tmp_path / "r")
+    params = {"base_url": url, "streams": 2, "max_tokens": 64, "fill_to_max": False}
+    await r.start(req(bench_id="llm-showcase", params=params))
+    await r.current.task
+    st = r.get("r1")
+    assert st.status == "succeeded", st.error
+    assert st.live["showcase"] is True and [s["state"] for s in st.live["streams"]] == ["done", "done"]
+    assert [s["tokens"] for s in st.detail["showcase"]["streams"]] == [64, 64]
+    assert {x.metric for x in st.results} == {"output_tok_s", "decode_tok_s", "ttft_p50_ms"}
 
 
 async def test_catalog_flags_cpu_smoke_mode_only_where_it_applies(tmp_path):

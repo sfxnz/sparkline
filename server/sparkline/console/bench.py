@@ -53,6 +53,7 @@ REGISTRY = [
     "rdma-bw-lat",
     "storage-fio",
     "llm-inference",
+    "llm-showcase",
     "tool-eval",
     "thermal-soak",
 ]

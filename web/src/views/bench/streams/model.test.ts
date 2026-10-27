@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIVE_12, LIVE_4, llmRun, nodeState, simulate, snapshot, stream } from './fixtures';
+import { LIVE_12, LIVE_4, llmRun, nodeState, SHOWCASE_LIVE_4, showcaseDetail, simulate, snapshot, stream } from './fixtures';
 import {
   accumulate,
   appendedText,
@@ -13,14 +13,17 @@ import {
   niceTicks,
   parseDetail,
   parseLive,
+  parseShowcase,
   peakLevel,
   recordedLevels,
   requestRate,
   requestText,
   scalingEfficiency,
+  showcaseMarkdown,
   stateCounts,
   STATE_LOOK,
   streamNodes,
+  streamMarkdown,
   streamSummary,
   type LevelStats,
   type LiveSnapshot,
@@ -238,5 +241,56 @@ describe('fixtures follow the payload', () => {
     expect(mid.streams).toHaveLength(4);
     expect(mid.completed_levels.map((l) => l.level)).toEqual([1, 2]);
     expect(parseDetail(sim.detail())?.levels.map((l) => l.requests)).toEqual([8, 8, 8, 8]);
+  });
+});
+
+describe('llm-showcase', () => {
+  it('reads the showcase flag, the server’s rate and each stream’s prompt, and leaves llm-inference snapshots as they were', () => {
+    const s = live(SHOWCASE_LIVE_4);
+    expect(s.showcase).toBe(true);
+    expect(s.server_tok_s).toBe(182.4);
+    expect(s.streams[0]?.label).toMatch(/^Summarise a short article about a coastal town/);
+    expect(s.streams.every((x) => x.label !== null && x.label.length <= 60)).toBe(true);
+    const plain = live(LIVE_4);
+    expect([plain.showcase, plain.server_tok_s, plain.streams[0]?.label]).toEqual([false, null, null]);
+    const odd = live({ kind: 'llm-streams', showcase: 'yes', server_tok_s: 'fast', streams: [{ slot: 0, label: 7 }, { slot: 1, label: '' }] });
+    expect([odd.showcase, odd.server_tok_s, odd.streams.map((x) => x.label)]).toEqual([false, null, [null, null]]);
+  });
+
+  it('names a showcase card by its prompt rather than a request number', () => {
+    const [first] = live(SHOWCASE_LIVE_4).streams;
+    if (!first) throw new Error('no stream');
+    expect(streamSummary(first, 'decode', 4, true)).toBe(`Stream #01: decoding, ${first.label ?? ''}`);
+    expect(streamSummary({ ...first, label: null, error: 'HTTP 503' }, 'error', 4, true)).toBe('Stream #01: failed, HTTP 503');
+    expect(streamSummary(first, 'decode', 4)).toBe('Stream #01: decoding, request 1 of 4');
+  });
+
+  it('guards detail.showcase: whole texts per slot, malformed fields tolerated', () => {
+    expect(parseShowcase(undefined)).toBeNull();
+    expect(parseShowcase({ llm: { levels: [] } })).toBeNull();
+    expect(parseShowcase({ showcase: [] })).toBeNull();
+    const d = parseShowcase(showcaseDetail(4));
+    expect(d?.streams.map((s) => s.slot)).toEqual([0, 1, 2, 3]);
+    expect(d?.streams[0]?.text.length).toBeGreaterThan(280); // the whole text, not the live tail
+    expect(d?.server_tok_s).toEqual({ median: 181.6, max: 188.2, samples: 40 });
+    expect(d?.fill_to_max).toEqual({ requested: true, applied: true });
+    const odd = parseShowcase({ showcase: { streams: [{ slot: 2, state: 'decode', text: 5, tokens: -3, ttft_ms: 'x' }, { state: 'error', error: 'boom' }, null, { slot: 2, text: 'dup' }], server_tok_s: 12, fill_to_max: 'yes', truncated: 1 } });
+    expect(odd?.streams.map((s) => [s.slot, s.state, s.text, s.tokens, s.ttft_ms, s.error])).toEqual([
+      [1, 'error', '', 0, null, 'boom'],
+      [2, 'stopped', '', 0, null, null], // an unknown state reads as stopped; the first entry of a slot wins
+    ]);
+    expect([odd?.server_tok_s, odd?.fill_to_max, odd?.truncated]).toEqual([null, null, false]);
+  });
+
+  it('copies a stream as Markdown: the prompt, the reasoning if any, then the answer', () => {
+    const s = { slot: 0, prompt: 'Write a haiku.\nAbout GPUs.', state: 'done' as const, text: 'Fans spin up at dawn\n', think: 'Five, seven, five.', tokens: 12, ttft_ms: 200, decode_tok_s: 40, error: null };
+    expect(streamMarkdown(s)).toBe('## Stream #01\n\n> Write a haiku.\n> About GPUs.\n\n### Thinking\n\nFive, seven, five.\n\n### Answer\n\nFans spin up at dawn');
+    expect(streamMarkdown({ ...s, slot: 4, think: '', text: '', state: 'error', error: 'HTTP 503' })).toBe('## Stream #05\n\n> Write a haiku.\n> About GPUs.\n\n### Answer\n\n_No answer._\n\n**Failed:** HTTP 503');
+    expect(showcaseMarkdown([s, { ...s, slot: 1, think: '' }])).toBe(`${streamMarkdown(s)}\n\n${streamMarkdown({ ...s, slot: 1, think: '' })}`);
+  });
+
+  it('finds the nodes with showcase outputs', () => {
+    const r = llmRun({ status: 'succeeded', detail: showcaseDetail(2) });
+    expect(streamNodes(r)).toEqual(['spark1']);
   });
 });

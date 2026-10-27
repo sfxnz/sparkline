@@ -85,10 +85,12 @@ interface CardProps extends TextProps {
   density: Density;
   /** Requests in this level, for "request 3 of 8". */
   requests: number;
+  /** An llm-showcase stream: its prompt under the head instead of a request number. */
+  showcase?: boolean;
   onOpen: (slot: number) => void;
 }
 
-export function StreamCard({ stream: s, text, state, density, requests, live, onOpen }: CardProps) {
+export function StreamCard({ stream: s, text, state, density, requests, showcase = false, live, onOpen }: CardProps) {
   const rate = s.tok_s;
   const compact = density === 'compact';
   const fill = s.max ? Math.min(1, s.tokens / s.max) : state === 'done' ? 1 : 0;
@@ -100,7 +102,7 @@ export function StreamCard({ stream: s, text, state, density, requests, live, on
         type="button"
         className={`strm-card strm-card--${density} is-${state}${live ? ' is-live' : ''}${state === 'error' ? ' tone-crit' : ''}`}
         style={{ '--i': s.slot } as CSSProperties}
-        aria-label={streamSummary(s, state, requests)}
+        aria-label={streamSummary(s, state, requests, showcase)}
         onClick={() => { onOpen(s.slot); }}
       >
         <span className="strm-card__head">
@@ -117,6 +119,7 @@ export function StreamCard({ stream: s, text, state, density, requests, live, on
             )}
           </span>
         </span>
+        {showcase && s.label ? <span className="strm-card__prompt">{s.label}</span> : null}
 
         {state === 'wait' ? (
           <span className="strm-body strm-body--wait">
@@ -151,7 +154,7 @@ export function StreamCard({ stream: s, text, state, density, requests, live, on
             <span className="strm-card__meta">
               <span className="strm-card__facts">
                 {s.ttft_ms != null ? <span>TTFT {formatMs(s.ttft_ms)}</span> : null}
-                {s.req > 0 ? <span>{requests > 0 ? `Request ${s.req} of ${requests}` : `Request ${s.req}`}</span> : null}
+                {s.req > 0 && !showcase ? <span>{requests > 0 ? `Request ${s.req} of ${requests}` : `Request ${s.req}`}</span> : null}
               </span>
               <span className="num strm-card__tokens">
                 {s.tokens}
@@ -207,11 +210,13 @@ interface DialogProps extends TextProps {
   requests: number;
   /** "Level 4 of 6 · 8 streams", "Final output". */
   context: string;
+  /** An llm-showcase stream: described by its prompt instead of its request number. */
+  showcase?: boolean;
   onClose: () => void;
 }
 
 /** One stream large: its numbers, and everything this page has seen it write (still typing while live). */
-export function StreamDialog({ stream: s, text, state, live, requests, context, onClose }: DialogProps) {
+export function StreamDialog({ stream: s, text, state, live, requests, context, showcase = false, onClose }: DialogProps) {
   const rate = s.tok_s;
   const facts: [string, string][] = [
     [state === 'done' ? 'Decode speed' : live ? 'Speed now' : 'Last speed', rate == null ? '—' : `${formatTokS(rate)} tok/s`],
@@ -225,7 +230,7 @@ export function StreamDialog({ stream: s, text, state, live, requests, context, 
       open
       onClose={onClose}
       title={`Stream ${slotLabel(s.slot)}`}
-      description={[s.req ? (requests ? `Request ${s.req} of ${requests}` : `Request ${s.req}`) : 'No request yet', context].join(' · ')}
+      description={[showcase ? s.label : s.req ? (requests ? `Request ${s.req} of ${requests}` : `Request ${s.req}`) : 'No request yet', context].filter(Boolean).join(' · ')}
       size="lg"
       className="strm-dialog"
     >

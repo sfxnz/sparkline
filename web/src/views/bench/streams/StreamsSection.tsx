@@ -1,6 +1,7 @@
 // The llm-inference run's streams: while it runs, every request in flight as a live card (LivePanel, placeholders
 // until the first snapshot); afterwards the concurrency sweep it measured, a timeline of every request and the last
-// text of each stream. Runs without stream data (older runs and agents, or a run that failed before streaming) render
+// text of each stream. An llm-showcase run streams the same way and afterwards shows every stream's whole text instead
+// (or, when the run recorded none, the last snapshot's). Runs without stream data (older runs and agents, or a run that failed before streaming) render
 // nothing, and the run view's own panels explain them.
 import { ChevronRight } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
@@ -9,7 +10,8 @@ import { SegmentedControl } from '../../../design/components/SegmentedControl';
 import type { BenchRun, BenchSpec, RunStatus } from '../../../lib/types';
 import { isActive, llmLevels } from '../model';
 import { Grid, LivePanel, LiveSkeleton } from './LivePanel';
-import { cardState, densityFor, parseDetail, parseLive, recordedLevels, streamNodes, textsOf, type LiveSnapshot } from './model';
+import { cardState, densityFor, parseDetail, parseLive, parseShowcase, recordedLevels, streamNodes, textsOf, type LiveSnapshot } from './model';
+import { ShowcaseOutputs } from './ShowcaseOutputs';
 import { StreamCard, StreamDialog } from './StreamCard';
 import { SweepPanel } from './SweepPanel';
 import { TimelinePanel } from './TimelinePanel';
@@ -24,9 +26,16 @@ export function StreamsSection({ run }: { run: BenchRun; spec: BenchSpec | undef
   const detailRaw = state?.detail;
   const live = useMemo(() => parseLive(liveRaw), [liveRaw]);
   const detail = useMemo(() => parseDetail(detailRaw), [detailRaw]);
-  const concurrency = typeof run.params.concurrency === 'number' ? run.params.concurrency : 1;
+  const outputs = useMemo(() => parseShowcase(detailRaw), [detailRaw]);
+  const showcase = run.bench_id === 'llm-showcase';
+  const param = (k: string) => {
+    const v = run.params[k];
+    return typeof v === 'number' ? v : 1;
+  };
+  // A showcase runs `streams` requests at once, one per stream.
+  const concurrency = param(showcase ? 'streams' : 'concurrency');
   const planned = live?.levels ?? llmLevels(concurrency, run.params.sweep === true);
-  const requests = typeof run.params.requests === 'number' ? run.params.requests : 1;
+  const requests = showcase ? concurrency : param('requests');
   const picker =
     nodes.length > 1 && node !== undefined ? (
       <SegmentedControl label="Node" size="sm" options={nodes.map((n) => ({ value: n, label: n }))} value={node} onChange={setPicked} />
@@ -38,7 +47,11 @@ export function StreamsSection({ run }: { run: BenchRun; spec: BenchSpec | undef
     // 0.05); an agent that sends no streams at all gets nothing here, and the progress panel covers its run.
     if (run.progress > 0.05) return null;
     const endpoint = typeof run.params.base_url === 'string' && run.params.base_url ? run.params.base_url : 'the endpoint';
-    return <LiveSkeleton endpoint={endpoint} levels={planned} requests={requests} />;
+    return <LiveSkeleton endpoint={endpoint} levels={planned} requests={requests} title={showcase ? 'Streams' : undefined} />;
+  }
+  if (showcase) {
+    if (outputs?.streams.length) return <ShowcaseOutputs key={node} outputs={outputs} status={run.status} actions={picker} />;
+    return live?.streams.length ? <FinalOutputs key={node} snap={live} status={run.status} sweep={false} actions={picker} /> : null;
   }
   if (!live && !detail) return null;
 
@@ -80,7 +93,7 @@ function FinalOutputs({ snap, status, sweep, actions }: { snap: LiveSnapshot; st
         {shown ? (
           <Grid density={density} count={n} label="Final outputs">
             {snap.streams.map((s) => (
-              <StreamCard key={s.slot} stream={s} text={texts.get(s.slot)} state={cardState(s, false)} density={density} requests={snap.requests} live={false} onOpen={setOpen} />
+              <StreamCard key={s.slot} stream={s} text={texts.get(s.slot)} state={cardState(s, false)} density={density} requests={snap.requests} showcase={snap.showcase} live={false} onOpen={setOpen} />
             ))}
           </Grid>
         ) : null}
@@ -92,6 +105,7 @@ function FinalOutputs({ snap, status, sweep, actions }: { snap: LiveSnapshot; st
           state={cardState(opened, false)}
           live={false}
           requests={snap.requests}
+          showcase={snap.showcase}
           context="Final output"
           onClose={() => { setOpen(null); }}
         />

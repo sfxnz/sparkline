@@ -189,6 +189,17 @@ describe('duration estimate', () => {
     expect(estimateDuration(spec, { ...d, concurrency: 32, sweep: true })).toBeCloseTo(126.652, 6);
     expect(estimateDuration(spec, { ...d, concurrency: 24, requests: 16, sweep: true, max_tokens: 256 })).toBeCloseTo(438.792, 6);
   });
+  it('is the agent’s own llm-showcase estimate: the output at 20 tokens/s per wave of 4 streams', () => {
+    const spec: BenchSpec = { ...LLM, id: 'llm-showcase', est_duration_s: 30.6, params: [param('streams', 'int', 4), param('max_tokens', 'int', 512), param('temperature', 'float', 0.7), param('fill_to_max', 'bool', true)] };
+    const d = defaultParams(spec);
+    // Expected values from server/sparkline/agent/bench/specs.py est_showcase for the same parameters.
+    expect(estimateDuration(spec, d)).toBeCloseTo(30.6, 6);
+    expect(estimateDuration(spec, { ...d, streams: 32, max_tokens: 2048 })).toBeCloseTo(824.2, 6);
+    expect(estimateDuration(spec, { ...d, streams: 5, max_tokens: 64 })).toBeCloseTo(11.4, 6);
+    expect(estimateDuration(spec, { ...d, streams: 1, max_tokens: 1000 })).toBeCloseTo(55, 6);
+    expect(estimateDuration(spec, { ...d, temperature: 1.5, fill_to_max: false })).toBeCloseTo(30.6, 6); // neither takes time
+    expect(['text', 'structural', 'mixed'].map((c) => choiceLabel(c))).toEqual(['Text', 'Structural', 'Mixed']);
+  });
   it('follows the tool-eval suite, Hard Mode scenarios taking longer', () => {
     const suite = param('suite', 'enum', 'standard', ['core', 'standard', 'hard', 'all']);
     const spec: BenchSpec = { ...LLM, id: 'tool-eval', est_duration_s: 1666, params: [param('base_url', 'string', 'http://127.0.0.1:8000'), param('model', 'string', ''), suite, param('thinking', 'bool', true)] };

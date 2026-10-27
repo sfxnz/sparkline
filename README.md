@@ -416,6 +416,7 @@ Benchmarks run only when you confirm them in the console. One job runs per node 
 | RDMA bandwidth and latency (`rdma-bw-lat`) | `ib_write_bw` / `ib_write_lat` over one CX7 rail | about 10 s | Low: saturates that rail | `perftest`, 2 nodes |
 | NVMe storage (`storage-fio`) | Sequential 1 MiB and random 4 KiB read/write: MB/s, IOPS, p99 latency | about 35 s | Low, but heavy disk I/O | `fio` (optional) |
 | LLM inference (`llm-inference`) | TTFT, prefill and decode tokens/s, memory footprint, with a live view of every concurrent stream and an optional sweep over concurrency levels | seconds to minutes, depending on the model | Medium: real requests to your server | An OpenAI-compatible endpoint on the LAN |
+| LLM showcase (`llm-showcase`) | A view to watch rather than a measurement: up to 32 short real prompts (prose, structured output or both) streamed at once, one request each, all started together and by default all writing the full output length, so they decode side by side and end together; each stream's text and tokens/s live next to the server's own generation rate from `/metrics`, and the full answers kept with the run | under a minute at the defaults (4 streams, 512 tokens), depending on the model | Medium: real requests to your server | An OpenAI-compatible endpoint on the LAN |
 | Tool-call eval (`tool-eval`) | How well the served model uses tools: tool-eval-bench's multi-turn scenarios with mock tools, graded pass, partial or fail into a 0–100 score, with category scores and a trace per scenario; optionally several trials for the score's spread, Pass@k and Pass^k | Core (15 scenarios) a few minutes, Standard (69, the default) 20–30 min, Hard Mode (28) about 15 min, all 97 30–45 min, depending on the model; times the number of trials | Medium: real requests to your server, for minutes | An OpenAI-compatible endpoint on the LAN with tool calling enabled (vLLM: `--enable-auto-tool-choice --tool-call-parser …`) |
 | Thermal soak (`thermal-soak`) | Clock stability, throttling, temperature and TFLOPS drift under sustained load | 10 to 30 min | High: holds the GPU at full load | Docker + PyTorch image |
 
@@ -437,6 +438,15 @@ Notes:
   tokens/s and the end of its text; afterwards the run keeps a timeline of every request. On vLLM it asks for
   usage in every streamed chunk (`continuous_usage_stats`), so live token counts stay exact when one chunk
   carries several tokens (MTP or speculative decoding).
+- The LLM showcase sends one request per stream, all released at once. With **Fill to output length** (on by
+  default) each prompt asks the model to keep writing and the request adds `ignore_eos`, `min_tokens` and an
+  empty `stop` list, so every stream writes the full length; a server that rejects those fields (HTTP 400)
+  gets the request again without them, and the run says so. A stream's tokens/s is its decode rate so far, the
+  total is the sum over the streams still decoding, and "Server tok/s" is the server's own generation counter
+  (`vllm:generation_tokens_total` or `sglang:generation_tokens_total` in `/metrics`, polled every 0.4 s), which
+  also counts other users' requests. To see every stream decode together, keep Streams at or below the
+  server's concurrent-sequence limit (vLLM `--max-num-seqs`). Its results (output and per-stream decode
+  tokens/s, TTFT) describe this one wave of short prompts; use LLM inference to measure.
 - The tool-calling evaluation runs [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench)
   2.8.0 (SeraphimSerapis, MIT) in a host process under the agent, with tool-eval-bench's defaults
   (temperature 0, 120 s per request, 8 turns, one scenario at a time). The agent installs it hash-pinned from

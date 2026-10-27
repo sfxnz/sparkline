@@ -132,6 +132,7 @@ Rollups store avg/min/max per key per bucket. `energy_j` stores the last value, 
 | `rdma-bw-lat` | `ib_write_bw` / `ib_write_lat` over the CX7 rail | perftest (installed) | 2 nodes, server/client orchestration |
 | `storage-fio` | seq/rand read/write profiles | `fio` if present, else built-in O_DIRECT runner (labelled) | test file in data dir, removed after |
 | `llm-inference` | TTFT, prefill tok/s, decode tok/s, memory footprint | OpenAI-compatible endpoint (vLLM/TRT-LLM/llama.cpp server), streaming | engine-agnostic |
+| `llm-showcase` | N concurrent prompt streams to watch (one request each, started together, filled to the output length); output and per-stream decode tok/s, TTFT, the server's generation tok/s from `/metrics` | host payload reusing `llm_inference`'s requests and stream slots, OpenAI-compatible endpoint | a view, not a sweep |
 | `tool-eval` | tool-calling score (pass/partial/fail per multi-turn scenario with mock tools) | tool-eval-bench 2.8.0 as a library in a host payload, OpenAI-compatible endpoint | needs the server's tool-call parser |
 | `thermal-soak` | 10–30 min sustained GEMM; clocks, throttling, temps over time | PyTorch container | heavy |
 
@@ -185,3 +186,26 @@ hostnames, params, and timestamps. Regression = a result worse than the baseline
   results are means: score (the headline, with σ, CI and range in its extras), categories, deployability,
   responsiveness, median turn latency; plus `score_stddev`, `pass_at_k`, `pass_hat_k`. One trial reports
   exactly as before.
+
+## 2026-10-27: LLM showcase
+
+- **Why.** `llm-inference` (synthetic "summarise this text" prompts, closed-loop rounds, EOS allowed, rates over
+  a window) is a measurement; watched on a real server its streams start staggered, end apart and show jumpy
+  tok/s. `llm-showcase` is the view for watching, modelled on sparkDash's Prompt Showcase (no code or prompts
+  taken from it); `llm-inference` is unchanged apart from an optional `extra` dict on `one_request`.
+- **Payload.** `llm_showcase.py` imports `llm_inference`'s request, `Slot` and SIGTERM handling. N threads wait
+  on one event, then each sends one request: our own short prompts (8 prose, 8 structural, mixed alternates),
+  `temperature`, `chat_template_kwargs` `enable_thinking`/`thinking`, and with `fill_to_max` a keep-going
+  sentence plus `ignore_eos`, `min_tokens` = `max_tokens`, `stop: []`; an HTTP 400 resends that stream once
+  without the three fields (logged once). /metrics is polled every 0.4 s for the generation counter's rate;
+  without it polling stops and `server_tok_s` stays null.
+- **Live and detail.** The snapshot is `llm-streams` v1 with one level of N, so the web's parser takes it as is,
+  plus `showcase: true`, `server_tok_s` and a per-stream `label`. A stream's `tok_s` is cumulative (tokens since
+  the first over the time to the latest token, from 0.5 s on); the top `tok_s` sums the decoding streams.
+  `detail.showcase` holds every stream's prompt and whole answer and reasoning (each at most `max_tokens` × 16
+  characters, the whole under 900,000 bytes by cutting the longest texts first), the /metrics summary and
+  whether fill was applied; it is also sent on cancel, with unfinished streams "stopped".
+- **Results.** Output tok/s over all streams, median per-stream decode tok/s and TTFT p50 (headlines), and the
+  median server generation tok/s when /metrics answered. Every stream failing fails the run.
+- **Demo.** Planned streams at LlmDemo's GB10 rates, played at 2× real time (4–60 s), cancel included; the
+  seeded history has a finished 8-stream mixed run.

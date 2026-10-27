@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { announcer } from '../../../design/components/LiveAnnouncer';
 import type { BenchRun } from '../../../lib/types';
-import { LIVE_12, LIVE_32, LIVE_4, LLM_SPEC, llmRun, nodeState, simulate, snapshot, stream, type StreamInit } from './fixtures';
+import { LIVE_12, LIVE_32, LIVE_4, LLM_SPEC, llmRun, nodeState, SHOWCASE_LIVE_4, SHOWCASE_SPEC, showcaseDetail, showcaseParams, showcaseRun, simulate, snapshot, stream, type StreamInit } from './fixtures';
+import { parseShowcase, showcaseMarkdown, streamMarkdown } from './model';
 import { StreamsSection } from './StreamsSection';
 
 beforeEach(() => {
@@ -235,6 +236,123 @@ describe('after the run', () => {
     expect(screen.getByRole('region', { name: 'Stream timeline' })).toHaveTextContent('8 requests at 4 streams');
     expect(screen.queryByRole('radiogroup', { name: 'Level' })).toBeNull();
     expect(screen.getByRole('region', { name: 'Final outputs' })).toHaveTextContent('when the run finished');
+  });
+});
+
+describe('llm-showcase', () => {
+  const showSc = (run: BenchRun) => render(<StreamsSection run={run} spec={SHOWCASE_SPEC} />);
+
+  it('titles the live panel "Streams" and shows each stream’s prompt, and the server’s own tokens/s', () => {
+    showSc(showcaseRun({ live: SHOWCASE_LIVE_4 }));
+    const panel = screen.getByRole('region', { name: 'Streams' });
+    expect(screen.queryByRole('region', { name: 'Concurrency streams' })).toBeNull();
+    const list = cards();
+    expect(list[0]).toHaveAttribute('aria-label', expect.stringMatching(/^Stream #01: decoding, Summarise a short article about a coastal town/) as string);
+    expect(list[0]?.querySelector('.strm-card__prompt')).toHaveTextContent(/^Summarise a short article/);
+    for (const card of list) expect(card).not.toHaveTextContent(/Request \d/); // one request per stream: no request numbers
+    expect(within(panel).getByText('Server tok/s')).toBeInTheDocument();
+    expect(within(panel).getByText('The server’s own count')).toBeInTheDocument();
+    expect(within(panel).getByText(/^Sum of the decoding streams/)).toBeInTheDocument();
+    fireEvent.click(list[0] as HTMLElement);
+    expect(screen.getByRole('dialog', { name: 'Stream #01' })).toHaveTextContent(/Summarise a short article about a coastal town.* · 4 streams/);
+  });
+
+  it('leaves out the server’s rate when it reports none, and llm-inference cards keep their request numbers', () => {
+    const { unmount } = showSc(showcaseRun({ live: { ...SHOWCASE_LIVE_4, server_tok_s: null } }));
+    expect(screen.queryByText('Server tok/s')).toBeNull();
+    unmount();
+    show(llmRun({ params: { ...showcaseParams(4), concurrency: 4, requests: 8 }, live: LIVE_4 }));
+    expect(screen.queryByText('Server tok/s')).toBeNull();
+    expect(cards()[0]).toHaveTextContent('Request 1 of 8');
+    expect(document.querySelector('.strm-card__prompt')).toBeNull();
+  });
+
+  it('shows a placeholder per stream until the first snapshot', () => {
+    const { container } = showSc(showcaseRun({ params: showcaseParams(6), progress: 0.02 }));
+    expect(screen.getByRole('region', { name: 'Streams' })).toHaveAttribute('aria-busy', 'true');
+    expect(container.querySelectorAll('.strm-card.is-skeleton')).toHaveLength(6);
+    expect(screen.queryByRole('list', { name: 'Concurrency levels' })).toBeNull();
+  });
+
+  describe('after the run', () => {
+    let writeText: Mock<(text: string) => Promise<void>>;
+    beforeEach(() => {
+      writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
+      Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    });
+
+    it('shows every stream’s whole text, open and scrollable, with no sweep or timeline', () => {
+      const detail = showcaseDetail(4, { each: (slot) => (slot === 0 ? { think_chars: 300 } : {}) });
+      showSc(showcaseRun({ status: 'succeeded', live: SHOWCASE_LIVE_4, detail }));
+      expect(screen.queryByRole('region', { name: 'Concurrency sweep' })).toBeNull();
+      expect(screen.queryByRole('region', { name: 'Stream timeline' })).toBeNull();
+      const outputs = screen.getByRole('region', { name: 'Final outputs' });
+      expect(outputs).toHaveTextContent('4 streams · the whole text each wrote');
+      const items = within(within(outputs).getByRole('list', { name: 'Final outputs' })).getAllByRole('listitem');
+      expect(items).toHaveLength(4);
+      const full = parseShowcase(detail)?.streams[1]?.text ?? '';
+      expect(full.length).toBeGreaterThan(1000);
+      const text = within(outputs).getByRole('region', { name: 'Text of stream #02' });
+      expect(text).toHaveAttribute('tabindex', '0');
+      expect(text).toHaveTextContent(full.slice(-80));
+      expect(within(items[0] as HTMLElement).getByText('Thinking')).toBeInTheDocument();
+      expect(within(items[0] as HTMLElement).getByText(/^Summarise a short article about a coastal town/)).toBeInTheDocument();
+      expect(within(items[0] as HTMLElement).getByRole('article', { name: 'Stream #01: done' })).toBeInTheDocument();
+      expect(within(outputs).queryByText(/fill-to-length|shortened/)).toBeNull();
+    });
+
+    it('copies one stream, or all of them, as Markdown', async () => {
+      const detail = showcaseDetail(3);
+      const streams = parseShowcase(detail)?.streams ?? [];
+      showSc(showcaseRun({ status: 'succeeded', params: showcaseParams(3), detail }));
+      const outputs = screen.getByRole('region', { name: 'Final outputs' });
+      fireEvent.click(within(outputs).getByRole('button', { name: 'Copy stream #02' }));
+      await waitFor(() => { expect(within(outputs).getByRole('button', { name: 'Copied stream #02' })).toBeInTheDocument(); });
+      expect(writeText).toHaveBeenLastCalledWith(streams[1] && streamMarkdown(streams[1]));
+      expect(within(outputs).getByRole('status')).toHaveTextContent('Copied stream #02');
+      fireEvent.click(within(outputs).getByRole('button', { name: 'Copy all' }));
+      await waitFor(() => { expect(within(outputs).getByRole('status')).toHaveTextContent('Copied all 3 streams as Markdown'); });
+      expect(writeText).toHaveBeenLastCalledWith(showcaseMarkdown(streams));
+      expect(writeText.mock.lastCall?.[0]).toMatch(/^## Stream #01\n\n> Summarise/);
+    });
+
+    it('says when the clipboard is blocked', async () => {
+      writeText.mockImplementation(() => Promise.reject(new Error('denied')));
+      const exec = vi.fn(() => false);
+      Object.defineProperty(document, 'execCommand', { value: exec, configurable: true });
+      try {
+        showSc(showcaseRun({ status: 'succeeded', detail: showcaseDetail(2) }));
+        fireEvent.click(screen.getByRole('button', { name: 'Copy all' }));
+        await waitFor(() => { expect(screen.getByRole('status')).toHaveTextContent('The browser blocked the clipboard'); });
+        expect(exec).toHaveBeenCalledWith('copy'); // the fallback for plain-http consoles was tried
+      } finally {
+        Reflect.deleteProperty(document, 'execCommand');
+      }
+    });
+
+    it('shows a failed stream’s message, and says when fill to length was rejected or texts were shortened', () => {
+      const detail = showcaseDetail(4, { each: (slot) => (slot === 2 ? { state: 'error', error: 'HTTP 503: overloaded' } : {}), fill: { requested: true, applied: false }, truncated: true });
+      showSc(showcaseRun({ status: 'succeeded', detail }));
+      const outputs = screen.getByRole('region', { name: 'Final outputs' });
+      expect(within(outputs).getByRole('article', { name: 'Stream #03: failed, HTTP 503: overloaded' })).toHaveTextContent('Failed before the first token.');
+      expect(outputs).toHaveTextContent('The server rejected the fill-to-length options, so each stream ended when the model did. The longest outputs were shortened to keep the run record small.');
+    });
+
+    it('falls back to the last snapshot when the run recorded no outputs (cancelled)', async () => {
+      showSc(showcaseRun({ status: 'cancelled', live: SHOWCASE_LIVE_4 }));
+      const outputs = screen.getByRole('region', { name: 'Final outputs' });
+      expect(outputs).toHaveTextContent('The last text of each stream when the run was cancelled');
+      expect(within(outputs).queryByRole('button', { name: 'Copy all' })).toBeNull();
+      fireEvent.click(within(outputs).getByText('Show 4 streams'));
+      await waitFor(() => { expect(within(outputs).getByText('Hide 4 streams')).toBeInTheDocument(); });
+      const stopped = within(outputs).getAllByRole('button', { name: /^Stream #01: stopped, Summarise/ });
+      expect(stopped).toHaveLength(1);
+    });
+
+    it('renders nothing when a showcase run has neither outputs nor a snapshot', () => {
+      expect(showSc(showcaseRun({ status: 'failed' })).container).toBeEmptyDOMElement();
+    });
   });
 });
 

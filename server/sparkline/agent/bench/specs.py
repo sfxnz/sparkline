@@ -202,6 +202,52 @@ class LlmInferenceParams(Params):
         return v
 
 
+class LlmShowcaseParams(Params):
+    base_url: str = _param(
+        "http://127.0.0.1:8000",
+        "Endpoint",
+        "OpenAI-compatible server (vLLM, TRT-LLM, llama.cpp, SGLang...) on a private or loopback address.",
+    )
+    model: str = _param("", "Model", "Model name as served; empty picks the first from /v1/models.")
+    streams: int = _param(
+        4,
+        "Streams",
+        "Prompts streamed at once, one request each. To see them all decode together, stay at or below the "
+        "server's concurrent-sequence limit (vLLM --max-num-seqs); extra streams wait for a free slot.",
+        ge=1,
+        le=32,
+    )
+    prompt_type: Literal["text", "structural", "mixed"] = _param(
+        "text",
+        "Prompts",
+        "Text: prose. Structural: JSON, SQL, YAML and code-like output. Mixed: the two alternating.",
+    )
+    max_tokens: int = _param(512, "Output length", "max_tokens per stream.", "tokens", ge=64, le=2048)
+    fill_to_max: bool = _param(
+        True,
+        "Fill to output length",
+        "Every stream writes the full length: asks the model to keep going and sends ignore_eos, "
+        "min_tokens and no stop strings (dropped if the server rejects them). Off: each stream ends when "
+        "the model does.",
+    )
+    temperature: float = _param(0.7, "Temperature", "Sampling temperature.", ge=0, le=2)
+    thinking: bool = _param(
+        False, "Thinking", "Sends enable_thinking (and thinking) with this value to the chat template."
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def _url(cls, v: str) -> str:
+        return check_base_url(v)
+
+    @field_validator("model")
+    @classmethod
+    def _model(cls, v: str) -> str:
+        if v and not _MODEL_RE.match(v):
+            raise ValueError("model name may only contain letters, digits and . - / : _ (max 200)")
+        return v
+
+
 class ToolEvalParams(Params):
     base_url: str = _param(
         "http://127.0.0.1:8000",
@@ -328,6 +374,12 @@ def levels(concurrency: int, sweep: bool) -> list[int]:
 def est_llm(p: LlmInferenceParams) -> float:
     waves = sum(math.ceil(max(p.requests, c) / c) for c in levels(p.concurrency, p.sweep))
     return 5.0 + waves * (0.5 + p.prompt_tokens / 2000 + p.max_tokens / 20)
+
+
+def est_showcase(p: LlmShowcaseParams) -> float:
+    """One request per stream: the output at about 20 tok/s, once more for every 4 streams beyond the first 4
+    (each stream decodes slower when more of them share the GPU)."""
+    return 5.0 + p.max_tokens / 20 * math.ceil(p.streams / 4)
 
 
 # tool-eval-bench 2.8.0 suites: (standard scenarios, Hard Mode scenarios). Not imported from the package: the
@@ -545,6 +597,26 @@ REGISTRY: dict[str, Bench] = {
             ),
             LlmInferenceParams,
             est_llm,
+        ),
+        Bench(
+            "llm-showcase",
+            "LLM showcase",
+            "inference",
+            "Watch a model you are already serving answer several prompts at once, side by side. "
+            "Streams one short real prompt per stream (prose, structured output or both) to an "
+            "OpenAI-compatible endpoint, all started together and, with Fill to output length, all writing "
+            "the full output so they decode side by side and end together. Each stream shows its text and "
+            "tokens/s live, next to the server's own generation rate from /metrics (vLLM, SGLang); the full "
+            "answers are kept with the run. A view for watching, not a sweep: use LLM inference to measure.",
+            _impact(
+                "medium",
+                "medium",
+                True,
+                "Sends real requests to the chosen server; other users of that server will see slower "
+                "responses.",
+            ),
+            LlmShowcaseParams,
+            est_showcase,
         ),
         Bench(
             "tool-eval",

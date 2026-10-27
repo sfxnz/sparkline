@@ -3,7 +3,8 @@
 The catalog, parameter validation, duration estimates and availability notes come from the agent's own
 registry (sparkline.agent.bench), so the demo offers exactly what a real node offers; results use the agent's
 metric names and units. Runs are time-compressed (the agent's estimate / 10; the thermal soak takes 60-90 s;
-LLM inference plays its requests at double speed, 4-60 s per level), which the catalog says, and report
+LLM inference plays its requests at double speed, 4-60 s per level, the LLM showcase its streams likewise),
+which the catalog says, and report
 plausible GB10 numbers with small run-to-run noise. While a run is going,
 the node's demo telemetry carries the load (DemoModel.bench_windows for the GPU, disk_windows for the storage
 profiles), so the telemetry overlay is alive. fio is "not
@@ -69,6 +70,7 @@ GPU_LOAD = {
     "mem-bandwidth": 0.75,
     "nccl-allreduce": 0.55,
     "llm-inference": 0.9,
+    "llm-showcase": 0.9,
     "tool-eval": 0.6,
     "thermal-soak": 1.0,
 }
@@ -118,7 +120,8 @@ def demo_catalog(node: str, info: NodeInfo | None) -> list[BenchSpec]:
     out = []
     for b in AGENT_REGISTRY.values():
         problem, note = probes.availability(b.id, env)
-        demo = {"llm-inference": LLM_NOTE, "tool-eval": TE_NOTE}.get(b.id, COMPRESSED_NOTE)
+        notes = {"llm-inference": LLM_NOTE, "llm-showcase": SHOWCASE_NOTE, "tool-eval": TE_NOTE}
+        demo = notes.get(b.id, COMPRESSED_NOTE)
         out.append(b.spec({node: problem}, f"{note} {demo}".strip()))
     return out
 
@@ -160,6 +163,8 @@ def demo_duration(bench: str, p: dict[str, Any]) -> float:
         return max(30.0, min(90.0, 60 + (p["minutes"] - 10) * 1.5))
     if bench == "llm-inference":  # slower: every level stays on screen for a few seconds
         return sum(LlmDemo(p, "", random.Random(0)).walls())
+    if bench == "llm-showcase":  # likewise
+        return sum(ShowcaseDemo(p, "", random.Random(0)).walls())
     if bench == "tool-eval":  # K trials take √K times one trial (97 scenarios x 8 trials: 13 min, not 36)
         return max(4.0, real_duration(bench, {**p, "trials": 1}) / 10 * math.sqrt(p["trials"]))
     return max(4.0, real_duration(bench, p) / 10)
@@ -828,6 +833,337 @@ class LlmDemo:
 
 
 # ---------------------------------------------------------------------------------------------------------
+# LLM showcase: simulated prompt streams (the live snapshots and detail the real payload sends)
+# ---------------------------------------------------------------------------------------------------------
+
+SHOWCASE_NOTE = "Demo: the simulated streams play at double speed and take 4 to 60 s."
+SHOWCASE_FILL = (
+    " Keep writing until you reach the output limit: add detail, examples and new sections, never wrap up."
+)
+# Four of the payload's prompts of each kind, and what the demo models write for them (round and round)
+SHOWCASE_TEXT = [
+    (
+        "Write a short story about a DGX Spark that wakes at 3 a.m. to find its fans arguing about "
+        "the weather.",
+        [
+            "At three in the morning the Spark woke to a low hum that was not its own.",
+            "The left fan insisted a heat wave was coming; the right fan said it was only a long prompt.",
+            "Somewhere in the rack a power supply sighed, as power supplies do when nobody is listening.",
+            "The Spark checked its sensors: 41 degrees, steady clocks, a queue of tokens waiting patiently.",
+            "Its fans kept arguing, but the Spark knew that the weather inside was its own to make.",
+        ],
+    ),
+    (
+        "Explain to a curious ten-year-old how a GPU can do thousands of small sums at the same time.",
+        [
+            "Imagine a classroom where one very fast student solves every sum on the board alone.",
+            "That is a CPU: clever and quick, but only a few sums at a time.",
+            "Now imagine a hall with thousands of students, each given one small sum and a pencil.",
+            "They all start together and finish together, so the whole board is done in a blink.",
+            "That hall is a GPU, and pictures and AI models are just enormous boards full of small sums.",
+        ],
+    ),
+    (
+        "Describe a quiet night shift in a small inference lab, as told by the coffee machine.",
+        [
+            "I am the coffee machine, and I know this lab best after midnight.",
+            "The engineer arrives at ten, pours a double, and sets the benchmarks running.",
+            "The servers hum in a steady chord while the dashboards scroll their green numbers.",
+            "Around two the engineer comes back for a refill and stares at a graph that went flat.",
+            "By dawn the graph is climbing again and I am out of beans, so I know it was a good night.",
+        ],
+    ),
+    (
+        "Write a letter from a tired KV cache to the engineer who keeps raising the context length.",
+        [
+            "Dear engineer, I am writing to you from the far end of a very long context.",
+            "Every token you send me I keep, carefully, in case the model wants to look back.",
+            "When you doubled the context last week I said nothing; when you did it again I began to worry.",
+            "I do not mind the work, only the space, which is finite, unlike your prompts.",
+            "Yours, with every key and value still in place, the KV cache.",
+        ],
+    ),
+]
+SHOWCASE_STRUCTURAL = [
+    (
+        "Write a JSON inventory of a small home AI lab: every device, its memory, power draw and what it "
+        "runs.",
+        [
+            '{"lab": "home", "devices": [',
+            '  {"name": "spark1", "memory_gib": 128, "power_w": 140, "runs": "vLLM, 30B model"},',
+            '  {"name": "spark2", "memory_gib": 128, "power_w": 135, "runs": "embeddings and rerankers"},',
+            '  {"name": "nas", "memory_gib": 32, "power_w": 45, "runs": "model cache and backups"},',
+            '  {"name": "switch", "memory_gib": null, "power_w": 18, "runs": "10 GbE between everything"}',
+            "]},",
+        ],
+    ),
+    (
+        "Write SQL that creates tables for benchmark runs and results, then finds the fastest run per model.",
+        [
+            "CREATE TABLE runs (id INTEGER PRIMARY KEY, model TEXT NOT NULL, started_at TIMESTAMP);",
+            "CREATE TABLE results (run_id INTEGER REFERENCES runs(id), metric TEXT, value REAL);",
+            "SELECT r.model, MAX(x.value) AS best_tok_s",
+            "FROM runs r JOIN results x ON x.run_id = r.id",
+            "WHERE x.metric = 'decode_tok_s'",
+            "GROUP BY r.model ORDER BY best_tok_s DESC;",
+        ],
+    ),
+    (
+        "Write a YAML config for a made-up model server with ports, batching limits, logging and health "
+        "checks.",
+        [
+            "server:",
+            "  host: 0.0.0.0",
+            "  port: 8000",
+            "batching:",
+            "  max_num_seqs: 32",
+            "  max_batched_tokens: 8192",
+            "logging:",
+            "  level: info",
+            "health:",
+            "  path: /health",
+            "  interval_s: 10",
+        ],
+    ),
+    (
+        "Write a bash script that checks free memory, GPU temperature and disk space and prints one status "
+        "line.",
+        [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            "mem=$(free -g | awk '/Mem:/ {print $7}')",
+            "temp=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader)",
+            "disk=$(df -h / | awk 'NR==2 {print $4}')",
+            'echo "free ${mem} GiB · GPU ${temp} °C · disk ${disk} free"',
+        ],
+    ),
+]
+SHOWCASE_THINKING = [
+    "The user wants a long answer, so I should plan a few sections first.",
+    "Start with the main idea, then add examples and concrete details.",
+    "Keep the tone friendly and make each part build on the one before.",
+]
+
+
+@dataclass
+class _ShowStream:
+    slot: int
+    prompt: str  # as sent
+    label: str
+    lines: list[str]  # what it writes, round and round
+    sep: str
+    first: float  # simulated seconds since the requests went out
+    end: float
+    tokens: int
+    rate: float  # decode tok/s
+    think: int  # reasoning tokens, streamed before the answer
+
+
+def _show_text(lines: list[str], sep: str, chars: int) -> str:
+    cycle = sep.join(lines) + sep
+    return (cycle * (1 + chars // len(cycle)))[:chars]
+
+
+def _label(prompt: str) -> str:
+    s = " ".join(prompt.split())
+    return s if len(s) <= 60 else s[:59].rstrip() + "…"
+
+
+class ShowcaseDemo:
+    """A simulated llm-showcase run on one node with each stream's one request planned up front (simulated
+    seconds since they all went out), at LlmDemo's GB10-like rates for that many streams. With Fill to output
+    length every stream writes max_tokens, so they end within a few percent of each other; without it some end
+    early. Thinking spends the first ~15% of each stream's tokens reasoning."""
+
+    def __init__(self, p: dict[str, Any], node: str, rng: random.Random) -> None:
+        self.p = p
+        self.model = p["model"] or SERVED_MODEL.get(node, "model")
+        n = p["streams"]
+        pools = {"text": [SHOWCASE_TEXT], "structural": [SHOWCASE_STRUCTURAL]}
+        pool = pools.get(p["prompt_type"], [SHOWCASE_STRUCTURAL, SHOWCASE_TEXT])  # mixed alternates
+        rate = 46.0 * (1 + rng.gauss(0, 0.03) - (0.006 if node == "spark2" else 0.0)) / (1 + 0.09 * (n - 1))
+        ttft = 0.16 * (1 + 0.15 * (n - 1)) * (1 + rng.gauss(0, 0.06))  # short prompts, all prefilled at once
+        self.streams = []
+        for i in range(n):
+            kind = pool[i % len(pool)]
+            prompt, lines = kind[i // len(pool) % len(kind)]
+            tokens = p["max_tokens"]
+            if not p["fill_to_max"]:
+                tokens = max(1, round(tokens * rng.uniform(0.45, 1.0)))
+            r, first = rate * (1 + rng.gauss(0, 0.02)), ttft * rng.uniform(0.85, 1.15)
+            sent = prompt + (SHOWCASE_FILL if p["fill_to_max"] else "")
+            sep = "\n" if kind is SHOWCASE_STRUCTURAL else " "
+            think = round(tokens * 0.15) if p["thinking"] else 0
+            end = first + (tokens - 1) / r
+            self.streams.append(
+                _ShowStream(i, sent, _label(prompt), lines, sep, first, end, tokens, r, think)
+            )
+        self.duration = max(s.end for s in self.streams)
+        self.first_token = min(s.first for s in self.streams)
+
+    def walls(self) -> list[float]:
+        """Wall seconds of a demo run: querying the endpoint, then the streams (LLM_SPEED, LLM_LEVEL_S)."""
+        lo, hi = LLM_LEVEL_S
+        return [LLM_START_S, min(hi, max(lo, self.duration / LLM_SPEED))]
+
+    def _tokens(self, s: _ShowStream, t: float) -> int:
+        if t < s.first:
+            return 0
+        return s.tokens if t >= s.end else min(s.tokens, 1 + int((t - s.first) * s.rate))
+
+    def _rate(self, s: _ShowStream, t: float) -> float | None:
+        """Its decode rate so far: a little above its steady rate early on, once 0.5 s of tokens are in."""
+        if t >= s.end:
+            return s.rate if s.tokens > 1 else None
+        if t - s.first < 0.5 or self._tokens(s, t) < 2:
+            return None
+        return s.rate * (1 + 0.05 / (1 + t - s.first))
+
+    def _agg(self, t: float) -> float | None:
+        rates = [self._rate(s, t) for s in self.streams if s.first <= t < s.end]
+        live = [r for r in rates if r is not None]
+        return sum(live) if live else None
+
+    def _server(self, t: float) -> float | None:
+        """The server's generation tok/s from /metrics: every decoding stream, from two polls after the first
+        token on."""
+        if t < self.first_token + 0.8:
+            return None
+        t = min(t, self.duration - 1e-3)
+        return sum(s.rate for s in self.streams if s.first <= t < s.end) * (1 + 0.02 * math.sin(1.3 * t))
+
+    def _texts(self, s: _ShowStream, t: float) -> tuple[str, str]:
+        """Its answer and reasoning by time t."""
+        tokens = self._tokens(s, t)
+        think = _show_text(SHOWCASE_THINKING, " ", _llm_chars(min(tokens, s.think)))
+        return _show_text(s.lines, s.sep, _llm_chars(max(0, tokens - s.think))), think
+
+    def _stream(self, s: _ShowStream, t: float) -> dict:
+        state = "wait" if t < s.first else "decode" if t < s.end else "done"
+        rate, text, think = self._rate(s, t), *self._texts(s, t)
+        peak = s.rate * (1 + 0.05 / 1.5) if t - s.first >= 0.5 and s.tokens > 1 else rate
+        return {
+            "slot": s.slot,
+            "req": 1,
+            "state": state,
+            "tokens": self._tokens(s, t),
+            "max": self.p["max_tokens"],
+            "ttft_ms": round(s.first * 1000, 1) if t >= s.first else None,
+            "tok_s": round(rate, 1) if rate is not None else None,
+            "peak_tok_s": round(peak, 1) if peak is not None else None,
+            "elapsed_ms": round(min(t, s.end) * 1000, 1),
+            "text": text[-280:],
+            "chars": len(text),
+            "think": think[-160:],
+            "think_chars": len(think),
+            "error": None,
+            "label": s.label,
+        }
+
+    def snapshot(self, t: float) -> dict:
+        """The live snapshot at simulated time t: llm-inference's shape, one level of every stream."""
+        t = min(t, self.duration)
+        n, agg, server = len(self.streams), self._agg(t), self._server(t)
+        ttft = [s.first for s in self.streams if s.first <= t]
+        k = int(t / 0.5) + 1  # tok_s_hist: every 0.5 s, the last 240
+        return {
+            "kind": "llm-streams",
+            "v": 1,
+            "level": n,
+            "levels": [n],
+            "level_index": 0,
+            "requests": n,
+            "done": sum(1 for s in self.streams if s.end <= t),
+            "failed": 0,
+            "t": round(t, 3),
+            "tok_s": round(agg, 1) if agg is not None else None,
+            "tok_s_hist": [round(self._agg(j * 0.5) or 0.0, 1) for j in range(max(0, k - 240), k)],
+            "ttft_p50_ms": round(_pct(ttft, 50) * 1000, 1) if ttft else None,
+            "completed_levels": [],
+            "showcase": True,
+            "server_tok_s": round(server, 1) if server is not None else None,
+            "streams": [self._stream(s, t) for s in self.streams],
+        }
+
+    def server_stats(self, t: float) -> dict | None:
+        """The rates the payload's /metrics polls (every 0.4 s) would have given by t."""
+        polls = [self.first_token + 0.8 + 0.4 * j for j in range(int(t / 0.4) + 1)]
+        rates = [x for x in (self._server(u) for u in polls if u <= min(t, self.duration)) if x is not None]
+        if not rates:
+            return None
+        return {
+            "median": round(statistics.median(rates), 1),
+            "max": round(max(rates), 1),
+            "samples": len(rates),
+        }
+
+    def detail(self, t: float | None = None) -> dict:
+        """detail.showcase when the streams end, or where they were when the run was cancelled at t."""
+        t = self.duration if t is None else min(t, self.duration)
+        rows = []
+        for s in self.streams:
+            text, think = self._texts(s, t)
+            done = t >= s.end
+            rows.append(
+                {
+                    "slot": s.slot,
+                    "prompt": s.prompt,
+                    "state": "done" if done else "stopped",
+                    "text": text,
+                    "think": think,
+                    "tokens": self._tokens(s, t),
+                    "ttft_ms": round(s.first * 1000, 1) if t >= s.first else None,
+                    "decode_tok_s": round(s.rate, 1) if done and s.tokens > 1 else None,
+                    "error": None,
+                }
+            )
+        fill = {"requested": self.p["fill_to_max"], "applied": self.p["fill_to_max"]}
+        return {
+            "streams": rows,
+            "server_tok_s": self.server_stats(t),
+            "fill_to_max": fill,
+            "truncated": False,
+        }
+
+    def results(self) -> list[BenchResult]:
+        p = self.p
+        ex: dict[str, Any] = {"engine": LLM_ENGINE, "model": self.model, "streams": p["streams"]}
+        ex |= {k: p[k] for k in ("prompt_type", "max_tokens", "fill_to_max", "temperature", "thinking")}
+        ex |= {"failed": 0, "simulated": True}
+        head = {**ex, "headline": True}
+        out = round(sum(s.tokens for s in self.streams) / self.duration, 2)
+        decode = [s.rate for s in self.streams if s.tokens > 1]
+        ttft = round(_pct([s.first for s in self.streams], 50) * 1000, 1)
+        res = [_r("output_tok_s", "Output tokens/s, all streams", out, "tok/s", **head)]
+        if decode:
+            dec = round(statistics.median(decode), 2)
+            res.append(_r("decode_tok_s", "Decode tokens/s per stream", dec, "tok/s", **head))
+        res.append(_r("ttft_p50_ms", "Time to first token p50", ttft, "ms", "lower", **head))
+        server = self.server_stats(self.duration)
+        if server:
+            label = "Server generation tokens/s (median)"
+            res.append(_r("server_tok_s_median", label, server["median"], "tok/s", **ex))
+        return res
+
+    def node_state(self, run_id: str, node: str, t0: float, t1: float) -> NodeBenchState:
+        """A finished run's node state, for the seeded history."""
+        lines = [f"model {self.model}, engine {LLM_ENGINE}", f"llm-showcase: {len(self.results())} results"]
+        return NodeBenchState(
+            run_id=run_id,
+            bench_id="llm-showcase",
+            node_id=node,
+            status="succeeded",
+            progress=1.0,
+            phase="Done",
+            started_ts=t0,
+            finished_ts=t1,
+            log_tail=lines,
+            live=self.snapshot(self.duration),
+            detail={"showcase": self.detail()},
+        )
+
+
+# ---------------------------------------------------------------------------------------------------------
 # Tool-call evaluation: tool-eval-bench's real scenarios, simulated verdicts, the payload's live and detail
 # ---------------------------------------------------------------------------------------------------------
 
@@ -1414,6 +1750,7 @@ class _Sim:
     disk: list[list[float]] = field(default_factory=list)
     task: asyncio.Task | None = None
     llm: LlmDemo | None = None  # llm-inference: the planned requests its live view plays
+    showcase: ShowcaseDemo | None = None  # llm-showcase: likewise
 
 
 class DemoBench:
@@ -1527,6 +1864,8 @@ class DemoBench:
                 st.results = soak_results(st.series)
             elif sim.llm is not None:  # the requests the live view showed
                 st.results = sim.llm.results()
+            elif sim.showcase is not None:
+                st.results = sim.showcase.results()
             else:
                 role = f"rank{req.rank}" if req.role == "rank" else req.role
                 st.results, series = make_results(req.bench_id, p, sim.node, rng, role, info)
@@ -1558,6 +1897,9 @@ class DemoBench:
     async def _timeline(self, sim: _Sim, model: DemoModel, rng: random.Random, t0: float) -> None:
         if sim.req.bench_id == "llm-inference":
             await self._llm_timeline(sim, rng, t0)
+            return
+        if sim.req.bench_id == "llm-showcase":
+            await self._showcase_timeline(sim, rng, t0)
             return
         req, st, p = sim.req, sim.state, sim.req.params
         steps = phases(req.bench_id, p, req.peer_ip)
@@ -1617,6 +1959,32 @@ class DemoBench:
         last = len(llm.sizes) - 1
         st.live, st.detail = llm.snapshot(last, llm.duration(last)), {"llm": llm.detail(last + 1)}
 
+    async def _showcase_timeline(self, sim: _Sim, rng: random.Random, t0: float) -> None:
+        """llm-showcase plays its planned streams (ShowcaseDemo) in demo time; a cancel leaves the detail of
+        where they were, as the payload does."""
+        st = sim.state
+        show = sim.showcase = ShowcaseDemo(sim.req.params, sim.node, rng)
+        start = LLM_START_S * sim.duration / sum(show.walls())  # querying the endpoint, then the streams
+        n, t = len(show.streams), 0.0
+        st.log_tail = [f"model {show.model}, engine {LLM_ENGINE}"]
+        try:
+            while (el := time.time() - t0) < sim.duration:
+                if el < start:
+                    st.phase = "Querying /v1/models"
+                else:
+                    t = (el - start) / (sim.duration - start) * show.duration
+                    st.live = show.snapshot(t)
+                    tokens = sum(s["tokens"] for s in st.live["streams"])
+                    st.phase = f"{_streams(n)} · {st.live['done']} of {n} done"
+                    frac = max(st.live["done"] / n, tokens / (n * sim.req.params["max_tokens"]))
+                    st.progress = round(min(0.99, 0.05 + 0.95 * frac), 2)
+                self._emit(sim)
+                await asyncio.sleep(TICK_S)
+        except asyncio.CancelledError:
+            st.detail = {"showcase": show.detail(t)}
+            raise
+        st.live, st.detail = show.snapshot(show.duration), {"showcase": show.detail()}
+
 
 # ---------------------------------------------------------------------------------------------------------
 # Seeded history
@@ -1634,6 +2002,7 @@ _SEED: list[tuple[str, list[str], dict, float, str, bool]] = [
     ("thermal-soak", ["spark1"], {}, 2 * 24, "succeeded", False),
     ("llm-inference", ["spark1"], {}, 26, "succeeded", False),
     ("llm-inference", ["spark1"], {"concurrency": 32, "sweep": True}, 25, "succeeded", False),
+    ("llm-showcase", ["spark1"], {"streams": 8, "prompt_type": "mixed"}, 24, "succeeded", False),
     ("tool-eval", ["spark1"], {}, 23, "succeeded", False),
     ("nccl-allreduce", ["spark1", "spark2"], {}, 20, "succeeded", False),
     # upstream's --hardmode (Standard + Hard Mode, 97 scenarios) four times over: the trial statistics
@@ -1665,6 +2034,9 @@ def seed_history(
         llm = LlmDemo(params, nodes[0], rng) if bench == "llm-inference" and params["sweep"] else None
         if llm is not None:  # as long as its planned requests took, plus querying /v1/models
             dur = LLM_START_S + sum(llm.duration(k) for k in range(len(llm.sizes)))
+        show = ShowcaseDemo(params, nodes[0], rng) if bench == "llm-showcase" else None
+        if show is not None:  # likewise
+            dur = LLM_START_S + show.duration
         run = BenchRun(
             id=new_run_id(started - 2),
             bench_id=bench,
@@ -1718,6 +2090,9 @@ def seed_history(
                     live=llm.snapshot(last, llm.duration(last)),
                     detail={"llm": llm.detail(last + 1)},
                 )
+            elif show is not None:  # finished streams: their last snapshot and every full answer
+                results = show.results()
+                run.node_states[n] = show.node_state(run.id, n, started, started + dur)
             else:
                 results, series = make_results(bench, params, n, rng, role.get(bench, "single"), m.info)
             if outcome != "succeeded":

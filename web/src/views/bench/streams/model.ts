@@ -1,5 +1,5 @@
-// Pure logic behind the llm-inference streams view: guards for the payload's live snapshot ("llm-streams") and its
-// per-level detail, how each stream state looks, card density, the text each card has seen (so the typewriter reveals
+// Pure logic behind the llm-inference and llm-showcase streams views: guards for the payloads' live snapshot
+// ("llm-streams"), llm-inference's per-level detail and the showcase's final outputs, how each stream state looks, card density, the text each card has seen (so the typewriter reveals
 // exactly the characters the payload appended), scaling efficiency and the timeline layout. No React, no stores:
 // every rule here is unit-tested in model.test.ts. Shapes are documented in spec 01; anything else is tolerated.
 import { AudioLines, CircleCheck, CircleDashed, CircleSlash, CircleX, Hourglass, type LucideIcon } from 'lucide-react';
@@ -42,6 +42,8 @@ export interface Stream {
   think: string;
   think_chars: number;
   error: string | null;
+  /** llm-showcase: the stream's prompt, shortened. */
+  label: string | null;
 }
 
 /** One finished level (detail.llm.levels; the live snapshot's completed_levels carry a subset). */
@@ -75,6 +77,9 @@ export interface LiveSnapshot {
   ttft_p50_ms: number | null;
   completed_levels: LevelStats[];
   streams: Stream[];
+  /** An llm-showcase snapshot, and the server's own generation rate (from its /metrics) when it reports one. */
+  showcase: boolean;
+  server_tok_s: number | null;
 }
 
 function parseStream(raw: unknown, i: number): Stream | null {
@@ -96,6 +101,7 @@ function parseStream(raw: unknown, i: number): Stream | null {
     think: str(o.think),
     think_chars: count(o.think_chars),
     error: typeof o.error === 'string' && o.error ? o.error : null,
+    label: typeof o.label === 'string' && o.label ? o.label : null,
   };
 }
 
@@ -156,6 +162,8 @@ export function parseLive(raw: unknown): LiveSnapshot | null {
     ttft_p50_ms: num(o.ttft_p50_ms),
     completed_levels: byLevel((Array.isArray(o.completed_levels) ? o.completed_levels : []).map(parseLevel)),
     streams,
+    showcase: o.showcase === true,
+    server_tok_s: num(o.server_tok_s),
   };
 }
 
@@ -219,10 +227,82 @@ export function parseDetail(raw: unknown): LlmDetail | null {
   };
 }
 
-/** Nodes of the run that reported streams (a live snapshot or per-level detail), in the run's node order. */
+/** One stream of a finished showcase run, its whole text (the live snapshot only carries tails). */
+export interface ShowcaseStream {
+  slot: number;
+  prompt: string;
+  state: 'done' | 'error' | 'stopped';
+  text: string;
+  think: string;
+  tokens: number;
+  ttft_ms: number | null;
+  decode_tok_s: number | null;
+  error: string | null;
+}
+
+export interface ShowcaseDetail {
+  streams: ShowcaseStream[];
+  /** The server's own generation rate over the run (its /metrics), or null when it reports none. */
+  server_tok_s: { median: number | null; max: number | null; samples: number } | null;
+  /** Fill to output length asked for, and whether the server took it (it may reject the extra fields). */
+  fill_to_max: { requested: boolean; applied: boolean } | null;
+  /** The payload shortened the longest texts to keep the detail small. */
+  truncated: boolean;
+}
+
+function parseShowcaseStream(raw: unknown, i: number): ShowcaseStream | null {
+  const o = obj(raw);
+  if (!o) return null;
+  return {
+    slot: num(o.slot) === null ? i : count(o.slot),
+    prompt: str(o.prompt),
+    state: o.state === 'done' || o.state === 'error' ? o.state : 'stopped',
+    text: str(o.text),
+    think: str(o.think),
+    tokens: count(o.tokens),
+    ttft_ms: num(o.ttft_ms),
+    decode_tok_s: num(o.decode_tok_s),
+    error: typeof o.error === 'string' && o.error ? o.error : null,
+  };
+}
+
+/** detail.showcase (every stream's full text), or null when the run has none (an older or cut-off run). */
+export function parseShowcase(raw: unknown): ShowcaseDetail | null {
+  const sc = obj(obj(raw)?.showcase);
+  if (!sc) return null;
+  const bySlot = new Map<number, ShowcaseStream>();
+  (Array.isArray(sc.streams) ? sc.streams : []).slice(0, MAX_STREAMS).forEach((raw, i) => {
+    const s = parseShowcaseStream(raw, i);
+    if (s && !bySlot.has(s.slot)) bySlot.set(s.slot, s);
+  });
+  const server = obj(sc.server_tok_s);
+  const fill = obj(sc.fill_to_max);
+  return {
+    streams: [...bySlot.values()].sort((a, b) => a.slot - b.slot),
+    server_tok_s: server ? { median: num(server.median), max: num(server.max), samples: count(server.samples) } : null,
+    fill_to_max: fill ? { requested: fill.requested === true, applied: fill.applied === true } : null,
+    truncated: sc.truncated === true,
+  };
+}
+
+/** One stream as Markdown: its prompt, its reasoning if any, then its answer (or why there is none). */
+export function streamMarkdown(s: ShowcaseStream): string {
+  const parts = [`## Stream ${slotLabel(s.slot)}`];
+  if (s.prompt) parts.push(s.prompt.split('\n').map((l) => `> ${l}`.trimEnd()).join('\n'));
+  if (s.think) parts.push('### Thinking', s.think.trim());
+  parts.push('### Answer', s.text.trim() || '_No answer._');
+  if (s.error) parts.push(`**Failed:** ${s.error}`);
+  return parts.join('\n\n');
+}
+
+/** Every stream as one Markdown document, in slot order. */
+export const showcaseMarkdown = (streams: readonly ShowcaseStream[]) => streams.map(streamMarkdown).join('\n\n');
+
+/** Nodes of the run that reported streams (a live snapshot, per-level detail or showcase outputs), in the run's node
+ * order. */
 export function streamNodes(run: Pick<BenchRun, 'nodes' | 'node_states'>): string[] {
   const states = run.node_states ?? {};
-  const has = (n: string) => obj(states[n]?.live)?.kind === 'llm-streams' || obj(obj(states[n]?.detail)?.llm) !== null;
+  const has = (n: string) => obj(states[n]?.live)?.kind === 'llm-streams' || obj(obj(states[n]?.detail)?.llm) !== null || obj(obj(states[n]?.detail)?.showcase) !== null;
   const order = [...run.nodes, ...Object.keys(states).filter((n) => !run.nodes.includes(n))];
   return order.filter(has);
 }
@@ -260,12 +340,15 @@ export function formatMs(ms: number | null | undefined): string {
   return Math.abs(ms) < 1000 ? `${formatValue(ms)} ms` : `${formatValue(ms / 1000)} s`;
 }
 
-/** The card's accessible name: slot, state and request ("Stream #03: decoding, request 5 of 8"), and a failure's
- * message. It changes only with those: the live numbers stay visible text, so a focused card is not re-read on every
+/** The card's accessible name: slot, state and request ("Stream #03: decoding, request 5 of 8") or a showcase
+ * stream's prompt, and a failure's message. It changes only with those: the live numbers stay visible text, so a focused card is not re-read on every
  * snapshot. */
-export function streamSummary(s: Stream, state: CardState, requests: number): string {
+export function streamSummary(s: Stream, state: CardState, requests: number, showcase = false): string {
   const parts = [`Stream ${slotLabel(s.slot)}: ${STATE_LOOK[state].label.toLowerCase()}`];
-  if (s.req > 0) parts.push(requests > 0 ? `request ${s.req} of ${requests}` : `request ${s.req}`);
+  // A showcase stream runs one request, its prompt: the prompt names it rather than a request number.
+  if (showcase) {
+    if (s.label) parts.push(s.label);
+  } else if (s.req > 0) parts.push(requests > 0 ? `request ${s.req} of ${requests}` : `request ${s.req}`);
   if (state === 'error' && s.error) parts.push(s.error);
   return parts.join(', ');
 }

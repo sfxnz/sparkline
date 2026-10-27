@@ -22,6 +22,7 @@ from .specs import (
     CpuThroughputParams,
     GpuMatmulParams,
     LlmInferenceParams,
+    LlmShowcaseParams,
     MemBandwidthParams,
     NcclAllreduceParams,
     RdmaParams,
@@ -475,6 +476,19 @@ async def llm_inference(job: Job, p: LlmInferenceParams) -> None:
         )
 
 
+async def llm_showcase(job: Job, p: LlmShowcaseParams) -> None:
+    """Concurrent prompt streams to watch; the payload reports everything (no memory attribution)."""
+    args = ["--base-url", p.base_url, "--streams", str(p.streams), "--prompt-type", p.prompt_type]
+    args += ["--max-tokens", str(p.max_tokens), "--temperature", str(p.temperature)]
+    if p.model:
+        args += ["--model", p.model]
+    if p.fill_to_max:
+        args.append("--fill-to-max")
+    if p.thinking:
+        args.append("--thinking")
+    await job.run(job.host_argv("llm_showcase.py", args))
+
+
 def _local_ips() -> set[str]:
     return {a.address for addrs in psutil.net_if_addrs().values() for a in addrs}
 
@@ -569,6 +583,7 @@ JOBS: dict[str, JobFn] = {
     "rdma-bw-lat": rdma_bw_lat,
     "storage-fio": storage,
     "llm-inference": llm_inference,
+    "llm-showcase": llm_showcase,
     "tool-eval": tool_eval,
     "thermal-soak": thermal_soak,
 }
