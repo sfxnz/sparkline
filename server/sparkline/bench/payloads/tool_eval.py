@@ -1,18 +1,20 @@
 """Tool-calling evaluation of an OpenAI-compatible endpoint with tool-eval-bench (host Python).
 
 tool-eval-bench (SeraphimSerapis, MIT; pinned in requirements.lock) runs in this process through its library
-API with upstream's defaults (temperature 0, 120 s per request, 8 turns, one scenario at a time, no seed,
-the backend detected as its CLI does) and persist=False, so scores and the config fingerprint match its CLI
-for the same server and settings. First, one streamed request offering a trivial tool checks that the server
-accepts tool calls at all: vLLM started without a tool parser answers HTTP 400, which tool-eval-bench counts
-as a server error and leaves out of the score, so a broken setup would otherwise read as a good score over a
-handful of scenarios.
+API with upstream's defaults (temperature 0, 120 s per request, 8 turns, one scenario at a time, no seed
+unless --seed, the backend detected as its CLI does) and persist=False, so scores and the config fingerprint
+match its CLI for the same server and settings. --trials K runs the same request K times in a row, as its CLI
+does, and adds upstream's trial statistics (aggregate_trials): the headline score is then the mean. First,
+one streamed request offering a trivial tool checks that the server accepts tool calls at all: vLLM started
+without a tool parser answers HTTP 400, which tool-eval-bench counts as a server error and leaves out of the
+score, so a broken setup would otherwise read as a good score over a handful of scenarios.
 
 Every scenario start and result replaces the live snapshot (the scenario board); every result adds a detail
-record "te:<id>" with the trace cut to 4,000 characters. At the end come detail "tool_eval" (the summary and
-upstream's result envelope without traces) and the results. A run in which no scenario could be graded fails;
-one with exclusions succeeds and reports the share graded with its score. SIGTERM cancels the run at once
-(exit 143).
+record "te:<id>" with the trace cut to 4,000 characters, replaced by each trial, with the scenario's points in
+every trial so far. At the end come detail "tool_eval" (the summary and upstream's result envelope of the last
+trial without traces, plus the trial statistics) and the results. A trial in which no scenario could be
+graded fails the run; one with exclusions succeeds and reports the share graded with its score. SIGTERM
+cancels the run at once (exit 143).
 """
 
 from __future__ import annotations
@@ -34,8 +36,16 @@ from benchlib import detail, fail, live, log, on_sigterm, progress, result
 from llm_inference import GENERIC_OWNERS, connect, get_json, http_error
 from tool_eval_bench import __version__
 from tool_eval_bench.api import run_benchmark
-from tool_eval_bench.domain.scenarios import CATEGORY_LABELS, ScenarioDefinition, ScenarioResult
+from tool_eval_bench.cli.helpers import trial_safety_warnings
+from tool_eval_bench.cli.run_io import aggregate_trials
+from tool_eval_bench.domain.scenarios import (
+    CATEGORY_LABELS,
+    ScenarioDefinition,
+    ScenarioResult,
+    rating_for_score,
+)
 from tool_eval_bench.evals import scenarios as registry
+from tool_eval_bench.runner.orchestrator import score_results
 
 SUITES = {
     "core": registry.SCENARIOS,
@@ -60,6 +70,10 @@ TRACE_CHARS = 4000  # of each scenario's trace in its record (head and tail)
 TOOL_CALLS = 32  # listed per scenario record
 RECORDS_BUDGET = 640_000  # compact JSON of all scenario records together, split evenly between them
 DETAIL_BUDGET = 1_000_000  # all of detail; the agent drops detail updates past 1 MiB (and lines past 1 MiB)
+
+
+class NothingGraded(Exception):
+    """A trial in which every scenario timed out or hit a connection or server error."""
 
 
 def clip(text: str, n: int) -> str:
@@ -201,6 +215,7 @@ class Board:
         self, scenarios: list[ScenarioDefinition], head: dict[str, Any], warnings: list[str]
     ) -> None:
         self.total = len(scenarios)
+        self.trials = head["trials"]
         self.head = {"kind": "tool-eval", "v": 1, **head, "total": self.total}
         cats = {s.category for s in scenarios}
         self.cat_labels = {c.value: label for c, label in CATEGORY_LABELS.items() if c in cats}
@@ -213,21 +228,27 @@ class Board:
                 "status": "pending",
                 "points": None,
                 "s": None,
+                "history": [],  # points in each trial it finished, None when excluded
             }
             for s in scenarios
         }
         self.counts = {"pass": 0, "partial": 0, "fail": 0, "excluded": 0}
-        self.done = self.points = self.max_points = 0
+        self.done = self.points = self.max_points = 0  # of the trial running now
+        self.trial = 1
+        self.trial_scores: list[dict[str, Any]] = []
         self.started_ts: float | None = None
         self.current: dict[str, Any] | None = None
         self.recent: deque[dict[str, Any]] = deque(maxlen=5)
         self.warnings = warnings
         self.record_max = max(4000, min(16000, RECORDS_BUDGET // max(1, self.total)))
         self.used = 0  # compact JSON of the detail sent so far
+        self.sizes: dict[str, int] = {}  # of each record, which later trials replace
 
     def snapshot(self) -> dict[str, Any]:
         return {
             **self.head,
+            "trial": self.trial,
+            "trial_scores": self.trial_scores,
             "done": self.done,
             "points": self.points,
             "max_points": self.max_points,
@@ -239,6 +260,31 @@ class Board:
             "board": list(self.tiles.values()),
             "recent": list(self.recent),
         }
+
+    def fraction(self) -> float:
+        return 0.05 + 0.93 * ((self.trial - 1) * self.total + self.done) / (self.total * self.trials)
+
+    def next_trial(self) -> None:
+        """Every tile pending again, its history kept; the counts start over."""
+        self.trial += 1
+        for tile in self.tiles.values():
+            tile.update(status="pending", points=None, s=None)
+        self.counts = dict.fromkeys(self.counts, 0)
+        self.done = self.points = self.max_points = 0
+
+    def trial_finished(self, env: dict[str, Any]) -> None:
+        s = env["scores"]
+        self.trial_scores.append(
+            {
+                "trial": self.trial,
+                "score": s["final_score"],
+                "rating": s["rating"],
+                "points": s["total_points"],
+                "max_points": s["max_points"],
+                "excluded": len(s.get("excluded_scenarios", [])),
+            }
+        )
+        live(finite(self.snapshot()))
 
     def started(self, s: ScenarioDefinition, index: int, total: int) -> None:
         now = round(time.time(), 3)
@@ -253,7 +299,8 @@ class Board:
             "expected": s.description,
             "started_ts": now,
         }
-        progress(0.05 + 0.93 * self.done / self.total, f"Scenario {index + 1} of {total} · {s.id} {s.title}")
+        trial = f"Trial {self.trial} of {self.trials} · " if self.trials > 1 else ""
+        progress(self.fraction(), f"{trial}Scenario {index + 1} of {total} · {s.id} {s.title}")
         live(finite(self.snapshot()))
 
     def finished(self, s: ScenarioDefinition, r: ScenarioResult, index: int, total: int) -> None:
@@ -263,16 +310,26 @@ class Board:
         if status != "excluded":
             self.points += r.points
             self.max_points += 2
-        self.tiles[s.id].update(status=status, points=r.points, s=round(r.duration_seconds, 1))
+        tile = self.tiles[s.id]
+        tile["history"].append(None if status == "excluded" else r.points)
+        tile.update(status=status, points=r.points, s=round(r.duration_seconds, 1))
         self.current = None
         self.recent.appendleft(
-            {"id": s.id, "status": status, "points": r.points, "summary": clip(r.summary, 200)}
+            {
+                "id": s.id,
+                "status": status,
+                "points": r.points,
+                "summary": clip(r.summary, 200),
+                "trial": self.trial,
+            }
         )
         key, rec = f"te:{s.id}", self.record(s, r, status)
-        self.used += len(key) + 4 + size(rec)
+        n = len(key) + 4 + size(rec)
+        self.used += n - self.sizes.get(key, 0)
+        self.sizes[key] = n
         detail(**{key: rec})
         live(finite(self.snapshot()))
-        progress(0.05 + 0.93 * self.done / self.total)
+        progress(self.fraction())
 
     def record(self, s: ScenarioDefinition, r: ScenarioResult, status: str) -> dict[str, Any]:
         """The scenario's detail record, cut until it fits its share of the budget whatever the scenario
@@ -307,6 +364,7 @@ class Board:
                 "tool_calls": [],
                 "parallel_turns": r.parallel_tool_turns,
                 "budget_exceeded": r.turn_budget_exceeded,
+                "history": list(self.tiles[s.id]["history"]),
                 "trace": "",
             }
         )
@@ -347,13 +405,66 @@ def safe(update: Callable[..., None]) -> Callable[..., Awaitable[None]]:
     return callback
 
 
-def summary(env: dict[str, Any], board: Board) -> dict[str, Any]:
-    """detail.tool_eval: the scores the web shows, plus upstream's envelope without the traces."""
+def trial_stats(
+    envs: list[dict[str, Any]], scenarios: list[ScenarioDefinition], board: Board
+) -> dict[str, Any] | None:
+    """The trials together, as upstream's CLI aggregates them (None for one trial). Adds upstream's
+    statistics, the union of every trial's safety warnings and the trial count to the last trial's envelope,
+    as its `--json --trials` output does."""
+    if len(envs) < 2:
+        return None
+    defs = {s.id: s for s in scenarios}
+    summaries = []
+    for e in envs:  # each trial scored as the CLI scores it (_score_stored_trial)
+        results = [ScenarioResult.from_dict(x) for x in e["scores"]["scenario_results"]]
+        summaries.append(score_results(results, [defs[r.scenario_id] for r in results], alpha=0.7))
+    agg = finite(json.loads(json.dumps(aggregate_trials(summaries))))  # the CI as a list
+    warnings = trial_safety_warnings(envs)
+    last = envs[-1]
+    last["trial_statistics"] = agg
+    last["safety_warnings"] = warnings
+    last["safety_gate"] = {"passed": not warnings, "warnings": warnings}
+    last["metadata"]["trials"] = len(envs)
+    scores = [e["scores"]["final_score"] for e in envs]
+    ratings = [e["scores"]["rating"] for e in envs]
+    per = agg["per_scenario"]
+    graded = sum(
+        len(e["scores"]["scenario_results"]) - len(e["scores"].get("excluded_scenarios", [])) for e in envs
+    )
+    return {
+        "scores": scores,
+        "ratings": ratings,
+        "mean": agg["final_score_mean"],
+        "stddev": agg["final_score_stddev"],
+        "median": agg["final_score_median"],
+        "ci95": agg["final_score_ci95"],
+        "min": min(scores),
+        "max": max(scores),
+        # the rating of the mean, capped when any trial's was (a safety-critical category below the gate)
+        "rating": rating_for_score(
+            round(agg["final_score_mean"]), safety_capped=any("(safety-capped)" in r for r in ratings)
+        ),
+        "pass_at_k": agg["pass_at_k"],
+        "pass_hat_k": agg["pass_hat_k"],
+        "reliability_gap": agg["reliability_gap"],
+        "flaky": [k for k, v in per.items() if v["pass_at_k"] and not v["pass_hat_k"]],
+        "never": [k for k, v in per.items() if not v["pass_at_k"]],
+        "per_category": agg["per_category"],
+        "per_scenario": per,
+        "graded": graded,
+        "completion_rate": round(100 * graded / (board.total * len(envs)), 1),
+        "safety_warnings": warnings,
+    }
+
+
+def summary(env: dict[str, Any], board: Board, stats: dict[str, Any] | None) -> dict[str, Any]:
+    """detail.tool_eval: the scores the web shows (the last trial's), the trial statistics, plus upstream's
+    envelope without the traces."""
     s = env["scores"]
     for x in s["scenario_results"]:
         x.pop("raw_log", None)
     return {
-        **{k: board.head[k] for k in ("version", "suite", "thinking", "model", "engine")},
+        **{k: board.head[k] for k in ("version", "suite", "thinking", "model", "engine", "trials", "seed")},
         "engine_version": env["metadata"].get("engine_version"),
         "fingerprint": env["config"].get("config_fingerprint"),
         "final_score": s["final_score"],
@@ -387,52 +498,117 @@ def summary(env: dict[str, Any], board: Board) -> dict[str, Any]:
             {k: c[k] for k in ("capability", "label", "earned", "max", "percent")}
             for c in s.get("capability_scores", [])
         ],
+        "trial_stats": stats,
         "envelope": env,
     }
 
 
-def report(env: dict[str, Any], board: Board) -> None:
-    """detail.tool_eval and the results of a run that graded at least one scenario."""
-    final = summary(env, board)
+def report(envs: list[dict[str, Any]], board: Board, stats: dict[str, Any] | None) -> None:
+    """detail.tool_eval and the results of a run that graded at least one scenario in every trial. With
+    several trials the results are their mean (the score's spread in its extras), plus Pass@k and Pass^k."""
+    env = envs[-1]
+    final = summary(env, board, stats)
     if board.used + size(final) > DETAIL_BUDGET:
         env["scores"]["scenario_results"] = []  # each scenario's record has them too
         log("tool-eval-bench's result envelope is too large for the run record: per-scenario results omitted")
     detail(tool_eval=final)
-    common = {k: board.head[k] for k in ("engine", "model", "suite", "version", "thinking")}
+    common = {k: board.head[k] for k in ("engine", "model", "suite", "version", "thinking", "trials", "seed")}
     head = {**common, "headline": True}
-    rating, completion = final["rating"], final["completion_rate"]
-    result(
-        "score",
-        "Tool-calling score",
-        final["final_score"],
-        "%",
-        **head,
-        whole=True,  # a whole number by definition: the web prints "89%", not "89.0%"
-        rating=rating,
-        scenarios=board.total,
-        graded=board.total - board.counts["excluded"],
-        completion_rate=completion,
-        fingerprint=final["fingerprint"],
-        safety_capped="(safety-capped)" in rating,
-        total_points=final["total_points"],
-        max_points=final["max_points"],
-    )
-    result("completion_rate", "Scenarios graded", completion, "%", **head)
-    if final["median_turn_ms"] is not None:
-        result("median_turn_ms", "Median turn latency", final["median_turn_ms"], "ms", "lower", **head)
-    for key, label in (("deployability", "Deployability"), ("responsiveness", "Responsiveness")):
-        if final[key] is not None:
-            result(key, label, final[key], "%", **common, whole=True)
-    result("safety_violations", "Safety violations", len(final["safety_warnings"]), "", "lower", **common)
-    for c in final["categories"]:
+    if stats is None:
+        rating, completion = final["rating"], final["completion_rate"]
         result(
-            f"cat_{c['category'].lower()}",
-            f"{c['category']} · {c['label']}",
-            c["percent"],
+            "score",
+            "Tool-calling score",
+            final["final_score"],
             "%",
-            **common,
-            whole=True,
+            **head,
+            whole=True,  # a whole number by definition: the web prints "89%", not "89.0%"
+            rating=rating,
+            scenarios=board.total,
+            graded=board.total - board.counts["excluded"],
+            completion_rate=completion,
+            fingerprint=final["fingerprint"],
+            safety_capped="(safety-capped)" in rating,
+            total_points=final["total_points"],
+            max_points=final["max_points"],
         )
+    else:
+        rating, completion = stats["rating"], stats["completion_rate"]
+        result(
+            "score",
+            "Tool-calling score",
+            stats["mean"],
+            "%",
+            **head,
+            rating=rating,
+            stddev=stats["stddev"],
+            ci95_low=stats["ci95"][0],
+            ci95_high=stats["ci95"][1],
+            median=stats["median"],
+            min=stats["min"],
+            max=stats["max"],
+            scenarios=board.total,
+            graded=stats["graded"],  # scenario runs graded over all trials
+            completion_rate=completion,
+            fingerprint=final["fingerprint"],
+            safety_capped="(safety-capped)" in rating,
+        )
+        result("score_stddev", "Score spread (σ)", stats["stddev"], "pts", "lower", **head)
+        result("pass_at_k", f"Pass@{board.trials}", stats["pass_at_k"], "%", **head)
+        result("pass_hat_k", f"Pass^{board.trials}", stats["pass_hat_k"], "%", **head)
+    result("completion_rate", "Scenarios graded", completion, "%", **head)
+
+    def mean(key: str) -> float | None:
+        """The trials' mean of a score that is None when it can't be computed."""
+        values = [e["scores"].get(key) for e in envs]
+        if None in values:
+            return None
+        return values[0] if len(values) == 1 else round(sum(values) / len(values), 1)
+
+    median_turn = mean("median_turn_ms")
+    if median_turn is not None:
+        result("median_turn_ms", "Median turn latency", median_turn, "ms", "lower", **head)
+    for key, label in (("deployability", "Deployability"), ("responsiveness", "Responsiveness")):
+        value = mean(key)
+        if value is not None:
+            result(key, label, value, "%", **common, whole=stats is None)
+    warnings = final["safety_warnings"] if stats is None else stats["safety_warnings"]
+    result("safety_violations", "Safety violations", len(warnings), "", "lower", **common)
+    if stats is None:
+        for c in final["categories"]:
+            result(
+                f"cat_{c['category'].lower()}",
+                f"{c['category']} · {c['label']}",
+                c["percent"],
+                "%",
+                **common,
+                whole=True,
+            )
+    else:
+        for cat, c in stats["per_category"].items():
+            result(
+                f"cat_{cat.lower()}",
+                f"{cat} · {c['label']}",
+                c["mean_percent"],
+                "%",
+                **common,
+                stddev=c["stddev_percent"],
+            )
+
+
+def excluded_note(env: dict[str, Any], board: Board) -> None:
+    """Warns about the trial's scenarios that were left out of its score."""
+    excluded = env["scores"].get("excluded_scenarios", [])
+    if not excluded:
+        return
+    trial = f"Trial {board.trial}: " if board.trials > 1 else ""
+    note = (
+        f"{trial}{len(excluded)} of {board.total} scenarios {'was' if len(excluded) == 1 else 'were'} "
+        f"excluded after timeouts or server errors ({', '.join(excluded)}); the score covers only the graded "
+        "ones."
+    )
+    board.warnings.append(note)
+    log(note)
 
 
 async def evaluate(a: argparse.Namespace, model: str, engine: str, warnings: list[str]) -> int:
@@ -440,60 +616,87 @@ async def evaluate(a: argparse.Namespace, model: str, engine: str, warnings: lis
     scenarios = list(SUITES[a.suite])
     if a.scenarios:
         scenarios = [s for s in scenarios if s.id in a.scenarios.split(",")]
-    head = {"version": __version__, "suite": a.suite, "thinking": thinking, "model": model, "engine": engine}
+    head = {
+        "version": __version__,
+        "suite": a.suite,
+        "thinking": thinking,
+        "model": model,
+        "engine": engine,
+        "trials": a.trials,
+        "seed": a.seed,
+    }
     board = Board(scenarios, head, warnings)
-    task = asyncio.create_task(
-        run_benchmark(
-            model=model,
-            base_url=a.base_url,
-            scenarios=scenarios,
-            extra_params=None if thinking else {"chat_template_kwargs": {"enable_thinking": False}},
-            on_scenario_start=safe(board.started),
-            on_scenario_result=safe(board.finished),
-            persist=False,
-        )
-    )
+
+    async def trials() -> list[dict[str, Any]]:
+        """Every trial's envelope, as a plain copy safe to trim and send."""
+        envs: list[dict[str, Any]] = []
+        for k in range(a.trials):
+            if k:
+                board.next_trial()
+            env = await run_benchmark(
+                model=model,
+                base_url=a.base_url,
+                scenarios=scenarios,
+                seed=a.seed,
+                extra_params=None if thinking else {"chat_template_kwargs": {"enable_thinking": False}},
+                on_scenario_start=safe(board.started),
+                on_scenario_result=safe(board.finished),
+                persist=False,
+            )
+            env = finite(json.loads(json.dumps(env, default=str)))
+            excluded_note(env, board)
+            if not env["scores"]["max_points"]:
+                raise NothingGraded
+            s = env["scores"]
+            if a.trials > 1:
+                log(f"Trial {board.trial} of {a.trials}: score {s['final_score']} ({s['rating']})")
+            board.trial_finished(env)
+            envs.append(env)
+        return envs
+
+    task = asyncio.create_task(trials())
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
     t0 = time.monotonic()
     try:
-        env = await task
+        envs = await task
     except asyncio.CancelledError:
         board.stop()
         if board.started_ts is not None:
             live(finite(board.snapshot()))
-        log(f"Cancelled after {board.done} of {board.total} scenarios ({time.monotonic() - t0:.1f} s)")
+        trial = f" in trial {board.trial} of {board.trials}" if board.trials > 1 else ""
+        log(f"Cancelled{trial} after {board.done} of {board.total} scenarios ({time.monotonic() - t0:.1f} s)")
         return 143
+    except NothingGraded:
+        live(finite(board.snapshot()))
+        fail(
+            "No scenario could be graded",
+            "Every scenario timed out or hit a connection or server error"
+            + (f" in trial {board.trial} of {board.trials}." if board.trials > 1 else "."),
+            "Check the endpoint and its server logs; for vLLM make sure tool calling is enabled.",
+        )
     except Exception as e:
         fail(
             "tool-eval-bench stopped with an error",
             clip(f"{type(e).__name__}: {e}", 300),
             "Check the endpoint and its server logs, then run it again",
         )
-    env = finite(json.loads(json.dumps(env, default=str)))  # a plain copy, safe to trim and send
-    s = env["scores"]
-    excluded = s.get("excluded_scenarios", [])
-    if excluded:
-        note = (
-            f"{len(excluded)} of {board.total} scenarios {'was' if len(excluded) == 1 else 'were'} excluded "
-            f"after timeouts or server errors ({', '.join(excluded)}); the score covers only the graded ones."
-        )
-        warnings.append(note)
-        log(note)
-    live(finite(board.snapshot()))
-    if not s["max_points"]:
-        fail(
-            "No scenario could be graded",
-            "Every scenario timed out or hit a connection or server error.",
-            "Check the endpoint and its server logs; for vLLM make sure tool calling is enabled.",
-        )
-    for w in s.get("safety_warnings", []):
+    stats = trial_stats(envs, scenarios, board)
+    s = envs[-1]["scores"]
+    for w in s.get("safety_warnings", []) if stats is None else stats["safety_warnings"]:
         log(f"Safety: {w}")
-    log(
-        f"Score {s['final_score']} ({s['rating']}): {s['total_points']} of {s['max_points']} points, "
-        f"{s.get('completion_rate', 100.0)}% of scenarios graded, "
-        f"fingerprint {env['config'].get('config_fingerprint')}"
-    )
-    report(env, board)
+    fingerprint = envs[-1]["config"].get("config_fingerprint")
+    if stats is None:
+        log(
+            f"Score {s['final_score']} ({s['rating']}): {s['total_points']} of {s['max_points']} points, "
+            f"{s.get('completion_rate', 100.0)}% of scenarios graded, fingerprint {fingerprint}"
+        )
+    else:
+        log(
+            f"Mean score {stats['mean']} ± {stats['stddev']} over {a.trials} trials ({stats['rating']}), "
+            f"Pass@{a.trials} {stats['pass_at_k']}%, Pass^{a.trials} {stats['pass_hat_k']}%, "
+            f"{stats['completion_rate']}% of scenario runs graded, fingerprint {fingerprint}"
+        )
+    report(envs, board, stats)
     progress(1.0, "Done")
     return 0
 
@@ -505,6 +708,8 @@ def main() -> None:
     ap.add_argument("--model", default="")
     ap.add_argument("--suite", choices=list(SUITES), default="standard")
     ap.add_argument("--no-think", action="store_true")
+    ap.add_argument("--trials", type=int, default=1, choices=range(1, 11), metavar="1-10")
+    ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--scenarios", default="", help=argparse.SUPPRESS)  # tests: only these ids of the suite
     a = ap.parse_args()
     on_sigterm()

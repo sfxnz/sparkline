@@ -416,7 +416,7 @@ Benchmarks run only when you confirm them in the console. One job runs per node 
 | RDMA bandwidth and latency (`rdma-bw-lat`) | `ib_write_bw` / `ib_write_lat` over one CX7 rail | about 10 s | Low: saturates that rail | `perftest`, 2 nodes |
 | NVMe storage (`storage-fio`) | Sequential 1 MiB and random 4 KiB read/write: MB/s, IOPS, p99 latency | about 35 s | Low, but heavy disk I/O | `fio` (optional) |
 | LLM inference (`llm-inference`) | TTFT, prefill and decode tokens/s, memory footprint, with a live view of every concurrent stream and an optional sweep over concurrency levels | seconds to minutes, depending on the model | Medium: real requests to your server | An OpenAI-compatible endpoint on the LAN |
-| Tool-call eval (`tool-eval`) | How well the served model uses tools: tool-eval-bench's multi-turn scenarios with mock tools, graded pass, partial or fail into a 0–100 score, with category scores and a trace per scenario | Core (15 scenarios) a few minutes, Standard (69, the default) 20–30 min, Hard Mode (28) about 15 min, all 97 30–45 min, depending on the model | Medium: real requests to your server, for minutes | An OpenAI-compatible endpoint on the LAN with tool calling enabled (vLLM: `--enable-auto-tool-choice --tool-call-parser …`) |
+| Tool-call eval (`tool-eval`) | How well the served model uses tools: tool-eval-bench's multi-turn scenarios with mock tools, graded pass, partial or fail into a 0–100 score, with category scores and a trace per scenario; optionally several trials for the score's spread, Pass@k and Pass^k | Core (15 scenarios) a few minutes, Standard (69, the default) 20–30 min, Hard Mode (28) about 15 min, all 97 30–45 min, depending on the model; times the number of trials | Medium: real requests to your server, for minutes | An OpenAI-compatible endpoint on the LAN with tool calling enabled (vLLM: `--enable-auto-tool-choice --tool-call-parser …`) |
 | Thermal soak (`thermal-soak`) | Clock stability, throttling, temperature and TFLOPS drift under sustained load | 10 to 30 min | High: holds the GPU at full load | Docker + PyTorch image |
 
 Notes:
@@ -448,6 +448,15 @@ Notes:
   lowers the score. Scenarios that time out or hit server errors are excluded and the share graded is shown
   with the score; a run in which nothing could be graded fails. The run page offers tool-eval-bench's own
   JSON result for comparing with its CLI, sparkrun or Spark Arena.
+- The evaluation's settings map onto tool-eval-bench's CLI: Scenarios "All 97" is `--hardmode` (the
+  standard 69 plus the 28 Hard Mode scenarios) and "Hard 28" is `--hardmode-only`; Seed is `--seed`
+  (sent to the server with every request) and Trials is `--trials`. So
+  `tool-eval-bench --seed 42 --trials 8 --hardmode --base-url http://localhost:8888` is All 97, Seed 42,
+  Trials 8 and Endpoint `http://localhost:8888`. Several trials run the same scenarios one after another, as
+  the CLI does, and use its own statistics: the headline score is the mean, with its spread (σ), median, range
+  and 95 % interval, plus Pass@k (passed in at least one trial) and Pass^k (passed in every trial), the
+  scenarios that passed only sometimes, and each category's mean and spread. The verdicts and traces shown
+  are the last trial's; the downloaded JSON is the CLI's `--json --trials` output.
 - Each result records driver, CUDA and NVML versions, GPU name and UUID, clocks and temperatures at start and
   end, agent version, the suite's git hash (when run from a checkout) and SHA-256, hostnames, parameters and
   timestamps.
@@ -569,7 +578,7 @@ One Python package (`server/`, package `sparkline`) provides both commands, `spa
   cgroup. Without `--enable-benchmarks` the agent is capped at half a core, so the catalog marks them unavailable
   ("CPU-capped", read from the cgroup's `cpu.max`) rather than letting a throttled run produce wrong numbers.
 - Tool-calling scores compare only between runs of the same tool-eval-bench version and settings (scenarios,
-  thinking on or off); each run records the version and tool-eval-bench's config fingerprint. Sparkline pins
+  thinking on or off, seed, trials); each run records the version and tool-eval-bench's config fingerprint. Sparkline pins
   2.8.0. In 2.8.0 a thinking model can lose TC-45: its `tool_choice: "required"` check allows 256 tokens, and
   a model that spends them thinking or answers in prose gets the scenario excluded, so the share graded drops
   below 100 % (tool-eval-bench issue #299). A score with exclusions isn't comparable with a complete run.

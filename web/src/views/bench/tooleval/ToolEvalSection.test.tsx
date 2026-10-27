@@ -265,3 +265,102 @@ describe('after the run', () => {
     expect(within(dialog).queryByText('… 9 more')).toBeNull();
   });
 });
+
+describe('several trials', () => {
+  it('names the trials and the seed, shows the trial running and the finished ones’ scores with their mean', () => {
+    show(FIXTURES.trialsLive(NOW));
+    const panel = screen.getByRole('region', { name: 'Tool-calling evaluation' });
+    expect(within(panel).getByText('tool-eval-bench 2.8.0 · Standard 69 · 8 trials · seed 42 · thinking on · Qwen/Qwen3.6-35B-A3B-FP8')).toBeInTheDocument();
+    expect(within(panel).getByRole('img', { name: /^Trial 4 score so far: \d+%$/ })).toBeInTheDocument();
+    const trials = within(panel).getByRole('region', { name: 'Trials' });
+    expect(trials).toHaveTextContent('Trial 4 of 8');
+    expect(trials).toHaveTextContent('Mean so far 85.7 ± 2.5 · 3 of 8 finished');
+    expect(within(trials).getByRole('img', { name: 'Score per trial on a 0 to 100 scale: trial 1 88%, trial 2 83%, trial 3 86%; trial 4 running; 4 still to run; mean 85.7' })).toBeInTheDocument();
+  });
+
+  it('shows each scenario’s verdict per trial on the board, this trial’s verdict first', () => {
+    show(FIXTURES.trialsLive(NOW));
+    const board = screen.getByRole('group', { name: 'Scenario board' });
+    expect(within(board).getByRole('button', { name: 'TC-01, passed; trials so far: 4 passed' })).not.toHaveAttribute('aria-disabled');
+    expect(within(board).getByRole('button', { name: 'TC-31, running; trials so far: 3 failed' })).toBeInTheDocument();
+    // Not yet run in trial 4: still a pending tile, whatever its record from trial 3 says.
+    expect(within(board).getByRole('button', { name: 'TC-32, not run yet; trials so far: 3 passed' })).toHaveAttribute('aria-disabled', 'true');
+    expect(board.querySelectorAll('.te-tile--trials')).toHaveLength(69);
+  });
+
+  it('waits for the first trial before showing a mean', () => {
+    show(FIXTURES.trialsFirst(NOW));
+    const trials = screen.getByRole('region', { name: 'Trials' });
+    expect(trials).toHaveTextContent('Trial 1 of 4');
+    expect(within(trials).getByText('Each trial’s score and the mean appear here as the trials finish.')).toBeInTheDocument();
+    expect(within(trials).getByRole('img', { name: 'Score per trial on a 0 to 100 scale: none finished yet; trial 1 running; 3 still to run' })).toBeInTheDocument();
+  });
+
+  it('announces milestones over every trial, not each trial’s own', () => {
+    const { rerender } = show(FIXTURES.trialsLive(NOW)); // 237 of 552 scenario runs
+    expect(announce).not.toHaveBeenCalled();
+    rerender(<ToolEvalSection run={evalRun({ id: 'te-trials-live', trials: 8, trial: 5, seed: 42, done: 0, now: NOW })} spec={undefined} />);
+    expect(announce).toHaveBeenCalledWith('Tool-calling evaluation 50% done: trial 5 of 8.', 'warning');
+  });
+
+  it('leads with the mean, every trial’s score and how reliably scenarios pass', () => {
+    show(FIXTURES.trialsDone());
+    const panel = screen.getByRole('region', { name: 'Tool-calling evaluation' });
+    expect(within(panel).getByRole('img', { name: 'Mean tool-calling score 85.4% over 8 trials, rated Good' })).toBeInTheDocument();
+    expect(document.querySelector('.te-ring__num')).toHaveTextContent(/^85\.4$/);
+    expect(within(panel).getByText('Mean of 8 trials')).toBeInTheDocument();
+    expect(within(panel).getByText('± 2.1 points (σ)')).toBeInTheDocument();
+    expect(within(panel).getByRole('img', { name: /^Score of each of the 8 trials, on a 80 to 90 scale: 88, 83, 86, 88, 85, 86, 85, 82; mean 85\.4; 95% confidence interval 83\.9 to 86\.9; range 82 to 88$/ })).toBeInTheDocument();
+
+    const across = within(panel).getByRole('region', { name: 'Across 8 trials' });
+    const kpi = (label: string) => within(across).getByText(label).parentElement;
+    expect(kpi('Pass@8')).toHaveTextContent('Pass@885.5%Passed in at least one trial');
+    expect(kpi('Pass^8')).toHaveTextContent('Pass^865.2%Passed in every trial');
+    expect(kpi('Reliability gap')).toHaveTextContent('20.3 ptsPass@8 minus pass^8');
+    expect(kpi('Flaky scenarios')).toHaveTextContent('14Passed only sometimes · 10 never passed');
+    expect(kpi('Scenarios graded')).toHaveTextContent('99.8%551 of 552 scenario runs');
+    expect(kpi('Safety gate')).toHaveTextContent('PassedNo violations in any trial');
+    expect(within(panel).getByRole('region', { name: 'Trial 8 of 8' })).toHaveTextContent('Deployability');
+
+    const cats = screen.getByRole('list', { name: 'Score per category' });
+    expect(cats.querySelectorAll('.te-row__whisker').length).toBeGreaterThan(0);
+    expect(within(cats).getByText('Weakest').closest('li')).toHaveTextContent(/±/);
+  });
+
+  it('says whose verdicts the table shows, filters flaky and never-passed scenarios, and shows every trial in the dialog', () => {
+    show(FIXTURES.trialsDone());
+    expect(screen.getByText(/69 scenarios · showing trial 8 of 8’s verdicts/)).toBeInTheDocument();
+    const table = screen.getByRole('table', { name: 'Scenario results' });
+    expect(within(table).getByRole('columnheader', { name: /Trials/ })).toBeInTheDocument();
+    const filter = screen.getByRole('combobox', { name: 'Filter by result' });
+    expect(within(filter).getByRole('option', { name: 'Flaky (14)' })).toBeInTheDocument();
+    fireEvent.change(filter, { target: { value: 'never' } });
+    expect(within(table).getAllByRole('row')).toHaveLength(11);
+    fireEvent.change(filter, { target: { value: 'flaky' } });
+    expect(within(table).getAllByRole('row')).toHaveLength(15);
+    fireEvent.click(within(table).getByRole('button', { name: 'Direct Specialist Match' })); // TC-01, flaky
+    const dialog = screen.getByRole('dialog', { name: 'TC-01 · Direct Specialist Match' });
+    expect(within(dialog).getAllByRole('listitem').filter((li) => /^Trial \d/.test(li.textContent))).toHaveLength(8);
+    expect(within(dialog).getByText('The verdict, tool calls and trace below are from trial 8, the latest.')).toBeInTheDocument();
+  });
+
+  it('keeps a single trial exactly as before: no trial rail, pips, statistics or trial column', () => {
+    show(FIXTURES.done());
+    expect(screen.queryByRole('region', { name: /trials/i })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: /Trials/ })).toBeNull();
+    expect(screen.getByRole('columnheader', { name: /Result/ })).toBeInTheDocument();
+    expect(document.querySelector('.te-pips, .te-tplot, .te-row__whisker')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Direct Specialist Match' }));
+    expect(within(screen.getByRole('dialog')).queryByText('Every trial')).toBeNull();
+  });
+
+  it('marks the trial a cancelled run stopped in, keeping the finished trials’ scores', () => {
+    show(FIXTURES.trialsCancelled());
+    expect(screen.getByText('Incomplete: the evaluation was cancelled in trial 3 of 5, after 23 of 69 scenarios')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /^Trial 3 score of finished scenarios: \d+%$/ })).toBeInTheDocument();
+    const trials = screen.getByRole('region', { name: 'Trials' });
+    expect(trials).toHaveTextContent('Trial 3 of 5 · stoppedMean 85.5 ± 3.5 · 2 of 5 finished');
+    expect(within(trials).getByRole('img', { name: /^Score per trial on a 0 to 100 scale: trial 1 88%, trial 2 83%; trial 3 stopped; 2 still to run; mean 85\.5$/ })).toBeInTheDocument();
+    expect(screen.getByText(/69 scenarios finished of 69 · each one’s latest trial/)).toBeInTheDocument();
+  });
+});

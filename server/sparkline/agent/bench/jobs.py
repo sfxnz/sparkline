@@ -321,6 +321,10 @@ async def tool_eval(job: Job, p: ToolEvalParams) -> None:
         args += ["--model", p.model]
     if not p.thinking:
         args.append("--no-think")
+    if p.trials > 1:
+        args += ["--trials", str(p.trials)]
+    if p.seed:
+        args += ["--seed", p.seed]
     await job.run(job.host_argv("tool_eval.py", args))
 
 

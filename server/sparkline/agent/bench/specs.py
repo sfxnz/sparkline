@@ -212,10 +212,22 @@ class ToolEvalParams(Params):
     suite: Literal["core", "standard", "hard", "all"] = _param(
         "standard",
         "Scenarios",
-        "Core 15 takes a few minutes; Standard 69, the upstream default, about 20-30 min on a Spark.",
+        "Core 15 takes a few minutes; Standard 69, the upstream default, about 20-30 min on a Spark. All 97 "
+        "is upstream's --hardmode (Standard plus Hard Mode), Hard 28 its --hardmode-only.",
     )
     thinking: bool = _param(
         True, "Thinking", "Off sends enable_thinking=false to the chat template (upstream's --no-think)."
+    )
+    trials: int = _param(
+        1,
+        "Trials",
+        "Runs the scenarios this many times in a row (upstream's --trials) and reports the mean score, its "
+        "spread, Pass@k and Pass^k. 4-8 show how much the score varies; each trial takes as long as one run.",
+        ge=1,
+        le=10,
+    )
+    seed: str = _param(
+        "", "Seed", "Sampling seed sent with every request (upstream's --seed); empty sends none."
     )
 
     @field_validator("base_url")
@@ -228,6 +240,13 @@ class ToolEvalParams(Params):
     def _model(cls, v: str) -> str:
         if v and not _MODEL_RE.match(v):
             raise ValueError("model name may only contain letters, digits and . - / : _ (max 200)")
+        return v
+
+    @field_validator("seed")
+    @classmethod
+    def _seed(cls, v: str) -> str:
+        if v and not (v.isascii() and v.isdigit() and int(v) <= 2**31 - 1):
+            raise ValueError("seed must be a whole number from 0 to 2147483647, or empty for none")
         return v
 
 
@@ -319,7 +338,7 @@ TOOL_EVAL_SUITES = {"core": (15, 0), "standard": (69, 0), "hard": (0, 28), "all"
 def est_tool_eval(p: ToolEvalParams) -> float:
     """DGX Spark owners report 12-26 s per scenario with a thinking model; Hard Mode runs longer chains."""
     standard, hard = TOOL_EVAL_SUITES[p.suite]
-    return 10.0 + 24.0 * standard + 36.0 * hard  # + the endpoint and tool-calling checks
+    return 10.0 + (24.0 * standard + 36.0 * hard) * p.trials  # + the endpoint and tool-calling checks
 
 
 def est_soak(p: ThermalSoakParams) -> float:

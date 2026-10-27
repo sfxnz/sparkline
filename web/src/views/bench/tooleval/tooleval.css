@@ -109,6 +109,7 @@
 .te-recent__id { font-size: var(--fs-footnote); font-weight: 560; color: var(--text-2); }
 .te-recent__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-callout); font-weight: 560; }
 .te-recent__verdict { font-size: var(--fs-footnote); font-weight: 560; color: var(--tone-text); }
+.te-recent__trial { font-weight: 400; color: var(--text-2); }
 .te-recent__summary {
   grid-column: 3 / -1; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2);
   display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -137,6 +138,10 @@
   transition: background-color var(--dur-base) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .te-tile .te-glyph { width: 0.75rem; height: 0.75rem; color: var(--tone); }
+.te-tile__top { display: inline-flex; align-items: center; gap: 4px; }
+/* Over several trials: the verdict per trial as pips under the number (a row kept even before the first). */
+.te-tile--trials { flex-direction: column; gap: 3px; height: auto; min-height: 2.125rem; padding-top: 5px; padding-bottom: 4px; }
+.te-tile--trials .te-pips { min-height: 6px; }
 .te-tile:not([aria-disabled='true']):hover { border-color: color-mix(in srgb, var(--tone) 60%, transparent); }
 .te-tile:not([aria-disabled='true']):active { transform: scale(0.95); }
 .te-tile[aria-disabled='true'] { cursor: default; }
@@ -155,9 +160,85 @@
 @keyframes te-pop { from { transform: scale(0.8); } to { transform: none; } }
 
 .te-tip { display: grid; gap: 3px; max-width: 17rem; }
+
+/* A scenario's verdict per trial: a bar each, height and tone by points (pass full, partial two thirds, else a stub). */
+.te-pips { display: inline-flex; align-items: flex-end; gap: 1px; }
+.te-pip { width: 3px; height: 6px; border-radius: 1px; background: var(--tone); }
+.te-pip.is-partial { height: 4px; }
+.te-pip.is-fail, .te-pip.is-excluded { height: 2px; }
+.te-pips--md { gap: 2px; height: 14px; }
+.te-pips--md .te-pip { width: 5px; height: 14px; border-radius: 2px; }
+.te-pips--md .te-pip.is-partial { height: 9px; }
+.te-pips--md .te-pip.is-fail, .te-pips--md .te-pip.is-excluded { height: 3px; }
 .te-tip__title { font-weight: 600; }
 .te-tip__facts { color: var(--text-2); }
 .te-tip__summary { color: var(--text-1); }
+
+/* -------------------------------------------------------------- trials: the rail while running (every trial on a
+   shared 0-100 scale, the finished ones' mean dashed across), the dot plot after the run */
+.te-hero > .te-trials { grid-column: 1 / -1; }
+.te-trials {
+  display: grid; grid-template-columns: minmax(11rem, auto) minmax(0, 1fr); align-items: end; gap: var(--space-3) var(--space-8);
+  padding-top: var(--space-5); border-top: var(--hairline) solid var(--separator);
+}
+.te-trials__head { display: grid; gap: 2px; align-self: center; }
+.te-trials__title { font-size: var(--fs-title3); line-height: var(--lh-title3); font-weight: 600; letter-spacing: var(--ls-title3); color: var(--text-1); }
+.te-trials__state { color: var(--text-2); font-weight: 500; }
+.te-trials__sub { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+.te-trials__sub strong { font-weight: 650; color: var(--text-1); }
+.te-trials__plot {
+  display: grid; justify-content: start; column-gap: 6px; row-gap: 4px;
+  grid-template-columns: repeat(var(--te-trials, 1), minmax(1.5rem, 2.5rem)); grid-template-rows: auto 3rem auto;
+}
+.te-trials__value { grid-row: 1; text-align: center; font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 600; color: var(--text-1); }
+.te-trials__value.is-running { color: var(--accent-text); font-weight: 560; }
+.te-trials__value.is-next, .te-trials__value.is-stopped { color: var(--text-3); font-weight: 400; }
+.te-trials__track { grid-row: 2; position: relative; border-radius: 6px; background: var(--fill-1); overflow: hidden; }
+.te-trials__track > span { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 4px 4px 0 0; background: var(--chart-1); }
+.te-trials__track.is-running {
+  background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: te-ping 1.8s var(--ease-out) infinite;
+}
+.te-trials__track.is-next { background: transparent; box-shadow: inset 0 0 0 1px var(--separator-strong); }
+.te-trials__track.is-stopped { background: var(--stale-bg); }
+.te-trials__overlay { grid-row: 2; grid-column: 1 / -1; position: relative; pointer-events: none; }
+.te-trials__mean { position: absolute; left: -3px; right: -3px; height: 0; border-top: 1.5px dashed var(--text-1); }
+.te-trials__label { grid-row: 3; text-align: center; font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 560; color: var(--text-2); }
+.te-trials__label.is-running { color: var(--accent-text); }
+.te-trials__label.is-next { color: var(--text-3); }
+
+.te-hero--trials { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: 'score plot'; align-items: center; }
+.te-hero--trials > .te-tplot { grid-area: plot; }
+.te-tplot { margin: 0; display: grid; gap: var(--space-3); min-width: 0; }
+.te-tplot .te-h { margin-bottom: 0; }
+.te-tplot__chart { padding: 0 10px; }
+.te-tplot__plot { position: relative; height: calc(1.25rem + var(--te-levels, 1) * 11px); border-bottom: var(--hairline) solid var(--chart-axis); }
+.te-tplot__grid { position: absolute; top: 0; bottom: 0; width: 0; border-left: var(--hairline) solid var(--chart-grid); }
+.te-tplot__ci { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--accent-soft); }
+.te-tplot__range { position: absolute; bottom: 12px; height: 1.5px; background: var(--text-2); }
+.te-tplot__range::before, .te-tplot__range::after { content: ''; position: absolute; top: -4px; width: 1.5px; height: 9.5px; background: var(--text-2); }
+.te-tplot__range::before { left: 0; }
+.te-tplot__range::after { right: 0; }
+.te-tplot__mean { position: absolute; top: -4px; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text-1); }
+/* A dot per trial, equal scores stacked upwards, ringed in the panel's surface so neighbours stay apart. */
+.te-tplot__dot {
+  position: absolute; bottom: calc(8px + var(--te-level, 0) * 11px); width: 10px; height: 10px; margin-left: -5px;
+  border-radius: 50%; background: var(--chart-1); box-shadow: 0 0 0 2px var(--surface-2);
+}
+.te-tplot__axis { position: relative; height: 1rem; margin-top: 4px; }
+.te-tplot__axis > span { position: absolute; transform: translateX(-50%); font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--chart-axis); font-variant-numeric: tabular-nums; }
+.te-tstats { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: 0; }
+.te-tstats > div { display: flex; align-items: baseline; gap: 6px; }
+.te-tstats dt { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+.te-tstats dd { margin: 0; font-size: var(--fs-callout); line-height: var(--lh-callout); font-weight: 600; color: var(--text-1); }
+.te-tstats__key { flex: none; display: inline-block; }
+.te-tstats__key.is-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chart-1); }
+.te-tstats__key.is-mean { width: 2px; height: 11px; border-radius: 1px; background: var(--text-1); }
+.te-tstats__key.is-ci { width: 14px; height: 9px; border-radius: 2px; background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+.te-tstats__key.is-range { width: 14px; height: 9px; border-left: 1.5px solid var(--text-2); border-right: 1.5px solid var(--text-2); background: linear-gradient(var(--text-2), var(--text-2)) center / 100% 1.5px no-repeat; }
+.te-kgroup .te-h { margin-bottom: var(--space-2); }
+.te-kgroup__note { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-3); }
+.te-kpis.te-kpis--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 /* -------------------------------------------------------------- after the run */
 .te-hero--done { grid-template-areas: 'score counts' 'bar bar' 'kpis kpis'; }
@@ -203,8 +284,13 @@
 .te-rows__head > :nth-child(n + 4) { text-align: right; }
 .te-row__name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-callout); line-height: var(--lh-callout); color: var(--text-1); }
 .te-row__label { min-width: 0; }
-.te-row__bar { height: 8px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
+.te-row__bar { position: relative; height: 8px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
 .te-row__bar > span { display: block; height: 100%; border-radius: inherit; background: var(--chart-1); }
+/* One standard deviation either side of a mean over trials: a line with end caps across the bar. */
+.te-row__bar > .te-row__whisker {
+  position: absolute; top: 0; height: 100%; border-radius: 0; background: linear-gradient(var(--text-1), var(--text-1)) center / 100% 1.5px no-repeat;
+  border-left: 1.5px solid var(--text-1); border-right: 1.5px solid var(--text-1);
+}
 .te-row__pct { min-width: 2.75rem; text-align: right; font-size: var(--fs-callout); font-weight: 600; color: var(--text-1); }
 .te-row__facts { display: contents; }
 .te-row__points { justify-self: end; font-size: var(--fs-footnote); color: var(--text-2); white-space: nowrap; }
@@ -272,6 +358,15 @@
 .te-turns__track { height: 6px; border-radius: var(--radius-full); background: var(--fill-1); overflow: hidden; }
 .te-turns__track > span { display: block; height: 100%; border-radius: inherit; background: var(--chart-1); }
 .te-turns__value { text-align: right; font-weight: 560; color: var(--text-1); }
+.te-dtrials { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: 6px; }
+.te-dtrials li {
+  display: flex; align-items: center; gap: 8px; padding: 6px var(--space-3); border-radius: var(--radius-sm); background: var(--tone-bg);
+  font-size: var(--fs-footnote); line-height: var(--lh-footnote);
+}
+.te-dtrials li > span { display: grid; }
+.te-dtrials .te-glyph { width: 14px; height: 14px; color: var(--tone); }
+.te-dtrials__n { color: var(--text-2); }
+.te-dtrials__v { font-weight: 600; color: var(--tone-text); }
 .te-trace {
   margin: 0; max-height: 22rem; overflow: auto; padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-sm); background: var(--fill-1); border: var(--hairline) solid var(--separator);
@@ -286,6 +381,7 @@
 /* -------------------------------------------------------------- narrower */
 @container te (max-width: 64rem) {
   .te-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .te-kpis.te-kpis--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container te (max-width: 52rem) {
   .te-live { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'now' 'board' 'recent'; grid-template-rows: none; }
@@ -293,6 +389,8 @@
 @container te (max-width: 46rem) {
   .te-hero { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'score' 'counts' 'bar'; }
   .te-hero--done { grid-template-areas: 'score' 'counts' 'bar' 'kpis'; }
+  .te-hero--trials { grid-template-areas: 'score' 'plot'; }
+  .te-trials { grid-template-columns: minmax(0, 1fr); }
   .te-hero > .te-counters { justify-self: stretch; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
 }
 @container te (max-width: 36rem) {
@@ -300,7 +398,7 @@
   .te-hero { gap: var(--space-4); }
   .te-counter dd { font-size: var(--fs-title2); line-height: var(--lh-title2); }
   .te-counter dt { font-size: var(--fs-caption); gap: 3px; }
-  .te-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .te-kpis, .te-kpis.te-kpis--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .te-recent__title { white-space: normal; }
   /* The large ring gives the rating room on a phone. */
   .te-score--lg { gap: var(--space-4); }
@@ -319,7 +417,8 @@
 /* A phone beside the app's collapsed sidebar leaves about 14 rem: counts two by two, facts one per row. */
 @container te (max-width: 17.5rem) {
   .te-hero > .te-counters { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--space-3); }
-  .te-kpis { grid-template-columns: minmax(0, 1fr); }
+  .te-kpis, .te-kpis.te-kpis--4 { grid-template-columns: minmax(0, 1fr); }
+  .te-trials__plot { grid-template-columns: repeat(var(--te-trials, 1), minmax(0, 1fr)); justify-content: stretch; }
 }
 @container teboard (max-width: 30rem) {
   .te-cat { grid-template-columns: minmax(0, 1fr); gap: 6px; }

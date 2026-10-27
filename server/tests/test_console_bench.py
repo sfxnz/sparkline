@@ -304,6 +304,12 @@ def test_params_key_leaves_out_params_added_later_while_they_are_neutral():
     assert swept != old and '"sweep":true' in swept
     gemm = validate_params(AGENT_REGISTRY["gpu-matmul"].spec({}), {})
     assert params_key("gpu-matmul", gemm) == canonical(gemm)
+    te = validate_params(AGENT_REGISTRY["tool-eval"].spec({}), {"suite": "core"})
+    assert (te["trials"], te["seed"]) == (1, "")
+    old_te = canonical({k: v for k, v in te.items() if k not in ("trials", "seed")})
+    assert params_key("tool-eval", te) == old_te
+    trials = params_key("tool-eval", {**te, "trials": 8, "seed": "42"})
+    assert '"trials":8' in trials and '"seed":"42"' in trials
 
 
 def test_llm_runs_are_keyed_on_the_requests_they_send(tmp_path):

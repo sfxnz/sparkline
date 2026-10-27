@@ -1,10 +1,11 @@
 // Small presentational pieces of the tool-calling evaluation: status glyphs and verdict pills, difficulty dots, the
-// category tag, the outcome bar with its counters (which double as the board's legend) and the score ring.
+// category tag, the outcome bar with its counters (which double as the board's legend), the score ring and a
+// scenario's verdict per trial as pips.
 import { Circle, CircleCheck, CircleSlash, CircleX, Contrast, LoaderCircle, type LucideIcon } from 'lucide-react';
 import { AnimatedNumber } from '../../../design/components/AnimatedNumber';
 import { RingGauge } from '../../../design/components/RingGauge';
 import '../../../design/components/StatusPill.css'; // verdict pills share the status pill's look
-import { difficultyText, OUTCOMES, STATUS_LOOK, type Outcome, type TileStatus } from './model';
+import { difficultyText, oneDecimal, OUTCOMES, STATUS_LOOK, trialOutcome, type Outcome, type TileStatus, type TrialPoints } from './model';
 import './tooleval.css';
 
 /** Circle-family glyphs, so a tile, a counter and a pill read as one set (status never by colour alone). */
@@ -79,14 +80,31 @@ export function Counters({ counts }: { counts: Record<Outcome, number> }) {
 
 const pctText = (n: number) => String(Math.round(n));
 
-/** The score as a ring with the number inside; null shows an empty track and a dash. */
-export function ScoreRing({ score, label, size, tone = 'accent' }: { score: number | null; label: string; size: number; tone?: 'accent' | 'stale' }) {
+/** The score as a ring with the number inside; null shows an empty track and a dash. A mean over trials keeps its
+ * decimal (`decimal`). */
+export function ScoreRing({ score, label, size, tone = 'accent', decimal }: { score: number | null; label: string; size: number; tone?: 'accent' | 'stale'; decimal?: boolean }) {
   return (
     <RingGauge value={score === null ? null : score / 100} label={label} size={size} stroke={Math.round(size / 11)} tone={tone}>
-      <span className={`te-ring${size >= 128 ? ' te-ring--lg' : ''}`}>
-        <AnimatedNumber value={score} format={pctText} className="te-ring__num" />
+      <span className={`te-ring${size >= 128 ? ' te-ring--lg' : ''}${decimal ? ' te-ring--decimal' : ''}`}>
+        <AnimatedNumber value={score} format={decimal ? oneDecimal : pctText} className="te-ring__num" />
         {score !== null ? <span className="te-ring__unit">%</span> : null}
       </span>
     </RingGauge>
+  );
+}
+
+/**
+ * A scenario's verdict in each trial as a row of small bars, height and colour by points (a pass full, a partial
+ * two thirds, a fail or an exclusion a stub), so a flaky scenario stands out on the board. Decorative unless
+ * `label` names it (a tile says it in its own name).
+ */
+export function HistoryPips({ history, label, size = 'sm' }: { history: readonly TrialPoints[]; label?: string; size?: 'sm' | 'md' }) {
+  return (
+    <span className={`te-pips te-pips--${size}`} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true}>
+      {history.map((p, i) => {
+        const o = trialOutcome(p);
+        return <span key={i} className={`te-pip is-${o} tone-${STATUS_LOOK[o].tone ?? 'stale'}`} />;
+      })}
+    </span>
   );
 }

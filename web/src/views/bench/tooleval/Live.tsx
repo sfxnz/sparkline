@@ -1,6 +1,7 @@
 // The evaluation while it runs: the score so far with the outcome counts, the scenario running now (live timer), the
 // board of every scenario by category and the latest verdicts (elapsed and remaining time are the run's Progress
-// panel's). Before the first snapshot the same layout shimmers while the payload checks the endpoint.
+// panel's). A run of several trials adds the rail of trials and each scenario's verdict per trial on the board. Before
+// the first snapshot the same layout shimmers while the payload checks the endpoint.
 import { LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { announce } from '../../../design/components/LiveAnnouncer';
@@ -21,35 +22,41 @@ import {
   STATUS_LOOK,
   ownWarnings,
   SUITE_SHAPE,
+  trialRecords,
   warningParts,
   type Live,
   type NodeEval,
   type Tile,
 } from './model';
 import { CategoryTag, Counters, DifficultyDots, OutcomeBar, ScoreRing, StatusGlyph } from './parts';
+import { TrialRail } from './Trials';
 
 export function LiveView({ ev, live, onOpen }: { ev: NodeEval; live: Live; onOpen: (id: string) => void }) {
-  const tiles = useMemo(() => boardTiles(live, ev.records, true), [live, ev.records]);
+  // Over several trials only this trial's records are verdicts on the board (the rest are a trial behind).
+  const records = useMemo(() => trialRecords(live, ev.records), [live, ev.records]);
+  const tiles = useMemo(() => boardTiles(live, records, true), [live, records]);
   const groups = useMemo(() => boardGroups(tiles, categoryLabels(live, ev.records)), [tiles, live, ev.records]);
-  const summaries = useMemo(() => new Map([...ev.records.map((r) => [r.id, r.summary] as const), ...live.recent.map((r) => [r.id, r.summary] as const)]), [ev.records, live.recent]);
+  const summaries = useMemo(() => new Map([...records.map((r) => [r.id, r.summary] as const), ...live.recent.filter((r) => r.trial === null || r.trial === live.trial).map((r) => [r.id, r.summary] as const)]), [records, live.recent, live.trial]);
   const finished = useMemo(() => new Set(ev.records.map((r) => r.id)), [ev.records]);
   const score = scorePct(live.points, live.maxPoints);
+  const multi = live.trials > 1;
   useMilestones(live, score);
 
   return (
     <div className="te">
       <LiveNotes live={live} />
       <div className="te-hero">
-        <ScoreBlock score={score} caption="Score so far" lines={[live.maxPoints ? `${live.points} of ${live.maxPoints} points` : 'Nothing graded yet', `${live.done} of ${live.total} scenarios`]} />
+        <ScoreBlock score={score} caption={multi ? `Trial ${live.trial} score so far` : 'Score so far'} lines={[live.maxPoints ? `${live.points} of ${live.maxPoints} points` : 'Nothing graded yet', `${live.done} of ${live.total} scenarios`]} />
         <Counters counts={live.counts} />
         <OutcomeBar counts={live.counts} total={live.total} label={outcomeLabel(live.counts, live.done, live.total)} />
+        {multi ? <TrialRail live={live} active /> : null}
       </div>
       {/* A short board (Core, Hard Mode) sits beside the running scenario, with the latest verdicts across below. */}
       <div className={`te-live${groups.length <= 6 ? ' te-live--compact' : ''}`}>
         <NowRunning live={live} />
         <div className="te-live__board">
           <h3 className="te-h">Scenarios</h3>
-          <Board groups={groups} summaries={summaries} onOpen={onOpen} latest={live.recent[0]?.id} label="Scenario board" />
+          <Board groups={groups} summaries={summaries} onOpen={onOpen} latest={live.recent[0]?.id} trials={live.trials} label="Scenario board" />
         </div>
         <Recent live={live} tiles={tiles} finished={finished} onOpen={onOpen} />
       </div>
@@ -75,15 +82,17 @@ export function ScoreBlock({ score, caption, lines, tone }: { score: number | nu
   );
 }
 
-/** Quarter milestones, announced once each while the run is on screen (never per scenario). */
+/** Quarter milestones of the whole run (every trial), announced once each while it is on screen (never per scenario). */
 function useMilestones(live: Live, score: number | null) {
-  const q = quarter(live.done, live.total);
+  const multi = live.trials > 1;
+  const q = quarter((live.trial - 1) * live.total + live.done, live.total * live.trials);
   const seen = useRef(q);
   useEffect(() => {
     // 'warning': the announcer drops 'info' (as for "Reconnected to Sparkline.").
-    if (q > seen.current && q < 4) announce(`Tool-calling evaluation ${q * 25}% done: ${live.done} of ${live.total} scenarios${score === null ? '' : `, score so far ${score}%`}.`, 'warning');
+    const where = multi ? `trial ${live.trial} of ${live.trials}` : `${live.done} of ${live.total} scenarios`;
+    if (q > seen.current && q < 4) announce(`Tool-calling evaluation ${q * 25}% done: ${where}${score === null ? '' : `, score so far ${score}%`}.`, 'warning');
     seen.current = q;
-  }, [q, live.done, live.total, score]);
+  }, [q, multi, live.done, live.total, live.trial, live.trials, score]);
 }
 
 /** Preflight warnings (the payload's own text, which may carry `code`) and scenarios excluded so far. */
@@ -166,18 +175,22 @@ function Recent({ live, tiles, finished, onOpen }: { live: Live; tiles: readonly
         // A new verdict fades in at the top (CSS, on mount only); the rest move down at once, whatever the pace.
         <ol className="te-recent__list">
           {live.recent.map((r) => (
-            <li key={r.id}>
+            <li key={`${r.trial ?? ''}:${r.id}`}>
               <button
                 type="button"
                 className={`te-recent__item tone-${STATUS_LOOK[r.outcome].tone ?? 'stale'}`}
-                aria-label={`${r.id} ${titles.get(r.id) || ''}: ${STATUS_LOOK[r.outcome].label.toLowerCase()}${r.summary ? `. ${r.summary}` : ''}`}
+                aria-label={`${r.id} ${titles.get(r.id) || ''}: ${STATUS_LOOK[r.outcome].label.toLowerCase()}${r.trial !== null && r.trial !== live.trial && live.trials > 1 ? ` in trial ${r.trial}` : ''}${r.summary ? `. ${r.summary}` : ''}`}
                 disabled={!finished.has(r.id)}
                 onClick={() => { onOpen(r.id); }}
               >
                 <StatusGlyph status={r.outcome} />
                 <span className="te-recent__id num">{r.id}</span>
                 <span className="te-recent__title">{titles.get(r.id) || r.id}</span>
-                <span className="te-recent__verdict">{STATUS_LOOK[r.outcome].label}</span>
+                <span className="te-recent__verdict">
+                  {STATUS_LOOK[r.outcome].label}
+                  {/* A verdict from the trial before, while this one starts. */}
+                  {r.trial !== null && r.trial !== live.trial && live.trials > 1 ? <span className="te-recent__trial"> · trial {r.trial}</span> : null}
+                </span>
                 {r.summary ? <span className="te-recent__summary">{r.summary}</span> : null}
               </button>
             </li>

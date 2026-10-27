@@ -15,14 +15,17 @@ const TITLE = 'Tool-calling evaluation';
 
 const param = (run: BenchRun, name: string): unknown => run.params[name];
 
-/** "tool-eval-bench 2.8.0 · Standard 69 · thinking on · Qwen3-8B" from whatever this run has. */
+/** "tool-eval-bench 2.8.0 · Standard 69 · 8 trials · seed 42 · thinking on · Qwen3-8B" from whatever this run has. */
 function headline(run: BenchRun, ev: NodeEval | undefined): string {
   const s = ev?.summary;
   const l = ev?.live;
   const suite = s?.suite || l?.suite || (typeof param(run, 'suite') === 'string' ? String(param(run, 'suite')) : '');
   const thinking = s?.thinking ?? l?.thinking ?? (typeof param(run, 'thinking') === 'boolean' ? Boolean(param(run, 'thinking')) : null);
   const model = s?.model || l?.model || (typeof param(run, 'model') === 'string' ? String(param(run, 'model')) : '');
-  return subtitle({ version: s?.version || l?.version || '', suite, total: l?.total ?? 0, thinking, model });
+  const trials = s?.trials ?? l?.trials ?? (typeof param(run, 'trials') === 'number' ? Number(param(run, 'trials')) : 1);
+  // The seed param is a string ("" for none); the payload's is a number or null.
+  const seed = s?.seed ?? l?.seed ?? (typeof param(run, 'seed') === 'string' ? String(param(run, 'seed')) : '');
+  return subtitle({ version: s?.version || l?.version || '', suite, total: l?.total ?? 0, thinking, model, trials, seed: String(seed) });
 }
 
 export function ToolEvalSection({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) {
@@ -87,7 +90,14 @@ export function ToolEvalSection({ run, spec }: { run: BenchRun; spec: BenchSpec 
           <DoneView run={run} ev={ev} summary={ev.summary} countUp={sawRunning && run.status === 'succeeded'} />
         </Panel>
         <CategoryPanel summary={ev.summary} />
-        <ScenariosPanel records={ev.records} total={ev.records.length} onOpen={setOpenId} />
+        <ScenariosPanel
+          records={ev.records}
+          total={ev.records.length}
+          trials={ev.summary.trials}
+          flaky={ev.summary.trialStats?.flaky}
+          never={ev.summary.trialStats?.never}
+          onOpen={setOpenId}
+        />
       </>
     );
   }
@@ -97,7 +107,7 @@ export function ToolEvalSection({ run, spec }: { run: BenchRun; spec: BenchSpec 
       <Panel title={TITLE} subtitle={sub} actions={picker}>
         <StoppedView run={run} ev={ev} onOpen={setOpenId} />
       </Panel>
-      {ev.records.length ? <ScenariosPanel records={ev.records} total={Math.max(ev.live?.total ?? 0, ev.records.length)} incomplete onOpen={setOpenId} /> : null}
+      {ev.records.length ? <ScenariosPanel records={ev.records} total={Math.max(ev.live?.total ?? 0, ev.records.length)} trials={ev.live?.trials} incomplete onOpen={setOpenId} /> : null}
     </>
   );
 }

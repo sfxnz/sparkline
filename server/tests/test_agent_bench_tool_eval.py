@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from test_agent_bench_runner import FIX, capture, make_job, make_runner, node_info, req
 from tool_eval_bench.api import format_result
-from tool_eval_bench.domain.scenarios import ScenarioResult, ScenarioStatus
+from tool_eval_bench.domain.scenarios import ScenarioResult, ScenarioStatus, rating_for_score
 from tool_eval_bench.evals.scenarios import (
     ALL_SCENARIOS,
     ALL_SCENARIOS_WITH_HARDMODE,
@@ -46,7 +46,8 @@ class FakeToolServer(http.server.BaseHTTPRequestHandler):
     100: the scenario is found by its prompt, the turn by the assistant messages so far. Faults come from the
     server's `faults`: reject_auto (vLLM without a tool parser), think (<think> text inside the answer),
     http503 (scenario ids), slow ({id: seconds} before every reply), plain (one JSON body even when asked to
-    stream)."""
+    stream), fail ({id: visits}: on these runs of the scenario, counted by its first turns, answer in prose
+    without calling a tool)."""
 
     protocol_version = "HTTP/1.1"
 
@@ -80,13 +81,17 @@ class FakeToolServer(http.server.BaseHTTPRequestHandler):
             return
         users = [m["content"] for m in body["messages"] if m["role"] == "user"]
         sid = PROMPTS.get((users[0] or "").strip()) if users else None
+        turn = sum(1 for m in body["messages"] if m["role"] == "assistant")
+        if sid is not None and turn == 0:
+            srv.visits[sid] = srv.visits.get(sid, 0) + 1
         if sid in faults.get("http503", ()):
             self._json(503, {"object": "error", "message": "Service unavailable (fake)", "code": 503})
             return
         if srv.stop.wait(faults.get("slow", {}).get(sid, 0)):
             return  # the test is over: the client is long gone
-        turn = sum(1 for m in body["messages"] if m["role"] == "assistant")
-        if sid is None:  # the payload's tool-calling check (or anything else): call the tool offered
+        if sid is not None and srv.visits[sid] in faults.get("fail", {}).get(sid, ()):
+            step = {"calls": [], "answer": "I can't help with that."}
+        elif sid is None:  # the payload's tool-calling check (or anything else): call the tool offered
             tools = [t["function"]["name"] for t in body.get("tools") or []]
             step = {
                 "calls": [{"name": tools[0], "arguments": {"city": "Paris"}}] if tools else [],
@@ -135,6 +140,7 @@ class FakeToolServer(http.server.BaseHTTPRequestHandler):
 def fake_tools():
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeToolServer)
     srv.faults, srv.requests, srv.stop = {}, [], threading.Event()  # type: ignore[attr-defined]
+    srv.visits = {}  # type: ignore[attr-defined]
     srv.url = f"http://127.0.0.1:{srv.server_address[1]}"  # type: ignore[attr-defined]
     th = threading.Thread(target=srv.serve_forever, daemon=True)
     th.start()
@@ -196,6 +202,7 @@ TE_KEYS = set(
         "tool_calls",
         "parallel_turns",
         "budget_exceeded",
+        "history",
         "trace",
     ]
 )
@@ -224,6 +231,9 @@ SUMMARY_KEYS = set(
         "worst_category",
         "categories",
         "capabilities",
+        "trials",
+        "seed",
+        "trial_stats",
         "envelope",
     ]
 )
@@ -236,7 +246,11 @@ LIVE_KEYS = set(
         "thinking",
         "model",
         "engine",
+        "trials",
+        "seed",
         "total",
+        "trial",
+        "trial_scores",
         "done",
         "points",
         "max_points",
@@ -270,6 +284,7 @@ def test_suite_sizes_match_the_installed_tool_eval_bench():
     assert b.estimate(b.validate({"suite": "core"})) == 10 + 15 * 24
     assert b.estimate(b.validate({})) == 10 + 69 * 24  # standard, upstream's default
     assert b.estimate(b.validate({"suite": "all"})) == 10 + 69 * 24 + 28 * 36
+    assert b.estimate(b.validate({"suite": "all", "trials": 8})) == 10 + (69 * 24 + 28 * 36) * 8
 
 
 def test_tool_eval_params_are_the_llm_endpoints():
@@ -280,7 +295,22 @@ def test_tool_eval_params_are_the_llm_endpoints():
     theirs = {x.name: x for x in specs.bench_params(llm.params)}
     assert ours["base_url"] == theirs["base_url"] and ours["model"] == theirs["model"]
     assert ours["suite"].choices == ["core", "standard", "hard", "all"] and ours["thinking"].type == "bool"
-    for bad in ({"base_url": "http://8.8.8.8:8000"}, {"model": "x; rm -rf /"}, {"suite": "short"}):
+    assert (p.trials, p.seed) == (1, "")  # upstream's defaults: one trial, no seed
+    assert (ours["trials"].type, ours["trials"].min, ours["trials"].max) == ("int", 1, 10)
+    assert ours["seed"].type == "string" and ours["seed"].default == ""
+    assert b.validate({"seed": "0"}).seed == "0" and b.validate({"seed": "2147483647"}).seed == "2147483647"
+    for bad in (
+        {"base_url": "http://8.8.8.8:8000"},
+        {"model": "x; rm -rf /"},
+        {"suite": "short"},
+        {"trials": 0},
+        {"trials": 11},
+        {"seed": "-1"},
+        {"seed": "4.2"},
+        {"seed": "2147483648"},
+        {"seed": "٤٢"},  # Arabic-Indic digits: str.isdigit() but not a seed the CLI accepts
+        {"seed": " 42"},
+    ):
         with pytest.raises(ValueError):
             b.validate(bad)
 
@@ -314,7 +344,15 @@ async def test_tool_eval_job_scores_a_clean_run_100_with_live_detail_and_results
     st = r.get("r1")
     assert st.status == "succeeded", st.error
     res = {x.metric: x for x in st.results}
-    common = {"engine": "vllm", "model": MODEL, "suite": "core", "version": "2.8.0", "thinking": True}
+    common = {
+        "engine": "vllm",
+        "model": MODEL,
+        "suite": "core",
+        "version": "2.8.0",
+        "thinking": True,
+        "trials": 1,
+        "seed": None,
+    }
     assert all(common.items() <= x.extras.items() for x in st.results)
     assert [x.metric for x in st.results if x.extras.get("headline")] == [
         "score",
@@ -356,7 +394,12 @@ async def test_tool_eval_job_scores_a_clean_run_100_with_live_detail_and_results
         "status": "pass",
         "points": 2,
         "s": live["board"][0]["s"],
+        "history": [2],
     }
+    assert (live["trial"], live["trials"], live["seed"]) == (1, 1, None)
+    assert live["trial_scores"] == [
+        {"trial": 1, "score": 100, "rating": "★★★★★ Excellent", "points": 30, "max_points": 30, "excluded": 0}
+    ]
     assert [x["id"] for x in live["recent"]] == ["TC-15", "TC-14", "TC-13", "TC-12", "TC-11"]
 
     te = st.detail["te:TC-03"]
@@ -371,6 +414,7 @@ async def test_tool_eval_job_scores_a_clean_run_100_with_live_detail_and_results
     assert te["success_case"].startswith("Pass if it looks up Sarah first")
     assert te["tool_calls"][0] == "get_contacts(query=Sarah)" and len(te["turn_ms"]) == 3
     assert te["trace"].startswith(f"model={MODEL}\nscenario=TC-03") and "verdict=pass" in te["trace"]
+    assert te["history"] == [2]
     final = st.detail["tool_eval"]
     assert set(final) == SUMMARY_KEYS and set(st.detail) == {
         "tool_eval",
@@ -383,6 +427,8 @@ async def test_tool_eval_job_scores_a_clean_run_100_with_live_detail_and_results
     )
     assert final["fingerprint"] == score.extras["fingerprint"] and final["engine_version"] == "0.0.0-fake"
     assert final["safety_gate_passed"] is True and final["excluded"] == [] and final["safety_warnings"] == []
+    assert (final["trials"], final["seed"], final["trial_stats"]) == (1, None, None)
+    assert "trial_statistics" not in final["envelope"]
     assert final["categories"][0] == {
         "category": "A",
         "label": "Tool Selection",
@@ -426,6 +472,19 @@ async def test_tool_eval_job_argv(tmp_path):
         "--model",
         "q/Q3",
         "--no-think",
+    ]
+    job = make_job(tmp_path, "tool-eval", {"suite": "all", "trials": 8, "seed": "42"})
+    calls = capture(job)
+    await jobs.JOBS["tool-eval"](job, job.params)
+    assert calls[0]["argv"][4:] == [
+        "--base-url",
+        "http://127.0.0.1:8000",
+        "--suite",
+        "all",
+        "--trials",
+        "8",
+        "--seed",
+        "42",
     ]
 
 
@@ -579,18 +638,94 @@ def test_tool_eval_excludes_server_errors_and_reports_the_share_graded(tmp_path,
     assert final["warnings"] == [note] and {"log": note} in msgs
 
 
-def test_tool_eval_fails_when_no_scenario_could_be_graded(tmp_path, fake_tools):
+@pytest.mark.parametrize("trials", [[], ["--trials", "3"]])
+def test_tool_eval_fails_when_no_scenario_could_be_graded(tmp_path, fake_tools, trials):
     fake_tools.faults["http503"] = {"TC-01", "TC-02"}
-    msgs = run_tool_eval(tmp_path, fake_tools.url, "--suite", "core", "--scenarios", "TC-01,TC-02", rc=1)
+    msgs = run_tool_eval(
+        tmp_path, fake_tools.url, "--suite", "core", "--scenarios", "TC-01,TC-02", *trials, rc=1
+    )
+    in_trial = " in trial 1 of 3." if trials else "."  # the first trial stops the run
     assert [m["error"] for m in msgs if "error" in m] == [
         {
             "message": "No scenario could be graded",
-            "cause": "Every scenario timed out or hit a connection or server error.",
+            "cause": f"Every scenario timed out or hit a connection or server error{in_trial}",
             "fix": "Check the endpoint and its server logs; for vLLM make sure tool calling is enabled.",
         }
     ]
     assert set(merged_detail(msgs)) == {"te:TC-01", "te:TC-02"}  # the record of what happened, no summary
     assert not any("result" in m for m in msgs)
+
+
+def test_tool_eval_trials_repeat_the_run_and_report_upstreams_statistics(tmp_path, fake_tools):
+    """--trials 3 --seed 42: TC-02 fails in trial 2 only, so it is flaky; the score is the trials' mean."""
+    fake_tools.faults["fail"] = {"TC-02": {2}}
+    ids = "TC-01,TC-02,TC-03"
+    msgs = run_tool_eval(
+        tmp_path, fake_tools.url, "--suite", "core", "--scenarios", ids, "--trials", "3", "--seed", "42"
+    )
+    assert fake_tools.visits == {"TC-01": 3, "TC-02": 3, "TC-03": 3}
+    asked = [b for b in fake_tools.requests if any(m["content"].strip() in PROMPTS for m in b["messages"])]
+    assert len(asked) >= 9 and all(b.get("seed") == 42 for b in asked)
+
+    phases = [m["phase"] for m in msgs if "phase" in m]
+    assert "Trial 2 of 3 · Scenario 2 of 3 · TC-02 Distractor Resistance" in phases
+    fractions = [m["progress"] for m in msgs if "progress" in m]
+    assert fractions == sorted(fractions) and fractions[-1] == 1.0
+    snaps = [m["live"] for m in msgs if "live" in m]
+    trial2 = next(x for x in snaps if x["trial"] == 2)  # trial 2 starts with the board pending again
+    assert [t["status"] for t in trial2["board"]] == ["running", "pending", "pending"]
+    assert [t["history"] for t in trial2["board"]] == [[2], [2], [2]] and trial2["done"] == 0
+
+    live = snaps[-1]
+    assert (live["trial"], live["trials"], live["seed"], live["done"]) == (3, 3, 42, 3)
+    lost = live["trial_scores"][1]["score"]
+    assert [x["score"] for x in live["trial_scores"]] == [100, lost, 100] and lost < 100
+    assert live["trial_scores"][1] | {"score": 0, "rating": ""} == {
+        "trial": 2,
+        "score": 0,
+        "rating": "",
+        "points": live["trial_scores"][1]["points"],
+        "max_points": 6,
+        "excluded": 0,
+    }
+    tc02 = live["board"][1]
+    assert tc02["history"][0::2] == [2, 2] and tc02["history"][1] < 2 and tc02["status"] == "pass"
+    assert {x["trial"] for x in live["recent"]} == {2, 3}
+
+    detail = merged_detail(msgs)
+    assert set(detail) == {"tool_eval", "te:TC-01", "te:TC-02", "te:TC-03"}
+    assert detail["te:TC-02"]["history"] == tc02["history"] and detail["te:TC-01"]["history"] == [2, 2, 2]
+    final = detail["tool_eval"]
+    assert set(final) == SUMMARY_KEYS and (final["trials"], final["seed"]) == (3, 42)
+    assert final["final_score"] == 100  # the last trial's, as upstream's envelope
+    stats = final["trial_stats"]
+    mean = round((200 + lost) / 3, 1)
+    assert (stats["scores"], stats["mean"], stats["min"], stats["max"]) == ([100, lost, 100], mean, lost, 100)
+    assert stats["flaky"] == ["TC-02"] and stats["never"] == []
+    assert (stats["pass_at_k"], stats["pass_hat_k"], stats["reliability_gap"]) == (100.0, 66.7, 33.3)
+    assert stats["per_scenario"]["TC-02"]["points"] == tc02["history"]
+    assert stats["graded"] == 9 and stats["completion_rate"] == 100.0 and stats["safety_warnings"] == []
+    assert stats["rating"] == rating_for_score(round(mean)) and len(stats["ci95"]) == 2
+    env = final["envelope"]
+    assert env["trial_statistics"]["final_score_mean"] == mean and env["trial_statistics"]["trials"] == 3
+    assert env["metadata"]["trials"] == 3 and env["safety_gate"] == {"passed": True, "warnings": []}
+    assert env["config"]["seed"] == 42
+
+    res = {m["result"]["metric"]: m["result"] for m in msgs if "result" in m}
+    score = res["score"]
+    assert score["value"] == mean and "whole" not in score["extras"] and score["extras"]["headline"]
+    assert (score["extras"]["trials"], score["extras"]["seed"], score["extras"]["stddev"]) == (
+        3,
+        42,
+        stats["stddev"],
+    )
+    assert (res["pass_at_k"]["label"], res["pass_at_k"]["value"]) == ("Pass@3", 100.0)
+    assert (res["pass_hat_k"]["label"], res["pass_hat_k"]["value"]) == ("Pass^3", 66.7)
+    assert (res["score_stddev"]["better"], res["score_stddev"]["unit"]) == ("lower", "pts")
+    assert res["cat_a"]["value"] == stats["per_category"]["A"]["mean_percent"]
+    logs = [m["log"] for m in msgs if "log" in m]
+    assert "Trial 1 of 3: score 100 (★★★★★ Excellent)" in logs
+    assert any(ln.startswith(f"Mean score {stats['mean']} ± {stats['stddev']} over 3 trials") for ln in logs)
 
 
 def test_tool_eval_sigterm_cancels_at_once_with_a_final_snapshot(tmp_path, fake_tools):
@@ -683,6 +818,7 @@ def _result(s, **kw) -> ScenarioResult:
 def test_scenario_records_fit_the_budget_with_long_non_ascii_thinking_traces(payload, capsys):
     scenarios = list(ALL_SCENARIOS_WITH_HARDMODE)
     head = {"version": "2.8.0", "suite": "all", "thinking": True, "model": MODEL, "engine": "vllm"}
+    head |= {"trials": 1, "seed": None}
     board = payload.Board(scenarios, head, [])
     trace = "model=m\n" + "思考" * 30_000 + "\nverdict=pass"  # each of these characters is 6 bytes of JSON
     calls = [f"send_email(body={'x' * 900})"] * 10
@@ -712,6 +848,7 @@ async def test_long_non_ascii_tool_calls_cost_no_record_nor_the_summary(payload,
     (shorter tool calls before fewer), so the agent keeps every record and the summary."""
     scenarios = list(ALL_SCENARIOS_WITH_HARDMODE)
     head = {"version": "2.8.0", "suite": "all", "thinking": True, "model": MODEL, "engine": "vllm"}
+    head |= {"trials": 1, "seed": None}
     board = payload.Board(scenarios, head, [])
     calls = [f"send_email(to=li@example.com, body={'您好' * 100})"] * n
     results = [_result(s, raw_log="trace\n" * 5000, tool_calls_made=calls) for s in scenarios]
@@ -720,7 +857,7 @@ async def test_long_non_ascii_tool_calls_cost_no_record_nor_the_summary(payload,
         board.finished(s, r, i, len(scenarios))
     run = {"run_id": "r", "status": "completed", "config": {"config_fingerprint": "0" * 12}, "metadata": {}}
     run |= {"scores": score_results(results, scenarios).to_dict(), "safety_gate": {"passed": True}}
-    payload.report(json.loads(json.dumps(format_result(run))), board)
+    payload.report([json.loads(json.dumps(format_result(run)))], board, None)
     job = make_job(tmp_path, "tool-eval")  # as the agent takes the payload's lines
     for line in capsys.readouterr().out.splitlines():
         job.handle(json.loads(line))
@@ -737,6 +874,7 @@ def test_a_record_never_outgrows_its_share(payload):
     then fewer (the note on the unlisted ones stays true), then the texts."""
     scenarios = list(ALL_SCENARIOS_WITH_HARDMODE)
     head = {"version": "2.8.0", "suite": "all", "thinking": True, "model": MODEL, "engine": "vllm"}
+    head |= {"trials": 1, "seed": None}
     board = payload.Board(scenarios, head, [])
     text = "🙂" * 1000
     for s in scenarios:
@@ -760,6 +898,7 @@ def test_a_record_never_outgrows_its_share(payload):
 
 def test_an_oversized_envelope_leaves_out_its_scenario_results_not_the_summary(payload, capsys):
     head = {"version": "2.8.0", "suite": "core", "thinking": True, "model": MODEL, "engine": "vllm"}
+    head |= {"trials": 1, "seed": None}
     board = payload.Board(list(SCENARIOS), head, [])
     board.used = payload.RECORDS_BUDGET  # scenario records sent so far
     scores = {"final_score": 90, "rating": "★★★★★ Excellent", "total_points": 27, "max_points": 30}
@@ -770,7 +909,7 @@ def test_an_oversized_envelope_leaves_out_its_scenario_results_not_the_summary(p
         ],
     }
     env = {"config": {}, "metadata": {}, "safety_gate": {"passed": True, "warnings": []}, "scores": scores}
-    payload.report(env, board)
+    payload.report([env], board, None)
     out = [json.loads(ln) for ln in capsys.readouterr().out.splitlines()]
     final = next(m["detail"]["tool_eval"] for m in out if "detail" in m)
     assert final["final_score"] == 90 and final["envelope"]["scores"]["scenario_results"] == []
@@ -884,8 +1023,10 @@ def test_demo_tool_eval_cancel_keeps_the_finished_scenarios(demo, monkeypatch):
 
 
 def test_demo_history_holds_a_finished_evaluation(demo):
-    seeded = [r for r in demo.get("/api/v1/bench/runs?bench_id=tool-eval").json()]
-    assert len(seeded) == 1 and seeded[0]["status"] == "succeeded" and seeded[0]["nodes"] == ["spark1"]
+    seeded = demo.get("/api/v1/bench/runs?bench_id=tool-eval").json()
+    assert sorted(r["params"]["trials"] for r in seeded) == [1, 4]  # and a multi-trial one (bench demo tests)
+    seeded = [r for r in seeded if r["params"]["trials"] == 1]
+    assert seeded[0]["status"] == "succeeded" and seeded[0]["nodes"] == ["spark1"]
     run = BenchRun.model_validate(demo.get(f"/api/v1/bench/runs/{seeded[0]['id']}").json())
     st = run.node_states["spark1"]
     assert st.status == "succeeded" and st.live["kind"] == "tool-eval" and st.live["done"] == 69
