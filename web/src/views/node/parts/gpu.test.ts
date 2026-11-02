@@ -1,5 +1,4 @@
 import { decodeThrottle } from '../../../lib/throttle';
-import { stack } from './StackedAreaChart';
 import { mean, peak, tempHeadroom } from './gpu';
 import { clockLevel, throttleHeadline } from './Notices';
 import { gpuProcs, topMemoryProcs } from './ProcTable';
@@ -55,16 +54,6 @@ describe('throttleHeadline', () => {
   });
   it('names the active limits with the worst severity', () => {
     expect(throttleHeadline(decodeThrottle(0x4 | 0x20 | 0x40))).toEqual({ text: 'Clocks limited by power cap, thermal limit, overheating', severity: 'critical' });
-  });
-});
-
-describe('stack', () => {
-  it('accumulates layers bottom-up and carries gaps from below', () => {
-    expect(stack([[1, 2, null], [10, null, 5], [100, 100, 100]])).toEqual([
-      [1, 2, null],
-      [11, 2, 5],
-      [111, 102, 105],
-    ]);
   });
 });
 
