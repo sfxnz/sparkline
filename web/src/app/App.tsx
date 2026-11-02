@@ -16,7 +16,12 @@ import { ShortcutsHelp } from './ShortcutsHelp';
 /** Animation features are a separate chunk: the first paint does not wait for them (m.* render static until loaded). */
 const loadMotionFeatures = () => import('./motionFeatures').then((mod) => mod.default);
 
-const NoPalette = () => null;
+function NoPalette() {
+  const open = useUi((s) => s.paletteOpen);
+  useEffect(() => { if (open) useUi.getState().setPalette(false); }, [open]);
+  return null;
+}
+
 const CommandPalette = lazy<ComponentType>(() => import('./CommandPalette').then((mod) => ({ default: mod.CommandPalette }), () => ({ default: NoPalette })));
 
 function useGlobalShortcuts() {
