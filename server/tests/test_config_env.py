@@ -1,5 +1,6 @@
 """SPARKLINE_* environment overrides for both CLIs. Precedence: CLI flag > env > file > default."""
 
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -75,6 +76,22 @@ def test_console_env_beats_file(tmp_path):
     assert load_console(None, {"SPARKLINE_CONFIG": str(p)}).token == "file"
     with pytest.raises(ValueError):
         load_console(p, {"SPARKLINE_PORT": "abc"})
+
+
+def test_console_rejects_unknown_keys(tmp_path):
+    p = tmp_path / "console.toml"
+    nodes = '[[nodes]]\nid = "a"\nurl = "http://a:9750"\n[[nodes]]\nid = "b"\nurl = "http://b:9750"\n'
+    for toml, where in [
+        ('trusted_proxy = ["127.0.0.1"]\n', "trusted_proxy"),
+        ("[settings]\noffline_after = 120\n", "settings.offline_after"),
+        (nodes + 'name = "spark two"\n', "nodes.1.name"),
+    ]:
+        p.write_text(toml)
+        with pytest.raises(ValueError, match=f"^unknown config keys in {re.escape(f'{p}: {where}')}$"):
+            load_console(p)
+    p.write_text('trusted_proxies = ["127.0.0.1"]\n[settings]\noffline_after_s = 120\n' + nodes)
+    cfg = load_console(p)
+    assert (cfg.trusted_proxies, cfg.settings.offline_after_s, len(cfg.nodes)) == (["127.0.0.1"], 120, 2)
 
 
 @pytest.fixture

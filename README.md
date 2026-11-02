@@ -265,7 +265,7 @@ Config files are TOML. The agent reads `/etc/sparkline/agent.toml` and the conso
 `/etc/sparkline/console.toml`, unless `--config` or `SPARKLINE_CONFIG` names another file. Precedence is:
 command-line flag, then `SPARKLINE_*` environment variable, then the file, then the built-in default.
 Restart the service after editing: `sudo systemctl restart sparkline-agent` (or `sparkline`). Unknown keys in
-`agent.toml` are rejected at start-up, so typos don't pass silently.
+`agent.toml` and `console.toml` are rejected at start-up, so typos don't pass silently.
 
 ### agent.toml
 
