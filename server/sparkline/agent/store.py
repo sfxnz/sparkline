@@ -15,6 +15,7 @@ import sqlite3
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX
 
 TABLES = {10: "r10", 60: "r60"}
+EXTRACT_MAX_KEYS = 20
 
 
 def agg_kind(key: str) -> str:
@@ -157,6 +158,10 @@ def downsample(
     return out[-points:]  # aligned edges can cut the range into points + 1 buckets: drop the oldest
 
 
+def _dumps(v: object) -> str:
+    return json.dumps(v, separators=(",", ":"))
+
+
 class Store:
     def __init__(self, data_dir: str) -> None:
         os.makedirs(data_dir, exist_ok=True)
@@ -178,16 +183,35 @@ class Store:
         db = self._conn()
         db.execute(
             f"INSERT OR REPLACE INTO {TABLES[res]} VALUES (?, ?)",
-            (ts, json.dumps(data, separators=(",", ":"))),
+            (ts, _dumps(data)),
         )
         db.commit()
 
-    def query(self, res: int, t0: float, t1: float) -> list[tuple[float, dict]]:
+    def query(
+        self, res: int, t0: float, t1: float, keys: list[str] | None = None
+    ) -> list[tuple[float, dict]]:
         """Rows are keyed by bucket start; they are served stamped at the bucket centre."""
+        span = (int(t0), int(t1))
+        # A JSON path label ends at the first '"', escaped or not
+        if keys is None or len(keys) > EXTRACT_MAX_KEYS or any('"' in k for k in keys):
+            cur = self._conn().execute(
+                f"SELECT ts, data FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts", span
+            )
+            rows = ((ts + res / 2, json.loads(d)) for ts, d in cur)
+            if keys is None:
+                return list(rows)
+            return [(ts, {k: d[k] for k in keys if k in d}) for ts, d in rows]
+        cols = ", ".join(["json_extract(data, ?)"] * len(keys))
         cur = self._conn().execute(
-            f"SELECT ts, data FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts", (int(t0), int(t1))
+            f"SELECT ts, {cols} FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts",
+            # Spelled as write() stored it, a label matches on SQLite 3.40 (raw compare) and 3.45 (unescaped)
+            [*("$." + _dumps(k) for k in keys), *span],
         )
-        return [(ts + res / 2, json.loads(d)) for ts, d in cur]
+        out = []
+        for ts, *vals in cur:
+            row = json.loads("[" + ",".join(v or "null" for v in vals) + "]")
+            out.append((ts + res / 2, {k: v for k, v in zip(keys, row, strict=True) if v is not None}))
+        return out
 
     def prune(self, now: float, retention: dict[int, float]) -> None:
         db = self._conn()
