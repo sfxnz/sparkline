@@ -46,7 +46,7 @@ describe('HistoryCache', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
-  it('caches per node + keys (order-insensitive) + range, for the range TTL', async () => {
+  it('serves a repeat load of the same keys in any order from cache, per node and range, until the range TTL expires', async () => {
     let t = 0;
     const fetcher = vi.fn((n: string) => Promise.resolve(resp(n)));
     const c = new HistoryCache(fetcher, () => t);
