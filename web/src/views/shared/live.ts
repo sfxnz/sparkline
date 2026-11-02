@@ -5,7 +5,7 @@ import type { TimeRange } from '../../lib/prefs';
 import type { HistoryResponse, NodeStatus } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
-import { historyCache, historyRefreshMs, type HistoryRange } from '../../store/history';
+import { joinHistoryRefresh, historyCache, type HistoryRange } from '../../store/history';
 import { liveStore, type LiveStore } from '../../store/live';
 
 /** Values on screen are not live: the node is stale/offline/errored, or the browser lost the console. */
@@ -94,10 +94,10 @@ export function useRangeHistory(node: string, keys: readonly string[], range: Hi
         .catch((e: unknown) => { if (!cancelled) setTagged({ id, value: { state: 'error', message: e instanceof Error ? e.message : String(e) } }); });
     };
     fetchOnce();
-    const t = setInterval(fetchOnce, historyRefreshMs(range));
+    const stop = joinHistoryRefresh(range, fetchOnce);
     return () => {
       cancelled = true;
-      clearInterval(t);
+      stop();
     };
   }, [node, keysId, range, id]);
   return tagged.id === id ? tagged.value : { state: 'loading' };

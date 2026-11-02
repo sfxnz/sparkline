@@ -4,7 +4,7 @@ import type { TimeRange } from '../../../lib/prefs';
 import type { NodeStatus, Sample } from '../../../lib/types';
 import { serverNow, useCluster } from '../../../store/cluster';
 import { useConnection } from '../../../store/connection';
-import { historyCache, historyRefreshMs } from '../../../store/history';
+import { joinHistoryRefresh, historyCache } from '../../../store/history';
 import { liveStore, useLatest } from '../../../store/live';
 import { usePrefs } from '../../../store/prefs';
 import { notLive } from '../../shared/live';
@@ -57,13 +57,14 @@ export function useRangeData(nodeId: string, keys: readonly string[]): { range: 
       if (!cancelled) setState({ id, data, error });
     };
     let tick: () => void;
-    let every: number;
+    let stop: () => void;
     if (range === 'live') {
       tick = () => {
         const w = liveStore.window(nodeId, ks, serverNow() - LIVE_AGG_S);
         done({ ts: w.ts, series: Object.fromEntries(ks.map((k, i) => [k, w.values[i] ?? []])), min: {}, max: {} });
       };
-      every = 5_000;
+      const t = setInterval(tick, 5_000);
+      stop = () => { clearInterval(t); };
     } else {
       tick = () => {
         historyCache
@@ -71,13 +72,12 @@ export function useRangeData(nodeId: string, keys: readonly string[]): { range: 
           .then((r) => { done({ ts: r.ts, series: r.series, min: r.min, max: r.max }); })
           .catch(() => { done(null, true); });
       };
-      every = historyRefreshMs(range);
+      stop = joinHistoryRefresh(range, tick);
     }
     tick();
-    const t = setInterval(tick, every);
     return () => {
       cancelled = true;
-      clearInterval(t);
+      stop();
     };
   }, [nodeId, keysId, range, id]);
 
