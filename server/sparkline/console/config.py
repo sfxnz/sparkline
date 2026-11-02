@@ -70,11 +70,22 @@ def load_config(path: Path | None, env: Mapping[str, str] | None = None) -> Cons
     if path is None and env.get("SPARKLINE_CONFIG"):
         path = Path(env["SPARKLINE_CONFIG"])
     data: dict = {}
-    if path is None and DEFAULT_CONFIG.exists():
-        path = DEFAULT_CONFIG
     if path is not None:
         with open(path, "rb") as f:
             data = tomllib.load(f)
+    else:
+        # The default path may be absent — or unreadable: /etc/sparkline is
+        # commonly root:sparkline 0750, and on Python 3.13 Path.exists()
+        # propagates that EACCES instead of reporting the file absent, which
+        # crashed e.g. `sparkline --demo` for users outside the group. Probe
+        # and load the default tolerantly; an explicit --config or
+        # $SPARKLINE_CONFIG path above still errors loudly.
+        try:
+            if DEFAULT_CONFIG.exists():
+                with open(DEFAULT_CONFIG, "rb") as f:
+                    data = tomllib.load(f)
+        except OSError:
+            data = {}
     unknown = [k for k in data if k not in ConsoleConfig.model_fields]
     settings, nodes = data.get("settings"), data.get("nodes")
     if isinstance(settings, dict):
@@ -84,6 +95,6 @@ def load_config(path: Path | None, env: Mapping[str, str] | None = None) -> Cons
             if isinstance(node, dict):
                 unknown += [f"nodes.{i}.{k}" for k in node if k not in NodeConfig.model_fields]
     if unknown:
-        raise ValueError(f"unknown config keys in {path}: {', '.join(unknown)}")
+        raise ValueError(f"unknown config keys in {path or DEFAULT_CONFIG}: {', '.join(unknown)}")
     data.update({key: env[name] for name, key in ENV_KEYS.items() if env.get(name)})
     return ConsoleConfig.model_validate(data)
