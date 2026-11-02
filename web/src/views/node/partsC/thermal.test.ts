@@ -1,5 +1,5 @@
 import type { GpuInfo, NodeInfo, SensorInfo } from '../../../lib/types';
-import { buildGroups, chartSensors, headroom, hottest, minMax, shortLabels, type Reader } from './thermal';
+import { buildGroups, chartSensors, hottest, minMax, shortLabels, type Reader } from './thermal';
 
 const gpu: GpuInfo = { index: 0, name: 'NVIDIA GB10', uuid: null, arch: null, compute_capability: null, cuda_cores: null, sm_mhz_max: null, temp_slowdown_c: 86, temp_shutdown_c: 90, temp_max_c: 99, power_limit_w: null };
 const sensor = (id: string, group: SensorInfo['group'], crit_c: number | null = null): SensorInfo => ({ id, label: id, group, crit_c });
@@ -28,14 +28,6 @@ describe('readings', () => {
     const g = buildGroups(info([sensor('acpitz.0', 'soc'), sensor('acpitz.1', 'soc')]));
     expect(hottest(g, sample({ 'acpitz.0': 66, 'acpitz.1': 74 }))).toEqual({ label: 'acpitz.1', c: 74 });
     expect(hottest(g, none)).toBeNull();
-  });
-
-  it('computes headroom with status tones', () => {
-    expect(headroom(70, 86)).toEqual({ degrees: 16, tone: 'ok' });
-    expect(headroom(83, 86)).toEqual({ degrees: 3, tone: 'warn' });
-    expect(headroom(87, 86)).toEqual({ degrees: -1, tone: 'crit' });
-    expect(headroom(70, null)).toBeNull();
-    expect(headroom(null, 86)).toBeNull();
   });
 
   it('min/max ignore gaps', () => {

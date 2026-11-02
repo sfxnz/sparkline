@@ -2163,7 +2163,7 @@ def _telemetry(run: BenchRun, node: str, m: DemoModel, t0: float, t1: float) -> 
 
 def _register_windows(store: BenchStore, models: dict[str, DemoModel]) -> None:
     """After a demo restart, put the stored runs' load back into the demo telemetry model."""
-    for run in store.list(limit=60):
+    for run in store.run_list(limit=60):
         if not run.started_ts or not run.finished_ts:
             continue
         for n in run.nodes:

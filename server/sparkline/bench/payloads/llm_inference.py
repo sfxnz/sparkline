@@ -313,7 +313,8 @@ class Level:
         self.slots = [Slot(self, i) for i in range(self.size)]
         self.records: list[dict] = [{} for _ in self.prompts]
         # the workers'
-        self.next = self.done = self.failed = self.total = 0  # total: tokens streamed by every slot
+        self.next = self.size
+        self.done = self.failed = self.total = 0  # total: tokens streamed by every slot
         self.ttfts: list[float] = []
         self.running = self.size
         self.finished = threading.Event()
@@ -355,14 +356,10 @@ class Level:
         return max(r["end"] for r in self.records) - self.t0
 
     def work(self, slot: Slot) -> None:
-        a = self.a
+        a, i = self.a, slot.index
         try:
-            while not STOP.is_set():
+            while not STOP.is_set() and i < len(self.prompts):
                 with LOCK:
-                    i = self.next
-                    if i >= len(self.prompts):
-                        return
-                    self.next += 1
                     slot.begin(i + 1)
                     sent = slot.sent
                 try:
@@ -383,6 +380,7 @@ class Level:
                     self.done += 1
                     self.failed += not ok
                     slot.finish(r)
+                    i, self.next = self.next, self.next + 1
         finally:
             with LOCK:
                 self.running -= 1

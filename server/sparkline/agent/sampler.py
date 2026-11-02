@@ -220,22 +220,22 @@ class Sampler:
         ring_oldest = ring[0][0] if ring else None
         res = choose_resolution(t_from, t_to, now, ring_oldest, interval, self.retention[10], points)
         loop = asyncio.get_running_loop()
-        merged = False
+        weights: list[float] | None = None
         if res == interval or self.store is None:
             rows = await asyncio.to_thread(_ring_rows, ring, t_from, t_to, keys)
         else:
-            rows = await loop.run_in_executor(self._db, self.store.query, int(res), t_from, t_to)
+            rows = await loop.run_in_executor(self._db, self.store.query, int(res), t_from, t_to, keys)
             if ring_oldest is not None and t_to > ring_oldest:
                 # Whole buckets older than the ring; the newest part (incl. the open bucket, not in SQLite
                 # yet) comes from the ring. With nothing older (a young agent): the ring alone, at full rate.
                 older = [r for r in rows if r[0] + res / 2 <= ring_oldest]
                 recent = await asyncio.to_thread(_ring_rows, ring, max(t_from, ring_oldest), t_to, keys)
                 if older:
-                    rows, merged = older + recent, True  # bucketed to one width below
+                    rows, weights = older + recent, [res] * len(older) + [interval] * len(recent)
                 else:
                     rows, res = recent, interval
-        bucketed = merged or len(rows) > points
-        rows = await asyncio.to_thread(downsample, rows, t_from, t_to, points, keys, res, merged)
+        bucketed = weights is not None or len(rows) > points
+        rows = await asyncio.to_thread(downsample, rows, t_from, t_to, points, keys, res, weights)
         all_keys = keys if keys is not None else sorted({k for _, d in rows for k in d})
         out = HistoryResponse(
             node_id=self.node_id,

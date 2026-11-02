@@ -155,7 +155,7 @@ beforeAll(() => {
   // REST: history windows, events and runs answer empty (the stream drives everything here).
   vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
     const url = input instanceof Request ? input.url : input.toString();
-    const body = url.includes('/history') || url.includes('/live') ? { node_id: 'spark1', ts: [], series: {} } : [];
+    const body = url.includes('/history') || url.includes('/live') ? { node_id: 'spark1', ts: [], series: {}, min: {}, max: {} } : [];
     return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } }));
   });
 });

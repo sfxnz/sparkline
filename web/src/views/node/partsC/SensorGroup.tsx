@@ -6,6 +6,7 @@ import { Panel } from '../../../design/components/Panel';
 import { Sparkline } from '../../../design/components/Sparkline';
 import '../../../design/components/Table.css';
 import { Unsupported } from '../../../design/components/Unsupported';
+import { tempRoom, type TempRoom } from '../../../lib/condition';
 import { DASH, formatTemp } from '../../../lib/format';
 import type { TimeRange } from '../../../lib/prefs';
 import type { HistoryResponse, NodeInfo } from '../../../lib/types';
@@ -14,7 +15,7 @@ import { serverNow } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
 import type { Loadable } from '../../shared/live';
 import { useLiveDerived } from './hooks';
-import { chartSensors, headroom, minMax, shortLabels, type Sensor, type SensorGroup } from './thermal';
+import { chartSensors, minMax, shortLabels, type Sensor, type SensorGroup } from './thermal';
 
 export const RANGE_SHORT: Record<TimeRange, string> = { live: `${LIVE_WINDOW_S / 60} min`, '5m': '5 min', '1h': '1 h', '24h': '24 h', '7d': '7 d' };
 
@@ -128,7 +129,7 @@ function SensorRow({ nodeId, sensor, range, history, reason, store, showRoom }: 
     return { min: lo, max: hi };
   }, [hist, sensor.key]);
   const { min, max } = live ? liveRange : histRange;
-  const room = headroom(now, sensor.limit);
+  const room = tempRoom(now, sensor.limit);
 
   if (reason) {
     return (
@@ -168,12 +169,12 @@ function SensorRow({ nodeId, sensor, range, history, reason, store, showRoom }: 
   );
 }
 
-function Headroom({ room, limitLabel }: { room: ReturnType<typeof headroom>; limitLabel: string }) {
+function Headroom({ room, limitLabel }: { room: TempRoom | null; limitLabel: string }) {
   if (!room) return <span className="tp-room tp-room--none" title="This sensor reports no limit">{DASH}</span>;
-  const Icon = room.tone === 'crit' ? OctagonAlert : room.tone === 'warn' ? TriangleAlert : null;
+  const Icon = room.level === 'crit' ? OctagonAlert : room.level === 'warn' ? TriangleAlert : null;
   const text = room.degrees <= 0 ? `At ${limitLabel}` : formatTemp(room.degrees);
   return (
-    <span className={`tp-room tp-dim${room.tone !== 'ok' ? ` tone-${room.tone} tp-room--alert` : ''}`}>
+    <span className={`tp-room tp-dim${room.level !== 'ok' ? ` tone-${room.level} tp-room--alert` : ''}`}>
       {Icon ? <Icon aria-hidden="true" /> : null}
       <span className="num">{text}</span>
       {room.degrees > 0 ? <span className="tp-room__to"> to {limitLabel}</span> : null}

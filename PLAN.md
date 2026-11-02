@@ -76,7 +76,9 @@ The agent exposes the same shapes for a single node: `GET /api/v1/info`, `GET /a
 `GET /api/v1/history`, `DELETE /api/v1/history`, `GET/POST /api/v1/bench/...`, and `GET /healthz`.
 
 Live samples are full `Sample` objects (~3–5 kB) per node per tick. Processes are refreshed every 5 s (they are the
-most expensive collector), and `procs` is `null` on the ticks in between.
+most expensive collector), and `procs` is `null` on the ticks in between. NVMe and Wi-Fi temperatures and the RDMA
+port state and rate are read every 10 s, because each read is a command to the device. The ticks in between carry
+the last reading. The RDMA state is also read again on any tick where the link state disagrees with it.
 
 ### Flattened metric keys (history, alerts, charts)
 `gpu0.util gpu0.sm_mhz gpu0.temp_c gpu0.power_w gpu0.energy_j gpu0.throttle_mask gpu0.power_capped_pct`
