@@ -12,7 +12,7 @@ const CACHE_TTL_MS: Record<HistoryRange, number> = { '5m': 5_000, '1h': 30_000, 
 const MAX_ENTRIES = 64;
 
 /** How often a view showing a fixed range re-fetches it: about 30 times per range, at most every 10 s. */
-const historyRefreshMs = (range: HistoryRange) => Math.max(10_000, (RANGE_SECONDS[range] / 30) * 1000);
+export const historyRefreshMs = (range: HistoryRange) => Math.max(10_000, (RANGE_SECONDS[range] / 30) * 1000);
 
 const tickers = new Map<HistoryRange, { timer: ReturnType<typeof setInterval>; views: Set<() => void> }>();
 

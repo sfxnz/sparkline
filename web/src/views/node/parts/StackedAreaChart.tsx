@@ -13,7 +13,7 @@ import { NoDataInRange } from '../../../charts/NoDataInRange';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { Tooltip } from '../../../design/components/Tooltip';
 import { serverNow, useCluster } from '../../../store/cluster';
-import { joinHistoryRefresh, historyCache, RANGE_SECONDS } from '../../../store/history';
+import { historyCache, RANGE_SECONDS, historyRefreshMs } from '../../../store/history';
 import { liveStore } from '../../../store/live';
 import { usePrefs } from '../../../store/prefs';
 import '../../../charts/chart.css';
@@ -263,8 +263,8 @@ export function StackedAreaChart({ node, title, series, format, height = 240, yM
           .catch((e: unknown) => { if (!cancelled) { setError(e); set('error'); } });
       };
       fetchOnce();
-      const stop = joinHistoryRefresh(range, fetchOnce);
-      cleanups.push(() => { cancelled = true; stop(); });
+      const timer = setInterval(fetchOnce, historyRefreshMs(range));
+      cleanups.push(() => { cancelled = true; clearInterval(timer); });
     }
     return () => {
       cleanups.forEach((f) => { f(); });
