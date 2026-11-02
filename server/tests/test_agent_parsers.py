@@ -214,6 +214,7 @@ def test_rdma_state_is_read_when_the_link_disagrees_with_it_or_every_slow_interv
     def read(path: str) -> str:
         if path.startswith(port):
             rdma_reads.append(path)
+            now[0] += 0.005  # a firmware query
         return files[path]
 
     monkeypatch.setattr(net_mod, "read", read)
@@ -238,8 +239,12 @@ def test_rdma_state_is_read_when_the_link_disagrees_with_it_or_every_slow_interv
     assert tick(103) == (False, "DOWN", None, 0)
     assert tick(104, link="up") == (True, "DOWN", None, 1)
     assert tick(105, state="4: ACTIVE") == (True, "ACTIVE", hdr, 2)
-    assert tick(114.9, rate="100 Gb/sec (4X EDR)") == (True, "ACTIVE", hdr, 0)
+    assert tick(114, rate="100 Gb/sec (4X EDR)") == (True, "ACTIVE", hdr, 0)
     assert tick(115) == (True, "ACTIVE", "100 Gb/sec (4X EDR)", 2)
+
+    # Ticks land on an exact 1 s grid, but the collectors before net take a different 0-60 ms each tick.
+    lag = (0.0, 0.03, 0.06, 0.02, 0.05, 0.01, 0.04)
+    assert [k for k in range(1, 41) if tick(115 + k + lag[k % 7])[3]] == [10, 20, 30, 40]
 
 
 def test_ethtool_gstrings():

@@ -303,12 +303,16 @@ def test_device_queried_sensors_are_read_every_slow_interval_and_carried_between
         with open(f"{h}/temp1_input", "w") as f:
             f.write(f"{milli}\n")
     assert tick(101) == ({**temps, "acpitz.0": 46.0}, ["hwmon0", "hwmon3"])
-    assert tick(109.9)[0]["nvme.composite"] == 38.0
+    assert tick(109)[0]["nvme.composite"] == 38.0
     later = {**temps, "acpitz.0": 46.0, "nvme.composite": 39.0, "mt7925_phy0.1": 51.0}
     assert tick(110) == (later, ["hwmon0", "hwmon1", "hwmon2", "hwmon3"])
 
     shutil.rmtree(chip_functions[0])
     assert tick(111) == (later, ["hwmon0", "hwmon3", "hwmon4"])
+
+    # Ticks land on an exact 1 s grid, but the collectors before thermal take a different 0-60 ms each tick.
+    lag = (0.0, 0.03, 0.06, 0.02, 0.05, 0.01, 0.04)
+    assert [k for k in range(2, 41) if "hwmon1" in tick(110 + k + lag[k % 7])[1]] == [10, 20, 30, 40]
 
 
 def test_hwmon_dir_removed_during_scan_is_skipped(tmp_path, monkeypatch):
