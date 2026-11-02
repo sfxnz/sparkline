@@ -189,6 +189,23 @@ def test_demo_without_token_disables_auth(tmp_path):
         assert c.get("/api/v1/auth/me").json()["auth_required"] is False
 
 
+def test_demo_history_is_a_full_history_response(tmp_path):
+    with TestClient(make(tmp_path, demo=True, token="")) as c:
+        r = c.get("/api/v1/history", params={"node": "spark1", "keys": "gpu0.util"})
+        assert r.status_code == 200 and r.headers["content-type"] == "application/json"
+        h = r.json()
+        assert set(h) == {"node_id", "resolution_s", "ts", "series", "min", "max"}
+        assert set(h["series"]) == {"gpu0.util"} and len(h["series"]["gpu0.util"]) == len(h["ts"]) > 0
+
+
+def test_history_rejects_a_range_that_does_not_end_after_it_starts(tmp_path):
+    with TestClient(make(tmp_path, demo=True, token="")) as c:
+        for start, end in ((200, 100), (100, 100)):
+            r = c.get("/api/v1/history", params={"node": "spark1", "from": start, "to": end})
+            assert r.status_code == 400
+            assert r.json()["problem"]["message"] == "'from' must be earlier than 'to'"
+
+
 def test_settings_validation_and_persistence(tmp_path):
     with TestClient(make(tmp_path)) as c:
         s = c.get("/api/v1/settings", headers=bearer()).json()

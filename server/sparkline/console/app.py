@@ -367,22 +367,27 @@ def create_app(
         return src.state
 
     # -- history / live -----------------------------------------------------------------------------
-    @app.get("/api/v1/history", dependencies=Auth, response_model=None)  # already validated: no 2nd pass
+    @app.get("/api/v1/history", dependencies=Auth)
     async def history(
         node: str,
         keys: str = "",
         from_: Annotated[float | None, Query(alias="from")] = None,
         to: float | None = None,
         points: Annotated[int, Query(ge=1, le=5000)] = 600,
-    ) -> HistoryResponse:
+    ) -> Response:
         src = source(node)
         require_reachable(src)
         to = time.time() if to is None else to
         from_ = to - 3600 if from_ is None else from_
+        if from_ >= to:
+            raise ProblemError(
+                400, "'from' must be earlier than 'to'", f"from={from_}, to={to}", "Ask for a later 'to'"
+            )
         key_list = [k for k in keys.split(",") if k]
         if demo:  # seconds of CPU for long ranges: keep it off the event loop that feeds live streams
             model = cast(DemoSource, src).model
-            return await asyncio.to_thread(demo_history, model, key_list or None, from_, to, points)
+            h = await asyncio.to_thread(demo_history, model, key_list or None, from_, to, points)
+            return Response(h.model_dump_json(), media_type="application/json")
         params: dict[str, str | float] = {"keys": keys, "from": from_, "to": to, "points": points}
         try:
             r = await http["c"].get(
@@ -404,14 +409,16 @@ def create_app(
                 f"Check `journalctl -u sparkline-agent` on {node}",
             )
         try:
-            return HistoryResponse.model_validate(r.json())
-        except (ValidationError, ValueError) as e:
+            h = HistoryResponse.model_validate_json(r.content)
+        except ValidationError as e:
             raise ProblemError(
                 502,
                 f"Agent on {node} returned invalid history",
                 str(e)[:200],
                 "Upgrade sparkline-agent and sparkline to the same release",
             ) from None
+        has_every_field = h.model_fields_set == set(HistoryResponse.model_fields)
+        return Response(r.content if has_every_field else h.model_dump_json(), media_type="application/json")
 
     @app.delete("/api/v1/history", dependencies=Auth)
     async def delete_history(node: str, body: ConfirmBody) -> dict:
