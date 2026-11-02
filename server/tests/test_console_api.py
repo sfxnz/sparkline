@@ -353,6 +353,43 @@ def test_new_stream_gets_latest_sample_with_last_process_list(tmp_path):
         assert latest.ts == t0 + RING_S + 1 and latest.procs is None
 
 
+def test_new_stream_gets_the_process_list_after_the_agent_clock_steps_back(tmp_path):
+    t0 = 1_791_000_000.0
+    m = DemoModel("spark1", t0 - 100)
+    with TestClient(make(tmp_path)) as c:
+        cluster = c.app.state.cluster
+        src = _Src("spark1", "http://127.0.0.1:1", cluster)
+        cluster.add_source(src)
+        for i in range(10):
+            src.got_sample(m.sample_at(t0 + i, i, procs=False))
+        with_procs = m.sample_at(t0 - 50, 10, procs=True)
+        src.got_sample(with_procs)
+        src.got_sample(m.sample_at(t0 - 49, 11, procs=False))
+        (latest,) = cluster.latest_samples()
+        assert latest.ts == t0 - 49 and latest.procs == with_procs.procs
+
+
+def test_new_stream_drops_the_process_list_when_the_row_limit_drops_its_sample(tmp_path):
+    t0 = 1_791_000_000.0
+    m = DemoModel("spark1", t0 - 1000)
+    with_procs = m.sample_at(t0, 0, procs=True)
+    plain = m.sample_at(t0, 1, procs=False)
+    rows = int(RING_S * 4)
+    interval, stepped_back = RING_S / rows, t0 - 100
+    with TestClient(make(tmp_path)) as c:
+        cluster = c.app.state.cluster
+        src = _Src("spark1", "http://127.0.0.1:1", cluster)
+        cluster.add_source(src)
+        src.got_sample(with_procs)
+        for k in range(1, rows + 1):
+            src.got_sample(plain.model_copy(update={"ts": stepped_back + k * interval}))
+            if k == rows - 1:
+                (latest,) = cluster.latest_samples()
+                assert latest.procs == with_procs.procs
+        (latest,) = cluster.latest_samples()
+        assert latest.procs is None
+
+
 def test_live_serves_the_recent_samples_flattened(tmp_path):
     now = time.time()
     m = DemoModel("spark1", now - 1000)
