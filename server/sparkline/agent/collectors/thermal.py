@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from ...common.schema import SensorInfo, TempSample, Unsupported
-from . import SLOW_EVERY_S, read, read_once
+from . import SLOW_EVERY_S, read, read_once, slow_due
 
 # A read of these is a command to the device (NVMe admin command, Wi-Fi firmware query).
 SLOW_GROUPS = ("nvme", "wireless")
@@ -166,7 +166,7 @@ class ThermalCollector:
 
     def collect(self) -> dict:
         now = time.monotonic()
-        slow = now - self._slow_t >= SLOW_EVERY_S
+        slow = slow_due(self._slow_t, now)
         if slow:
             self._slow_t = now
         for sid, is_slow, paths in self._paths:

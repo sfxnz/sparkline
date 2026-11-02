@@ -28,7 +28,7 @@ import psutil
 from ...common.netutil import default_route_iface
 from ...common.schema import NetIfInfo, NetSample
 from ..ethtool import EthtoolStats
-from . import SLOW_EVERY_S, counter_delta, read, read_once
+from . import SLOW_EVERY_S, counter_delta, read, read_once, slow_due
 
 log = logging.getLogger(__name__)
 
@@ -253,9 +253,7 @@ class NetCollector:
         except OSError:
             up = False
         # Each state or rate read is a firmware query, and a RoCE port's state follows its link.
-        if i.info.rdma_device and (
-            up != (i.rdma_state == "ACTIVE") or time.monotonic() - i.rdma_t >= SLOW_EVERY_S
-        ):
+        if i.info.rdma_device and (up != (i.rdma_state == "ACTIVE") or slow_due(i.rdma_t, time.monotonic())):
             base = f"/sys/class/infiniband/{i.info.rdma_device}/ports/1/"
             state = parse_rdma_state(read(base + "state"))
             i.rdma_rate = read(base + "rate").strip() if state == "ACTIVE" else None
@@ -272,7 +270,7 @@ class NetCollector:
         d = {k: counter_delta(i.prev.get(k), v) for k, v in cur.items()}
         i.prev = cur
         errors, drops = d["errors"], d["drops"]
-        if (i.eth or i.rdma_base) and now - i.slow_t >= SLOW_EVERY_S:
+        if (i.eth or i.rdma_base) and slow_due(i.slow_t, now):
             i.slow_t = now
             slow = self._slow_counters(i)
             errors += sum(counter_delta(i.slow_prev.get(k), v) for k, v in slow.items() if k != "drops")
