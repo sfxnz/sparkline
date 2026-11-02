@@ -277,6 +277,7 @@ export function TimeSeriesChart({
     const el = plotRef.current;
     if (!el || unsupported) return;
     const theme = readChartTheme();
+    const lineColor = (i: number) => theme.series[i % theme.series.length] ?? theme.axis;
     const k = theme.fontPx / 11; // axis room grows with the user's font size
     // Same tag and state => same object, so React skips the render: only transitions re-render, not every sample.
     const setLoad = (state: LoadState) => { setLoadTagged((prev) => (prev.id === dataId && prev.state === state ? prev : { id: dataId, state })); };
@@ -328,7 +329,7 @@ export function TimeSeriesChart({
       series: [
         {},
         ...(stacked?.series ?? labels.map((label, i): uPlot.Series => {
-          const color = theme.series[i % theme.series.length] ?? theme.axis;
+          const color = lineColor(i);
           return {
             label,
             stroke: color,
@@ -358,7 +359,7 @@ export function TimeSeriesChart({
           ...(stacked && { show: false }),
           size: 8,
           width: 2,
-          fill: (u, si) => (u.series[si]?.stroke as string | undefined) ?? theme.axis,
+          fill: (_u, si) => lineColor(si - 1),
           stroke: () => theme.surface,
         },
         bind: {
