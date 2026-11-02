@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import builtins
 import json
 import sqlite3
 import time
@@ -49,7 +48,7 @@ class BenchStore:
         row = self.db.execute("SELECT data FROM bench_runs WHERE id=?", (run_id,)).fetchone()
         return self._load(row[0]) if row else None
 
-    def list(
+    def run_list(
         self,
         bench_id: str | None = None,
         node: str | None = None,
@@ -66,13 +65,17 @@ class BenchStore:
         if node:
             where.append("EXISTS (SELECT 1 FROM json_each(bench_runs.nodes) WHERE value = ?)")
             args.append(node)
-        sql = "SELECT data FROM bench_runs"
+        sql = (
+            "SELECT json_set(data, '$.node_states', json_object(), '$.series', json((SELECT"
+            " json_group_object(key, json(value)) FROM json_each(data, '$.series')"
+            " WHERE key NOT GLOB 'telemetry.*'))) FROM bench_runs"
+        )
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY created_ts DESC, id DESC LIMIT ?"
         return [self._load(r[0]) for r in self.db.execute(sql, [*args, limit]).fetchall()]
 
-    def unfinished(self) -> builtins.list[BenchRun]:
+    def unfinished(self) -> list[BenchRun]:
         rows = self.db.execute(
             "SELECT data FROM bench_runs WHERE status IN ('queued','running') ORDER BY created_ts"
         ).fetchall()

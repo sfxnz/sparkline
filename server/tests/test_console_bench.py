@@ -359,13 +359,48 @@ def test_store_lists_filters_and_deletes(tmp_path):
     b.created_ts = a.created_ts + 1
     st.save(a)
     st.save(b)
-    assert [r.id for r in st.list()] == ["b", "a"]  # newest first
-    assert [r.id for r in st.list(node="spark2")] == ["b"]
-    assert [r.id for r in st.list(status="succeeded")] == ["a"]
-    assert [r.id for r in st.list(bench_id="other")] == []
+    assert [r.id for r in st.run_list()] == ["b", "a"]  # newest first
+    assert [r.id for r in st.run_list(node="spark2")] == ["b"]
+    assert [r.id for r in st.run_list(status="succeeded")] == ["a"]
+    assert [r.id for r in st.run_list(bench_id="other")] == []
     st.set_baseline("gpu-matmul", "{}", "a")
     st.delete("a")
     assert st.get("a") is None and st.baseline_id("gpu-matmul", "{}") is None
+
+
+def test_list_rows_are_stored_runs_without_node_states_or_telemetry(tmp_path):
+    mgr, _ = _manager(tmp_path)
+    run = _run("r", "{}", 1.0)
+    run.series = {"spark1.t": [0.0, 1.5], "telemetry.spark1.util": [54.6], "spark1.mhz": [2800.0]}
+    run.node_states = {
+        "spark1": NodeBenchState(
+            run_id="r",
+            bench_id="gpu-matmul",
+            node_id="spark1",
+            status="succeeded",
+            series={"t": [0.0]},
+            detail={"llm": {"levels": [{"level": 1, "out_tok_s": 46.1}]}},
+        )
+    }
+    run.metadata = {"nodes": {"spark1": {"gpu": "GB10"}}}
+    run.log_tail = ["done"]
+    bare = _run("bare", "{}", 2.0)
+    bare.created_ts = run.created_ts + 1
+    mgr.store.save(run)
+    mgr.store.save(bare)
+    mgr.store.set_baseline("gpu-matmul", "{}", "r")
+    row = run.model_copy(
+        update={
+            "node_states": {},
+            "series": {"spark1.t": [0.0, 1.5], "spark1.mhz": [2800.0]},
+            "baseline_for": True,
+        }
+    )
+    listed = [r.model_dump(mode="json") for r in mgr.list(None, None, None, 10)]
+    assert listed == [bare.model_dump(mode="json"), row.model_dump(mode="json")]
+    stored = {r.id: r for r in mgr.store.run_list()}
+    assert stored["r"].node_states == {}
+    assert sorted(stored["r"].series) == ["spark1.mhz", "spark1.t"]
 
 
 class _Src(NodeSource):
