@@ -108,4 +108,17 @@ describe('joinHistoryRefresh', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+
+  it('keeps one timer per range when a view stops twice across a restart of that range', () => {
+    vi.useFakeTimers();
+    const stopA = joinHistoryRefresh('1h', () => undefined);
+    stopA();
+    const stopB = joinHistoryRefresh('1h', () => undefined);
+    stopA();
+    const stopC = joinHistoryRefresh('1h', () => undefined);
+    expect(vi.getTimerCount()).toBe(1);
+    stopB();
+    stopC();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
