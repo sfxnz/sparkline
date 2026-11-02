@@ -23,20 +23,20 @@ const pct = (n: number) => formatPercent(n);
 export function ClusterChart({ nodes }: { nodes: readonly string[] }) {
   const range = usePrefs((s) => s.timeRange);
   return (
-    <Panel title="GPU activity" subtitle={`Utilisation and GPU power per node, on shared scales · ${RANGE_TEXT[range]}`}>
-      <div className="ov-chart">
-        <span className="ov-chart__col t-eyebrow" aria-hidden="true">Utilisation</span>
-        <span className="ov-chart__col t-eyebrow" aria-hidden="true">GPU power</span>
-        <Suspense fallback={<SkeletonRows rows={nodes.length} />}>
+    <Suspense fallback={<ClusterChartSkeleton rows={nodes.length} />}>
+      <Panel title="GPU activity" subtitle={`Utilisation and GPU power per node, on shared scales · ${RANGE_TEXT[range]}`}>
+        <div className="ov-chart">
+          <span className="ov-chart__col t-eyebrow" aria-hidden="true">Utilisation</span>
+          <span className="ov-chart__col t-eyebrow" aria-hidden="true">GPU power</span>
           {nodes.map((id) => (
             <div key={id} className="ov-chart__row">
               <TimeSeriesChart node={id} title={`${id} GPU utilisation`} series={[{ key: 'gpu0.util', label: id }]} format={pct} yMin={0} yMax={100} height={CHART_H} />
               <TimeSeriesChart node={id} title={`${id} GPU power`} series={[{ key: 'gpu0.power_w', label: id }]} format={formatWatts} yMin={0} yGroup="overview-gpu-power" height={CHART_H} />
             </div>
           ))}
-        </Suspense>
-      </div>
-    </Panel>
+        </div>
+      </Panel>
+    </Suspense>
   );
 }
 
@@ -46,17 +46,13 @@ export function ClusterChartSkeleton({ rows }: { rows: number }) {
       <div className="ov-chart">
         <span className="ov-chart__col t-eyebrow">Utilisation</span>
         <span className="ov-chart__col t-eyebrow">GPU power</span>
-        <SkeletonRows rows={rows} />
+        {Array.from({ length: rows }, (_, i) => (
+          <div key={i} className="ov-chart__row">
+            <ChartSkeleton height={CHART_H + 34} />
+            <ChartSkeleton height={CHART_H + 34} />
+          </div>
+        ))}
       </div>
     </Panel>
   );
-}
-
-function SkeletonRows({ rows }: { rows: number }) {
-  return Array.from({ length: rows }, (_, i) => (
-    <div key={i} className="ov-chart__row">
-      <ChartSkeleton height={CHART_H + 34} />
-      <ChartSkeleton height={CHART_H + 34} />
-    </div>
-  ));
 }
