@@ -259,11 +259,11 @@ class _NullBackend:
         pass
 
 
-def _manager(tmp_path, sources=()):
+def _manager(tmp_path, nodes=()):
     store = Store(tmp_path / "c.sqlite")
     cluster = Cluster(store, Hub(), ConsoleSettings(regression_pct=5.0))
-    for s in sources:
-        cluster.add_source(s)
+    for n in nodes:
+        cluster.add_source(_Src(n, "http://127.0.0.1:1", cluster))
     return BenchManager(cluster, BenchStore(store.db), _NullBackend()), cluster
 
 
@@ -375,14 +375,14 @@ class _Src(NodeSource):
 
 def test_telemetry_overlay_is_recorded_and_bounded(tmp_path, monkeypatch):
     sample = Sample.model_validate_json((FIX / "sample.json").read_text())
-    src = _Src("spark1", "http://127.0.0.1:1", listener=None)  # type: ignore[arg-type]
-    mgr, _ = _manager(tmp_path, [src])
+    mgr, cluster = _manager(tmp_path, ["spark1"])
+    src = cluster.sources["spark1"]
     monkeypatch.setattr(bench_mod, "TELEMETRY_MAX", 100)
     act = _Active(run=_run("r", "{}", 1.0, status="running"), name="GPU matmul")
     t0 = time.time() - 1000
     for i in range(1000):
         gpu = sample.gpu[0].model_copy(update={"util": float(i % 100), "throttle_mask": 4 if i == 501 else 0})
-        src.ring.append(sample.model_copy(update={"ts": t0 + i, "gpu": [gpu]}))
+        src.got_sample(sample.model_copy(update={"ts": t0 + i, "gpu": [gpu]}))
         mgr._record_telemetry(act, t0 + i)
         mgr._record_telemetry(act, t0 + i)  # same sample twice: recorded once
     series = act.run.series
@@ -399,16 +399,16 @@ def test_telemetry_overlay_keeps_every_sample_when_ticks_drift(tmp_path):
     """Real soak 0muykplobp9x: the 1 s tick plus the 5 s agent polls drifted against the agent's 1 Hz samples,
     so some ticks found two new samples and only the newest was kept: 2 s holes in every telemetry chart."""
     sample = Sample.model_validate_json((FIX / "sample.json").read_text())
-    src = _Src("spark1", "http://127.0.0.1:1", listener=None)  # type: ignore[arg-type]
-    mgr, _ = _manager(tmp_path, [src])
+    mgr, cluster = _manager(tmp_path, ["spark1"])
+    src = cluster.sources["spark1"]
     act = _Active(run=_run("r", "{}", 1.0, status="running"), name="Thermal soak")
     t0 = time.time() - 100
     for i in range(5):  # history from before the run is not part of it
-        src.ring.append(sample.model_copy(update={"ts": t0 - 5 + i}))
+        src.got_sample(sample.model_copy(update={"ts": t0 - 5 + i}))
     mgr._record_telemetry(act, t0 - 0.5)
     tick = t0 - 0.5
     for i in range(60):
-        src.ring.append(sample.model_copy(update={"ts": t0 + i}))
+        src.got_sample(sample.model_copy(update={"ts": t0 + i}))
         if i % 5 != 4:  # every fifth sample, the tick runs late and finds two new samples
             tick = t0 + i + 0.5
             mgr._record_telemetry(act, tick)
@@ -416,6 +416,33 @@ def test_telemetry_overlay_keeps_every_sample_when_ticks_drift(tmp_path):
     ts = act.run.series["telemetry.spark1.ts"]
     assert ts == [round(t0 - 1, 3)] + [round(t0 + i, 3) for i in range(60)]
     assert len(act.run.series["telemetry.spark1.util"]) == len(ts)
+
+
+def test_telemetry_overlay_holds_gpu_values_and_carries_gaps_forward(tmp_path):
+    sample = Sample.model_validate_json((FIX / "sample.json").read_text())
+    mgr, cluster = _manager(tmp_path, ["spark1"])
+    src = cluster.sources["spark1"]
+    act = _Active(run=_run("r", "{}", 1.0, status="running"), name="GPU matmul")
+    g = sample.gpu[0]
+    gpus = [
+        [g.model_copy(update={"power_w": None})],
+        [g.model_copy(update={"util": 99.0, "throttle_mask": 4})],
+        [],
+        [g.model_copy(update={"util": None, "temp_c": 71.5})],
+    ]
+    t0 = time.time() - 10
+    for i, gpu in enumerate(gpus):
+        src.got_sample(sample.model_copy(update={"ts": t0 + i, "gpu": gpu}))
+        mgr._record_telemetry(act, t0 + i)
+    series = {k.removeprefix("telemetry.spark1."): v for k, v in act.run.series.items()}
+    assert series == {
+        "ts": [round(t0 + i, 3) for i in range(4)],
+        "util": [g.util, 99.0, 99.0, 99.0],
+        "temp_c": [g.temp_c, g.temp_c, g.temp_c, 71.5],
+        "power_w": [0.0, g.power_w, g.power_w, g.power_w],
+        "sm_mhz": [g.sm_mhz] * 4,
+        "throttle_mask": [g.throttle_mask, 4, 4, g.throttle_mask],
+    }
 
 
 def test_bench_api_requires_auth_and_same_origin(tmp_path):
