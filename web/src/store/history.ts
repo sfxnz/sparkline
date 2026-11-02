@@ -29,7 +29,7 @@ export function joinHistoryRefresh(range: HistoryRange, refresh: () => void): ()
     views.delete(refresh);
     if (views.size) return;
     clearInterval(timer);
-    tickers.delete(range);
+    if (tickers.get(range) === ticker) tickers.delete(range);
   };
 }
 
