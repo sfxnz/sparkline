@@ -63,6 +63,23 @@ test('command palette jumps to a node tab', async ({ page }) => {
   await expect(page.getByText('Unified memory · shared by CPU and GPU', { exact: false })).toBeVisible();
 });
 
+test('lazy chunks that fail to load leave the rest of the overview working', async ({ page }) => {
+  let aborted = 0;
+  await page.route(/\/assets\/(CommandPalette|TimeSeriesChart)-[^/]*\.js$/, (route) => {
+    aborted++;
+    return route.abort('failed');
+  });
+  await page.goto('/');
+  await ready(page);
+  await expect.poll(() => aborted).toBe(2);
+  await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^spark1\b.*open node details/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'GPU activity' })).toContainText("The GPU activity panel couldn't be displayed");
+  await page.keyboard.press('Control+k');
+  await expect(page.getByRole('combobox', { name: /Search views/ })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+});
+
 test('the time-range picker moves charts from the live buffer to history, and is remembered', async ({ page }) => {
   await page.goto('/node/spark1');
   await ready(page);
