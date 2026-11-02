@@ -60,4 +60,10 @@ test('startup JavaScript stays within the gzip budget, with the benchmark suite 
   for (const lazy of ['Benchmarks', 'Alerts', 'Settings', 'Wall', 'Login', 'motionFeatures']) {
     expect(files.some((f) => f.startsWith(`assets/${lazy}-`)), `${lazy} chunk loaded at startup`).toBe(false);
   }
+  // Checked by source module, not chunk name: an eager import merges a module into a startup chunk instead of loading a
+  // chunk of its own.
+  const sources = files.flatMap((f) => (JSON.parse(readFileSync(join(DIST, `${f}.map`), 'utf8')) as { sources: string[] }).sources);
+  for (const late of ['node_modules/uplot/', 'src/app/CommandPalette.tsx']) {
+    expect(sources.filter((s) => s.includes(late)), `${late} in the startup graph`).toEqual([]);
+  }
 });
