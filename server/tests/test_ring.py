@@ -18,12 +18,21 @@ def filled(seconds: float = 900, max_rows: int = 3600, n: int = 10) -> SampleRin
 def test_rows_more_than_seconds_older_than_the_newest_are_dropped():
     ring = filled(seconds=5)
     assert [ts for ts, _ in ring.rows()] == [4, 5, 6, 7, 8, 9]
-    assert ring.oldest == 4
 
 
 def test_the_ring_never_holds_more_than_max_rows():
     ring = filled(max_rows=3)
-    assert [ts for ts, _ in ring.rows()] == [7, 8, 9] and ring.oldest == 7
+    assert [ts for ts, _ in ring.rows()] == [7, 8, 9]
+
+
+def test_holds_matches_the_rows_still_in_the_ring_after_a_clock_step_back():
+    ring = SampleRing(5, 3)
+    arrivals: dict[float, int] = {}
+    for ts in (10.0, 11.0, 2.0, 12.0, 17.0):
+        arrivals[ts] = ring.add(ts, {"a": ts})
+        held = [t for t, n in arrivals.items() if ring.holds(n)]
+        assert held == [t for t, _ in ring.rows()], ts
+    assert held == [12.0, 17.0]
 
 
 def test_rows_in_a_time_range_include_both_ends():
@@ -65,8 +74,9 @@ def test_rows_share_one_set_of_key_strings():
 
 def test_clear_empties_the_ring():
     ring = filled()
+    last = ring.add(10.0, {"a": 10.0})
     ring.clear()
-    assert ring.rows() == [] and ring.oldest is None
+    assert ring.rows() == [] and not ring.holds(last)
 
 
 def test_a_reader_thread_never_sees_a_half_trimmed_ring():
