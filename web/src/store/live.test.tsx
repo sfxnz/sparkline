@@ -91,6 +91,80 @@ describe('LiveStore ring buffers', () => {
   });
 });
 
+describe('LiveStore reconnect back-fill', () => {
+  const SOCKET_UTIL = 50;
+  const REPLY_UTIL = 1;
+  const LAST_TICK_BEFORE_DROP = 1000;
+  const RECONNECT_TICK = 1120;
+  const LIVE_SECONDS = 900;
+  const ticks = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  const filled = (from: number, to: number, v: number) => ticks(from, to).map(() => v);
+  const reply = (from: number, to: number) => {
+    const ts = ticks(from, to);
+    return { node_id: 'spark1', resolution_s: 1, ts, series: { 'gpu0.util': ts.map(() => REPLY_UTIL) }, min: {}, max: {} };
+  };
+  const replyAtReconnect = () => reply(RECONNECT_TICK - LIVE_SECONDS + 1, RECONNECT_TICK);
+  const beforeOutage = () => {
+    const { store, frame } = manual(3600);
+    for (let t = 1; t <= LAST_TICK_BEFORE_DROP; t++) store.pushSample(mk(t, SOCKET_UTIL));
+    frame();
+    return { store, frame };
+  };
+
+  it('fills the outage when a new-socket sample lands before the seed reply', () => {
+    const { store, frame } = beforeOutage();
+    const onKey = vi.fn();
+    store.subscribe('spark1', 'gpu0.util', onKey);
+    store.pushSample(mk(RECONNECT_TICK, SOCKET_UTIL));
+    frame();
+    store.seed(replyAtReconnect());
+    frame();
+    const w = store.window('spark1', ['gpu0.util']);
+    expect(w.ts).toEqual(ticks(1, RECONNECT_TICK));
+    expect(w.values[0]).toEqual([
+      ...filled(1, LAST_TICK_BEFORE_DROP, SOCKET_UTIL),
+      ...filled(LAST_TICK_BEFORE_DROP + 1, RECONNECT_TICK - 1, REPLY_UTIL),
+      SOCKET_UTIL,
+    ]);
+    expect(onKey).toHaveBeenCalledTimes(2);
+    expect(store.latest('spark1')?.ts).toBe(RECONNECT_TICK);
+  });
+
+  it('fills the outage when the seed reply lands before the new-socket samples', () => {
+    const { store } = beforeOutage();
+    store.seed(replyAtReconnect());
+    store.pushSample(mk(RECONNECT_TICK, SOCKET_UTIL));
+    store.pushSample(mk(RECONNECT_TICK + 1, SOCKET_UTIL));
+    const w = store.window('spark1', ['gpu0.util']);
+    expect(w.ts).toEqual(ticks(1, RECONNECT_TICK + 1));
+    expect(w.values[0]).toEqual([
+      ...filled(1, LAST_TICK_BEFORE_DROP, SOCKET_UTIL),
+      ...filled(LAST_TICK_BEFORE_DROP + 1, RECONNECT_TICK, REPLY_UTIL),
+      SOCKET_UTIL,
+    ]);
+    expect(store.latest('spark1')?.ts).toBe(RECONNECT_TICK + 1);
+  });
+
+  it('keeps the newest `capacity` ticks after filling a gap', () => {
+    const { store } = manual(8);
+    for (let t = 1; t <= 5; t++) store.pushSample(mk(t, SOCKET_UTIL));
+    store.pushSample(mk(12, SOCKET_UTIL));
+    store.seed(reply(3, 12));
+    const w = store.window('spark1', ['gpu0.util']);
+    expect(w.ts).toEqual(ticks(5, 12));
+    expect(w.values[0]).toEqual([SOCKET_UTIL, ...filled(6, 11, REPLY_UTIL), SOCKET_UTIL]);
+  });
+
+  it('fills a gap in a ring that has wrapped', () => {
+    const { store } = manual(8);
+    for (const t of [...ticks(1, 6), ...ticks(9, 12)]) store.pushSample(mk(t, SOCKET_UTIL));
+    store.seed(reply(7, 8));
+    const w = store.window('spark1', ['gpu0.util']);
+    expect(w.ts).toEqual(ticks(5, 12));
+    expect(w.values[0]).toEqual([...filled(5, 6, SOCKET_UTIL), ...filled(7, 8, REPLY_UTIL), ...filled(9, 12, SOCKET_UTIL)]);
+  });
+});
+
 describe('LiveStore notifications', () => {
   it('coalesces many samples into one notification per frame', () => {
     const { store, frame, frames } = manual(8);
