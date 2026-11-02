@@ -28,11 +28,10 @@ import psutil
 from ...common.netutil import default_route_iface
 from ...common.schema import NetIfInfo, NetSample
 from ..ethtool import EthtoolStats
-from . import counter_delta, read, read_once
+from . import SLOW_EVERY_S, counter_delta, read, read_once
 
 log = logging.getLogger(__name__)
 
-SLOW_EVERY_S = 10.0
 RDMA_DATA = ("counters/port_rcv_data", "counters/port_xmit_data")  # 4-byte words
 DROPS = ["rx_discards_phy", "tx_discards_phy"]
 ERRORS = ["rx_crc_errors_phy"]
@@ -158,6 +157,9 @@ class _If:
         self.slow_prev: dict[str, float] = {}
         self.slow_t = -SLOW_EVERY_S
         self.speed: int | None = None  # re-read only when the link comes up (mlx5 speed reads are costly)
+        self.rdma_state: str | None = None
+        self.rdma_rate: str | None = None
+        self.rdma_t = -SLOW_EVERY_S
 
 
 class NetCollector:
@@ -250,14 +252,17 @@ class NetCollector:
             up = read(f"/sys/class/net/{i.name}/operstate").strip() == "up"
         except OSError:
             up = False
-        rdma_state = rdma_rate = None
-        base = f"/sys/class/infiniband/{i.info.rdma_device}/ports/1/" if i.info.rdma_device else None
-        if base:
-            rdma_state = parse_rdma_state(read(base + "state"))
-            rdma_rate = read(base + "rate").strip() if rdma_state == "ACTIVE" else None
+        # Each state or rate read is a firmware query, and a RoCE port's state follows its link.
+        if i.info.rdma_device and (
+            up != (i.rdma_state == "ACTIVE") or time.monotonic() - i.rdma_t >= SLOW_EVERY_S
+        ):
+            base = f"/sys/class/infiniband/{i.info.rdma_device}/ports/1/"
+            state = parse_rdma_state(read(base + "state"))
+            i.rdma_rate = read(base + "rate").strip() if state == "ACTIVE" else None
+            i.rdma_state, i.rdma_t = state, time.monotonic()
         if not up:  # no cable / link down: skip counter reads; restart rates from 0 when it comes back
             i.prev, i.prev_t, i.speed = {}, None, None
-            return NetSample(name=i.name, up=False, rx_bps=0.0, tx_bps=0.0, rdma_state=rdma_state)
+            return NetSample(name=i.name, up=False, rx_bps=0.0, tx_bps=0.0, rdma_state=i.rdma_state)
         if i.prev_t is None:
             i.speed = self._speed(i.name)
         now = time.monotonic()
@@ -281,8 +286,8 @@ class NetCollector:
             tx_bps=d["tx"] / elapsed if elapsed > 0 else 0.0,
             errors=errors,
             drops=drops,
-            rdma_state=rdma_state,
-            rdma_rate=rdma_rate,
+            rdma_state=i.rdma_state,
+            rdma_rate=i.rdma_rate,
         )
 
     @staticmethod

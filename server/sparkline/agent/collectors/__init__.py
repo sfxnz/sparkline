@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 
+SLOW_EVERY_S = 10.0
+
 _fds: dict[str, int] = {}
 
 

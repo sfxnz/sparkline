@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from sparkline.agent.collectors import counter_delta, parse_psi
+from sparkline.agent.collectors import net as net_mod
 from sparkline.agent.collectors.cpu import (
     classify_cores,
     core_utils,
@@ -199,6 +200,48 @@ def test_net_one_unreadable_iface_keeps_the_others():
     assert [(n.name, n.up) for n in out] == [("lo", False), ("lo", False)]  # both present, nothing raised
 
 
+def test_rdma_state_is_read_when_the_link_disagrees_with_it_or_every_slow_interval(monkeypatch):
+    port = "/sys/class/infiniband/roce0/ports/1/"
+    files = {
+        "/proc/net/dev": "header\nheader\n",
+        "/sys/class/net/rail0/operstate": "up\n",
+        "/sys/class/net/rail0/speed": "200000\n",
+        port + "state": "4: ACTIVE\n",
+        port + "rate": "200 Gb/sec (4X HDR)\n",
+    }
+    rdma_reads = []
+
+    def read(path: str) -> str:
+        if path.startswith(port):
+            rdma_reads.append(path)
+        return files[path]
+
+    monkeypatch.setattr(net_mod, "read", read)
+    now = [100.0]
+    monkeypatch.setattr(net_mod.time, "monotonic", lambda: now[0])
+    nc = NetCollector.__new__(NetCollector)
+    nc.ifaces = [_If(NetIfInfo(name="rail0", role="interconnect", label="x", rdma_device="roce0"))]
+
+    paths = {"link": "/sys/class/net/rail0/operstate", "state": port + "state", "rate": port + "rate"}
+
+    def tick(at: float, **changes: str) -> tuple:
+        now[0] = at
+        files.update({paths[k]: v for k, v in changes.items()})
+        rdma_reads.clear()
+        (n,) = nc.collect()["net"]
+        return n.up, n.rdma_state, n.rdma_rate, len(rdma_reads)
+
+    hdr = "200 Gb/sec (4X HDR)"
+    assert tick(100) == (True, "ACTIVE", hdr, 2)
+    assert tick(101) == (True, "ACTIVE", hdr, 0)
+    assert tick(102, link="down", state="1: DOWN") == (False, "DOWN", None, 1)
+    assert tick(103) == (False, "DOWN", None, 0)
+    assert tick(104, link="up") == (True, "DOWN", None, 1)
+    assert tick(105, state="4: ACTIVE") == (True, "ACTIVE", hdr, 2)
+    assert tick(114.9, rate="100 Gb/sec (4X EDR)") == (True, "ACTIVE", hdr, 0)
+    assert tick(115) == (True, "ACTIVE", "100 Gb/sec (4X EDR)", 2)
+
+
 def test_ethtool_gstrings():
     names = [b"rx_bytes_phy", b"tx_bytes_phy", b"x" * 32]
     buf = struct.pack("=III", 0x1B, 1, 3) + b"".join(n.ljust(32, b"\0") for n in names)
@@ -235,7 +278,6 @@ def test_hwmon_sensors():
     assert s["acpitz.0"].label == "ACPI zone 0" and s["acpitz.0"].group == "soc"
     assert s["nvme.composite"].label == "NVMe Composite" and s["nvme.composite"].crit_c == 84.85
     assert s["nvme.sensor_1"].group == "nvme"
-    # four PCI functions (hwmon2-5) of one ConnectX-7 chip: one sensor, read from all four (max)
     assert [i for i in s if i.startswith("mlx5")] == ["mlx5.0"] and s["mlx5.0"].label == "ConnectX-7 ASIC"
     assert [p for i, p in built if i.id == "mlx5.0"][0] == [
         (f"/sys/class/hwmon/hwmon{n}", 1) for n in (2, 3, 4, 5)
