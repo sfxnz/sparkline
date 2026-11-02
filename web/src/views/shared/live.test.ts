@@ -1,4 +1,9 @@
+import { renderHook, waitFor } from '@testing-library/react';
+import { api } from '../../lib/api';
+import { historyCache } from '../../store/history';
 import { LiveStore } from '../../store/live';
+import { useSpanHistory } from '../node/partsC/hooks';
+import { useEnergyToday } from '../overview/hooks';
 import { lastKnown, lastKnownValue, notLive, spanPhrase } from './live';
 
 describe('notLive', () => {
@@ -43,5 +48,29 @@ describe('spanPhrase', () => {
     expect(spanPhrase('live', now - 155, now)).toBe('last 3 min');
     expect(spanPhrase('5m', now - 88, now)).toBe('last 1 min');
     expect(spanPhrase('24h', now - 2 * 3600, now)).toMatch(/^since \d\d:\d\d$/);
+  });
+});
+
+describe('energy since midnight', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('is fetched once for the Overview total and the Thermals tab', async () => {
+    const history = vi.spyOn(api, 'history').mockResolvedValue({ node_id: 'spark1', resolution_s: 60, ts: [1], series: { 'gpu0.energy_j': [1] }, min: {}, max: {} });
+    renderHook(() => useEnergyToday(['spark1']));
+    const thermals = renderHook(() => useSpanHistory('spark1', 'gpu0.energy_j', 'today'));
+    await waitFor(() => { expect(thermals.result.current.state).toBe('ready'); });
+    expect(history).toHaveBeenCalledTimes(1);
+  });
+
+  it('is fetched anew after the history is cleared', async () => {
+    const before = { node_id: 'spark2', resolution_s: 60, ts: [1], series: { 'gpu0.energy_j': [5] }, min: {}, max: {} };
+    const after = { node_id: 'spark2', resolution_s: 60, ts: [], series: {}, min: {}, max: {} };
+    const history = vi.spyOn(api, 'history').mockResolvedValueOnce(before).mockResolvedValue(after);
+    renderHook(() => useEnergyToday(['spark2']));
+    await waitFor(() => { expect(history).toHaveBeenCalledTimes(1); });
+    historyCache.clear();
+    const thermals = renderHook(() => useSpanHistory('spark2', 'gpu0.energy_j', 'today'));
+    await waitFor(() => { expect(thermals.result.current.state).toBe('ready'); });
+    expect(thermals.result.current).toEqual({ state: 'ready', data: after });
   });
 });
