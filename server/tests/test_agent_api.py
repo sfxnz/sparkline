@@ -149,6 +149,7 @@ def test_rest_auth_snapshot_history(tmp_path):
             [5.0],
         )
         assert c.get("/api/v1/history", params={"from": 10, "to": 5}, headers=AUTH).status_code == 400
+        assert c.get("/api/v1/history", params={"keys": 'gpu0.util,a"b'}, headers=AUTH).status_code == 400
         assert c.request("DELETE", "/api/v1/history", headers=AUTH, json={}).status_code == 400
         assert c.request("DELETE", "/api/v1/history", json={"confirm": "DELETE"}).status_code == 401
         r = c.request("DELETE", "/api/v1/history", headers=AUTH, json={"confirm": "DELETE"})

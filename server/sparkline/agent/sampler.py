@@ -224,7 +224,7 @@ class Sampler:
         if res == interval or self.store is None:
             rows = await asyncio.to_thread(_ring_rows, ring, t_from, t_to, keys)
         else:
-            rows = await loop.run_in_executor(self._db, self.store.query, int(res), t_from, t_to)
+            rows = await loop.run_in_executor(self._db, self.store.query, int(res), t_from, t_to, keys)
             if ring_oldest is not None and t_to > ring_oldest:
                 # Whole buckets older than the ring; the newest part (incl. the open bucket, not in SQLite
                 # yet) comes from the ring. With nothing older (a young agent): the ring alone, at full rate.

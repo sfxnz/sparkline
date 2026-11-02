@@ -154,6 +154,10 @@ def downsample(
     return out[-points:]  # aligned edges can cut the range into points + 1 buckets: drop the oldest
 
 
+def _dumps(v: object) -> str:
+    return json.dumps(v, separators=(",", ":"))
+
+
 class Store:
     def __init__(self, data_dir: str) -> None:
         os.makedirs(data_dir, exist_ok=True)
@@ -175,16 +179,31 @@ class Store:
         db = self._conn()
         db.execute(
             f"INSERT OR REPLACE INTO {TABLES[res]} VALUES (?, ?)",
-            (ts, json.dumps(data, separators=(",", ":"))),
+            (ts, _dumps(data)),
         )
         db.commit()
 
-    def query(self, res: int, t0: float, t1: float) -> list[tuple[float, dict]]:
+    def query(
+        self, res: int, t0: float, t1: float, keys: list[str] | None = None
+    ) -> list[tuple[float, dict]]:
         """Rows are keyed by bucket start; they are served stamped at the bucket centre."""
+        span = (int(t0), int(t1))
+        if keys is None:
+            cur = self._conn().execute(
+                f"SELECT ts, data FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts", span
+            )
+            return [(ts + res / 2, json.loads(d)) for ts, d in cur]
+        cols = ", ".join(["json_extract(data, ?)"] * len(keys))
         cur = self._conn().execute(
-            f"SELECT ts, data FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts", (int(t0), int(t1))
+            f"SELECT ts, {cols} FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts",
+            # SQLite does not unescape JSON path labels, so a label carries the stored key's escapes
+            [*("$." + _dumps(k) for k in keys), *span],
         )
-        return [(ts + res / 2, json.loads(d)) for ts, d in cur]
+        out = []
+        for ts, *vals in cur:
+            row = json.loads("[" + ",".join(v or "null" for v in vals) + "]")
+            out.append((ts + res / 2, {k: v for k, v in zip(keys, row, strict=True) if v is not None}))
+        return out
 
     def prune(self, now: float, retention: dict[int, float]) -> None:
         db = self._conn()
