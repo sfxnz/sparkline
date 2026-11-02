@@ -288,9 +288,7 @@ fixed. Highest severity first.
   - **Single samples:** each GEMM size is timed once, so a transient goes straight into the result (one
     spark2 BF16 run read 77.5 instead of ~99 TFLOPS and never reproduced). FP8 with per-row scales runs at
     56 TFLOPS at 16384 (PyTorch's row-wise kernel on sm_121), not a Sparkline fault.
-  - **Metadata gaps:** the CPU clock shown in monitoring and the CPU benchmark's chart comes from
-    `scaling_cur_freq`, which on GB10 is the requested clock (flat 3900 / 2808 MHz); the real one is
-    `cpuinfo_avg_freq`. Run metadata snapshots only GPU readings, also for CPU, storage and RDMA runs, and
+  - **Metadata gaps:** run metadata snapshots only GPU readings, also for CPU, storage and RDMA runs, and
     RDMA/NCCL runs save no network series. "CUDA" in node metadata is the host driver's 13.0; the container runs
     13.3 in forward compatibility (in `extras.cuda` and the log). `suite_git` is empty on a node deployed
     without `.git`; `suite_sha256` still identifies the code.
