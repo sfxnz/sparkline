@@ -398,6 +398,9 @@ def test_list_rows_are_stored_runs_without_node_states_or_telemetry(tmp_path):
     )
     listed = [r.model_dump(mode="json") for r in mgr.list(None, None, None, 10)]
     assert listed == [bare.model_dump(mode="json"), row.model_dump(mode="json")]
+    stored = {r.id: r for r in mgr.store.run_list()}
+    assert stored["r"].node_states == {}
+    assert sorted(stored["r"].series) == ["spark1.mhz", "spark1.t"]
 
 
 class _Src(NodeSource):
