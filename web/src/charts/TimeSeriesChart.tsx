@@ -355,7 +355,7 @@ export function TimeSeriesChart({
         drag: { x: true, y: false, setScale: true },
         y: false,
         points: {
-          show: !stacked,
+          ...(stacked && { show: false }),
           size: 8,
           width: 2,
           fill: (u, si) => (u.series[si]?.stroke as string | undefined) ?? theme.axis,
