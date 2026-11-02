@@ -149,11 +149,31 @@ def test_rest_auth_snapshot_history(tmp_path):
             [5.0],
         )
         assert c.get("/api/v1/history", params={"from": 10, "to": 5}, headers=AUTH).status_code == 400
-        assert c.get("/api/v1/history", params={"keys": 'gpu0.util,a"b'}, headers=AUTH).status_code == 400
         assert c.request("DELETE", "/api/v1/history", headers=AUTH, json={}).status_code == 400
         assert c.request("DELETE", "/api/v1/history", json={"confirm": "DELETE"}).status_code == 401
         r = c.request("DELETE", "/api/v1/history", headers=AUTH, json={"confirm": "DELETE"})
         assert r.status_code == 200 and len(s.ring) == 0
+
+
+def test_history_serves_any_stored_key_and_any_key_count(tmp_path):
+    """A mount such as /media/u/My "Disk" stores a key with a quote; a client may name thousands of keys."""
+    s = make(tmp_path)
+    quoted = 'fs.media_u_My "Disk".used_pct'
+    many = [f"k{i}" for i in range(2000)]
+    t = int(time.time()) // 60 * 60 - 8 * 86400
+    row = {quoted: [41.5, 41.0, 42.0], "mem.used": [5.0, 5.0, 5.0]}
+    row |= {k: [i, i, i] for i, k in enumerate(many)}
+    s._db.submit(s.store.write, 60, t, row).result()
+    span = {"from": t - 3600, "to": t + 3600}
+    with TestClient(create_app(s, info, TOKEN, manage_sampler=False)) as c:
+        r = c.get("/api/v1/history", params={**span, "keys": f"{quoted},nope"}, headers=AUTH)
+        assert r.status_code == 200
+        h = r.json()
+        assert h["ts"] == [t + 30] and h["series"] == {quoted: [41.5], "nope": [None]}
+        assert (h["min"][quoted], h["max"][quoted]) == ([41.0], [42.0])
+        r = c.get("/api/v1/history", params={**span, "keys": ",".join(many)}, headers=AUTH)
+        assert r.status_code == 200
+        assert r.json()["series"] == {k: [float(i)] for i, k in enumerate(many)}
 
 
 def test_tokenless_agent_answers_only_local_non_browser_requests(tmp_path):

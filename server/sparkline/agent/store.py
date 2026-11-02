@@ -15,6 +15,7 @@ import sqlite3
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX
 
 TABLES = {10: "r10", 60: "r60"}
+EXTRACT_MAX_KEYS = 20
 
 
 def agg_kind(key: str) -> str:
@@ -188,15 +189,19 @@ class Store:
     ) -> list[tuple[float, dict]]:
         """Rows are keyed by bucket start; they are served stamped at the bucket centre."""
         span = (int(t0), int(t1))
-        if keys is None:
+        # A JSON path label ends at the first '"', escaped or not
+        if keys is None or len(keys) > EXTRACT_MAX_KEYS or any('"' in k for k in keys):
             cur = self._conn().execute(
                 f"SELECT ts, data FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts", span
             )
-            return [(ts + res / 2, json.loads(d)) for ts, d in cur]
+            rows = ((ts + res / 2, json.loads(d)) for ts, d in cur)
+            if keys is None:
+                return list(rows)
+            return [(ts, {k: d[k] for k in keys if k in d}) for ts, d in rows]
         cols = ", ".join(["json_extract(data, ?)"] * len(keys))
         cur = self._conn().execute(
             f"SELECT ts, {cols} FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts",
-            # SQLite does not unescape JSON path labels, so a label carries the stored key's escapes
+            # Spelled as write() stored it, a label matches on SQLite 3.40 (raw compare) and 3.45 (unescaped)
             [*("$." + _dumps(k) for k in keys), *span],
         )
         out = []

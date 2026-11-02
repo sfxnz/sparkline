@@ -137,8 +137,6 @@ def create_app(
         points: int = Query(600, ge=1, le=5000),
     ) -> HistoryResponse:
         key_list = [k for k in (s.strip() for s in keys.split(",")) if k] or None
-        if key_list is not None and any('"' in k for k in key_list):
-            raise HTTPException(400, "Keys cannot contain '\"'")
         if from_ is not None and to is not None and from_ >= to:
             raise HTTPException(400, "'from' must be earlier than 'to'")
         return await sampler.history(key_list, from_, to, points)
