@@ -98,7 +98,7 @@ def fmt_value(key: str, v: float) -> str:
         return f"{v:.1f} %"
     if key.endswith("power_w"):
         return f"{v:.1f} W"
-    if key.endswith("_mhz"):
+    if key.endswith(("_mhz", ".mhz")):
         return f"{v / 1000:.2f} GHz" if v >= 1000 else f"{v:.0f} MHz"
     if key.endswith("_bps") and key.startswith("disk."):
         return f"{v / 1e6:.3g} MB/s"
