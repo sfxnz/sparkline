@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from sparkline.common.schema import Event
+from sparkline.common.metrics import flatten
+from sparkline.common.schema import Event, HistoryResponse
 from sparkline.console.app import create_app
 from sparkline.console.config import ConsoleConfig
+from sparkline.console.demo import DemoModel
+from sparkline.console.nodes import RING_S, NodeSource
 
 TOKEN = "s3cret-browser-token"
 SAME = {"Origin": "http://testserver"}
@@ -188,6 +192,23 @@ def test_demo_without_token_disables_auth(tmp_path):
         assert c.get("/api/v1/auth/me").json()["auth_required"] is False
 
 
+def test_demo_history_is_a_full_history_response(tmp_path):
+    with TestClient(make(tmp_path, demo=True, token="")) as c:
+        r = c.get("/api/v1/history", params={"node": "spark1", "keys": "gpu0.util"})
+        assert r.status_code == 200 and r.headers["content-type"] == "application/json"
+        h = r.json()
+        assert set(h) == {"node_id", "resolution_s", "ts", "series", "min", "max"}
+        assert set(h["series"]) == {"gpu0.util"} and len(h["series"]["gpu0.util"]) == len(h["ts"]) > 0
+
+
+def test_history_rejects_a_range_that_does_not_end_after_it_starts(tmp_path):
+    with TestClient(make(tmp_path, demo=True, token="")) as c:
+        for start, end in ((200, 100), (100, 100)):
+            r = c.get("/api/v1/history", params={"node": "spark1", "from": start, "to": end})
+            assert r.status_code == 400
+            assert r.json()["problem"]["message"] == "'from' must be earlier than 'to'"
+
+
 def test_settings_validation_and_persistence(tmp_path):
     with TestClient(make(tmp_path)) as c:
         s = c.get("/api/v1/settings", headers=bearer()).json()
@@ -287,6 +308,18 @@ def test_static_assets_are_gzipped_for_clients_that_accept_it(tmp_path, dist):
         assert r.headers["content-type"].startswith(("application/javascript", "text/javascript"))
 
 
+def test_api_json_is_gzipped_for_clients_that_accept_it(tmp_path):
+    now = time.time()
+    day = {"node": "spark1", "keys": "gpu0.util,mem.used", "from": now - 86400, "to": now}
+    with TestClient(make(tmp_path, demo=True)) as c:
+        raw = c.get("/api/v1/history", params=day, headers={**bearer(), "Accept-Encoding": "identity"})
+        assert raw.status_code == 200 and "content-encoding" not in raw.headers
+        r = c.get("/api/v1/history", params=day, headers={**bearer(), "Accept-Encoding": "gzip, br"})
+        assert r.headers["content-encoding"] == "gzip" and "Accept-Encoding" in r.headers["vary"]
+        assert r.json() == raw.json()
+        assert int(r.headers["content-length"]) * 2 < len(raw.content)
+
+
 def test_static_traversal_blocked(tmp_path, dist):
     with TestClient(make(tmp_path, dist=dist)) as c:
         for path in [
@@ -325,22 +358,96 @@ def test_settings_change_is_broadcast_to_open_streams(client):
         assert msg == {"type": "settings", "settings": {**s, "energy_rate_per_kwh": 0.42}}
 
 
+class _Src(NodeSource):
+    async def session(self) -> None:
+        raise NotImplementedError
+
+
 def test_new_stream_gets_latest_sample_with_last_process_list(tmp_path):
-    from types import SimpleNamespace
-
-    from sparkline.console.demo import DemoModel
-
-    m = DemoModel("spark1", 1_791_000_000.0)
-    with_procs = m.sample_at(1_791_000_000.0, 1, procs=True)
-    without = m.sample_at(1_791_000_001.0, 2, procs=False)
+    t0 = 1_791_000_000.0
+    m = DemoModel("spark1", t0)
+    with_procs = m.sample_at(t0, 1, procs=True)
     with TestClient(make(tmp_path)) as c:
         cluster = c.app.state.cluster
-        cluster.sources = {
-            "spark1": SimpleNamespace(ring=[with_procs, without]),
-            "spark2": SimpleNamespace(ring=[]),
-        }
+        src = _Src("spark1", "http://127.0.0.1:1", cluster)
+        cluster.add_source(src)
+        cluster.add_source(_Src("spark2", "http://127.0.0.1:2", cluster))
+        src.got_sample(with_procs)
+        for i, t in enumerate((t0 + 1, t0 + RING_S)):
+            src.got_sample(m.sample_at(t, 2 + i, procs=False))
+            (latest,) = cluster.latest_samples()
+            assert latest.ts == t and latest.procs == with_procs.procs
+        src.got_sample(m.sample_at(t0 + RING_S + 1, 4, procs=False))
         (latest,) = cluster.latest_samples()
-        assert latest.ts == without.ts and latest.procs == with_procs.procs
+        assert latest.ts == t0 + RING_S + 1 and latest.procs is None
+
+
+def test_new_stream_gets_the_process_list_after_the_agent_clock_steps_back(tmp_path):
+    t0 = 1_791_000_000.0
+    m = DemoModel("spark1", t0 - 100)
+    with TestClient(make(tmp_path)) as c:
+        cluster = c.app.state.cluster
+        src = _Src("spark1", "http://127.0.0.1:1", cluster)
+        cluster.add_source(src)
+        for i in range(10):
+            src.got_sample(m.sample_at(t0 + i, i, procs=False))
+        with_procs = m.sample_at(t0 - 50, 10, procs=True)
+        src.got_sample(with_procs)
+        src.got_sample(m.sample_at(t0 - 49, 11, procs=False))
+        (latest,) = cluster.latest_samples()
+        assert latest.ts == t0 - 49 and latest.procs == with_procs.procs
+
+
+def test_new_stream_drops_the_process_list_when_the_row_limit_drops_its_sample(tmp_path):
+    t0 = 1_791_000_000.0
+    m = DemoModel("spark1", t0 - 1000)
+    with_procs = m.sample_at(t0, 0, procs=True)
+    plain = m.sample_at(t0, 1, procs=False)
+    rows = int(RING_S * 4)
+    interval, stepped_back = RING_S / rows, t0 - 100
+    with TestClient(make(tmp_path)) as c:
+        cluster = c.app.state.cluster
+        src = _Src("spark1", "http://127.0.0.1:1", cluster)
+        cluster.add_source(src)
+        src.got_sample(with_procs)
+        for k in range(1, rows + 1):
+            src.got_sample(plain.model_copy(update={"ts": stepped_back + k * interval}))
+            if k == rows - 1:
+                (latest,) = cluster.latest_samples()
+                assert latest.procs == with_procs.procs
+        (latest,) = cluster.latest_samples()
+        assert latest.procs is None
+
+
+def test_live_serves_the_recent_samples_flattened(tmp_path):
+    now = time.time()
+    m = DemoModel("spark1", now - 1000)
+    older = [m.sample_at(now - 800 + i, i, procs=i % 5 == 0) for i in range(100)]
+    newer = [m.sample_at(now - 400 + i, 100 + i, procs=i % 5 == 0) for i in range(400)]
+    for s in newer[::7]:
+        s.gpu = []
+
+    def flattened(samples, keys=()):
+        flats = [flatten(s) for s in samples]
+        names = list(keys) or sorted({k for f in flats for k in f})
+        series = {k: [f.get(k) for f in flats] for k in names}
+        return HistoryResponse(node_id="spark1", resolution_s=1, ts=[s.ts for s in samples], series=series)
+
+    with TestClient(make(tmp_path)) as c:
+        cluster = c.app.state.cluster
+        src = _Src("spark1", "http://127.0.0.1:1", cluster)
+        cluster.add_source(src)
+        for s in older + newer:
+            src.got_sample(s)
+        some = ("gpu0.util", "no.such.key", "mem.used")
+        for query, want in [
+            ("", flattened(older + newer)),
+            ("&seconds=600", flattened(newer)),
+            (f"&keys={','.join(some)}", flattened(older + newer, some)),
+            ("&seconds=600&keys=cpu.util", flattened(newer, ["cpu.util"])),
+        ]:
+            got = c.get(f"/api/v1/live?node=spark1{query}", headers=bearer()).json()
+            assert got == want.model_dump(mode="json") and list(got["series"]) == list(want.series), query
 
 
 def test_data_dir_lock_refuses_a_second_console(tmp_path):

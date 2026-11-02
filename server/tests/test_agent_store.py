@@ -101,3 +101,19 @@ def test_store_roundtrip(tmp_path):
     s.clear()
     assert s.query(10, 0, 1000) == [] and s.query(60, 0, 1000) == []
     s.close()
+
+
+def test_store_query_with_keys_returns_just_those_keys_as_stored(tmp_path):
+    s = Store(str(tmp_path / "d"))
+    row = {
+        "gpu0.util": [0.1, 1e-05, 3531036839936.0],
+        "fs.media_Ünï dísk.used": [1.5, 1.0, 2.0],
+        "temp.odd\\name": [40.0, 39.5, 41.25],
+        "mem.used": [5.0, 5.0, 5.0],
+    }
+    s.write(60, 60, row)
+    s.write(60, 120, {"mem.used": [6.0, 6.0, 6.0]})
+    keys = ["gpu0.util", "fs.media_Ünï dísk.used", "temp.odd\\name", "nope"]
+    assert s.query(60, 0, 1000, keys) == [(90.0, {k: row[k] for k in keys[:3]}), (150.0, {})]
+    assert s.query(60, 0, 1000) == [(90.0, row), (150.0, {"mem.used": [6.0, 6.0, 6.0]})]
+    s.close()

@@ -20,12 +20,12 @@ import anyio
 import httpx
 from fastapi import Depends, FastAPI, Query, Request, Response, WebSocket
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import HTTPConnection
 
-from ..common.metrics import flatten
 from ..common.schema import (
     AlertRule,
     ClusterState,
@@ -193,6 +193,7 @@ def create_app(
         openapi_url=None,
     )
     app.add_middleware(SecurityHeaders)
+    app.add_middleware(GZipMiddleware, minimum_size=2048, compresslevel=5)
     app.state.cluster = cluster
     app.state.hub = hub
     app.state.store = store
@@ -365,22 +366,27 @@ def create_app(
         return src.state
 
     # -- history / live -----------------------------------------------------------------------------
-    @app.get("/api/v1/history", dependencies=Auth, response_model=None)  # already validated: no 2nd pass
+    @app.get("/api/v1/history", dependencies=Auth)
     async def history(
         node: str,
         keys: str = "",
         from_: Annotated[float | None, Query(alias="from")] = None,
         to: float | None = None,
         points: Annotated[int, Query(ge=1, le=5000)] = 600,
-    ) -> HistoryResponse:
+    ) -> Response:
         src = source(node)
         require_reachable(src)
         to = time.time() if to is None else to
         from_ = to - 3600 if from_ is None else from_
+        if from_ >= to:
+            raise ProblemError(
+                400, "'from' must be earlier than 'to'", f"from={from_}, to={to}", "Ask for a later 'to'"
+            )
         key_list = [k for k in keys.split(",") if k]
         if demo:  # seconds of CPU for long ranges: keep it off the event loop that feeds live streams
             model = cast(DemoSource, src).model
-            return await asyncio.to_thread(demo_history, model, key_list or None, from_, to, points)
+            h = await asyncio.to_thread(demo_history, model, key_list or None, from_, to, points)
+            return Response(h.model_dump_json(), media_type="application/json")
         params: dict[str, str | float] = {"keys": keys, "from": from_, "to": to, "points": points}
         try:
             r = await http["c"].get(
@@ -402,14 +408,16 @@ def create_app(
                 f"Check `journalctl -u sparkline-agent` on {node}",
             )
         try:
-            return HistoryResponse.model_validate(r.json())
-        except (ValidationError, ValueError) as e:
+            h = HistoryResponse.model_validate_json(r.content)
+        except ValidationError as e:
             raise ProblemError(
                 502,
                 f"Agent on {node} returned invalid history",
                 str(e)[:200],
                 "Upgrade sparkline-agent and sparkline to the same release",
             ) from None
+        has_every_field = h.model_fields_set == set(HistoryResponse.model_fields)
+        return Response(r.content if has_every_field else h.model_dump_json(), media_type="application/json")
 
     @app.delete("/api/v1/history", dependencies=Auth)
     async def delete_history(node: str, body: ConfirmBody) -> dict:
@@ -441,18 +449,16 @@ def create_app(
         node: str, seconds: Annotated[float, Query(gt=0, le=900)] = 900, keys: str = ""
     ) -> HistoryResponse:
         src = source(node)
-        cutoff = time.time() - seconds
-        samples = [s for s in src.ring if s.ts >= cutoff]  # snapshot on the loop: the ring keeps changing
         want = [k for k in keys.split(",") if k]
+        rows = src.ring.rows(time.time() - seconds, keys=want or None)
 
         def build() -> HistoryResponse:
-            flats = [flatten(s) for s in samples]
-            names = want or sorted({k for f in flats for k in f})
+            names = want or sorted({k for _, f in rows for k in f})
             return HistoryResponse(
                 node_id=node,
                 resolution_s=1,
-                ts=[s.ts for s in samples],
-                series={k: [f.get(k) for f in flats] for k in names},
+                ts=[ts for ts, _ in rows],
+                series={k: [f.get(k) for _, f in rows] for k in names},
             )
 
         return await asyncio.to_thread(build)

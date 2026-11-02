@@ -75,5 +75,15 @@ def load_config(path: Path | None, env: Mapping[str, str] | None = None) -> Cons
     if path is not None:
         with open(path, "rb") as f:
             data = tomllib.load(f)
+    unknown = [k for k in data if k not in ConsoleConfig.model_fields]
+    settings, nodes = data.get("settings"), data.get("nodes")
+    if isinstance(settings, dict):
+        unknown += [f"settings.{k}" for k in settings if k not in ConsoleSettings.model_fields]
+    if isinstance(nodes, list):
+        for i, node in enumerate(nodes):
+            if isinstance(node, dict):
+                unknown += [f"nodes.{i}.{k}" for k in node if k not in NodeConfig.model_fields]
+    if unknown:
+        raise ValueError(f"unknown config keys in {path}: {', '.join(unknown)}")
     data.update({key: env[name] for name, key in ENV_KEYS.items() if env.get(name)})
     return ConsoleConfig.model_validate(data)

@@ -102,6 +102,7 @@ def make_fake_agent(token: str, interval: float = 0.2, info: dict | None = None)
     app.state.ts_offset = 0.0  # simulated agent clock skew
     app.state.deleted = 0
     app.state.connections = 0
+    app.state.history_body: bytes | None = None
     info_doc = info or INFO
     app.state.bench = bench_defaults()
     app.state.bench_runs: dict[str, dict] = {}  # run_id -> NodeBenchState (dict)
@@ -121,6 +122,8 @@ def make_fake_agent(token: str, interval: float = 0.2, info: dict | None = None)
     async def history(request: Request):
         if not authed(request.headers, request.query_params):
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        if app.state.history_body is not None:
+            return Response(app.state.history_body, media_type="application/json")
         keys = [k for k in request.query_params.get("keys", "").split(",") if k]
         now = time.time()
         return {

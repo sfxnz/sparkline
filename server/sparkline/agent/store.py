@@ -15,6 +15,7 @@ import sqlite3
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX
 
 TABLES = {10: "r10", 60: "r60"}
+EXTRACT_MAX_KEYS = 20
 
 
 def agg_kind(key: str) -> str:
@@ -31,27 +32,29 @@ class Acc:
     """Accumulates [agg, min, max] triples (a raw value v is the triple (v, v, v))."""
 
     def __init__(self) -> None:
-        self.d: dict[str, list[float]] = {}  # key -> [sum|last|or, count, min, max]
+        self.d: dict[str, list[float]] = {}  # key -> [sum|last|or, weight, min, max]
         self.ts_sum = 0.0
-        self.n = 0
+        self.n = 0.0
 
-    def add_ts(self, ts: float) -> None:
-        self.ts_sum += ts
-        self.n += 1
+    def add_ts(self, ts: float, weight: float = 1.0) -> None:
+        self.ts_sum += ts * weight
+        self.n += weight
 
-    def add(self, key: str, agg: float, mn: float, mx: float) -> None:
+    def add(self, key: str, agg: float, mn: float, mx: float, *, weight: float = 1.0) -> None:
         a = self.d.get(key)
-        if a is None:
-            self.d[key] = [agg, 1, mn, mx]
-            return
         kind = agg_kind(key)
-        if kind in ("avg", "sum"):
+        if a is None:
+            self.d[key] = [agg * weight if kind == "avg" else agg, weight, mn, mx]
+            return
+        if kind == "avg":
+            a[0] += agg * weight
+        elif kind == "sum":
             a[0] += agg
         elif kind == "last":
             a[0] = agg
         else:
             a[0] = float(int(a[0]) | int(agg))
-        a[1] += 1
+        a[1] += weight
         if mn < a[2]:
             a[2] = mn
         if mx > a[3]:
@@ -124,34 +127,39 @@ def downsample(
     points: int,
     keys: list[str] | None,
     res: float,
-    force: bool = False,
+    weights: list[float] | None = None,
 ) -> list[tuple[float, dict[str, list[float]]]]:
     """Bucket-average rows (ts-sorted) into at most ``points`` buckets over [t0, t1]. Bucket edges are
     multiples of the width (``bucket_width``), not offsets from t0, so a sliding window keeps the same
-    buckets from one refresh to the next. Each bucket is stamped at the mean time of its rows. Fewer rows
-    than ``points`` pass through unchanged unless ``force`` (rows of mixed resolution must be bucketed)."""
+    buckets from one refresh to the next. Each bucket is stamped at the mean time of its rows. That mean
+    and the averages weight each row by the seconds it covers (``weights``, 1 each by default). Fewer rows
+    than ``points`` pass through unchanged unless ``weights`` (rows of mixed resolution must be bucketed)."""
     if not rows:
         return []
-    if len(rows) <= points and not force:
+    if len(rows) <= points and weights is None:
         if keys is None:
             return rows
         return [(ts, {k: d[k] for k in keys if k in d}) for ts, d in rows]
     width = bucket_width(t0, t1, points, res)
     out: list[tuple[float, dict]] = []
     acc, cur = Acc(), None
-    for ts, d in rows:
+    for (ts, d), weight in zip(rows, [1.0] * len(rows) if weights is None else weights, strict=True):
         b = int(ts // width)
         if cur is not None and b != cur:
             out.append((acc.ts_sum / acc.n, acc.result()))
             acc = Acc()
         cur = b
-        acc.add_ts(ts)
+        acc.add_ts(ts, weight)
         for k in keys if keys is not None else d:
             v = d.get(k)
             if v is not None:
-                acc.add(k, *v)
+                acc.add(k, *v, weight=weight)
     out.append((acc.ts_sum / acc.n, acc.result()))
     return out[-points:]  # aligned edges can cut the range into points + 1 buckets: drop the oldest
+
+
+def _dumps(v: object) -> str:
+    return json.dumps(v, separators=(",", ":"))
 
 
 class Store:
@@ -175,16 +183,35 @@ class Store:
         db = self._conn()
         db.execute(
             f"INSERT OR REPLACE INTO {TABLES[res]} VALUES (?, ?)",
-            (ts, json.dumps(data, separators=(",", ":"))),
+            (ts, _dumps(data)),
         )
         db.commit()
 
-    def query(self, res: int, t0: float, t1: float) -> list[tuple[float, dict]]:
+    def query(
+        self, res: int, t0: float, t1: float, keys: list[str] | None = None
+    ) -> list[tuple[float, dict]]:
         """Rows are keyed by bucket start; they are served stamped at the bucket centre."""
+        span = (int(t0), int(t1))
+        # A JSON path label ends at the first '"', escaped or not
+        if keys is None or len(keys) > EXTRACT_MAX_KEYS or any('"' in k for k in keys):
+            cur = self._conn().execute(
+                f"SELECT ts, data FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts", span
+            )
+            rows = ((ts + res / 2, json.loads(d)) for ts, d in cur)
+            if keys is None:
+                return list(rows)
+            return [(ts, {k: d[k] for k in keys if k in d}) for ts, d in rows]
+        cols = ", ".join(["json_extract(data, ?)"] * len(keys))
         cur = self._conn().execute(
-            f"SELECT ts, data FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts", (int(t0), int(t1))
+            f"SELECT ts, {cols} FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts",
+            # Spelled as write() stored it, a label matches on SQLite 3.40 (raw compare) and 3.45 (unescaped)
+            [*("$." + _dumps(k) for k in keys), *span],
         )
-        return [(ts + res / 2, json.loads(d)) for ts, d in cur]
+        out = []
+        for ts, *vals in cur:
+            row = json.loads("[" + ",".join(v or "null" for v in vals) + "]")
+            out.append((ts + res / 2, {k: v for k, v in zip(keys, row, strict=True) if v is not None}))
+        return out
 
     def prune(self, now: float, retention: dict[int, float]) -> None:
         db = self._conn()

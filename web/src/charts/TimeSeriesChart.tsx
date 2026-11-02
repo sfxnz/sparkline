@@ -18,7 +18,7 @@ import type { TimeRange } from '../lib/prefs';
 import { unsupportedReason } from '../lib/unsupported';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
-import { historyCache, historyRefreshMs, RANGE_SECONDS } from '../store/history';
+import { joinHistoryRefresh, historyCache, RANGE_SECONDS } from '../store/history';
 import { liveStore, type LiveStore } from '../store/live';
 import { usePrefs } from '../store/prefs';
 import { ChartDataTable } from './ChartDataTable';
@@ -555,10 +555,10 @@ export function TimeSeriesChart({
       dataRef.current = [[]];
       updateSummary();
       fetchOnce();
-      const timer = setInterval(fetchOnce, historyRefreshMs(range));
+      const stop = joinHistoryRefresh(range, fetchOnce);
       cleanups.push(() => {
         cancelled = true;
-        clearInterval(timer);
+        stop();
       });
     }
 

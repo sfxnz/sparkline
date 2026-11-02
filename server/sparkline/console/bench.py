@@ -18,7 +18,7 @@ import logging
 import re
 import secrets
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -37,7 +37,6 @@ from ..common.schema import (
     NodeBenchState,
     NodeInfo,
     Problem,
-    Sample,
 )
 from .bench_store import BenchStore
 from .cluster import Cluster
@@ -974,29 +973,27 @@ class BenchManager:
     def _record_telemetry(self, act: _Active, now: float) -> None:
         for n in act.run.nodes:
             src = self.cluster.sources.get(n)
-            if src is None or not src.ring:
+            if src is None:
                 continue
             last = act.tele_last.get(n)
             # About one point a second, from every sample since the previous tick: the ticks (TICK_S plus
             # the agent polls) drift against the agent's own 1 Hz, so a tick can find two new samples; keeping
             # only the newest left 2 s holes in the run's charts. The first tick takes just the newest: older
             # samples predate the run.
-            for s in [src.ring[-1]] if last is None else list(src.ring):
-                if (last is None or s.ts - last >= TELEMETRY_STEP_S) and now - s.ts <= 5:
-                    self._append_telemetry(act, n, s)
-                    last = s.ts
+            for ts, flat in src.ring.rows()[-1:] if last is None else src.ring.rows(last):
+                if (last is None or ts - last >= TELEMETRY_STEP_S) and now - ts <= 5:
+                    self._append_telemetry(act, n, ts, flat)
+                    last = ts
 
-    def _append_telemetry(self, act: _Active, n: str, s: Sample) -> None:
+    def _append_telemetry(self, act: _Active, n: str, ts: float, flat: Mapping[str, float]) -> None:
         """Append one agent sample to the run's GPU telemetry overlay, halving it past TELEMETRY_MAX."""
         run = act.run
-        act.tele_last[n] = s.ts
-        g = s.gpu[0] if s.gpu else None
+        act.tele_last[n] = ts
         prev = act.tele_prev.setdefault(n, {})
         pre = f"telemetry.{n}."
-        run.series.setdefault(pre + "ts", []).append(round(s.ts, 3))
+        run.series.setdefault(pre + "ts", []).append(round(ts, 3))
         for key in TELEMETRY_KEYS:
-            v = getattr(g, key, None) if g is not None else None
-            v = prev.get(key, 0.0) if v is None else float(v)  # series hold floats: carry forward
+            v = flat.get(f"gpu0.{key}", prev.get(key, 0.0))  # series hold floats: carry forward
             prev[key] = v
             run.series.setdefault(pre + key, []).append(v)
         if len(run.series[pre + "ts"]) > TELEMETRY_MAX:  # same length as _halve: ceil(n / 2)
@@ -1194,7 +1191,7 @@ class BenchManager:
 
     def list(self, bench_id: str | None, node: str | None, status: str | None, limit: int) -> list[BenchRun]:
         out = []
-        for run in self.store.list(bench_id, node, status, limit):
+        for run in self.store.run_list(bench_id, node, status, limit):
             if run.id in self.active:
                 run = self.active[run.id].run
             series = {k: v for k, v in run.series.items() if not k.startswith("telemetry.")}

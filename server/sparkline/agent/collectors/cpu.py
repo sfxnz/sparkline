@@ -134,6 +134,13 @@ def _int(path: str) -> int | None:
         return None
 
 
+def _clock_path(core: int) -> str:
+    """cpuinfo_avg_freq is the measured clock; scaling_cur_freq can be the requested one (flat on GB10).
+    It fails with EAGAIN while the core has no recent sample (idle), and that tick then reports None."""
+    d = f"{SYS_CPU}/cpu{core}/cpufreq"
+    return f"{d}/cpuinfo_avg_freq" if os.path.exists(f"{d}/cpuinfo_avg_freq") else f"{d}/scaling_cur_freq"
+
+
 class CpuCollector:
     name = "cpu"
 
@@ -151,7 +158,7 @@ class CpuCollector:
         self.ids = ids
         self.perf = [n for n, c in enumerate(self.cores) if c.kind == "performance"]
         self.eff = [n for n, c in enumerate(self.cores) if c.kind == "efficiency"]
-        self._freq_paths = [f"{SYS_CPU}/cpu{i}/cpufreq/scaling_cur_freq" for i in ids]
+        self._freq_paths = [_clock_path(i) for i in ids]
         self._prev: dict[int, tuple[int, int]] | None = None
         self._psi = os.path.exists("/proc/pressure/cpu")
 

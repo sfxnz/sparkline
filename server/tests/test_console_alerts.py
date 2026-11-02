@@ -98,6 +98,19 @@ def test_memory_below_threshold(eng):
     assert ev.detail == "6.0 GiB for 30 s (threshold 8.0 GiB)"
 
 
+def test_per_core_clock_alert_text_carries_units(eng):
+    engine, sink = eng
+    rule = AlertRule(id="core_clock", name="Core clock", metric="cpu.core1.mhz", threshold=3000, for_s=2)
+    engine.set_rules([rule], T0)
+    for i, mhz in enumerate([3600, 3600, 3600, 2000]):
+        s = sample(T0 + i)
+        s.cpu.freq_mhz[1] = mhz
+        engine.evaluate_sample("spark2", s)
+    fired, recovered = sink.events
+    assert fired.detail == "3.60 GHz for 2 s (threshold 3.00 GHz)"
+    assert recovered.detail.startswith("Now 2.00 GHz · ")
+
+
 def test_link_down_only_after_link_was_up(eng):
     engine, sink = eng
     info = MODEL.info

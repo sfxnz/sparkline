@@ -11,7 +11,7 @@ import { fontScale } from '../../../charts/theme';
 import type { TimeRange } from '../../../lib/prefs';
 import type { CoreInfo, Sample } from '../../../lib/types';
 import { serverNow } from '../../../store/cluster';
-import { historyCache, RANGE_SECONDS, historyRefreshMs, type HistoryRange } from '../../../store/history';
+import { joinHistoryRefresh, historyCache, RANGE_SECONDS, type HistoryRange } from '../../../store/history';
 import { LiveStore } from '../../../store/live';
 import { usePrefs } from '../../../store/prefs';
 
@@ -72,10 +72,10 @@ function HistoryHeatmap({ node, cores, range }: { node: string; cores: readonly 
         });
     };
     load();
-    const t = setInterval(load, historyRefreshMs(range));
+    const stop = joinHistoryRefresh(range, load);
     return () => {
       cancelled = true;
-      clearInterval(t);
+      stop();
     };
   }, [node, keys, range, attempt]);
 

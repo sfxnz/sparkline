@@ -1,4 +1,3 @@
-// Temperature sensor grouping and headroom for the Thermals & Power tab. Pure; unit-tested in thermal.test.ts.
 import type { NodeInfo, SensorInfo } from '../../../lib/types';
 
 export type GroupId = 'gpu' | 'soc' | 'nvme' | 'nic' | 'other';
@@ -51,15 +50,6 @@ export function buildGroups(info: NodeInfo | null | undefined): SensorGroup[] {
 
 /** Reads the latest value of a metric key (from the LiveStore, which also holds seeded history). */
 export type Reader = (key: string) => number | null;
-
-export type HeadroomTone = 'ok' | 'warn' | 'crit';
-
-/** Degrees below the limit, with a status tone: within 5 °C is a warning, at or past the limit is critical. */
-export function headroom(current: number | null, limit: number | null): { degrees: number; tone: HeadroomTone } | null {
-  if (current == null || limit == null || !Number.isFinite(current) || !Number.isFinite(limit)) return null;
-  const degrees = limit - current;
-  return { degrees, tone: degrees <= 0 ? 'crit' : degrees < 5 ? 'warn' : 'ok' };
-}
 
 /** The hottest current reading across groups, for the header. */
 export function hottest(groups: readonly SensorGroup[], read: Reader): { label: string; c: number } | null {

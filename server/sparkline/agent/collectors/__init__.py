@@ -7,6 +7,15 @@ from __future__ import annotations
 
 import os
 
+SLOW_EVERY_S = 10.0
+
+
+def slow_due(last: float, now: float) -> bool:
+    """Whether a read done every SLOW_EVERY_S, last at ``last``, is due. A collector runs a different few
+    ms into each tick, so at 1 Hz the tenth tick can land just under SLOW_EVERY_S after the last read."""
+    return now - last >= SLOW_EVERY_S - 0.5
+
+
 _fds: dict[str, int] = {}
 
 

@@ -5,11 +5,15 @@ from __future__ import annotations
 import glob
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Literal
 
 from ...common.schema import SensorInfo, TempSample, Unsupported
-from . import read, read_once
+from . import SLOW_EVERY_S, read, read_once, slow_due
+
+# A read of these is a command to the device (NVMe admin command, Wi-Fi firmware query).
+SLOW_GROUPS = ("nvme", "wireless")
 
 
 @dataclass
@@ -29,7 +33,7 @@ def build_sensors(chips: list[Chip]) -> list[tuple[SensorInfo, list[tuple[str, i
     """-> [(SensorInfo, [(chip path, temp index), ...])] with stable ids: acpitz.N, nvme.<label>, mlx5.N, ...
 
     The mlx5 driver registers one hwmon per PCI function, but on GB10 all four read the same ASIC sensor of
-    one ConnectX-7 chip; functions sharing a chip (sys_image_guid) become one sensor reporting their max."""
+    one ConnectX-7 chip; functions sharing a chip (sys_image_guid) become one sensor."""
     out: list[tuple[SensorInfo, list[tuple[str, int]]]] = []
     used: set[str] = set()
     counters: dict[str, int] = {}
@@ -73,6 +77,15 @@ def build_sensors(chips: list[Chip]) -> list[tuple[SensorInfo, list[tuple[str, i
             used.add(sid)
             out.append((SensorInfo(id=sid, label=text, group=group, crit_c=crit), paths))
     return out
+
+
+def _first_reading(paths: list[str]) -> float | None:
+    for p in paths:
+        try:
+            return int(read(p)) / 1000
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def _milli(path: str) -> float | None:
@@ -121,7 +134,12 @@ class ThermalCollector:
         chips, self.has_fans, self.has_power = scan_hwmon()
         built = build_sensors(chips)
         self.sensors = [s for s, _ in built]
-        self._paths = [(s.id, [f"{path}/temp{idx}_input" for path, idx in members]) for s, members in built]
+        self._paths = [
+            (s.id, s.group in SLOW_GROUPS, [f"{path}/temp{idx}_input" for path, idx in members])
+            for s, members in built
+        ]
+        self._last: dict[str, float | None] = {}
+        self._slow_t = -SLOW_EVERY_S
         self.has_core_temps = any(
             re.fullmatch(r"core\s*\d+", label or "", re.I) for c in chips for label, _ in c.temps.values()
         )
@@ -147,13 +165,11 @@ class ThermalCollector:
         return out
 
     def collect(self) -> dict:
-        temps = []
-        for sid, paths in self._paths:
-            vals = []
-            for p in paths:
-                try:
-                    vals.append(int(read(p)) / 1000)
-                except (OSError, ValueError):
-                    continue
-            temps.append(TempSample(id=sid, c=max(vals) if vals else None))
-        return {"temps": temps}
+        now = time.monotonic()
+        slow = slow_due(self._slow_t, now)
+        if slow:
+            self._slow_t = now
+        for sid, is_slow, paths in self._paths:
+            if slow or not is_slow or self._last.get(sid) is None:
+                self._last[sid] = _first_reading(paths)
+        return {"temps": [TempSample(id=sid, c=self._last[sid]) for sid, _, _ in self._paths]}
