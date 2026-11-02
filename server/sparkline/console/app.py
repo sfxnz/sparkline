@@ -20,6 +20,7 @@ import anyio
 import httpx
 from fastapi import Depends, FastAPI, Query, Request, Response, WebSocket
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -193,6 +194,7 @@ def create_app(
         openapi_url=None,
     )
     app.add_middleware(SecurityHeaders)
+    app.add_middleware(GZipMiddleware, minimum_size=2048, compresslevel=5)
     app.state.cluster = cluster
     app.state.hub = hub
     app.state.store = store

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -285,6 +286,18 @@ def test_static_assets_are_gzipped_for_clients_that_accept_it(tmp_path, dist):
         assert int(r.headers["content-length"]) < len(gzip.compress(raw.content)) + 64 < len(raw.content)
         assert "immutable" in r.headers["cache-control"]
         assert r.headers["content-type"].startswith(("application/javascript", "text/javascript"))
+
+
+def test_api_json_is_gzipped_for_clients_that_accept_it(tmp_path):
+    now = time.time()
+    day = {"node": "spark1", "keys": "gpu0.util,mem.used", "from": now - 86400, "to": now}
+    with TestClient(make(tmp_path, demo=True)) as c:
+        raw = c.get("/api/v1/history", params=day, headers={**bearer(), "Accept-Encoding": "identity"})
+        assert raw.status_code == 200 and "content-encoding" not in raw.headers
+        r = c.get("/api/v1/history", params=day, headers={**bearer(), "Accept-Encoding": "gzip, br"})
+        assert r.headers["content-encoding"] == "gzip" and "Accept-Encoding" in r.headers["vary"]
+        assert r.json() == raw.json()
+        assert int(r.headers["content-length"]) * 2 < len(raw.content)
 
 
 def test_static_traversal_blocked(tmp_path, dist):
