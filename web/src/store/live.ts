@@ -44,10 +44,6 @@ export class NodeBuffer {
     return this.length ? (this.ts[(this.start + this.length - 1) % this.capacity] ?? NaN) : NaN;
   }
 
-  firstTs(): number {
-    return this.length ? (this.ts[this.start] ?? NaN) : NaN;
-  }
-
   /** Physical index of the logical position `n` (0 = oldest). */
   index(n: number): number {
     return (this.start + n) % this.capacity;
@@ -122,15 +118,15 @@ export class LiveStore {
     this.markDirty(sample.node_id, flat.keys());
   }
 
-  /** Back-fill a node from a HistoryResponse (e.g. /api/v1/live on connect). Only points older than what the
-   *  buffer already holds are added; the newest `capacity` points are kept. */
+  /** Back-fill a node from a HistoryResponse, merged by timestamp: ticks the buffer doesn't hold are added, held
+   *  ticks keep their values, and the newest `capacity` ticks are kept. */
   seed(resp: HistoryResponse): void {
     const b = this.ensure(resp.node_id);
-    const first = b.length ? b.firstTs() : Infinity;
     const keys = Object.keys(resp.series);
     const rows: { ts: number; flat: Map<string, number> }[] = [];
     resp.ts.forEach((t, i) => {
-      if (t >= first) return;
+      const n = b.lowerBound(t);
+      if (n < b.length && b.ts[b.index(n)] === t) return;
       const flat = new Map<string, number>();
       for (const k of keys) {
         const v = resp.series[k]?.[i];
@@ -139,7 +135,6 @@ export class LiveStore {
       rows.push({ ts: t, flat });
     });
     if (!rows.length) return;
-    // Existing ticks, re-read so they can be re-appended after the older history.
     for (let n = 0; n < b.length; n++) {
       const i = b.index(n);
       const flat = new Map<string, number>();
@@ -149,6 +144,7 @@ export class LiveStore {
       }
       rows.push({ ts: b.ts[i] ?? 0, flat });
     }
+    rows.sort((x, y) => x.ts - y.ts);
     const latest = b.latest;
     b.clear();
     b.latest = latest;
