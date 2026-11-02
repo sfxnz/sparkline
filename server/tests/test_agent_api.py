@@ -156,7 +156,6 @@ def test_rest_auth_snapshot_history(tmp_path):
 
 
 def test_history_serves_any_stored_key_and_any_key_count(tmp_path):
-    """A mount such as /media/u/My "Disk" stores a key with a quote; a client may name thousands of keys."""
     s = make(tmp_path)
     quoted = 'fs.media_u_My "Disk".used_pct'
     many = [f"k{i}" for i in range(2000)]
