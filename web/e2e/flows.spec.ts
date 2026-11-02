@@ -80,6 +80,23 @@ test('lazy chunks that fail to load leave the rest of the overview working', asy
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
 });
 
+test('the GPU activity panel is busy until its chart chunk arrives', async ({ page }) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(/\/assets\/TimeSeriesChart-[^/]*\.js$/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto('/');
+  await ready(page);
+  await expect(page.getByRole('link', { name: /^spark1\b.*open node details/ })).toBeVisible();
+  const panel = page.getByRole('region', { name: 'GPU activity' });
+  await expect(panel).toHaveAttribute('aria-busy', 'true');
+  release();
+  await expect(panel.locator('canvas').first()).toBeVisible();
+  await expect(panel).not.toHaveAttribute('aria-busy');
+});
+
 test('the time-range picker moves charts from the live buffer to history, and is remembered', async ({ page }) => {
   await page.goto('/node/spark1');
   await ready(page);
