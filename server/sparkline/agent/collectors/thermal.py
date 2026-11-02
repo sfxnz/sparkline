@@ -170,6 +170,6 @@ class ThermalCollector:
         if slow:
             self._slow_t = now
         for sid, is_slow, paths in self._paths:
-            if slow or not is_slow:
+            if slow or not is_slow or self._last.get(sid) is None:
                 self._last[sid] = _first_reading(paths)
         return {"temps": [TempSample(id=sid, c=self._last[sid]) for sid, _, _ in self._paths]}
