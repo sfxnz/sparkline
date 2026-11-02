@@ -1,5 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { api } from '../../lib/api';
+import { historyCache } from '../../store/history';
 import { LiveStore } from '../../store/live';
 import { useSpanHistory } from '../node/partsC/hooks';
 import { useEnergyToday } from '../overview/hooks';
@@ -59,5 +60,17 @@ describe('energy since midnight', () => {
     const thermals = renderHook(() => useSpanHistory('spark1', 'gpu0.energy_j', 'today'));
     await waitFor(() => { expect(thermals.result.current.state).toBe('ready'); });
     expect(history).toHaveBeenCalledTimes(1);
+  });
+
+  it('is fetched anew after the history is cleared', async () => {
+    const before = { node_id: 'spark2', resolution_s: 60, ts: [1], series: { 'gpu0.energy_j': [5] }, min: {}, max: {} };
+    const after = { node_id: 'spark2', resolution_s: 60, ts: [], series: {}, min: {}, max: {} };
+    const history = vi.spyOn(api, 'history').mockResolvedValueOnce(before).mockResolvedValue(after);
+    renderHook(() => useEnergyToday(['spark2']));
+    await waitFor(() => { expect(history).toHaveBeenCalledTimes(1); });
+    historyCache.clear();
+    const thermals = renderHook(() => useSpanHistory('spark2', 'gpu0.energy_j', 'today'));
+    await waitFor(() => { expect(thermals.result.current.state).toBe('ready'); });
+    expect(thermals.result.current).toEqual({ state: 'ready', data: after });
   });
 });
