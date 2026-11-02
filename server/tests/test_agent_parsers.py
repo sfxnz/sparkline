@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from sparkline.agent.collectors import counter_delta, parse_psi
+from sparkline.agent.collectors import cpu as cpu_mod
 from sparkline.agent.collectors.cpu import (
     classify_cores,
     core_utils,
@@ -112,6 +113,26 @@ def test_core_classification_from_fixture():
 
 def test_loadavg():
     assert parse_loadavg(fx("loadavg")) == (2.59, 2.44, 2.63)
+
+
+def test_core_clock_is_the_measured_one(tmp_path, monkeypatch):
+    def core(i: int, **files: str) -> Path:
+        d = tmp_path / f"cpu{i}" / "cpufreq"
+        d.mkdir(parents=True)
+        for name, text in files.items():
+            (d / name).write_text(text)
+        return d
+
+    measured = core(0, cpuinfo_avg_freq="2506000\n", scaling_cur_freq="2808000\n")
+    core(1, scaling_cur_freq="3900000\n")
+    read_fails = core(2, scaling_cur_freq="3900000\n") / "cpuinfo_avg_freq"
+    read_fails.mkdir()
+    monkeypatch.setattr(cpu_mod, "SYS_CPU", str(tmp_path))
+
+    c = cpu_mod.CpuCollector()
+    assert c.collect()["cpu"].freq_mhz == [2506.0, 3900.0, None]
+    (measured / "cpuinfo_avg_freq").write_text("1356000\n")
+    assert c.collect()["cpu"].freq_mhz == [1356.0, 3900.0, None]
 
 
 # -- storage ----------------------------------------------------------------------------------------------
