@@ -1,5 +1,5 @@
 import { LazyMotion, MotionConfig } from 'motion/react';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, type ComponentType } from 'react';
 import { Route, Switch, useLocation } from 'wouter';
 import { ErrorBoundary } from '../design/components/ErrorBoundary';
 import { LiveAnnouncer } from '../design/components/LiveAnnouncer';
@@ -16,7 +16,8 @@ import { ShortcutsHelp } from './ShortcutsHelp';
 /** Animation features are a separate chunk: the first paint does not wait for them (m.* render static until loaded). */
 const loadMotionFeatures = () => import('./motionFeatures').then((mod) => mod.default);
 
-const CommandPalette = lazy(() => import('./CommandPalette').then((mod) => ({ default: mod.CommandPalette })));
+const NoPalette = () => null;
+const CommandPalette = lazy<ComponentType>(() => import('./CommandPalette').then((mod) => ({ default: mod.CommandPalette }), () => ({ default: NoPalette })));
 
 function useGlobalShortcuts() {
   const [, navigate] = useLocation();
