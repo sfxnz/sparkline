@@ -129,6 +129,42 @@ def test_live_and_history_proxy(env):
     assert r.status_code == 422 and "problem" in r.json()
 
 
+def test_history_proxy_forwards_valid_history_and_rejects_invalid(env):
+    wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
+    full = {
+        "node_id": "n1",
+        "resolution_s": 60.0,
+        "ts": [1.5, 61.5],
+        "series": {"gpu0.util": [12.25, None]},
+        "min": {"gpu0.util": [3.0, None]},
+        "max": {"gpu0.util": [40.5, None]},
+    }
+    agent_app = env["agent_app"]
+    try:
+        agent_app.state.history_body = json.dumps(full).encode()
+        r = env["http"].get("/api/v1/history", params={"node": "n1", "keys": "gpu0.util"})
+        assert r.status_code == 200 and r.headers["content-type"] == "application/json"
+        assert r.json() == full
+        for body in (b'{"node_id": "n1"}', b"<html>Bad Gateway</html>"):
+            agent_app.state.history_body = body
+            r = env["http"].get("/api/v1/history", params={"node": "n1", "keys": "gpu0.util"})
+            assert r.status_code == 502
+            assert r.json()["problem"]["message"] == "Agent on n1 returned invalid history"
+    finally:
+        agent_app.state.history_body = None
+
+
+def test_history_proxy_fills_in_the_defaults_of_fields_the_agent_left_out(env):
+    wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
+    sparse = {"node_id": "n1", "resolution_s": 60.0, "ts": [1.5], "series": {"gpu0.util": [12.25]}}
+    env["agent_app"].state.history_body = json.dumps(sparse).encode()
+    try:
+        r = env["http"].get("/api/v1/history", params={"node": "n1", "keys": "gpu0.util"})
+    finally:
+        env["agent_app"].state.history_body = None
+    assert r.status_code == 200 and r.json() == {**sparse, "min": {}, "max": {}}
+
+
 def test_disconnect_stale_offline_reconnect(env):
     wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
     # agent stops sending -> stale

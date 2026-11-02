@@ -188,6 +188,15 @@ def test_demo_without_token_disables_auth(tmp_path):
         assert c.get("/api/v1/auth/me").json()["auth_required"] is False
 
 
+def test_demo_history_is_a_full_history_response(tmp_path):
+    with TestClient(make(tmp_path, demo=True, token="")) as c:
+        r = c.get("/api/v1/history", params={"node": "spark1", "keys": "gpu0.util"})
+        assert r.status_code == 200 and r.headers["content-type"] == "application/json"
+        h = r.json()
+        assert set(h) == {"node_id", "resolution_s", "ts", "series", "min", "max"}
+        assert set(h["series"]) == {"gpu0.util"} and len(h["series"]["gpu0.util"]) == len(h["ts"]) > 0
+
+
 def test_settings_validation_and_persistence(tmp_path):
     with TestClient(make(tmp_path)) as c:
         s = c.get("/api/v1/settings", headers=bearer()).json()
