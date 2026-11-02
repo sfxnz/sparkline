@@ -2,12 +2,12 @@
 // on connect), so an offline node still shows its last known values after a reload. Each hook re-renders only its
 // own leaf, and only when its (quantised) value changes.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
-import { api } from '../../lib/api';
 import type { HistoryResponse, NodeStatus } from '../../lib/types';
-import { serverNow, useCluster } from '../../store/cluster';
+import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
-import { historyPlusLive, startOfDay } from '../shared/energy';
+import { historyPlusLive } from '../shared/energy';
+import { loadSpan } from '../shared/live';
 import { useShallow } from 'zustand/react/shallow';
 import { useLiveConditions } from '../../store/attention';
 import { openAlertLevel, useEvents } from '../../store/events';
@@ -150,11 +150,8 @@ export function useEnergyToday(ids: readonly string[]): EnergyToday {
       });
     };
     const load = () => {
-      const now = serverNow();
-      const from = startOfDay(now);
       for (const id of list) {
-        api
-          .history(id, [ENERGY_KEY], from, now, 600)
+        loadSpan(id, ENERGY_KEY, 'today')
           .then((r) => { put(id, Array.isArray(r.ts) && typeof r.series === 'object' ? r : null); })
           .catch(() => { put(id, null); });
       }

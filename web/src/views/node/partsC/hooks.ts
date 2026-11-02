@@ -1,11 +1,10 @@
 // Data hooks for the Thermals & Power and Processes tabs.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { api } from '../../../lib/api';
 import type { HistoryResponse } from '../../../lib/types';
-import { serverNow, useCluster } from '../../../store/cluster';
+import { useCluster } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
-import { historyPlusLive, startOfDay } from '../../shared/energy';
-import { useNodeStale, type Loadable } from '../../shared/live';
+import { historyPlusLive } from '../../shared/energy';
+import { loadSpan, SPAN_REFRESH_MS, useNodeStale, type Loadable, type Span } from '../../shared/live';
 
 /**
  * A value derived from a node's LiveStore buffers (e.g. min/max over the live window). Recomputed once per
@@ -31,24 +30,6 @@ export function useStaleSince(node: string): { stale: boolean; updatedAt: number
   const stale = useNodeStale(node);
   const lastSample = useCluster((s) => s.nodes[node]?.last_sample_ts ?? null);
   return { stale, updatedAt: liveStore.lastTs(node) ?? lastSample };
-}
-
-export type Span = 'today' | '7d';
-const SPAN_REFRESH_MS: Record<Span, number> = { today: 60_000, '7d': 300_000 };
-const spanFrom = (span: Span, now: number) => (span === 'today' ? startOfDay(now) : now - 7 * 86400);
-/** Shared between the header and the energy panel so one span is fetched once per refresh, not per component. */
-const spanCache = new Map<string, { at: number; promise: Promise<HistoryResponse> }>();
-
-function loadSpan(node: string, key: string, span: Span): Promise<HistoryResponse> {
-  const id = `${node}|${key}|${span}`;
-  const hit = spanCache.get(id);
-  if (hit && Date.now() - hit.at < SPAN_REFRESH_MS[span] / 2) return hit.promise;
-  const now = serverNow();
-  const promise = api.history(node, [key], spanFrom(span, now), now, 600);
-  promise.catch(() => spanCache.delete(id));
-  spanCache.set(id, { at: Date.now(), promise });
-  if (spanCache.size > 32) spanCache.delete(spanCache.keys().next().value ?? '');
-  return promise;
 }
 
 /** History for one key from local midnight (or 7 days ago) to now, refreshed every minute (5 min for 7 days). */

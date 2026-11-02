@@ -1,12 +1,14 @@
 // Freshness and history helpers shared by the Overview, the node tabs and Wall mode, so every screen agrees on
 // when values are "not live", what the last known value is, and how a range is worded and refreshed.
 import { useEffect, useState } from 'react';
+import { api } from '../../lib/api';
 import type { TimeRange } from '../../lib/prefs';
 import type { HistoryResponse, NodeStatus } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { joinHistoryRefresh, historyCache, type HistoryRange } from '../../store/history';
 import { liveStore, type LiveStore } from '../../store/live';
+import { startOfDay } from './energy';
 
 /** Values on screen are not live: the node is stale/offline/errored, or the browser lost the console. */
 export const notLive = (status: NodeStatus | undefined, consoleLive: boolean): boolean =>
@@ -76,6 +78,23 @@ export function spanPhrase(range: TimeRange, oldestTs: number | null | undefined
 }
 
 export type Loadable<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'error'; message: string };
+
+export type Span = 'today' | '7d';
+export const SPAN_REFRESH_MS: Record<Span, number> = { today: 60_000, '7d': 300_000 };
+const spanFrom = (span: Span, now: number) => (span === 'today' ? startOfDay(now) : now - 7 * 86400);
+const spanCache = new Map<string, { at: number; promise: Promise<HistoryResponse> }>();
+
+export function loadSpan(node: string, key: string, span: Span): Promise<HistoryResponse> {
+  const id = `${node}|${key}|${span}`;
+  const hit = spanCache.get(id);
+  if (hit && Date.now() - hit.at < SPAN_REFRESH_MS[span] / 2) return hit.promise;
+  const now = serverNow();
+  const promise = api.history(node, [key], spanFrom(span, now), now, 600);
+  promise.catch(() => spanCache.delete(id));
+  spanCache.set(id, { at: Date.now(), promise });
+  if (spanCache.size > 32) spanCache.delete(spanCache.keys().next().value ?? '');
+  return promise;
+}
 
 /** History for `keys` over a fixed range (the cache the charts share), refreshed as often as the charts refresh.
  *  `range` null = not needed (e.g. Live mode): stays 'loading' and fetches nothing. */
