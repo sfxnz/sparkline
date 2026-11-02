@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
+import sparkline.agent.collectors.net as net_mod
 from sparkline.agent.collectors import counter_delta, parse_psi
-from sparkline.agent.collectors import net as net_mod
 from sparkline.agent.collectors.cpu import (
     classify_cores,
     core_utils,
