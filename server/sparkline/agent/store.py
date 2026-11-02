@@ -11,7 +11,6 @@ import json
 import math
 import os
 import sqlite3
-from itertools import repeat
 
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX
 
@@ -131,7 +130,8 @@ def downsample(
 ) -> list[tuple[float, dict[str, list[float]]]]:
     """Bucket-average rows (ts-sorted) into at most ``points`` buckets over [t0, t1]. Bucket edges are
     multiples of the width (``bucket_width``), not offsets from t0, so a sliding window keeps the same
-    buckets from one refresh to the next. Each bucket is stamped at the mean time of its rows. Fewer rows
+    buckets from one refresh to the next. Each bucket is stamped at the mean time of its rows. That mean
+    and the averages weight each row by the seconds it covers (``weights``, 1 each by default). Fewer rows
     than ``points`` pass through unchanged unless ``weights`` (rows of mixed resolution must be bucketed)."""
     if not rows:
         return []
@@ -142,7 +142,7 @@ def downsample(
     width = bucket_width(t0, t1, points, res)
     out: list[tuple[float, dict]] = []
     acc, cur = Acc(), None
-    for (ts, d), weight in zip(rows, weights or repeat(1.0), strict=False):
+    for (ts, d), weight in zip(rows, [1.0] * len(rows) if weights is None else weights, strict=True):
         b = int(ts // width)
         if cur is not None and b != cur:
             out.append((acc.ts_sum / acc.n, acc.result()))
