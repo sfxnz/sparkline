@@ -66,12 +66,12 @@ export class HistoryCache {
     this.requests = this.requests.filter((r) => now - r.at < CACHE_TTL_MS[r.range]);
     const req =
       this.requests.find((r) => r.node === node && r.range === range && (!r.sent || keys.every((k) => r.keys.has(k)))) ??
-      this.openUntilEndOfTask(node, range, serverNow, now);
+      this.openUntilNextMicrotask(node, range, serverNow, now);
     for (const k of keys) req.keys.add(k);
     return req.response.then((r) => ({ ...r, series: only(r.series, keys), min: only(r.min, keys), max: only(r.max, keys) }));
   }
 
-  private openUntilEndOfTask(node: string, range: HistoryRange, serverNow: number, now: number): HistoryRequest {
+  private openUntilNextMicrotask(node: string, range: HistoryRange, serverNow: number, now: number): HistoryRequest {
     const req: HistoryRequest = {
       node,
       range,

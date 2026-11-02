@@ -8,7 +8,7 @@ const agent = (node: string, keys: readonly string[]): Promise<HistoryResponse> 
 };
 
 describe('HistoryCache', () => {
-  it('sends one request per node and range for the loads made in one task, and gives each caller its keys', async () => {
+  it('sends one request per node and range for the loads made in one synchronous pass, and gives each caller its keys', async () => {
     const fetcher = vi.fn(agent);
     const c = new HistoryCache(fetcher, () => 0);
     const [a, b, other, longer] = await Promise.all([
@@ -91,7 +91,7 @@ describe('HistoryCache', () => {
 describe('joinHistoryRefresh', () => {
   afterEach(() => { vi.useRealTimers(); });
 
-  it('refreshes every view showing a range in one task, so their loads share one request', async () => {
+  it('refreshes every view showing a range in one synchronous pass, so their loads share one request', async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn(agent);
     const c = new HistoryCache(fetcher, () => Date.now());
