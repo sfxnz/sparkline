@@ -8,13 +8,34 @@ import { usePrefs } from '../store/prefs';
 import sampleJson from '../test/fixtures/sample.json';
 import Thermals from '../views/node/Thermals';
 import { NodeCard } from '../views/overview/NodeCard';
-import { liveCondition } from './condition';
+import { liveCondition, tempRoom } from './condition';
 import type { NodeInfo, NodeState, Sample } from './types';
 
 vi.mock('../charts/TimeSeriesChart', async (importActual) => ({
   ...(await importActual<typeof import('../charts/TimeSeriesChart')>()),
   TimeSeriesChart: () => null,
 }));
+
+describe('tempRoom', () => {
+  it('counts the whole degrees between the temperature and the limit as displayed', () => {
+    expect(tempRoom(70, 86)).toEqual({ degrees: 16, level: 'ok' });
+    expect(tempRoom(79.4, 86)).toEqual({ degrees: 7, level: 'ok' });
+    expect(tempRoom(79.5, 86)).toEqual({ degrees: 6, level: 'warn' });
+    expect(tempRoom(85.6, 86)).toEqual({ degrees: 0, level: 'crit' });
+    expect(tempRoom(87, 86)).toEqual({ degrees: -1, level: 'crit' });
+  });
+
+  it('warns within 6 °C of a sensor limit too (NVMe critical at 84.85 °C, shown as 85 °C)', () => {
+    expect(tempRoom(79, 84.85)).toEqual({ degrees: 6, level: 'warn' });
+    expect(tempRoom(78, 84.85)).toEqual({ degrees: 7, level: 'ok' });
+  });
+
+  it('is null without a reading or a limit', () => {
+    expect(tempRoom(70, null)).toBeNull();
+    expect(tempRoom(null, 86)).toBeNull();
+    expect(tempRoom(Number.NaN, 86)).toBeNull();
+  });
+});
 
 describe('liveCondition', () => {
   it('is null for a calm GPU and when nothing is known', () => {
