@@ -10,8 +10,8 @@ class SampleRing:
     """The newest ``seconds`` of one node's flattened samples, at most ``max_rows`` of them, in arrival order.
 
     One writer and any number of readers in other threads: ``add`` trims before it appends, and ``rows``
-    copies the deque in one C call, which the GIL makes atomic. A snapshot therefore never holds a row more
-    than ``seconds`` older than its newest row. Rows are shared, not copied, so readers must not change them.
+    copies the deque in one C call, which the GIL makes atomic. A snapshot therefore never holds a row that
+    its newest row's ``add`` trimmed. Rows are shared, not copied, so readers must not change them.
     """
 
     def __init__(self, seconds: float, max_rows: int) -> None:
@@ -22,7 +22,7 @@ class SampleRing:
     def add(self, ts: float, flat: Mapping[str, float]) -> int:
         """Append a row and return its arrival number, for ``holds``."""
         row = (ts, {sys.intern(k): v for k, v in flat.items()})
-        while self._rows and self._rows[0][0] < ts - self._seconds:
+        while self._rows and (len(self._rows) == self._rows.maxlen or self._rows[0][0] < ts - self._seconds):
             self._rows.popleft()
         self._rows.append(row)
         self._added += 1
