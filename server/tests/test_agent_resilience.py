@@ -4,6 +4,7 @@ files vanishing. No hardware access: NVML is a fake module, docker a unix socket
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import os
 import shutil
@@ -251,6 +252,7 @@ def test_hwmon_sensor_vanishing_reports_none_and_the_rest_keep_reading(tmp_path,
 
     read = GoneOnRead()
     monkeypatch.setattr(thermal_mod, "read", read)
+    monkeypatch.setattr(thermal_mod.time, "monotonic", itertools.count(0, thermal_mod.SLOW_EVERY_S).__next__)
     t = thermal_mod.ThermalCollector()
     temps = {x.id: x.c for x in t.collect()["temps"]}
     assert temps == {"acpitz.0": 45.0, "nvme.composite": 38.85}
@@ -263,6 +265,85 @@ def test_hwmon_sensor_vanishing_reports_none_and_the_rest_keep_reading(tmp_path,
     read.gone.clear()  # the device comes back at the same path
     make_hwmon(root, 1, "nvme", {1: 40_000}, label="Composite")
     assert {x.id: x.c for x in t.collect()["temps"]}["nvme.composite"] == 40.0
+
+
+def test_device_queried_sensors_are_read_every_slow_interval_and_carried_between(tmp_path, monkeypatch):
+    root = tmp_path / "hwmon"
+    acpi = make_hwmon(root, 0, "acpitz", {1: 45_000})
+    nvme = make_hwmon(root, 1, "nvme", {1: 38_000}, label="Composite")
+    wifi = make_hwmon(root, 2, "mt7925_phy0", {1: 50_000})
+    chip_functions = [make_hwmon(root, n, "mlx5", {1: 66_000}, label="asic") for n in (3, 4)]
+    for n, h in enumerate(chip_functions):
+        ib = tmp_path / f"pci{n}" / "infiniband" / f"mlx5_{n}"
+        ib.mkdir(parents=True)
+        (ib / "sys_image_guid").write_text("4cbb:4703:007e:8172\n")
+        os.symlink(tmp_path / f"pci{n}", f"{h}/device")
+    real_scan = thermal_mod.scan_hwmon
+    monkeypatch.setattr(thermal_mod, "scan_hwmon", lambda: real_scan(str(root)))
+    reads: list[str] = []
+
+    def read(path: str) -> str:
+        reads.append(os.path.basename(os.path.dirname(path)))
+        with open(path) as f:
+            return f.read()
+
+    monkeypatch.setattr(thermal_mod, "read", read)
+    now = [100.0]
+    monkeypatch.setattr(thermal_mod.time, "monotonic", lambda: now[0])
+    t = thermal_mod.ThermalCollector()
+
+    def tick(at: float) -> tuple[dict, list[str]]:
+        now[0] = at
+        reads.clear()
+        return {x.id: x.c for x in t.collect()["temps"]}, sorted(reads)
+
+    temps = {"acpitz.0": 45.0, "nvme.composite": 38.0, "mt7925_phy0.1": 50.0, "mlx5.0": 66.0}
+    assert tick(100) == (temps, ["hwmon0", "hwmon1", "hwmon2", "hwmon3"])
+    for h, milli in ((acpi, 46_000), (nvme, 39_000), (wifi, 51_000)):
+        with open(f"{h}/temp1_input", "w") as f:
+            f.write(f"{milli}\n")
+    assert tick(101) == ({**temps, "acpitz.0": 46.0}, ["hwmon0", "hwmon3"])
+    assert tick(109)[0]["nvme.composite"] == 38.0
+    later = {**temps, "acpitz.0": 46.0, "nvme.composite": 39.0, "mt7925_phy0.1": 51.0}
+    assert tick(110) == (later, ["hwmon0", "hwmon1", "hwmon2", "hwmon3"])
+
+    shutil.rmtree(chip_functions[0])
+    assert tick(111) == (later, ["hwmon0", "hwmon3", "hwmon4"])
+
+    # Ticks land on an exact 1 s grid, but the collectors before thermal take a different 0-60 ms each tick.
+    lag = (0.0, 0.03, 0.06, 0.02, 0.05, 0.01, 0.04)
+    assert [k for k in range(2, 41) if "hwmon1" in tick(110 + k + lag[k % 7])[1]] == [10, 20, 30, 40]
+
+
+def test_a_failed_device_queried_read_is_retried_on_the_next_tick(tmp_path, monkeypatch):
+    root = tmp_path / "hwmon"
+    make_hwmon(root, 0, "nvme", {1: 38_000}, label="Composite")
+    real_scan = thermal_mod.scan_hwmon
+    monkeypatch.setattr(thermal_mod, "scan_hwmon", lambda: real_scan(str(root)))
+    failing = [True]
+    reads = []
+
+    def read(path: str) -> str:
+        reads.append(path)
+        if failing[0]:
+            raise OSError(5, "Input/output error")
+        with open(path) as f:
+            return f.read()
+
+    monkeypatch.setattr(thermal_mod, "read", read)
+    now = [100.0]
+    monkeypatch.setattr(thermal_mod.time, "monotonic", lambda: now[0])
+    t = thermal_mod.ThermalCollector()
+
+    def tick(at: float) -> tuple[float | None, int]:
+        now[0] = at
+        reads.clear()
+        return t.collect()["temps"][0].c, len(reads)
+
+    assert tick(100) == (None, 1)
+    failing[0] = False
+    assert tick(101) == (38.0, 1)
+    assert tick(102) == (38.0, 0)
 
 
 def test_hwmon_dir_removed_during_scan_is_skipped(tmp_path, monkeypatch):
