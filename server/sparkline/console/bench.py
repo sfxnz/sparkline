@@ -1194,7 +1194,7 @@ class BenchManager:
 
     def list(self, bench_id: str | None, node: str | None, status: str | None, limit: int) -> list[BenchRun]:
         out = []
-        for run in self.store.list(bench_id, node, status, limit):
+        for run in self.store.run_list(bench_id, node, status, limit):
             if run.id in self.active:
                 run = self.active[run.id].run
             series = {k: v for k, v in run.series.items() if not k.startswith("telemetry.")}
