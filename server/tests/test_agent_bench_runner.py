@@ -1830,6 +1830,29 @@ def test_llm_failed_requests_show_on_their_streams_and_a_failed_level_reports_no
     assert [s["state"] for s in [m["live"] for m in msgs if "live" in m][-1]["streams"]] == ["error"]
 
 
+def test_llm_a_stream_whose_thread_starts_late_still_sends_a_request(fake_streams, monkeypatch):
+    monkeypatch.syspath_prepend(PAYLOAD_DIR)
+    import llm_inference
+
+    work = llm_inference.Level.work
+
+    def late(level, slot):
+        if slot.index == level.size - 1:
+            time.sleep(0.2)
+        work(level, slot)
+
+    monkeypatch.setattr(llm_inference.Level, "work", late)
+    url, _ = fake_streams(fail_after=0)
+    a = types.SimpleNamespace(
+        base_url=url, api="chat", prompt_tokens=16, max_tokens=4, concurrency=4, requests=4, sweep=False
+    )
+    lv = llm_inference.Level(a, "fake/Model-8B", False, 0, [])
+    lv.run()
+    snap = lv.snapshot(time.perf_counter())
+    assert (snap["done"], snap["failed"]) == (4, 4)
+    assert [s["state"] for s in snap["streams"]] == ["error"] * 4
+
+
 def test_llm_sigterm_stops_every_stream_at_once_and_leaves_a_last_snapshot(fake_streams):
     """A cancel must not wait for blocked reads (the runner SIGKILLs after 5 s): the open connections are
     shut, the payload exits well within a second and its last snapshot shows the streams it stopped."""
