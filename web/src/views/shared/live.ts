@@ -82,7 +82,7 @@ export type Loadable<T> = { state: 'loading' } | { state: 'ready'; data: T } | {
 export type Span = 'today' | '7d';
 export const SPAN_REFRESH_MS: Record<Span, number> = { today: 60_000, '7d': 300_000 };
 const spanFrom = (span: Span, now: number) => (span === 'today' ? startOfDay(now) : now - 7 * 86400);
-const spanCache = new Map<string, { at: number; promise: Promise<HistoryResponse> }>();
+const spanCache = historyCache.spans;
 
 export function loadSpan(node: string, key: string, span: Span): Promise<HistoryResponse> {
   const id = `${node}|${key}|${span}`;

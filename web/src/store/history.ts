@@ -55,6 +55,8 @@ function only<T>(byKey: Record<string, T>, keys: readonly string[]): Record<stri
 
 export class HistoryCache {
   private requests: HistoryRequest[] = [];
+  /** loadSpan's responses (views/shared/live.ts), held here so clear() drops them too. */
+  readonly spans = new Map<string, { at: number; promise: Promise<HistoryResponse> }>();
 
   constructor(
     private readonly fetcher: Fetcher = (n, k, f, t) => api.history(n, k, f, t),
@@ -97,6 +99,7 @@ export class HistoryCache {
 
   clear(): void {
     this.requests = [];
+    this.spans.clear();
   }
 }
 
