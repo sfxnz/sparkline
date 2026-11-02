@@ -20,7 +20,7 @@ import { springs } from '../../design/motion';
 import { useNow } from '../../design/useNow';
 import { api } from '../../lib/api';
 import { bitrateParts, DASH, formatAgo, formatBytes, formatPercent, formatWatts, text, wattsParts } from '../../lib/format';
-import { HEADROOM_WARN_C } from '../../lib/condition';
+import { tempRoom } from '../../lib/condition';
 import type { NodeInfo, Sample } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -260,17 +260,17 @@ function Temperature() {
   const { id, info } = useContext(Ctx);
   const temp = useLiveValue(id, 'gpu0.temp_c', 1);
   const slowdown = info?.gpus[0]?.temp_slowdown_c ?? null;
-  const headroom = temp !== null && slowdown !== null ? slowdown - temp : null;
+  const room = tempRoom(temp, slowdown);
   let footer: ReactNode = null;
-  if (headroom !== null) {
+  if (room) {
     const why = <span className="visually-hidden"> to the {slowdown} °C slowdown threshold</span>;
     footer =
-      headroom <= 0 ? (
+      room.level === 'crit' ? (
         <span className="ov-flag tone-crit"><OctagonAlert aria-hidden="true" />At slowdown{why}</span>
-      ) : headroom <= HEADROOM_WARN_C ? (
-        <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{headroom.toFixed(0)}&nbsp;°C</span> headroom{why}</span>
+      ) : room.level === 'warn' ? (
+        <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>
       ) : (
-        <><span className="num">{headroom.toFixed(0)}&nbsp;°C</span> headroom{why}</>
+        <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</>
       );
   }
   return (
