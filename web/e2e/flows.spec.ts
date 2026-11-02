@@ -78,6 +78,12 @@ test('lazy chunks that fail to load leave the rest of the overview working', asy
   await page.keyboard.press('Control+k');
   await expect(page.getByRole('combobox', { name: /Search views/ })).toHaveCount(0);
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+  const html = page.locator('html');
+  const flipped = (await html.getAttribute('data-theme')) === 'dark' ? 'light' : 'dark';
+  await page.keyboard.press('t');
+  await expect(html).toHaveAttribute('data-theme', flipped);
+  await page.keyboard.press('2');
+  await expect(page).toHaveURL(/\/node\/spark2$/);
 });
 
 test('the GPU activity panel is busy until its chart chunk arrives', async ({ page }) => {
