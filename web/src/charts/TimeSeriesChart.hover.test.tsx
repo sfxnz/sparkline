@@ -42,6 +42,16 @@ describe('hovering a live chart', () => {
     { key: 'mem.anon', label: 'Processes', className: 'mem-c-anon' },
   ];
   const node: NodeState = { node_id: NODE, url: '', status: 'online', since: 0, last_sample_ts: null, error: null, info: null, next_retry_ts: null };
+  const LINE_COLOURS = ['rgb(10, 20, 30)', 'rgb(40, 50, 60)'];
+
+  const token = (i: number) => `--chart-${String(i + 1)}`;
+
+  beforeAll(() => {
+    LINE_COLOURS.forEach((c, i) => { document.documentElement.style.setProperty(token(i), c); });
+  });
+  afterAll(() => {
+    LINE_COLOURS.forEach((_, i) => { document.documentElement.style.removeProperty(token(i)); });
+  });
 
   beforeEach(() => {
     usePrefs.setState({ timeRange: 'live' });
@@ -67,6 +77,7 @@ describe('hovering a live chart', () => {
     const dots = await hoverDots(container);
     expect(dots).toHaveLength(2);
     expect(dots.map((d) => d.style.transform), 'no dot left parked off the plot').not.toContain('translate(-10px,-10px)');
+    expect(dots.map((d) => d.style.backgroundColor), 'each dot filled with its line colour').toEqual(LINE_COLOURS);
   });
 
   it('stacked: shows no dots', async () => {
