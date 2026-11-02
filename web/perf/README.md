@@ -144,4 +144,6 @@ Startup bundle (`bundle.mjs`, gzip). It covers the entry script, its moduleprelo
 Lazy now: alerts (6.9 KB), settings (5.3 KB), wall mode (5.6 KB) and sign-in each have their own chunk. Motion's
 animation engine (`single-value`, 9.8 KB, plus `animate`, 4.9 KB) loads right after startup, and numbers change
 instantly until it arrives. The benchmark suite (30.1 KB) and motion's layout features (18.6 KB) were already lazy.
-React DOM (about 62 KB) and uPlot (about 22 KB, needed by the overview chart) remain the largest startup costs.
+React DOM (about 62 KB) remains the largest startup cost. uPlot (about 22 KB) and the command palette have since left
+the startup graph too (startup JS 125.2 KB). The overview chart shows its skeleton until uPlot arrives, and the palette
+mounts, closed, as soon as its chunk loads.
