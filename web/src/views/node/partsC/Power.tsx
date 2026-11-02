@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { Link } from 'wouter';
-import { LIVE_WINDOW_S, TimeSeriesChart, unsupportedReason } from '../../../charts/TimeSeriesChart';
+import { LIVE_WINDOW_S, TimeSeriesChart } from '../../../charts/TimeSeriesChart';
 import { Panel } from '../../../design/components/Panel';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { Stat } from '../../../design/components/Stat';
@@ -9,6 +9,7 @@ import { Unsupported } from '../../../design/components/Unsupported';
 import { DASH, formatWatts, wattsParts } from '../../../lib/format';
 import type { TimeRange } from '../../../lib/prefs';
 import type { NodeInfo } from '../../../lib/types';
+import { unsupportedReason } from '../../../lib/unsupported';
 import { paths } from '../../../app/routes';
 import { serverNow, useCluster } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';

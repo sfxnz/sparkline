@@ -15,7 +15,7 @@ import { Unsupported } from '../design/components/Unsupported';
 import { useNow } from '../design/useNow';
 import { formatAgo } from '../lib/format';
 import type { TimeRange } from '../lib/prefs';
-import type { NodeInfo } from '../lib/types';
+import { unsupportedReason } from '../lib/unsupported';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { joinHistoryRefresh, historyCache, RANGE_SECONDS } from '../store/history';
@@ -23,7 +23,7 @@ import { liveStore, type LiveStore } from '../store/live';
 import { usePrefs } from '../store/prefs';
 import { ChartDataTable } from './ChartDataTable';
 import { insertGaps } from './gaps';
-import { axisLabels, readChartTheme, summarize, timeAxis, useThemeVersion, withAlpha } from './theme';
+import { axisLabels, readChartTheme, summarize, useThemeVersion, withAlpha } from './theme';
 import './chart.css';
 
 export interface SeriesSpec {
@@ -101,10 +101,29 @@ export function sharedYMax(group: string | undefined, self: object, dmax: number
   return top;
 }
 
-/** Reason a metric key is not reported by this node, if listed in NodeInfo.unsupported (exact key or prefix). */
-export function unsupportedReason(info: NodeInfo | null | undefined, key: string): string | null {
-  const u = info?.unsupported.find((x) => key === x.metric || key.startsWith(`${x.metric}.`));
-  return u?.reason ?? null;
+/** Time-axis steps per range: the format and density follow the range, never the chart's width, so neighbouring
+ *  charts of one screen tick alike (Live/5m every minute or more, as HH:MM; 7 d by day). */
+export const TIME_INCRS: Record<TimeRange, number[]> = {
+  live: [60, 120, 300, 600, 900, 1800],
+  '5m': [60, 120, 300, 600, 900, 1800],
+  '1h': [300, 600, 900, 1800, 3600],
+  '24h': [3600, 7200, 10800, 21600, 43200, 86400],
+  '7d': [86400, 172800, 345600, 604800],
+};
+
+const fmtHm = uPlot.fmtDate('{HH}:{mm}');
+const fmtDay = uPlot.fmtDate('{D} {MMM}');
+
+/** uPlot x-axis options for a range: its steps, its one label format, and no label so close to the plot's left edge
+ *  that it would run into the y-axis labels. `k` scales the spacing with the user's font size. */
+export function timeAxis(range: TimeRange, k: number): Pick<uPlot.Axis, 'incrs' | 'values' | 'space'> {
+  const fmt = range === '7d' ? fmtDay : fmtHm;
+  const edge = Math.round(22 * k);
+  return {
+    incrs: TIME_INCRS[range],
+    space: Math.round(72 * k),
+    values: (u, splits) => splits.map((v) => (u.valToPos(v, 'x') < edge ? '' : fmt(new Date(v * 1000)))),
+  };
 }
 
 export function TimeSeriesChart({

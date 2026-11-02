@@ -1,7 +1,5 @@
 // Chart theming from CSS custom properties, so charts follow the active theme (and re-theme when it changes).
 import { useSyncExternalStore } from 'react';
-import uPlot from 'uplot';
-import type { TimeRange } from '../lib/prefs';
 
 export interface ChartTheme {
   grid: string;
@@ -219,29 +217,4 @@ export function axisLabels(splits: readonly number[], format: (n: number) => str
     prev = t;
     return out;
   });
-}
-
-/** Time-axis steps per range: the format and density follow the range, never the chart's width, so neighbouring
- *  charts of one screen tick alike (Live/5m every minute or more, as HH:MM; 7 d by day). */
-export const TIME_INCRS: Record<TimeRange, number[]> = {
-  live: [60, 120, 300, 600, 900, 1800],
-  '5m': [60, 120, 300, 600, 900, 1800],
-  '1h': [300, 600, 900, 1800, 3600],
-  '24h': [3600, 7200, 10800, 21600, 43200, 86400],
-  '7d': [86400, 172800, 345600, 604800],
-};
-
-const fmtHm = uPlot.fmtDate('{HH}:{mm}');
-const fmtDay = uPlot.fmtDate('{D} {MMM}');
-
-/** uPlot x-axis options for a range: its steps, its one label format, and no label so close to the plot's left edge
- *  that it would run into the y-axis labels. `k` scales the spacing with the user's font size. */
-export function timeAxis(range: TimeRange, k: number): Pick<uPlot.Axis, 'incrs' | 'values' | 'space'> {
-  const fmt = range === '7d' ? fmtDay : fmtHm;
-  const edge = Math.round(22 * k);
-  return {
-    incrs: TIME_INCRS[range],
-    space: Math.round(72 * k),
-    values: (u, splits) => splits.map((v) => (u.valToPos(v, 'x') < edge ? '' : fmt(new Date(v * 1000)))),
-  };
 }

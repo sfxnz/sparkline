@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { ChartDataTable, downsampleRows } from './ChartDataTable';
 import { orderCores } from './Heatmap';
-import { unsupportedReason } from './TimeSeriesChart';
 
 describe('downsampleRows', () => {
   it('bucket-averages to at most maxRows, ignoring gaps', () => {
@@ -27,13 +26,6 @@ describe('ChartDataTable', () => {
 });
 
 describe('chart helpers', () => {
-  it('finds unsupported reasons by exact key or prefix', () => {
-    const info = { unsupported: [{ metric: 'gpu0.power_limit_w', reason: 'NVML: Not Supported' }, { metric: 'fan', reason: 'No fan sensors' }] };
-    expect(unsupportedReason(info as never, 'gpu0.power_limit_w')).toBe('NVML: Not Supported');
-    expect(unsupportedReason(info as never, 'fan.0.rpm')).toBe('No fan sensors');
-    expect(unsupportedReason(info as never, 'fans')).toBeNull();
-    expect(unsupportedReason(null, 'x')).toBeNull();
-  });
   it('orders cores performance first, then efficiency', () => {
     const cores = [0, 5, 10, 15].map((id) => ({ id, kind: id % 10 < 5 ? 'efficiency' : 'performance', model: null, max_mhz: null, cluster: null }) as const);
     expect(orderCores(cores).map((r) => r.core.id)).toEqual([5, 15, 0, 10]);

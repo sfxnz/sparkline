@@ -1,5 +1,5 @@
 import { LazyMotion, MotionConfig } from 'motion/react';
-import { Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, type ComponentType } from 'react';
 import { Route, Switch, useLocation } from 'wouter';
 import { ErrorBoundary } from '../design/components/ErrorBoundary';
 import { LiveAnnouncer } from '../design/components/LiveAnnouncer';
@@ -9,13 +9,20 @@ import { useConnection } from '../store/connection';
 import { usePrefs, watchSystemTheme } from '../store/prefs';
 import { startSession } from '../store/session';
 import { useUi } from '../store/ui';
-import { CommandPalette } from './CommandPalette';
 import { Login, Wall, documentTitle, paths } from './routes';
 import { Shell } from './Shell';
 import { ShortcutsHelp } from './ShortcutsHelp';
 
 /** Animation features are a separate chunk: the first paint does not wait for them (m.* render static until loaded). */
 const loadMotionFeatures = () => import('./motionFeatures').then((mod) => mod.default);
+
+function NoPalette() {
+  const open = useUi((s) => s.paletteOpen);
+  useEffect(() => { if (open) useUi.getState().setPalette(false); }, [open]);
+  return null;
+}
+
+const CommandPalette = lazy<ComponentType>(() => import('./CommandPalette').then((mod) => ({ default: mod.CommandPalette }), () => ({ default: NoPalette })));
 
 function useGlobalShortcuts() {
   const [, navigate] = useLocation();
@@ -84,7 +91,9 @@ export function App() {
               </Route>
             </Switch>
           </Suspense>
-          <CommandPalette />
+          <Suspense fallback={null}>
+            <CommandPalette />
+          </Suspense>
           <ShortcutsHelp />
         </ErrorBoundary>
         <LiveAnnouncer />

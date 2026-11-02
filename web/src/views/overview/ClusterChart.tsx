@@ -1,11 +1,13 @@
 // GPU utilisation and GPU (rail) power per node over the global time range. One chart per node and metric, all
 // on the shared crosshair, so the rows line up in time.
+import { lazy, Suspense } from 'react';
 import { Panel } from '../../design/components/Panel';
 import { formatPercent, formatWatts } from '../../lib/format';
 import type { TimeRange } from '../../lib/prefs';
-import { TimeSeriesChart } from '../../charts/TimeSeriesChart';
 import { usePrefs } from '../../store/prefs';
 import { ChartSkeleton } from '../placeholders';
+
+const TimeSeriesChart = lazy(() => import('../../charts/TimeSeriesChart').then((m) => ({ default: m.TimeSeriesChart })));
 
 const RANGE_TEXT: Record<TimeRange, string> = {
   live: 'Live · last 3 minutes',
@@ -21,18 +23,20 @@ const pct = (n: number) => formatPercent(n);
 export function ClusterChart({ nodes }: { nodes: readonly string[] }) {
   const range = usePrefs((s) => s.timeRange);
   return (
-    <Panel title="GPU activity" subtitle={`Utilisation and GPU power per node, on shared scales · ${RANGE_TEXT[range]}`}>
-      <div className="ov-chart">
-        <span className="ov-chart__col t-eyebrow" aria-hidden="true">Utilisation</span>
-        <span className="ov-chart__col t-eyebrow" aria-hidden="true">GPU power</span>
-        {nodes.map((id) => (
-          <div key={id} className="ov-chart__row">
-            <TimeSeriesChart node={id} title={`${id} GPU utilisation`} series={[{ key: 'gpu0.util', label: id }]} format={pct} yMin={0} yMax={100} height={CHART_H} />
-            <TimeSeriesChart node={id} title={`${id} GPU power`} series={[{ key: 'gpu0.power_w', label: id }]} format={formatWatts} yMin={0} yGroup="overview-gpu-power" height={CHART_H} />
-          </div>
-        ))}
-      </div>
-    </Panel>
+    <Suspense fallback={<ClusterChartSkeleton rows={nodes.length} />}>
+      <Panel title="GPU activity" subtitle={`Utilisation and GPU power per node, on shared scales · ${RANGE_TEXT[range]}`}>
+        <div className="ov-chart">
+          <span className="ov-chart__col t-eyebrow" aria-hidden="true">Utilisation</span>
+          <span className="ov-chart__col t-eyebrow" aria-hidden="true">GPU power</span>
+          {nodes.map((id) => (
+            <div key={id} className="ov-chart__row">
+              <TimeSeriesChart node={id} title={`${id} GPU utilisation`} series={[{ key: 'gpu0.util', label: id }]} format={pct} yMin={0} yMax={100} height={CHART_H} />
+              <TimeSeriesChart node={id} title={`${id} GPU power`} series={[{ key: 'gpu0.power_w', label: id }]} format={formatWatts} yMin={0} yGroup="overview-gpu-power" height={CHART_H} />
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </Suspense>
   );
 }
 

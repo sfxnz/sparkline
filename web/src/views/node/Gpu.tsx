@@ -1,11 +1,12 @@
 import { CircleCheck } from 'lucide-react';
 import { useMemo } from 'react';
-import { TimeSeriesChart, unsupportedReason, type SeriesSpec, type Threshold } from '../../charts/TimeSeriesChart';
+import { TimeSeriesChart, type SeriesSpec, type Threshold } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Stat } from '../../design/components/Stat';
 import { Skeleton } from '../../design/components/Skeleton';
 import { energyParts, formatFreq, formatPercent, formatTemp, formatWatts, percentParts, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { decodeThrottle } from '../../lib/throttle';
+import { unsupportedReason } from '../../lib/unsupported';
 import { useCluster } from '../../store/cluster';
 import { useLatest } from '../../store/live';
 import { formatEnergyAuto, formatEnergyCost, historyEnergy } from '../shared/energy';

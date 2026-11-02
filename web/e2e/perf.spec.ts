@@ -2,7 +2,7 @@
 // Performance guards from the brief: no long tasks (> 50 ms) while the overview streams three demo nodes, and a lean
 // startup bundle. The deeper measurements (frame times at 1x/4x CPU, initial load, multi-hour memory soak) are
 // scripts: scripts/frames.mjs, scripts/load.mjs, scripts/soak.mjs (see web/perf/README.md).
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { expect, test } from '@playwright/test';
@@ -59,5 +59,13 @@ test('startup JavaScript stays within the gzip budget, with the benchmark suite 
   // The lazy pages are not in the startup graph.
   for (const lazy of ['Benchmarks', 'Alerts', 'Settings', 'Wall', 'Login', 'motionFeatures']) {
     expect(files.some((f) => f.startsWith(`assets/${lazy}-`)), `${lazy} chunk loaded at startup`).toBe(false);
+  }
+  // Checked by source module, not chunk name: an eager import merges a module into a startup chunk instead of loading a
+  // chunk of its own. Vite's own preload helper, when it gets a chunk, has no sourcemap.
+  const maps = files.map((f) => join(DIST, `${f}.map`)).filter((m) => existsSync(m));
+  const sources = maps.flatMap((m) => (JSON.parse(readFileSync(m, 'utf8')) as { sources: string[] }).sources);
+  expect(sources, 'startup chunks have sourcemaps').not.toEqual([]);
+  for (const late of ['node_modules/uplot/', 'src/app/CommandPalette.tsx']) {
+    expect(sources.filter((s) => s.includes(late)), `${late} in the startup graph`).toEqual([]);
   }
 });

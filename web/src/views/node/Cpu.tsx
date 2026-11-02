@@ -1,10 +1,11 @@
 // CPU tab: how busy the CPU is, split by core type, and which cores carry the load.
 import { useCallback, useMemo } from 'react';
-import { TimeSeriesChart, unsupportedReason } from '../../charts/TimeSeriesChart';
+import { TimeSeriesChart } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { percentParts } from '../../lib/format';
 import type { NodeInfo } from '../../lib/types';
+import { unsupportedReason } from '../../lib/unsupported';
 import { ChartPanelSkeleton, StatSkeleton } from '../placeholders';
 import { CoreGrid } from './partsB/CoreGrid';
 import { groupCores, loadFormatter, meanUtil } from './partsB/cores';

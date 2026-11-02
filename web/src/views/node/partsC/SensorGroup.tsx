@@ -1,6 +1,6 @@
 import { OctagonAlert, TriangleAlert } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
-import { LIVE_WINDOW_S, TimeSeriesChart, unsupportedReason, type Threshold } from '../../../charts/TimeSeriesChart';
+import { LIVE_WINDOW_S, TimeSeriesChart, type Threshold } from '../../../charts/TimeSeriesChart';
 import { AnimatedNumber } from '../../../design/components/AnimatedNumber';
 import { Panel } from '../../../design/components/Panel';
 import { Sparkline } from '../../../design/components/Sparkline';
@@ -10,6 +10,7 @@ import { tempRoom, type TempRoom } from '../../../lib/condition';
 import { DASH, formatTemp } from '../../../lib/format';
 import type { TimeRange } from '../../../lib/prefs';
 import type { HistoryResponse, NodeInfo } from '../../../lib/types';
+import { unsupportedReason } from '../../../lib/unsupported';
 import { serverNow } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
 import type { Loadable } from '../../shared/live';

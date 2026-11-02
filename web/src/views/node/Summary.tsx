@@ -1,10 +1,11 @@
 import { useCallback, useMemo } from 'react';
 import { paths } from '../../app/routes';
 import { BYTE_INCRS } from '../../charts/theme';
-import { TimeSeriesChart, unsupportedReason, type SeriesSpec } from '../../charts/TimeSeriesChart';
+import { TimeSeriesChart, type SeriesSpec } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { bitrateParts, bytesParts, formatBitrate, formatBytes, formatPercent, formatWatts, percentParts, tempParts, wattsParts } from '../../lib/format';
 import type { Sample } from '../../lib/types';
+import { unsupportedReason } from '../../lib/unsupported';
 import { useCluster } from '../../store/cluster';
 import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
