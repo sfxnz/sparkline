@@ -154,6 +154,15 @@ describe('LiveStore reconnect back-fill', () => {
     expect(w.ts).toEqual(ticks(5, 12));
     expect(w.values[0]).toEqual([SOCKET_UTIL, ...filled(6, 11, REPLY_UTIL), SOCKET_UTIL]);
   });
+
+  it('fills a gap in a ring that has wrapped', () => {
+    const { store } = manual(8);
+    for (const t of [...ticks(1, 6), ...ticks(9, 12)]) store.pushSample(mk(t, SOCKET_UTIL));
+    store.seed(reply(7, 8));
+    const w = store.window('spark1', ['gpu0.util']);
+    expect(w.ts).toEqual(ticks(5, 12));
+    expect(w.values[0]).toEqual([...filled(5, 6, SOCKET_UTIL), ...filled(7, 8, REPLY_UTIL), ...filled(9, 12, SOCKET_UTIL)]);
+  });
 });
 
 describe('LiveStore notifications', () => {

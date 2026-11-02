@@ -60,12 +60,6 @@ export class NodeBuffer {
     }
     return lo;
   }
-
-  clear(): void {
-    this.start = this.length = 0;
-    this.values.clear();
-    this.latest = null;
-  }
 }
 
 /** Aligned arrays for charts. `values[k][i]` is null where there is no data (uPlot gap). */
@@ -124,9 +118,11 @@ export class LiveStore {
     const b = this.ensure(resp.node_id);
     const keys = Object.keys(resp.series);
     const rows: { ts: number; flat: Map<string, number> }[] = [];
+    let firstAdded = Infinity;
     resp.ts.forEach((t, i) => {
       const n = b.lowerBound(t);
       if (n < b.length && b.ts[b.index(n)] === t) return;
+      firstAdded = Math.min(firstAdded, t);
       const flat = new Map<string, number>();
       for (const k of keys) {
         const v = resp.series[k]?.[i];
@@ -135,7 +131,8 @@ export class LiveStore {
       rows.push({ ts: t, flat });
     });
     if (!rows.length) return;
-    for (let n = 0; n < b.length; n++) {
+    const keep = b.lowerBound(firstAdded);
+    for (let n = keep; n < b.length; n++) {
       const i = b.index(n);
       const flat = new Map<string, number>();
       for (const [k, ring] of b.values) {
@@ -145,9 +142,7 @@ export class LiveStore {
       rows.push({ ts: b.ts[i] ?? 0, flat });
     }
     rows.sort((x, y) => x.ts - y.ts);
-    const latest = b.latest;
-    b.clear();
-    b.latest = latest;
+    b.length = keep;
     for (const r of rows.slice(-this.capacity)) b.push(r.ts, r.flat);
     this.markDirty(resp.node_id, keys);
   }
