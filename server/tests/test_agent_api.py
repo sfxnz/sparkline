@@ -14,7 +14,7 @@ from sparkline.agent.app import create_app
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.store import Store
-from sparkline.common.schema import CpuSample, GpuSample, MemSample, NodeInfo, Sample
+from sparkline.common.schema import CpuSample, GpuSample, MemSample, NetSample, NodeInfo, Sample
 
 TOKEN = "s3cret"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -291,6 +291,33 @@ async def test_young_agent_serves_recent_ranges_from_the_ring(tmp_path):
     _fill(s, now - 60, 60)
     h = await s.history(["gpu0.util"], now - 300, now, points=600)
     assert h.resolution_s == 1.0 and len(h.ts) == 60
+
+
+async def test_history_weights_rollups_and_ring_samples_by_the_time_they_cover(tmp_path):
+    class Gpu:
+        name = "gpu"
+        util = 0.0
+
+        def collect(self) -> dict:
+            return {
+                "gpu": [GpuSample(index=0, util=self.util, temp_c=60.0, throttle_mask=0)],
+                "net": [NetSample(name="x", up=True, rx_bps=0, tx_bps=0, errors=1)],
+            }
+
+    gpu, ring_s, width = Gpu(), 600, 180
+    s = make(tmp_path, collectors=[gpu, FakeMem(), FakeCpu()], ring_seconds=ring_s)
+    edge = int(time.time()) // width * width - 5 * width
+    _fill(s, edge - 600, 720)
+    gpu.util = 100.0
+    _fill(s, edge + 120, ring_s)
+    now = time.time()
+    h = await s.history(["gpu0.util", "net.x.errors"], now - 86400, now, points=600)
+    assert h.resolution_s == width
+    i = next(i for i, t in enumerate(h.ts) if edge <= t < edge + width)
+    assert h.series["gpu0.util"][i] == pytest.approx(100 / 3, abs=0.01), "2 min idle and 1 min busy"
+    assert (h.min["gpu0.util"][i], h.max["gpu0.util"][i]) == (0.0, 100.0)
+    assert h.series["net.x.errors"][i] == 180, "one error a second, summed, not weighted"
+    assert h.ts[i] == pytest.approx(edge + width / 2, abs=1)
 
 
 def test_ring_rows_hold_only_the_requested_keys(tmp_path):
