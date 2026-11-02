@@ -315,6 +315,37 @@ def test_device_queried_sensors_are_read_every_slow_interval_and_carried_between
     assert [k for k in range(2, 41) if "hwmon1" in tick(110 + k + lag[k % 7])[1]] == [10, 20, 30, 40]
 
 
+def test_a_failed_device_queried_read_is_retried_on_the_next_tick(tmp_path, monkeypatch):
+    root = tmp_path / "hwmon"
+    make_hwmon(root, 0, "nvme", {1: 38_000}, label="Composite")
+    real_scan = thermal_mod.scan_hwmon
+    monkeypatch.setattr(thermal_mod, "scan_hwmon", lambda: real_scan(str(root)))
+    failing = [True]
+    reads = []
+
+    def read(path: str) -> str:
+        reads.append(path)
+        if failing[0]:
+            raise OSError(5, "Input/output error")
+        with open(path) as f:
+            return f.read()
+
+    monkeypatch.setattr(thermal_mod, "read", read)
+    now = [100.0]
+    monkeypatch.setattr(thermal_mod.time, "monotonic", lambda: now[0])
+    t = thermal_mod.ThermalCollector()
+
+    def tick(at: float) -> tuple[float | None, int]:
+        now[0] = at
+        reads.clear()
+        return t.collect()["temps"][0].c, len(reads)
+
+    assert tick(100) == (None, 1)
+    failing[0] = False
+    assert tick(101) == (38.0, 1)
+    assert tick(102) == (38.0, 0)
+
+
 def test_hwmon_dir_removed_during_scan_is_skipped(tmp_path, monkeypatch):
     root = tmp_path / "hwmon"
     make_hwmon(root, 0, "acpitz", {1: 45_000})
