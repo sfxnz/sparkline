@@ -165,6 +165,12 @@ def test_history_proxy_fills_in_the_defaults_of_fields_the_agent_left_out(env):
     assert r.status_code == 200 and r.json() == {**sparse, "min": {}, "max": {}}
 
 
+def test_history_proxy_rejects_a_reversed_range_itself(env):
+    wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
+    r = env["http"].get("/api/v1/history", params={"node": "n1", "from": 200, "to": 100})
+    assert r.status_code == 400 and r.json()["problem"]["message"] == "'from' must be earlier than 'to'"
+
+
 def test_disconnect_stale_offline_reconnect(env):
     wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
     # agent stops sending -> stale

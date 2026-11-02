@@ -377,6 +377,10 @@ def create_app(
         require_reachable(src)
         to = time.time() if to is None else to
         from_ = to - 3600 if from_ is None else from_
+        if from_ >= to:
+            raise ProblemError(
+                400, "'from' must be earlier than 'to'", f"from={from_}, to={to}", "Ask for a later 'to'"
+            )
         key_list = [k for k in keys.split(",") if k]
         if demo:  # seconds of CPU for long ranges: keep it off the event loop that feeds live streams
             model = cast(DemoSource, src).model
