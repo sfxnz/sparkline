@@ -35,6 +35,13 @@ def test_holds_matches_the_rows_still_in_the_ring_after_a_clock_step_back():
     assert held == [12.0, 17.0]
 
 
+def test_old_rows_behind_a_row_the_row_limit_drops_are_dropped_too():
+    ring = SampleRing(5, 4)
+    arrivals = {ts: ring.add(ts, {"a": ts}) for ts in (100.0, 50.0, 51.0, 52.0, 58.0)}
+    assert [ts for ts, _ in ring.rows()] == [58.0]
+    assert [ts for ts, n in arrivals.items() if ring.holds(n)] == [58.0]
+
+
 def test_rows_in_a_time_range_include_both_ends():
     ring = filled()
     assert [ts for ts, _ in ring.rows(3, 5)] == [3, 4, 5]
