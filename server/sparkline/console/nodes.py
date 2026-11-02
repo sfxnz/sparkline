@@ -14,7 +14,6 @@ import logging
 import random
 import socket
 import time
-from collections import deque
 from collections.abc import Callable
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -22,6 +21,8 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import ValidationError
 
+from ..common.metrics import flatten
+from ..common.ring import SampleRing
 from ..common.schema import (
     SCHEMA_VERSION,
     NodeBenchState,
@@ -29,6 +30,7 @@ from ..common.schema import (
     NodeState,
     NodeStatus,
     Problem,
+    ProcSample,
     Sample,
 )
 
@@ -174,7 +176,9 @@ class NodeSource:
         self.url = url
         self.listener = listener
         self.state = NodeState(node_id=node_id, url=url, status="connecting", since=time.time())
-        self.ring: deque[Sample] = deque(maxlen=int(RING_S * 4))  # bounded even at 250 ms intervals
+        self.ring = SampleRing(RING_S, int(RING_S * 4))  # bounded even at 250 ms intervals
+        self._latest: Sample | None = None
+        self._procs: tuple[float, list[ProcSample]] | None = None
         self._attempt = 0
         self.connected_at: float | None = None  # when the current session connected; None between sessions
         self._skew_warned = False
@@ -197,9 +201,10 @@ class NodeSource:
     def got_sample(self, s: Sample) -> None:
         if s.node_id != self.node_id:
             s = s.model_copy(update={"node_id": self.node_id})
-        self.ring.append(s)
-        while self.ring and self.ring[0].ts < s.ts - RING_S:
-            self.ring.popleft()
+        self.ring.add(s.ts, flatten(s))
+        self._latest = s
+        if s.procs is not None:
+            self._procs = (s.ts, s.procs)
         self._attempt = 0
         now = time.time()
         self.state.last_sample_ts = now  # console clock: the watchdog must not depend on the agent's clock
@@ -209,6 +214,14 @@ class NodeSource:
         if self.state.status != "online":
             self.set_status("online", None, None)
         self.listener.on_sample(self, s)
+
+    def latest_sample(self) -> Sample | None:
+        """The newest sample, carrying the last process list while the sample that brought it is still in
+        the ring."""
+        s, procs, oldest = self._latest, self._procs, self.ring.oldest
+        if s is None or s.procs is not None or procs is None or oldest is None or procs[0] < oldest:
+            return s
+        return s.model_copy(update={"procs": procs[1]})
 
     def got_bench(self, st: NodeBenchState) -> None:
         if self.on_bench is not None:

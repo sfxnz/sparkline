@@ -66,17 +66,7 @@ class Cluster:
     def latest_samples(self) -> list[Sample]:
         """Each node's newest sample, carrying its last process list (procs come every few ticks), so a
         browser that just connected shows processes and current values at once, even for an offline node."""
-        out = []
-        for src in self.sources.values():
-            if not src.ring:
-                continue
-            last = src.ring[-1]
-            if last.procs is None:
-                procs = next((x.procs for x in reversed(src.ring) if x.procs is not None), None)
-                if procs is not None:
-                    last = last.model_copy(update={"procs": procs})
-            out.append(last)
-        return out
+        return [s for src in self.sources.values() if (s := src.latest_sample()) is not None]
 
     def update_settings(self, s: ConsoleSettings) -> None:
         self.store.kv_set("settings", s.model_dump())
