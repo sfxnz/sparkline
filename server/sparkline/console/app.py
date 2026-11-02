@@ -26,7 +26,6 @@ from pydantic import BaseModel, Field, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import HTTPConnection
 
-from ..common.metrics import flatten
 from ..common.schema import (
     AlertRule,
     ClusterState,
@@ -450,18 +449,16 @@ def create_app(
         node: str, seconds: Annotated[float, Query(gt=0, le=900)] = 900, keys: str = ""
     ) -> HistoryResponse:
         src = source(node)
-        cutoff = time.time() - seconds
-        samples = [s for s in src.ring if s.ts >= cutoff]  # snapshot on the loop: the ring keeps changing
         want = [k for k in keys.split(",") if k]
+        rows = src.ring.rows(time.time() - seconds, keys=want or None)
 
         def build() -> HistoryResponse:
-            flats = [flatten(s) for s in samples]
-            names = want or sorted({k for f in flats for k in f})
+            names = want or sorted({k for _, f in rows for k in f})
             return HistoryResponse(
                 node_id=node,
                 resolution_s=1,
-                ts=[s.ts for s in samples],
-                series={k: [f.get(k) for f in flats] for k in names},
+                ts=[ts for ts, _ in rows],
+                series={k: [f.get(k) for _, f in rows] for k in names},
             )
 
         return await asyncio.to_thread(build)
