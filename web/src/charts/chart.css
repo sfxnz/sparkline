@@ -20,6 +20,8 @@
 .tschart__swatch--1 { background: var(--chart-2); }
 .tschart__swatch--2 { background: var(--chart-3); }
 .tschart__swatch--3 { background: var(--chart-4); }
+.tschart__swatch--area { height: 10px; border-radius: 3px; background: var(--seg); }
+.tschart__swatch--hatched { background: repeating-linear-gradient(135deg, var(--seg) 0 2px, color-mix(in srgb, var(--seg) 46.7%, var(--surface-2)) 2px 4px); }
 /* Threshold key: a dashed stroke in the line's status colour (with its label, so never colour alone). */
 .tschart__swatch--dashed { height: 0; background: none; border-top: 2px dashed var(--tone); width: 14px; }
 .tschart__threshold .tschart__legend-label { color: var(--tone-text); }

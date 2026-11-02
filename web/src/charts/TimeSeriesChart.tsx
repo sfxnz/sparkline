@@ -23,6 +23,7 @@ import { liveStore, type LiveStore } from '../store/live';
 import { usePrefs } from '../store/prefs';
 import { ChartDataTable } from './ChartDataTable';
 import { insertGaps } from './gaps';
+import { runningTotals, stackedSeries } from './stack';
 import { axisLabels, readChartTheme, summarize, useThemeVersion, withAlpha } from './theme';
 import './chart.css';
 
@@ -31,17 +32,22 @@ export interface SeriesSpec {
   label: string;
 }
 
+export interface StackLayer extends SeriesSpec {
+  /** Class that sets the layer's colour (--seg), shared with its legend swatch. */
+  className: string;
+  hatched?: boolean;
+}
+
 export interface Threshold {
   value: number;
   label: string;
   tone: 'warn' | 'crit';
 }
 
-interface Props {
+interface BaseProps {
   node: string;
   /** Accessible name and data-table caption: "GPU temperature". */
   title: string;
-  series: readonly SeriesSpec[];
   /** Value -> text with unit ("72 °C"). Used for axis, legend, summary and table. */
   format: (n: number) => string;
   /** Defaults to the global time-range preference. */
@@ -64,6 +70,17 @@ interface Props {
   legendValues?: 'always' | 'hover';
   store?: LiveStore;
 }
+
+type Props = BaseProps &
+  (
+    | { stack?: false; series: readonly SeriesSpec[] }
+    | {
+        /** Layers sum bottom-up, each filled down to the one below it (bottom layer first). The legend, data table and
+         *  summary keep each layer's own value. */
+        stack: true;
+        series: readonly StackLayer[];
+      }
+  );
 
 type LoadState = 'loading' | 'ready' | 'empty' | 'error';
 
@@ -130,6 +147,7 @@ export function TimeSeriesChart({
   node,
   title,
   series,
+  stack,
   format,
   range: rangeProp,
   liveWindowS = LIVE_WINDOW_S,
@@ -187,6 +205,7 @@ export function TimeSeriesChart({
   const labelsId = JSON.stringify(series.map((s) => s.label));
   const labels = useMemo(() => JSON.parse(labelsId) as string[], [labelsId]);
   const thresholdsId = JSON.stringify(thresholds ?? []);
+  const layersId = stack ? JSON.stringify(series) : '';
   const unsupported =
     unsupportedProp ?? (keys.length && keys.every((k) => unsupportedReason(info, k)) ? unsupportedReason(info, keys[0] ?? '') : null);
 
@@ -262,6 +281,9 @@ export function TimeSeriesChart({
     // Same tag and state => same object, so React skips the render: only transitions re-render, not every sample.
     const setLoad = (state: LoadState) => { setLoadTagged((prev) => (prev.id === dataId && prev.state === state ? prev : { id: dataId, state })); };
     const thresholdList: Threshold[] = JSON.parse(thresholdsId) as Threshold[];
+    const layers = layersId ? (JSON.parse(layersId) as StackLayer[]) : null;
+    const stacked = layers && stackedSeries(layers, el, theme.surface);
+    const plotted = (): uPlot.AlignedData => (layers ? [dataRef.current[0], ...runningTotals(dataRef.current.slice(1))] : dataRef.current);
     let programmatic = false;
 
     const yToken = {};
@@ -305,7 +327,7 @@ export function TimeSeriesChart({
       ],
       series: [
         {},
-        ...labels.map((label, i): uPlot.Series => {
+        ...(stacked?.series ?? labels.map((label, i): uPlot.Series => {
           const color = theme.series[i % theme.series.length] ?? theme.axis;
           return {
             label,
@@ -323,8 +345,9 @@ export function TimeSeriesChart({
                   }
                 : undefined,
           };
-        }),
+        })),
       ],
+      bands: stacked?.bands,
       cursor: {
         // The crosshair is synced; drag-zoom is not (mousedown/mouseup stay local), so zoom and its reset
         // (double-click, "Back to live") always apply to the same single chart.
@@ -332,6 +355,7 @@ export function TimeSeriesChart({
         drag: { x: true, y: false, setScale: true },
         y: false,
         points: {
+          show: !stacked,
           size: 8,
           width: 2,
           fill: (u, si) => (u.series[si]?.stroke as string | undefined) ?? theme.axis,
@@ -387,7 +411,7 @@ export function TimeSeriesChart({
       },
     };
 
-    const u = new uPlot(opts, dataRef.current, el);
+    const u = new uPlot(opts, plotted(), el);
     uRef.current = u;
 
     const setX = (min: number, max: number) => {
@@ -456,7 +480,7 @@ export function TimeSeriesChart({
         if (!dirty && (now - lastNow) * pxPerSec < 0.5) return;
         if (dirty) {
           pull();
-          u.setData(dataRef.current, false);
+          u.setData(plotted(), false);
           if (u.cursor.idx == null) paintLegend(null);
           const t = performance.now();
           if (t - lastSummary > 5000) {
@@ -493,7 +517,7 @@ export function TimeSeriesChart({
         wake();
       });
       pull();
-      u.setData(dataRef.current, false);
+      u.setData(plotted(), false);
       resetView();
       paintLegend(null);
       updateSummary();
@@ -514,7 +538,7 @@ export function TimeSeriesChart({
             if (cancelled) return;
             const w = insertGaps(resp.ts, keys.map((k) => resp.series[k] ?? resp.ts.map(() => null)));
             dataRef.current = [w.ts, ...w.values];
-            u.setData(dataRef.current, false);
+            u.setData(plotted(), false);
             if (!pausedRef.current) resetView();
             paintLegend(null);
             updateSummary();
@@ -545,9 +569,7 @@ export function TimeSeriesChart({
       uRef.current = null;
       if (yGroup) yGroups.get(yGroup)?.delete(yToken);
     };
-    // `keysId`/`thresholdsId` stand in for the arrays; formatting goes through refs so it never recreates the plot.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [node, keysId, labels, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, themeVersion, unsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
+  }, [node, keys, labels, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, unsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
 
   if (unsupported) {
     return (
@@ -561,6 +583,9 @@ export function TimeSeriesChart({
 
   const waiting = load === 'loading' || (live && load === 'empty' && (connStatus !== 'live' || nodeStatus === 'connecting' || !nodeStatus));
   const overlay = waiting ? 'loading' : load === 'empty' ? 'empty' : load === 'error' ? 'error' : null;
+  const swatches = stack
+    ? series.map((s) => `tschart__swatch--area ${s.className}${s.hatched ? ' tschart__swatch--hatched' : ''}`)
+    : series.map((_, i) => `tschart__swatch--${i % 4}`);
 
   return (
     <figure className={`tschart${nodeStale && live ? ' tschart--stale' : ''}`}>
@@ -568,7 +593,7 @@ export function TimeSeriesChart({
         <ul className="tschart__legend" aria-label={`${title} series`}>
           {series.map((s, i) => (
             <li key={s.key} className="tschart__legend-item">
-              <span className={`tschart__swatch tschart__swatch--${i % 4}`} aria-hidden="true" />
+              <span className={`tschart__swatch ${swatches[i] ?? ''}`} aria-hidden="true" />
               <span className="tschart__legend-label">{s.label}</span>
               <span className="tschart__legend-value num" ref={(r) => { legendRefs.current[i] = r; }}>—</span>
             </li>

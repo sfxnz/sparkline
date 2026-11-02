@@ -4,7 +4,6 @@ import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { liveStore, LiveStore } from '../store/live';
 import { usePrefs } from '../store/prefs';
-import { StackedAreaChart } from '../views/node/parts/StackedAreaChart';
 import { sharedYMax, TimeSeriesChart } from './TimeSeriesChart';
 
 interface PlotStandIn {
@@ -79,7 +78,7 @@ describe('live chart, as lines or as stacked layers', () => {
   const fmt = (n: number) => `${n} B`;
   const charts = {
     lines: () => render(<TimeSeriesChart node={NODE} title="Memory" series={LAYERS} format={fmt} />),
-    stacked: () => render(<StackedAreaChart node={NODE} title="Memory" series={LAYERS} format={fmt} />),
+    stacked: () => render(<TimeSeriesChart node={NODE} title="Memory" stack series={LAYERS} format={fmt} />),
   };
   const node = (status: NodeState['status']): NodeState => ({ node_id: NODE, url: '', status, since: 0, last_sample_ts: null, error: null, info: null, next_retry_ts: null });
   const seed = (ts: number[], values: number[][]) => {
@@ -153,12 +152,13 @@ describe('live chart, as lines or as stacked layers', () => {
     });
   });
 
-  it('stacked: plots running totals, while the legend and data table keep each layer\'s own value', () => {
+  it('stacked: plots running totals, while the legend, summary and data table keep each layer\'s own value', () => {
     seed([Date.now() / 1000 - 1], [[1], [10], [100]]);
     charts.stacked();
     runFrames(2);
     expect(newest.plot?.data.slice(1)).toEqual([[1], [11], [111]]);
     expect(within(screen.getByRole('list')).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['GPU1 B', 'Processes10 B', 'Page cache100 B']);
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('Page cache latest 100 B');
     act(() => { screen.getByRole('button', { name: 'Memory: data table' }).click(); });
     const row = within(screen.getByRole('table')).getAllByRole('row')[1];
     expect(row && within(row).getAllByRole('cell').map((c) => c.textContent)).toEqual(['1 B', '10 B', '100 B']);

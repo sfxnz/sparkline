@@ -1,5 +1,5 @@
 import { CircleCheck, Hourglass, TriangleAlert } from 'lucide-react';
-import { TimeSeriesChart, type SeriesSpec } from '../../charts/TimeSeriesChart';
+import { TimeSeriesChart, type SeriesSpec, type StackLayer } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Unsupported } from '../../design/components/Unsupported';
@@ -16,10 +16,9 @@ import { MemoryHero } from './parts/MemoryHero';
 import { CollectorErrors } from './parts/Notices';
 import { ProcTable } from './parts/ProcTable';
 import { memSwapUsed } from './parts/selectors';
-import { StackedAreaChart, type StackSeries } from './parts/StackedAreaChart';
 import type { NodeTabProps } from './tabs';
 
-const STACK: readonly StackSeries[] = [
+const STACK: readonly StackLayer[] = [
   { key: 'mem.gpu', label: 'GPU-allocated', className: 'mem-c-gpu' },
   { key: 'mem.anon', label: 'Processes', className: 'mem-c-anon' },
   { key: 'mem.shmem', label: 'Shared', className: 'mem-c-shmem' },
@@ -48,7 +47,7 @@ export default function Memory({ nodeId }: NodeTabProps) {
 
       <div className="nmem__grid">
         <Panel title="Breakdown over time" subtitle="Stacked: each layer sits on the ones below; the space above is free memory">
-          <StackedAreaChart node={nodeId} title="Unified memory breakdown" series={STACK} format={formatBytes} yMax={total} yIncrs={BYTE_INCRS} height={292} />
+          <TimeSeriesChart node={nodeId} title="Unified memory breakdown" stack series={STACK} format={formatBytes} yMin={0} yMax={total} yIncrs={BYTE_INCRS} height={292} />
         </Panel>
         <div className="nmem__side">
           <Panel title="Memory pressure" subtitle="Share of time processes waited for memory">
