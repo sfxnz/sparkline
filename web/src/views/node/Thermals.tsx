@@ -2,12 +2,12 @@
 // metrics this hardware does not report (fans, whole-system power) stated plainly instead of drawn as zero.
 import { Thermometer } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
-import { unsupportedReason } from '../../charts/TimeSeriesChart';
 import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
 import { tempParts, wattsParts, type Formatter } from '../../lib/format';
+import { unsupportedReason } from '../../lib/unsupported';
 import { useCluster } from '../../store/cluster';
 import type { LiveStore } from '../../store/live';
 import { usePrefs } from '../../store/prefs';

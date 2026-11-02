@@ -6,7 +6,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { ChartDataTable } from '../../../charts/ChartDataTable';
-import { axisLabels, readChartTheme, timeAxis, useThemeVersion, withAlpha } from '../../../charts/theme';
+import { axisLabels, readChartTheme, useThemeVersion, withAlpha } from '../../../charts/theme';
+import { timeAxis } from '../../../charts/TimeSeriesChart';
 import { Button, IconButton } from '../../../design/components/Button';
 import { HistoryUnavailable } from '../../../charts/HistoryUnavailable';
 import { NoDataInRange } from '../../../charts/NoDataInRange';
