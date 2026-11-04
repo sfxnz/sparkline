@@ -32,11 +32,17 @@ class _Failure:
     vendor_absent: bool
 
 
-def _failure(backend: str, e: Exception) -> _Failure:
+def _failure(backend: str, e: Exception, root: str) -> _Failure:
     if isinstance(e, CannotOpen):
         return _Failure(backend, e.reason, e.kind, isinstance(e, NoDevice))
-    kind: UnsupportedKind = "access" if isinstance(e, PermissionError) else "hardware"
-    return _Failure(backend, f"{type(e).__name__}: {e}", kind, False)
+    if isinstance(e, OSError):
+        path = str(e.filename).removeprefix(root) if e.filename else None
+        if isinstance(e, PermissionError):  # EACCES or EPERM
+            reason = f"Needs access to {path}" if path else f"Not permitted ({e.strerror or e})"
+            return _Failure(backend, reason, "access", False)
+        if path:
+            return _Failure(backend, f"Could not open {path} ({e.strerror})", "hardware", False)
+    return _Failure(backend, f"Failed unexpectedly ({type(e).__name__}: {e})", "hardware", False)
 
 
 def _known_versions(backend: GpuBackend) -> Mapping[str, str]:
@@ -84,7 +90,7 @@ class GpuCollector:
                 try:
                     backend = make(src)
                 except Exception as e:
-                    failures.append(_failure(make.name, e))
+                    failures.append(_failure(make.name, e, src.fs.root))
                     continue
                 try:
                     gpus = backend.open()
@@ -96,7 +102,7 @@ class GpuCollector:
                         if g.index != i:
                             raise CannotOpen(f"open() numbered GPU {i} as {g.index}", "agent")
                 except Exception as e:
-                    failures.append(_failure(make.name, e))
+                    failures.append(_failure(make.name, e, src.fs.root))
                     self.versions |= _labelled(chain.vendor, _known_versions(backend))
                     _close(backend)
                     continue
