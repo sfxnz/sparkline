@@ -4,7 +4,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from ipaddress import IPv4Address, IPv6Address, IPv6Network, ip_network
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -16,6 +16,7 @@ LOCKFILES = {
     "web/package-lock.json": "generated; versions and hashes read as addresses, so only name checks run",
 }
 LOCKFILE_CATEGORIES = {"home directory", "Tailscale hostname", "Hugging Face cache path"}
+CACHE_DIRS = {".ruff_cache", ".mypy_cache", ".pytest_cache", "__pycache__", "node_modules", ".venv", "dist"}
 
 _TEST = "test address in the LAN and bind checks, which need non-documentation addresses"
 _RANGE_START = "first address of a special-purpose range, where code lists the ranges"
@@ -219,12 +220,26 @@ def text_of(data: bytes) -> str | None:
     return text.replace("\0", "\n")  # /proc/<pid>/cmdline and environ dumps separate with NUL
 
 
-def tracked_text_files() -> dict[str, str]:
+def tracked_cache_findings(paths: list[str]) -> list[str]:
+    # Tool caches hold absolute paths of the machine that wrote them.
+    tagged = {PurePosixPath(p).parent for p in paths if PurePosixPath(p).name == "CACHEDIR.TAG"}
+
+    def cached(d: PurePosixPath) -> bool:
+        return d.name in CACHE_DIRS or d.name.endswith(".egg-info") or d in tagged
+
+    return [f"{p}: tracked cache" for p in paths if any(map(cached, list(PurePosixPath(p).parents)[:-1]))]
+
+
+def tracked_paths() -> list[str]:
     listed = subprocess.run(
         ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True
     ).stdout.decode()
+    return list(filter(None, listed.split("\0")))
+
+
+def tracked_text_files() -> dict[str, str]:
     files = {}
-    for rel in filter(None, listed.split("\0")):
+    for rel in tracked_paths():
         p = ROOT / rel
         if rel in NOT_SCANNED or p.is_symlink() or not p.is_file():
             continue
@@ -309,6 +324,30 @@ def test_nul_separated_text_is_scanned_by_line_and_binary_is_skipped():
     cmdline = text_of(b"python3\0-m\0server\0--host\x0010.1.2.3\0")
     assert cmdline is not None and findings("f", cmdline) == ["f:5: IPv4 address"]
     assert text_of(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\xff") is None
+
+
+def test_tracked_cache_and_build_output_is_flagged_by_path_only():
+    flagged = [
+        "server/.ruff_cache/0.17.3/1234567890",
+        "server/.ruff_cache/CACHEDIR.TAG",
+        ".mypy_cache/3.12/x.json",
+        "server/.pytest_cache/v/cache/nodeids",
+        "server/sparkline/__pycache__/m.cpython-312.pyc",
+        "web/node_modules/react/index.js",
+        ".venv/bin/python",
+        "web/dist/index.html",
+        "server/sparkline.egg-info/PKG-INFO",
+        "out/tagged/sub/blob",
+    ]
+    kept = ["server/sparkline/console/dist.py", "docs/dist.md", "server/sparkline/egg-info.py"]
+    assert tracked_cache_findings([*flagged, "out/tagged/CACHEDIR.TAG", *kept]) == [
+        f"{p}: tracked cache" for p in [*flagged, "out/tagged/CACHEDIR.TAG"]
+    ]
+
+
+def test_no_tracked_caches_or_build_output():
+    found = tracked_cache_findings(tracked_paths())
+    assert not found, "Untrack these and gitignore them:\n" + "\n".join(found)
 
 
 def test_placeholders_and_lookalikes_pass():
