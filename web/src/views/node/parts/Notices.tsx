@@ -1,20 +1,22 @@
 import { ChevronRight, Info, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { Link } from 'wouter';
 import { paths, type NodeTab } from '../../../app/routes';
+import { notReported } from '../../../lib/capabilities';
 import { decodeThrottle, worstSeverity, type ThrottleReason } from '../../../lib/throttle';
 import type { Sample, Severity } from '../../../lib/types';
+import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
 
 // ------------------------------------------------------------------ collector errors
 
-const COLLECTORS: Record<string, { label: string; tab?: NodeTab }> = {
-  gpu: { label: 'GPU metrics', tab: 'gpu' },
-  memory: { label: 'Memory metrics', tab: 'memory' },
-  cpu: { label: 'CPU metrics', tab: 'cpu' },
-  net: { label: 'Network metrics', tab: 'network' },
-  storage: { label: 'Storage metrics', tab: 'storage' },
-  thermal: { label: 'Temperature sensors', tab: 'thermals' },
-  procs: { label: 'Process list', tab: 'processes' },
+const COLLECTORS: Record<string, { label: string; tab?: NodeTab; metric: string }> = {
+  gpu: { label: 'GPU metrics', tab: 'gpu', metric: 'gpu0' },
+  memory: { label: 'Memory metrics', tab: 'memory', metric: 'mem' },
+  cpu: { label: 'CPU metrics', tab: 'cpu', metric: 'cpu' },
+  net: { label: 'Network metrics', tab: 'network', metric: 'net' },
+  storage: { label: 'Storage metrics', tab: 'storage', metric: 'disk' },
+  thermal: { label: 'Temperature sensors', tab: 'thermals', metric: 'temp' },
+  procs: { label: 'Process list', tab: 'processes', metric: 'procs' },
 };
 
 export const collectorLabel = (name: string) => COLLECTORS[name]?.label ?? `${name.charAt(0).toUpperCase()}${name.slice(1)} metrics`;
@@ -26,10 +28,12 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
   return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 };
 
-/** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. */
+/** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
+ *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. */
 export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?: readonly string[]; link?: boolean }) {
+  const info = useCluster((s) => s.nodes[nodeId]?.info);
   const errors = useLatest(nodeId, selectErrors, sameErrors);
-  const entries = Object.entries(errors).filter(([k]) => !only || only.includes(k));
+  const entries = Object.entries(errors).filter(([k]) => (!only || only.includes(k)) && !notReported(info, COLLECTORS[k]?.metric ?? k));
   if (!entries.length) return null;
   return (
     <ul className="nnotes" aria-label="Metrics unavailable">
