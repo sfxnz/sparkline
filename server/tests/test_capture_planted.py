@@ -13,8 +13,8 @@ from test_capture import (
     capture_of,
     gb10_copy,
     surfaces,
+    with_free_text,
     with_gpu_process,
-    with_version,
 )
 from test_capture import hidden_from_guard as j
 
@@ -126,7 +126,7 @@ class Case:
     name: str
     expected: Literal["replaced", "refused"]
     watch: tuple[str, ...]
-    version: str = ""
+    text: str = ""
     plant: Plant | None = None
     hostname: str = HOST
     because: str = "not in the reviewed read set"
@@ -377,8 +377,8 @@ def base_copy(tmp: Path, hostname: str) -> Path:
 @pytest.mark.parametrize("case", CASES, ids=[c.name for c in CASES])
 def test_a_planted_identifier_is_replaced_or_refused(case, tmp_path, monkeypatch):
     copy = base_copy(tmp_path, case.hostname)
-    if case.version:
-        with_version(copy, case.version)
+    if case.text:
+        with_free_text(copy, case.text)
     if case.plant:
         case.plant(copy, monkeypatch)
     out = tmp_path / "out"
