@@ -15,6 +15,7 @@ import psutil
 
 from ..common.metrics import flatten
 from ..common.schema import CpuSample, HistoryResponse, MemSample, Sample
+from .collectors import Collector
 from .store import Rollup, Store, bucket_width, choose_resolution, downsample
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class Sampler:
     def __init__(
         self,
         node_id: str,
-        collectors: list,
+        collectors: list[Collector],
         interval_ms: int = 1000,
         ring_seconds: int = 900,
         store: Store | None = None,

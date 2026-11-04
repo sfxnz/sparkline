@@ -28,7 +28,7 @@ import psutil
 from ...common.netutil import default_route_iface
 from ...common.schema import NetIfInfo, NetSample
 from ..ethtool import EthtoolStats
-from . import SLOW_EVERY_S, counter_delta, read, read_once, slow_due
+from . import SLOW_EVERY_S, Caps, counter_delta, read, read_once, slow_due
 
 log = logging.getLogger(__name__)
 
@@ -234,6 +234,9 @@ class NetCollector:
         except (OSError, ValueError):
             return None
         return v if v > 0 else None
+
+    def caps(self) -> Caps:
+        return {}
 
     def collect(self) -> dict:
         netdev = parse_net_dev(read("/proc/net/dev"))

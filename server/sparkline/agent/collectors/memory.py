@@ -6,7 +6,7 @@ import os
 from collections.abc import Callable
 
 from ...common.schema import MemSample
-from . import parse_psi, read
+from . import Caps, parse_psi, read
 
 
 def parse_meminfo(text: str) -> dict[str, int]:
@@ -68,6 +68,9 @@ class MemoryCollector:
         self._psi = os.path.exists("/proc/pressure/memory")
         mi = parse_meminfo(read("/proc/meminfo"))
         self.mem_total, self.swap_total = mi["MemTotal"], mi.get("SwapTotal", 0)
+
+    def caps(self) -> Caps:
+        return {}
 
     def collect(self) -> dict:
         mi = parse_meminfo(read("/proc/meminfo"))

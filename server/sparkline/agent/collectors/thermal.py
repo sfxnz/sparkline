@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from ...common.schema import SensorInfo, TempSample, Unsupported
-from . import SLOW_EVERY_S, read, read_once, slow_due
+from . import SLOW_EVERY_S, Caps, read, read_once, slow_due
 
 # A read of these is a command to the device (NVMe admin command, Wi-Fi firmware query).
 SLOW_GROUPS = ("nvme", "wireless")
@@ -163,6 +163,9 @@ class ThermalCollector:
                 )
             )
         return out
+
+    def caps(self) -> Caps:
+        return {}
 
     def collect(self) -> dict:
         now = time.monotonic()

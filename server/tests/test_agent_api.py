@@ -26,6 +26,9 @@ class FakeGpu:
     def __init__(self) -> None:
         self.n = 0
 
+    def caps(self) -> dict:
+        return {}
+
     def collect(self) -> dict:
         self.n += 1
         return {"gpu": [GpuSample(index=0, util=float(self.n), temp_c=60.0, throttle_mask=0)]}
@@ -33,6 +36,9 @@ class FakeGpu:
 
 class FakeMem:
     name = "memory"
+
+    def caps(self) -> dict:
+        return {}
 
     def collect(self) -> dict:
         return {
@@ -55,12 +61,18 @@ class FakeMem:
 class FakeCpu:
     name = "cpu"
 
+    def caps(self) -> dict:
+        return {}
+
     def collect(self) -> dict:
         return {"cpu": CpuSample(util=5, per_core=[5.0], freq_mhz=[None], load1=0.1, load5=0.1, load15=0.1)}
 
 
 class Broken:
     name = "thermal"
+
+    def caps(self) -> dict:
+        return {}
 
     def collect(self) -> dict:
         raise OSError("hwmon vanished")
@@ -262,6 +274,9 @@ def test_procs_ts_marks_the_last_process_refresh():
         def __init__(self) -> None:
             self.n = 0
 
+        def caps(self) -> dict:
+            return {}
+
         def collect(self) -> dict:
             self.n += 1
             return {"procs": [] if self.n % 3 == 1 else None}  # refreshed on ticks 1, 4, ...
@@ -317,6 +332,9 @@ async def test_history_weights_rollups_and_ring_samples_by_the_time_they_cover(t
     class Gpu:
         name = "gpu"
         util = 0.0
+
+        def caps(self) -> dict:
+            return {}
 
         def collect(self) -> dict:
             return {

@@ -166,6 +166,9 @@ async def test_sampling_loop_keeps_running_through_collector_failures(tmp_path):
         def __init__(self) -> None:
             self.n = 0
 
+        def caps(self) -> dict:
+            return {}
+
         def collect(self) -> dict:
             self.n += 1
             errors = [OSError("hwmon vanished"), RuntimeError("nvml"), ValueError("garbage"), KeyError("x")]
