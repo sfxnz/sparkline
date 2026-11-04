@@ -1,5 +1,5 @@
-import { describeGap, notReported, type NotReported } from './capabilities';
-import { gpuAt, lostGpu } from './gpu';
+import { describeGap, lostGpu, notReported, type NotReported } from './capabilities';
+import { gpuAt } from './gpu';
 import { GPU_VENDORS, type GpuVendor, type NodeInfo } from './types';
 
 const PLATFORM_LABEL = new Map([['linux', 'Linux'], ['darwin', 'macOS']]);

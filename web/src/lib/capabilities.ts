@@ -29,10 +29,19 @@ function moreSpecific(a: Unsupported, b: Unsupported): boolean {
   return aWild !== b.metric.includes('*') ? !aWild : a.metric.length > b.metric.length;
 }
 
+/** Why the agent cannot read GPU `index` at all, though its backend sees it (a lost GPU): its `gpu<i>` entry. */
+export function lostGpu(info: NodeInfo | null | undefined, index: number): NotReported | null {
+  const u = info?.unsupported.find((x) => x.metric === `gpu${String(index)}`);
+  return u ? { ...describeGap(u), label: 'Not responding' } : null;
+}
+
 export function notReported(info: NodeInfo | null | undefined, key: string): NotReported | null {
   let best: Unsupported | undefined;
   for (const u of info?.unsupported ?? []) if (covers(u.metric, key) && (!best || moreSpecific(u, best))) best = u;
-  return best ? describeGap(best) : null;
+  if (!best) return null;
+  const gpu = /^gpu(\d+)(?:\.|$)/.exec(key);
+  const lost = gpu ? lostGpu(info, Number(gpu[1])) : null;
+  return lost?.detail === best.reason ? lost : describeGap(best);
 }
 
 export function describeGap(u: Unsupported): NotReported {
