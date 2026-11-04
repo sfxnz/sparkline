@@ -58,7 +58,7 @@ SM_MAX_MHZ = 3105.0
 MAX_OPERATING_C, SLOWDOWN_C, SHUTDOWN_C = 89.0, 93.0, 96.0
 IDLE_W = 24.0
 CAP_ON_W, CAP_OFF_W = POWER_LIMIT_W - 3.6, POWER_LIMIT_W - 10
-CAP_MIN_S = 10
+CAP_MIN_S, CAP_HOLD_S = 10, 600
 SLOT_HEAT_C = (1.0, 3.0, 6.0, 0.0)
 POWER_SKEW_W = (0.0, 2.5, -2.0, 3.5)
 EPISODE_GPU = 3
@@ -153,21 +153,19 @@ class WorkstationModel:
 
     def power_capped(self, i: int, t: float) -> bool:
         """Hysteresis on the noise-free draw, so noise near the limit never flips the bit for one sample: set
-        above CAP_ON_W, cleared below CAP_OFF_W once CAP_MIN_S has passed since it was last above, off when
-        the driver loads. The scan back ends at the first decisive second, within a minute on this model's
-        load."""
+        above CAP_ON_W; cleared below CAP_OFF_W once CAP_MIN_S have passed since the draw was last above, or
+        once it has stayed at or below CAP_ON_W for CAP_HOLD_S; off when the driver loads. The scan back
+        ends at the first decisive second, within a minute on this model's load and never past CAP_HOLD_S."""
         start = self.driver_loaded(t)
         low = None
-        k = 0
-        while t - k >= start:
+        for k in range(CAP_HOLD_S):
+            if t - k < start or (low is not None and k >= low + CAP_MIN_S):
+                return False
             p = self.raw_power(i, t - k, noise=False)
             if p > CAP_ON_W:
                 return True
             if low is None and p < CAP_OFF_W:
                 low = k
-            if low is not None and k >= low + CAP_MIN_S:
-                return False
-            k += 1
         return False
 
     def energy_at(self, i: int, t: float) -> float:
