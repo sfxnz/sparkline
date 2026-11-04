@@ -144,13 +144,21 @@ def _not_gb10(node: str, info: NodeInfo | None) -> Problem | None:
 
 
 GB10_RATES = " · modelled on GB10"
+# tool-eval rows that follow the demo's GB10 turn latency; its scores describe the model, not the node
+TE_SPEED = {"median_turn_ms", "responsiveness", "deployability"}
 
 
-def _rates_on(info: NodeInfo | None, rows: list[BenchResult]) -> list[BenchResult]:
-    """The demo's LLM token rates are GB10's; on other hardware each row says so."""
+def _gb10_modelled(
+    info: NodeInfo | None, rows: list[BenchResult], metrics: set[str] | None = None
+) -> list[BenchResult]:
+    """The demo's LLM speeds are GB10's; on other hardware each such row (every row, or those in `metrics`)
+    says so."""
     if _gb10(info):
         return rows
-    return [r.model_copy(update={"label": r.label + GB10_RATES}) for r in rows]
+    return [
+        r.model_copy(update={"label": r.label + GB10_RATES}) if metrics is None or r.metric in metrics else r
+        for r in rows
+    ]
 
 
 def _llm_memory(
@@ -496,9 +504,9 @@ def make_results(
             _r("decode_tok_s_total", "Output tokens/s, all requests", decode * c * 0.97, "tok/s", **ex),
         ]
         mem = (80.1 * n(0.002), 0.35 * n(0.2))
-        return [*_rates_on(info, rates), *_llm_memory(info, procs, model, mem, ex)], {}
+        return [*_gb10_modelled(info, rates), *_llm_memory(info, procs, model, mem, ex)], {}
     if bench == "tool-eval":
-        return ToolEvalDemo(p, node, rng).bench_results(), {}
+        return _gb10_modelled(info, ToolEvalDemo(p, node, rng).bench_results(), TE_SPEED), {}
     return [], {}
 
 
@@ -910,7 +918,7 @@ class LlmDemo:
                 out.append(
                     _r(f"ttft_p95_ms_c{size}", f"Time to first token p95 · {at}", p95, "ms", "lower", **ex)
                 )
-        return [*_rates_on(info, out), *_llm_memory(info, procs, self.model, self.mem, base)]
+        return [*_gb10_modelled(info, out), *_llm_memory(info, procs, self.model, self.mem, base)]
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1206,7 +1214,7 @@ class ShowcaseDemo:
             "truncated": False,
         }
 
-    def results(self) -> list[BenchResult]:
+    def results(self, info: NodeInfo | None = None) -> list[BenchResult]:
         p = self.p
         ex: dict[str, Any] = {"engine": LLM_ENGINE, "model": self.model, "streams": p["streams"]}
         ex |= {k: p[k] for k in ("prompt_type", "max_tokens", "fill_to_max", "temperature", "thinking")}
@@ -1224,7 +1232,7 @@ class ShowcaseDemo:
         if server:
             label = "Server generation tokens/s (median)"
             res.append(_r("server_tok_s_median", label, server["median"], "tok/s", **ex))
-        return res
+        return _gb10_modelled(info, res)
 
     def node_state(self, run_id: str, node: str, t0: float, t1: float) -> NodeBenchState:
         """A finished run's node state, for the seeded history."""
@@ -1946,7 +1954,7 @@ class DemoBench:
             elif sim.llm is not None:  # the requests the live view showed
                 st.results = sim.llm.results(info, model.sample_at(time.time(), procs=True).procs)
             elif sim.showcase is not None:
-                st.results = sim.showcase.results()
+                st.results = sim.showcase.results(info)
             else:
                 role = f"rank{req.rank}" if req.role == "rank" else req.role
                 st.results, series = make_results(req.bench_id, p, sim.node, rng, role, info)
@@ -2153,7 +2161,7 @@ def seed_history(
                 results = soak_results(series)
             elif bench == "tool-eval":  # a finished evaluation: its board, scenario records and summary
                 te = ToolEvalDemo(params, n, rng)
-                results = te.bench_results()
+                results = _gb10_modelled(m.info, te.bench_results(), TE_SPEED)
                 run.node_states[n] = te.node_state(run.id, n, started, started + dur)
             elif llm is not None:  # a finished sweep: its final streams, every level and the request timeline
                 results = llm.results(m.info, m.sample_at(started + dur, procs=True).procs)
@@ -2173,7 +2181,7 @@ def seed_history(
                     detail={"llm": llm.detail(last + 1)},
                 )
             elif show is not None:  # finished streams: their last snapshot and every full answer
-                results = show.results()
+                results = show.results(m.info)
                 run.node_states[n] = show.node_state(run.id, n, started, started + dur)
             else:
                 procs = m.sample_at(started + dur, procs=True).procs if bench == "llm-inference" else None
