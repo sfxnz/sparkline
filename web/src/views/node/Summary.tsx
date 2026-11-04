@@ -5,7 +5,7 @@ import { TimeSeriesChart, type SeriesSpec } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Unsupported } from '../../design/components/Unsupported';
 import { bitrateParts, bytesParts, formatBitrate, formatBytes, formatPercent, formatWatts, percentParts, tempParts, wattsParts } from '../../lib/format';
-import { notReported } from '../../lib/capabilities';
+import { interconnectGap, notReported } from '../../lib/capabilities';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { LiveStat } from './parts/LiveStat';
@@ -50,7 +50,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
     [rails],
   );
   const powerUnsupported = notReported(info, 'gpu0.power_w');
-  const netGap = notReported(info, 'net');
+  const netGap = interconnectGap(info);
 
   return (
     <div className="view nsum">
