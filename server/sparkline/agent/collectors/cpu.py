@@ -135,7 +135,7 @@ def core_kinds(
     kinds: dict[int, CoreKind] = dict.fromkeys(ids, "unknown")
     by_pmu = {cpu: HYBRID_PMUS[pmu] for pmu, cpus in hybrid.items() for cpu in cpus if cpu in kinds}
     if by_pmu:
-        return kinds | by_pmu
+        return kinds | by_pmu if len(set(by_pmu.values())) > 1 else kinds
     designs: dict[tuple[int, int], list[int]] = {}
     for cpu in ids:
         if cpu in midr:
