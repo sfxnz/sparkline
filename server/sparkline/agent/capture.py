@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import dataclasses
 import datetime
 import gzip
 import io
@@ -284,19 +285,20 @@ def traced(src: Sources) -> tuple[Sources, Tape]:
         host["which"].setdefault(name, found)
         return found
 
-    return (
-        Sources(
-            platform=src.platform,
-            fs=TracingFs(src.fs, tape),
-            nvml=None if src.nvml is None else RecordingNvml(src.nvml, tape.nvml),
-            if_addrs=if_addrs,
-            statvfs=statvfs,
-            ethtool=ethtool,
-            docker=docker,
-            which=which,
-        ),
-        tape,
-    )
+    readings: dict[str, Any] = {
+        "platform": src.platform,
+        "fs": TracingFs(src.fs, tape),
+        "nvml": None if src.nvml is None else RecordingNvml(src.nvml, tape.nvml),
+        "if_addrs": if_addrs,
+        "statvfs": statvfs,
+        "ethtool": ethtool,
+        "docker": docker,
+        "which": which,
+    }
+    untraced = sorted({f.name for f in dataclasses.fields(src)} - set(readings))
+    if untraced:
+        raise TypeError(f"traced() does not trace Sources.{', Sources.'.join(untraced)}")
+    return Sources(**readings), tape
 
 
 def exercise(src: Sources) -> tuple[NodeInfo, dict[str, float], set[int]]:
@@ -570,7 +572,7 @@ def capture(src: Sources, out: Path, facts: Facts) -> Report:
     tree, dropped = materialize(tape, src.fs, gpu_pids)
     raw = Recording(src.platform, _meta(info, tape, dropped), tree, tape.nvml, tape.host)
     red = redact(raw, facts)
-    found = leaks(red.recording, red.originals)
+    found = leaks(red)
     if found:
         raise CaptureRefused(found)
     created = not out.exists()

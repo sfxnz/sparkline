@@ -12,6 +12,7 @@ from typing import Any, Literal
 from ..common.identifiers import CAPTURE, Detector, scan, text_of
 from .collectors.procs import container_id
 from .collectors.storage import REAL_FS
+from .readset import DOCKER_APIS, HOST_READINGS, NVML_CALLS, admits, leads_to, matching
 
 
 @dataclass(frozen=True)
@@ -69,8 +70,8 @@ class CaptureRefused(Exception):
         self.leaks = found
         lines = [f"  {leak.surface}: {leak.category}" for leak in found]
         super().__init__(
-            "The capture was refused and nothing was written: these places hold an identifier it cannot "
-            "replace (values are not shown):\n" + "\n".join(lines)
+            "The capture was refused and nothing was written. It cannot record these places safely "
+            "(values are not shown):\n" + "\n".join(lines)
         )
 
 
@@ -342,6 +343,7 @@ class Redacted:
     counts: dict[str, int]
     left_out: dict[str, int]
     originals: Spellings
+    read_at: dict[str, str]
     rewrite: Callable[[str], str] = field(repr=False)
 
 
@@ -400,8 +402,7 @@ def _minimize(rec: Recording) -> tuple[Recording, Counter[str]]:
             left["Docker containers no recorded process runs in"] += len(result) - len(kept_containers)
             docker[api] = {"result": kept_containers}
         else:
-            left["other Docker API answers"] += 1
-            docker[api] = {"error": "not recorded"}
+            docker[api] = entry
     host = {**rec.host, "docker": docker}
     return Recording(rec.platform, dict(rec.meta), tree, rec.nvml, host), +left
 
@@ -644,14 +645,17 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
             return File(rewrite(text).encode())
         return node
 
-    tree = {rewrite(path): rewrite_node(node) for path, node in rec.tree.items()}
+    read_at = {rewrite(path): path for path in rec.tree}
+    tree = {path: rewrite_node(rec.tree[raw]) for path, raw in read_at.items()}
     nvml = rewrite_doc(rec.nvml)
     host = rewrite_doc(rec.host)
     meta = rewrite_doc(rec.meta)
     left = {**meta.get("left_out", {}), **left_out}
     counts = dict(sorted(ph.counts.items()))
     meta |= {"redacted": counts, "left_out": dict(sorted(left.items()))}
-    return Redacted(Recording(rec.platform, meta, tree, nvml, host), counts, left, originals, rewrite)
+    return Redacted(
+        Recording(rec.platform, meta, tree, nvml, host), counts, left, originals, read_at, rewrite
+    )
 
 
 def _categories(text: str, binary: bool, originals: Spellings) -> set[str]:
@@ -665,7 +669,45 @@ def platform_doc(rec: Recording) -> dict[str, Any]:
     return {"platform": rec.platform, **rec.meta}
 
 
-def leaks(rec: Recording, originals: Spellings) -> list[Leak]:
+NOT_REVIEWED = "not in the reviewed read set"
+BINARY = "binary content"
+
+
+def _unreviewed(raw: str, node: Node) -> str | None:
+    if not isinstance(node, File):
+        return None if leads_to(raw) else NOT_REVIEWED
+    kinds = [holds for _, holds in matching(raw)]
+    if any(admits(k, node.data) for k in kinds):
+        return None
+    if posixpath.basename(raw) == ".keep" and not node.data and leads_to(posixpath.dirname(raw)):
+        return None
+    return BINARY if "text" in kinds else NOT_REVIEWED
+
+
+def _up_to_the_unreviewed_part(path: str, raw: str) -> str:
+    parts, raw_parts = path.split("/"), raw.split("/")
+    depth = next((i for i in range(2, len(raw_parts) + 1) if not leads_to("/".join(raw_parts[:i]))), None)
+    return "root" + path if depth is None else "root" + "/".join(parts[: depth - 1]) + "/..."
+
+
+def _unreviewed_readings(rec: Recording, originals: Spellings) -> list[Leak]:
+    named = [
+        *(("nvml.json", fn, NVML_CALLS) for fn in rec.nvml),
+        *(("host.json", key, HOST_READINGS) for key in rec.host),
+        *(("host.json docker", api, DOCKER_APIS) for api in rec.host.get("docker") or {}),
+    ]
+    return [
+        Leak(
+            f"{where}, a name that leaks" if _categories(name, False, originals) else f"{where} {name}",
+            NOT_REVIEWED,
+        )
+        for where, name, reviewed in named
+        if name not in reviewed
+    ]
+
+
+def leaks(red: Redacted) -> list[Leak]:
+    rec, originals = red.recording, red.originals
     out: list[Leak] = []
     clean: set[str] = set()
     for path in rec.tree:
@@ -674,7 +716,11 @@ def leaks(rec: Recording, originals: Spellings) -> list[Leak]:
         if not found:
             clean.add(path)
     for path, node in rec.tree.items():
-        where = f"root{path}" if path in clean else "a node in root/ whose path leaks"
+        leaked = "a node in root/ whose path leaks"
+        where = f"root{path}" if path in clean else leaked
+        if reason := _unreviewed(red.read_at[path], node):
+            unreviewed = _up_to_the_unreviewed_part(path, red.read_at[path]) if path in clean else leaked
+            out.append(Leak(unreviewed if reason == NOT_REVIEWED else where, reason))
         if isinstance(node, Link):
             out += [
                 Leak(f"the link target of {where}", c)
@@ -686,6 +732,7 @@ def leaks(rec: Recording, originals: Spellings) -> list[Leak]:
             if binary:
                 found |= originals.categories_in_bytes(node.data)
             out += [Leak(where, c) for c in sorted(found)]
+    out += _unreviewed_readings(rec, originals)
     for name, doc in (("nvml.json", rec.nvml), ("host.json", rec.host), ("platform.json", platform_doc(rec))):
         out += [Leak(name, c) for c in sorted(_categories(dumps(doc), False, originals))]
-    return out
+    return list(dict.fromkeys(out))

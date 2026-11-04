@@ -7,8 +7,9 @@ import os
 import shutil
 import sys
 import tarfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, fields
 from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
 from typing import Any
@@ -18,11 +19,12 @@ from platforms import GB10
 from test_no_private_identifiers import DETECTORS, REAL_LOOKING, findings
 
 from sparkline.agent.capture import OutputNotEmpty, capture, exercise, facts_of
+from sparkline.agent.collectors.memory import MemoryCollector
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors
-from sparkline.agent.redact import CaptureRefused, Facts
+from sparkline.agent.redact import CaptureRefused, Dir, Facts, Leak, Recording, leaks, redact
 from sparkline.agent.sampler import Sampler
-from sparkline.agent.sources import NvmlReplay, recorded
+from sparkline.agent.sources import NvmlReplay, RootFs, Sources, recorded
 from sparkline.common.identifiers import text_of
 
 
@@ -363,6 +365,69 @@ def test_a_capture_that_meets_an_identifier_it_cannot_replace_writes_nothing(tmp
     assert not out.exists()
     assert "root/proc/sys/kernel/osrelease: hostname" in str(refused.value)
     assert HOST not in str(refused.value)
+
+
+def also_reading(monkeypatch: pytest.MonkeyPatch, read: Callable[[RootFs], object]) -> None:
+    """A future collector: the memory collector also reads through its traced fs."""
+    collect = MemoryCollector.collect
+
+    def collect_and_read(self: MemoryCollector) -> dict:
+        read(self.fs)
+        return collect(self)
+
+    monkeypatch.setattr(MemoryCollector, "collect", collect_and_read)
+
+
+def refusal_of(copy: Path, out: Path) -> str:
+    with pytest.raises(CaptureRefused) as refused:
+        capture_of(copy, out)
+    assert not out.exists(), "nothing is written"
+    return str(refused.value)
+
+
+def test_a_collector_that_reads_outside_the_reviewed_read_set_is_refused_by_name(tmp_path, monkeypatch):
+    copy = gb10_copy(tmp_path)
+    (copy / "root/proc/vmstat").write_text("nr_free_pages 1\n")
+    also_reading(monkeypatch, lambda fs: fs.read("/proc/vmstat"))
+    assert "root/proc/vmstat: not in the reviewed read set" in refusal_of(copy, tmp_path / "out")
+
+
+def test_a_reviewed_text_file_that_is_not_utf8_is_refused(tmp_path):
+    copy = gb10_copy(tmp_path)
+    (copy / "root/proc/sys/kernel/osrelease").write_bytes(b"6.17.0-\xff\xfe-nvidia\n")
+    assert "root/proc/sys/kernel/osrelease: binary content" in refusal_of(copy, tmp_path / "out")
+
+
+def gb10_readings() -> Recording:
+    nvml, host = (json.loads((GB10 / name).read_text()) for name in ("nvml.json", "host.json"))
+    return Recording("linux", {"left_out": {}}, {"/": Dir()}, nvml, host)
+
+
+@pytest.mark.parametrize(
+    ("unreviewed", "surface"),
+    [
+        (lambda rec: rec.nvml.update(nvmlDeviceGetBoardId={'["gpu0"]': 1}), "nvml.json nvmlDeviceGetBoardId"),
+        (lambda rec: rec.host.update(smi={"gpu0": "x"}), "host.json smi"),
+        (lambda rec: rec.host["docker"].update({"/info": {"result": {}}}), "host.json docker /info"),
+    ],
+)
+def test_a_reading_outside_the_reviewed_sets_is_refused_by_name(unreviewed, surface):
+    rec = gb10_readings()
+    assert leaks(redact(rec, Facts())) == [], "the GB10 readings are all reviewed"
+    unreviewed(rec)
+    assert leaks(redact(rec, Facts())) == [Leak(surface, "not in the reviewed read set")]
+
+
+def test_a_source_the_capture_does_not_trace_stops_it(tmp_path):
+    @dataclass(frozen=True)
+    class WithSmi(Sources):
+        smi: Callable[[], str] = lambda: ""
+
+    gb10 = recorded(GB10)
+    src = WithSmi(**{f.name: getattr(gb10, f.name) for f in fields(Sources)})
+    with pytest.raises(TypeError, match="smi"):
+        capture(src, tmp_path / "out", Facts())
+    assert not (tmp_path / "out").exists()
 
 
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
