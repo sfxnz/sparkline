@@ -46,7 +46,7 @@ from sparkline.agent.collectors.thermal import Chip, ThermalCollector, build_sen
 from sparkline.agent.ethtool import parse_gstrings
 from sparkline.agent.sources import RootFs
 from sparkline.common.netutil import default_route_iface
-from sparkline.common.schema import NetIfInfo
+from sparkline.common.schema import NetIfInfo, Unsupported
 
 FIX = Path(__file__).parent / "fixtures" / "agent"
 
@@ -154,11 +154,26 @@ TWO_DESIGNS = {0: A725, 1: A725, 2: X925, 3: X925}
             ["performance", "performance", "unknown", "efficiency"],
             id="hybrid PMUs name the kind, and a core in none is unknown",
         ),
+        pytest.param(
+            {"cpu_atom": {0, 1, 2, 3}}, {}, {}, ["unknown"] * 4, id="hybrid PMUs name one kind: no split"
+        ),
     ],
 )
 def test_core_kinds_come_from_kernel_core_type_data(hybrid, midr, capacity, expected):
     kinds = core_kinds([0, 1, 2, 3], hybrid, midr, capacity)
     assert [kinds[i] for i in range(4)] == expected
+
+
+def test_pmus_that_name_one_core_kind_give_no_split(tmp_path):
+    for i in range(8):
+        (tmp_path / "sys/devices/system/cpu" / f"cpu{i}").mkdir(parents=True)
+    pmu = tmp_path / "sys/bus/event_source/devices/cpu_core"
+    pmu.mkdir(parents=True)
+    (pmu / "cpus").write_text("0-7\n")
+
+    c = cpu_mod.CpuCollector(gb10(fs=RootFs(tmp_path)))
+    assert [core.kind for core in c.cores] == ["unknown"] * 8
+    assert [type(c.caps()[m]) for m in ("cpu.perf_util", "cpu.eff_util")] == [Unsupported, Unsupported]
 
 
 def test_kernel_cpulists_parse_ranges_and_single_cpus():
