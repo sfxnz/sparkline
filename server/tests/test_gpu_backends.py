@@ -400,3 +400,37 @@ def test_closing_the_agent_closes_every_backend_in_use_once(monkeypatch):
     collectors.close()
     collectors.close()
     assert Closes.closed == ["closes", "other"]
+
+
+class Flaky(AmdFake):
+    name = "flaky"
+    broken: ClassVar[set[str]] = set()
+
+    def sample(self) -> list[GpuSample]:
+        if "sample" in self.broken:
+            raise OSError(5, "Input/output error", "/sys/class/drm/card1/device/gpu_metrics")
+        return super().sample()
+
+    def proc_mem(self) -> dict[int, dict[int, int]]:
+        if "proc_mem" in self.broken:
+            raise RuntimeError("process list failed")
+        return super().proc_mem()
+
+    def proc_util(self) -> dict[int, float] | None:
+        if "proc_util" in self.broken:
+            raise RuntimeError("process utilisation failed")
+        return super().proc_util()
+
+
+@pytest.mark.parametrize("broken", [{"sample"}, {"proc_mem"}, {"sample", "proc_mem", "proc_util"}])
+def test_one_backend_failing_a_tick_leaves_its_gpus_empty_and_the_other_vendor_reporting(broken, monkeypatch):
+    monkeypatch.setattr(Flaky, "broken", broken)
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (NvidiaFake,)), Chain("amd", (Flaky,))))
+    _, sample, collectors = warm(monkeypatch, gb10())
+
+    assert [(s.index, s.util) for s in sample.gpu] == [(0, 50.0)]
+    assert not any(k.startswith(("gpu1.", "gpu2.")) for k in flatten(sample))
+    assert "flaky" in sample.errors["gpu"] and "nvidia-fake" not in sample.errors["gpu"]
+    assert sample.mem.gpu == 1000 + 5, "the backend that failed adds no process memory this tick"
+    assert collectors.gpu is not None
+    assert collectors.gpu.process_util() == ({100: 10.0} if "proc_util" in broken else {100: 20.0})
