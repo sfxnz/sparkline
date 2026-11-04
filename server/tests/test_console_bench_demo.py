@@ -390,9 +390,18 @@ def _llm_run(c, node: str, sweep: bool) -> BenchRun:
 
 @pytest.mark.parametrize("sweep", [False, True])
 def test_ws1_llm_results_describe_ws1_and_say_which_figures_are_modelled_on_gb10(mixed, sweep):
-    res = {x.metric: x for x in _llm_run(mixed, "ws1", sweep).results}
+    run = _llm_run(mixed, "ws1", sweep)
+    res = {x.metric: x for x in run.results}
     growth, serving = res.pop("mem_used_delta_gib"), res.pop("serving_gpu_mem_gib")
     assert growth.label == "System memory growth during run"
+    st = run.node_states["ws1"]
+    assert st.started_ts and st.finished_ts
+    ws1 = FLEETS["mixed"]["ws1"](T0, 1.0)
+    span = [st.started_ts + k for k in range(int(st.finished_ts - st.started_ts) + 1)] + [st.finished_ts]
+    used = [ws1.sample_at(t).mem.used / 2**30 for t in span]
+    assert growth.value == pytest.approx(max(used) - used[0], abs=0.002)
+    assert growth.extras["mem_used_before_gib"] == pytest.approx(used[0], abs=0.002)
+    assert growth.extras["mem_used_peak_gib"] == pytest.approx(max(used), abs=0.002)
     assert serving.extras["source"] == "pid 41022 and its children"
     workers = [
         p.gpu_mem for p in FLEETS["mixed"]["ws1"](T0, 1.0).sample_at(time.time(), procs=True).procs or []
