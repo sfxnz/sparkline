@@ -1,0 +1,140 @@
+{
+ "nvmlDeviceGetArchitecture": {
+  "[\"gpu0\"]": 10
+ },
+ "nvmlDeviceGetClockInfo": {
+  "[\"gpu0\", 0]": 2190,
+  "[\"gpu0\", 1]": 2190,
+  "[\"gpu0\", 2]": {
+   "__error__": 3,
+   "str": "Not Supported"
+  },
+  "[\"gpu0\", 3]": 1839
+ },
+ "nvmlDeviceGetComputeRunningProcesses": {
+  "[\"gpu0\"]": [
+   {
+    "__fields__": {
+     "computeInstanceId": 4294967295,
+     "gpuInstanceId": 4294967295,
+     "pid": 3605742,
+     "usedGpuMemory": 609206272
+    }
+   }
+  ]
+ },
+ "nvmlDeviceGetCount": {
+  "[]": 1
+ },
+ "nvmlDeviceGetCudaComputeCapability": {
+  "[\"gpu0\"]": [
+   12,
+   1
+  ]
+ },
+ "nvmlDeviceGetCurrentClocksEventReasons": {
+  "[\"gpu0\"]": 0
+ },
+ "nvmlDeviceGetEccMode": {
+  "[\"gpu0\"]": {
+   "__error__": 3,
+   "str": "Not Supported"
+  }
+ },
+ "nvmlDeviceGetFanSpeed": {
+  "[\"gpu0\"]": {
+   "__error__": 3,
+   "str": "Not Supported"
+  }
+ },
+ "nvmlDeviceGetHandleByIndex": {
+  "[0]": "gpu0"
+ },
+ "nvmlDeviceGetMaxClockInfo": {
+  "[\"gpu0\", 1]": 3003
+ },
+ "nvmlDeviceGetMemoryInfo": {
+  "[\"gpu0\"]": {
+   "__error__": 3,
+   "str": "Not Supported"
+  }
+ },
+ "nvmlDeviceGetName": {
+  "[\"gpu0\"]": "NVIDIA GB10"
+ },
+ "nvmlDeviceGetNumGpuCores": {
+  "[\"gpu0\"]": 6144
+ },
+ "nvmlDeviceGetPcieThroughput": {
+  "[\"gpu0\", 0]": {
+   "__error__": 3,
+   "str": "Not Supported"
+  }
+ },
+ "nvmlDeviceGetPerformanceState": {
+  "[\"gpu0\"]": 0
+ },
+ "nvmlDeviceGetPowerManagementLimit": {
+  "[\"gpu0\"]": {
+   "__error__": 3,
+   "str": "Not Supported"
+  }
+ },
+ "nvmlDeviceGetPowerUsage": {
+  "[\"gpu0\"]": 10234
+ },
+ "nvmlDeviceGetProcessUtilization": {
+  "[\"gpu0\", 0]": {
+   "__error__": 6,
+   "str": "Not Found"
+  }
+ },
+ "nvmlDeviceGetTemperature": {
+  "[\"gpu0\", 0]": 52
+ },
+ "nvmlDeviceGetTemperatureThreshold": {
+  "[\"gpu0\", 0]": 90,
+  "[\"gpu0\", 1]": 86,
+  "[\"gpu0\", 3]": 99
+ },
+ "nvmlDeviceGetTotalEnergyConsumption": {
+  "[\"gpu0\"]": 8907439052
+ },
+ "nvmlDeviceGetUUID": {
+  "[\"gpu0\"]": "GPU-00000000-0000-0000-0000-000000000000"
+ },
+ "nvmlDeviceGetUtilizationRates": {
+  "[\"gpu0\"]": {
+   "__fields__": {
+    "gpu": 0,
+    "memory": 0
+   }
+  }
+ },
+ "nvmlDeviceGetViolationStatus": {
+  "[\"gpu0\", 0]": {
+   "__fields__": {
+    "referenceTime": 1093200484067,
+    "violationTime": 165672272383552
+   }
+  },
+  "[\"gpu0\", 1]": {
+   "__fields__": {
+    "referenceTime": 1793782407871489,
+    "violationTime": 0
+   }
+  }
+ },
+ "nvmlInit": {
+  "[]": null
+ },
+ "nvmlSystemGetCudaDriverVersion_v2": {
+  "[]": 13000
+ },
+ "nvmlSystemGetDriverVersion": {
+  "[]": "580.178.04"
+ },
+ "nvmlSystemGetNVMLVersion": {
+  "[]": "13.580.178.04"
+ }
+}

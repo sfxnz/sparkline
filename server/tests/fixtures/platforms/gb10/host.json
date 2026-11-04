@@ -1,0 +1,140 @@
+{
+ "docker": {
+  "/images/json": {
+   "result": [
+    {
+     "RepoTags": [
+      "nvcr.io/nvidia/pytorch:26.07-py3"
+     ]
+    }
+   ]
+  }
+ },
+ "ethtool": {
+  "enp1s0f0np0": {
+   "stats": {
+    "rx_crc_errors_phy": 0,
+    "rx_discards_phy": 0,
+    "tx_discards_phy": 0
+   }
+  },
+  "enp1s0f1np1": {
+   "stats": {
+    "rx_crc_errors_phy": 0,
+    "rx_discards_phy": 0,
+    "tx_discards_phy": 0
+   }
+  }
+ },
+ "net_if_addrs": {
+  "docker0": [
+   {
+    "address": "172.17.0.1",
+    "family": "AF_INET",
+    "netmask": "255.255.0.0"
+   },
+   {
+    "address": "02:00:00:00:00:01",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ],
+  "enP2p1s0f0np0": [
+   {
+    "address": "02:00:00:00:00:02",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ],
+  "enP2p1s0f1np1": [
+   {
+    "address": "192.0.2.1",
+    "family": "AF_INET",
+    "netmask": "255.255.255.0"
+   },
+   {
+    "address": "02:00:00:00:00:03",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ],
+  "enP7s7": [
+   {
+    "address": "198.51.100.48",
+    "family": "AF_INET",
+    "netmask": "255.255.255.0"
+   },
+   {
+    "address": "02:00:00:00:00:04",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ],
+  "enp1s0f0np0": [
+   {
+    "address": "02:00:00:00:00:05",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ],
+  "enp1s0f1np1": [
+   {
+    "address": "203.0.113.1",
+    "family": "AF_INET",
+    "netmask": "255.255.255.0"
+   },
+   {
+    "address": "02:00:00:00:00:06",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ],
+  "lo": [
+   {
+    "address": "127.0.0.1",
+    "family": "AF_INET",
+    "netmask": "255.0.0.0"
+   },
+   {
+    "address": "02:00:00:00:00:07",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ],
+  "tailscale0": [
+   {
+    "address": "100.64.0.113",
+    "family": "AF_INET",
+    "netmask": "255.255.255.255"
+   }
+  ],
+  "wlP9s9": [
+   {
+    "address": "02:00:00:00:00:08",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ]
+ },
+ "statvfs": {
+  "/": [
+   4096,
+   4096,
+   984343641,
+   69765358,
+   59760061,
+   250036224,
+   246082098,
+   246082098,
+   4096,
+   255
+  ]
+ },
+ "which": {
+  "all_reduce_perf": null,
+  "docker": "/usr/bin/docker",
+  "fio": null,
+  "ib_write_bw": "/usr/bin/ib_write_bw",
+  "nvcc": null
+ }
+}
