@@ -29,6 +29,7 @@ from .specs import (
     StorageParams,
     ThermalSoakParams,
     ToolEvalParams,
+    mem_growth_label,
     nccl_sizes,
 )
 
@@ -461,7 +462,7 @@ async def llm_inference(job: Job, p: LlmInferenceParams) -> None:
     if before is not None and peak["used"]:
         job.add_result(
             metric="mem_used_delta_gib",
-            label="Unified memory growth during run",
+            label=mem_growth_label(job.info),
             value=(peak["used"] - before.mem.used) / GIB,
             unit="GiB",
             better="lower",

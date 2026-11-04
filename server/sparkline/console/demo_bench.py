@@ -37,7 +37,7 @@ if TYPE_CHECKING:  # imported at run time only by demo tool-eval runs
 
 from ..agent.bench import probes
 from ..agent.bench.specs import REGISTRY as AGENT_REGISTRY
-from ..agent.bench.specs import levels, nccl_sizes, validation_message
+from ..agent.bench.specs import levels, mem_growth_label, nccl_sizes, validation_message
 from ..common.schema import (
     BenchResult,
     BenchRun,
@@ -47,6 +47,7 @@ from ..common.schema import (
     NodeBenchState,
     NodeInfo,
     Problem,
+    ProcSample,
 )
 from ..common.throttle import LIMITING_MASK, POWER_CAP_BIT
 from .bench import (
@@ -62,7 +63,7 @@ from .bench import (
 )
 from .bench_store import BenchStore
 from .cluster import Cluster
-from .demo import DemoNode, DemoSource
+from .demo import GIB, DemoNode, DemoSource
 
 log = logging.getLogger("sparkline.console.demo_bench")
 SUITE_GIT = "demo"  # the real agent reports the suite's git hash
@@ -140,6 +141,43 @@ def _not_gb10(node: str, info: NodeInfo | None) -> Problem | None:
         cause=f"The demo reports numbers measured on a DGX Spark, which would be false for {node}'s hardware",
         fix="Run this benchmark on a DGX Spark demo node, such as spark1",
     )
+
+
+GB10_RATES = " · modelled on GB10"
+
+
+def _rates_on(info: NodeInfo | None, rows: list[BenchResult]) -> list[BenchResult]:
+    """The demo's LLM token rates are GB10's; on other hardware each row says so."""
+    if _gb10(info):
+        return rows
+    return [r.model_copy(update={"label": r.label + GB10_RATES}) for r in rows]
+
+
+def _llm_memory(
+    info: NodeInfo | None,
+    procs: list[ProcSample] | None,
+    served: str,
+    gb10: tuple[float, float],
+    ex: dict[str, Any],
+) -> list[BenchResult]:
+    """The agent's memory rows. On GB10, spark1's recorded footprint; elsewhere the GPU memory of the served
+    model's process and the rest of its container, from the node's own process table, as the agent sums the
+    listener's process tree. No such process: no serving row, as on a real node."""
+    serving, growth = gb10
+    rows = procs or []
+    if not _gb10(info):
+        root = next((p for p in rows if p.model == served), None)
+        tree = [p for p in rows if root and (p is root or (root.container and p.container == root.container))]
+        found = (
+            [(sum(p.gpu_mem or 0 for p in tree) / GIB, f"pid {root.pid} and its children")] if root else []
+        )
+    else:
+        found = [(serving, "pid 4242 and its children")]
+    out = [
+        _r("serving_gpu_mem_gib", "Serving process GPU memory", v, "GiB", "lower", **ex, source=src)
+        for v, src in found
+    ]
+    return [*out, _r("mem_used_delta_gib", mem_growth_label(info), growth, "GiB", "lower", **ex)]
 
 
 def demo_catalog(node: str, info: NodeInfo | None) -> list[BenchSpec]:
@@ -276,10 +314,17 @@ def _r(
 
 
 def make_results(
-    bench: str, p: dict[str, Any], node: str, rng: random.Random, role: str, info: NodeInfo | None = None
+    bench: str,
+    p: dict[str, Any],
+    node: str,
+    rng: random.Random,
+    role: str,
+    info: NodeInfo | None = None,
+    procs: list[ProcSample] | None = None,
 ) -> tuple[list[BenchResult], dict[str, list[float]]]:
     """Plausible GB10 results for one node. role: single | client | server | rank0 | rank1; the rdma server
-    and NCCL rank 1 report none (the client / rank 0 measure). The thermal soak's come from soak_results."""
+    and NCCL rank 1 report none (the client / rank 0 measure). The thermal soak's come from soak_results.
+    procs: the node's process table at the end of the run, for llm-inference's serving memory."""
     if role in ("server", "rank1"):
         return [], {}
 
@@ -443,16 +488,15 @@ def make_results(
         ttft = (150 + p["prompt_tokens"] / 1024 * 170) * n(0.06) * (1 + 0.15 * (c - 1))
         decode = 46.0 * n(0.03) / (1 + 0.09 * (c - 1))
         prefill = p["prompt_tokens"] / ttft * 1000 * 0.92
-        mem = {**ex, "source": "pid 4242 and its children"}
-        return [
+        rates = [
             _r("decode_tok_s", "Decode tokens/s per request", decode, "tok/s", **head),
             _r("ttft_p50_ms", "Time to first token p50", ttft, "ms", "lower", **head),
             _r("prefill_tok_s", "Prefill tokens/s", prefill, "tok/s", **head),
             _r("ttft_p95_ms", "Time to first token p95", ttft * 1.28 * n(0.04), "ms", "lower", **ex),
             _r("decode_tok_s_total", "Output tokens/s, all requests", decode * c * 0.97, "tok/s", **ex),
-            _r("serving_gpu_mem_gib", "Serving process GPU memory", 80.1 * n(0.002), "GiB", "lower", **mem),
-            _r("mem_used_delta_gib", "Unified memory growth during run", 0.35 * n(0.2), "GiB", "lower", **ex),
-        ], {}
+        ]
+        mem = (80.1 * n(0.002), 0.35 * n(0.2))
+        return [*_rates_on(info, rates), *_llm_memory(info, procs, model, mem, ex)], {}
     if bench == "tool-eval":
         return ToolEvalDemo(p, node, rng).bench_results(), {}
     return [], {}
@@ -634,9 +678,9 @@ def _streams(n: int) -> str:
 class LlmDemo:
     """A simulated llm-inference run on one node with every request planned up front (simulated seconds from
     its level's start), so its live snapshots, detail and results describe the same requests. GB10-like
-    rates: about 46 tok/s for one stream and 1 / (1 + 0.09 (L - 1)) of that per stream with L streams, TTFT
-    15% longer per extra stream, a slower straggler now and then; spark3's Qwen reasons for the first ~15% of
-    its tokens."""
+    rates, which the results say on other hardware: about 46 tok/s for one stream and 1 / (1 + 0.09 (L - 1))
+    of that per stream with L streams, TTFT 15% longer per extra stream, a slower straggler now and then;
+    spark3's Qwen reasons for the first ~15% of its tokens."""
 
     def __init__(self, p: dict[str, Any], node: str, rng: random.Random) -> None:
         self.p = p
@@ -811,8 +855,11 @@ class LlmDemo:
             timeline[str(self.sizes[k])] = {"cols": cols, "rows": rows, "truncated": len(self.plan[k]) > 256}
         return {"levels": [self.summary(k) for k in range(upto)], "timeline": timeline}
 
-    def results(self) -> list[BenchResult]:
-        """The payload's results for these requests (sweep or not), then the agent's memory results."""
+    def results(
+        self, info: NodeInfo | None = None, procs: list[ProcSample] | None = None
+    ) -> list[BenchResult]:
+        """The payload's results for these requests (sweep or not), then the agent's memory results.
+        procs: the node's process table at the end of the run."""
         p = self.p
         base: dict[str, Any] = {"engine": LLM_ENGINE, "model": self.model, "simulated": True}
         per = []
@@ -863,12 +910,7 @@ class LlmDemo:
                 out.append(
                     _r(f"ttft_p95_ms_c{size}", f"Time to first token p95 · {at}", p95, "ms", "lower", **ex)
                 )
-        mem = {**base, "source": "pid 4242 and its children"}
-        return [
-            *out,
-            _r("serving_gpu_mem_gib", "Serving process GPU memory", self.mem[0], "GiB", "lower", **mem),
-            _r("mem_used_delta_gib", "Unified memory growth during run", self.mem[1], "GiB", "lower", **base),
-        ]
+        return [*_rates_on(info, out), *_llm_memory(info, procs, self.model, self.mem, base)]
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1902,7 +1944,7 @@ class DemoBench:
             if req.bench_id == "thermal-soak":
                 st.results = soak_results(st.series)
             elif sim.llm is not None:  # the requests the live view showed
-                st.results = sim.llm.results()
+                st.results = sim.llm.results(info, model.sample_at(time.time(), procs=True).procs)
             elif sim.showcase is not None:
                 st.results = sim.showcase.results()
             else:
@@ -2114,7 +2156,8 @@ def seed_history(
                 results = te.bench_results()
                 run.node_states[n] = te.node_state(run.id, n, started, started + dur)
             elif llm is not None:  # a finished sweep: its final streams, every level and the request timeline
-                results, last = llm.results(), len(llm.sizes) - 1
+                results = llm.results(m.info, m.sample_at(started + dur, procs=True).procs)
+                last = len(llm.sizes) - 1
                 lines = [f"model {llm.model}, engine {LLM_ENGINE}", f"{bench}: {len(results)} results"]
                 run.node_states[n] = NodeBenchState(
                     run_id=run.id,
@@ -2133,7 +2176,10 @@ def seed_history(
                 results = show.results()
                 run.node_states[n] = show.node_state(run.id, n, started, started + dur)
             else:
-                results, series = make_results(bench, params, n, rng, role.get(bench, "single"), m.info)
+                procs = m.sample_at(started + dur, procs=True).procs if bench == "llm-inference" else None
+                results, series = make_results(
+                    bench, params, n, rng, role.get(bench, "single"), m.info, procs
+                )
             if outcome != "succeeded":
                 results = []
             if i == len(_SEED) - 1:  # the regression run
