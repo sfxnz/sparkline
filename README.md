@@ -126,8 +126,8 @@ The console picks up the agent token from the agent's config on the same host.
 | ![A tool-calling evaluation running: the score so far, the scenario board and the latest verdicts](docs/screenshots/bench-tool-eval-dark.png) | ![A finished tool-calling evaluation: score, rating, safety gate and share graded, light theme](docs/screenshots/bench-tool-eval-score-light.png) |
 | ![A node whose agent is unreachable: cause, fix and retry](docs/screenshots/offline-state-dark.png) | ![Wall mode at 1920×1080](docs/screenshots/wall-dark.png) |
 
-The memory, CPU, network and offline screenshots come from a real two-node cluster (taken while spark2's agent
-was stopped). The others come from `--demo`, which can show load, a thermal episode and benchmark runs on demand.
+Every screenshot comes from `--demo`, which can show load, a thermal episode, an offline node and benchmark runs
+on demand.
 The concurrency-stream and tool-calling screenshots show its simulated runs: no model was involved.
 
 ## Features
