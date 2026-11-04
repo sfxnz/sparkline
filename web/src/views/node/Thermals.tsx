@@ -1,6 +1,6 @@
 // Thermals & Power: every temperature sensor grouped by where it sits, GPU rail power and energy, and the
 // metrics this hardware does not report (fans, whole-system power) stated plainly instead of drawn as zero.
-import { Thermometer } from 'lucide-react';
+import { CircleSlash, Thermometer } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
@@ -31,6 +31,8 @@ export default function Thermals({ nodeId }: { nodeId: string }) {
   const groups = useMemo(() => buildGroups(info), [info]);
   const keys = useMemo(() => groups.flatMap((g) => g.sensors.map((s) => s.key)), [groups]);
   const history = useRangeHistory(nodeId, keys, range === 'live' ? null : range);
+  // Board sensors come from hwmon; the GPU's temperature, power and energy come from NVML and still read without it.
+  const sensorGap = notReported(info, 'temp');
 
   if (!info || (!hasSample && (status === 'connecting' || status === 'online' || !status))) return <ThermalsSkeleton />;
   if (!hasSample) {
@@ -45,11 +47,16 @@ export default function Thermals({ nodeId }: { nodeId: string }) {
 
   return (
     <div className="view tp">
-      <ThermalHeader nodeId={nodeId} groups={groups} stale={stale} updatedAt={updatedAt} fanReason={notReported(info, 'fan')} />
+      <ThermalHeader nodeId={nodeId} groups={groups} stale={stale} updatedAt={updatedAt} sensorGap={sensorGap} fanReason={notReported(info, 'fan')} />
       <div className="tp-groups">
         {groups.map((g) => (
           <SensorGroupPanel key={g.id} nodeId={nodeId} group={g} info={info} range={range} history={history} stale={stale} />
         ))}
+        {sensorGap ? (
+          <Panel title="Board sensors" subtitle="Temperatures outside the GPU, read from hwmon">
+            <EmptyState icon={CircleSlash} title={sensorGap.label} compact>{sensorGap.detail}</EmptyState>
+          </Panel>
+        ) : null}
       </div>
       <div className="tp-power-row">
         <PowerPanel nodeId={nodeId} info={info} range={range} stale={stale} updatedAt={updatedAt} />
@@ -63,7 +70,7 @@ const sameHot = (a: { label: string; c: number } | null, b: { label: string; c: 
   a === b || (a !== null && b !== null && a.label === b.label && Math.round(a.c) === Math.round(b.c));
 
 /** The one-glance answer: what is hottest, how close the GPU is to slowing down, what it draws, what today cost. */
-function ThermalHeader({ nodeId, groups, stale, updatedAt, fanReason }: { nodeId: string; groups: SensorGroup[]; stale: boolean; updatedAt: number | null; fanReason: NotReported | null }) {
+function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap, fanReason }: { nodeId: string; groups: SensorGroup[]; stale: boolean; updatedAt: number | null; sensorGap: NotReported | null; fanReason: NotReported | null }) {
   const hot = useLiveDerived(nodeId, useCallback((st: LiveStore) => hottest(groups, (k) => st.latestValue(nodeId, k)), [groups, nodeId]), sameHot);
   const gpuTemp = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.temp_c'), [nodeId]), Object.is);
   const gpuPower = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.power_w'), [nodeId]), Object.is);
@@ -74,7 +81,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, fanReason }: { nodeId
     <Panel label={`${nodeId} thermals and power summary`} className="tp-head">
       <NowLabel />
       <div className="nstats">
-        <Stat label="Hottest sensor" value={hot?.c} format={tempParts} stale={stale} updatedAt={updatedAt} footer={hot ? hot.label : undefined} />
+        <Stat label="Hottest sensor" value={hot?.c} format={tempParts} stale={stale} updatedAt={updatedAt} unsupported={sensorGap} footer={hot && !sensorGap ? hot.label : undefined} />
         <Stat
           label="GPU temperature"
           value={gpuTemp}
