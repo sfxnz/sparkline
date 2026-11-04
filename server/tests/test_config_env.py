@@ -152,6 +152,9 @@ def test_agent_cli_precedence(tmp_path, monkeypatch, no_server):
             captured["cfg"] = cfg
             return SimpleNamespace(agent_version="test")
 
+        def close(self):
+            captured["closed"] = True
+
     for name in ("Collectors", "Sampler", "Store", "BenchRunner"):
         monkeypatch.setattr(agent_main, name, type(name, (Fake,), {}))
     monkeypatch.setattr(agent_main, "create_app", lambda *a, **kw: "app")
@@ -160,6 +163,7 @@ def test_agent_cli_precedence(tmp_path, monkeypatch, no_server):
     monkeypatch.setenv("SPARKLINE_DATA_DIR", str(tmp_path / "env-data"))
     monkeypatch.setenv("SPARKLINE_AGENT_TOKEN", "envtoken-0123456")
     assert agent_main.main([]) == 0
+    assert captured.get("closed") is True, "the agent closes its collectors when the server stops"
     assert (no_server["host"], no_server["port"]) == ("127.0.0.1", 2222)
     assert (
         captured["cfg"].data_dir == str(tmp_path / "env-data") and captured["cfg"].token == "envtoken-0123456"
