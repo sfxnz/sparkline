@@ -1,9 +1,9 @@
 // Data hooks for the Thermals & Power and Processes tabs.
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { HistoryResponse } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
-import { dataOf, LOADING, mapLoadable, settleFor, type Loadable, type Tagged } from '../../../lib/loadable';
+import { dataOf, mapLoadable, useLoadable, type Loadable } from '../../../lib/loadable';
 import { sumCounters } from '../../shared/energy';
 import { loadSpan, SPAN_REFRESH_MS, useNodeStale, type Span } from '../../shared/live';
 
@@ -38,15 +38,14 @@ const keyList = (key: string | readonly string[]) => (typeof key === 'string' ? 
 /** History for one key or several from local midnight (or 7 days ago) to now, refreshed every minute (5 min for
  *  7 days). */
 export function useSpanHistory(node: string, key: string | readonly string[], span: Span): Loadable<HistoryResponse> {
-  const [tagged, setTagged] = useState<Tagged<HistoryResponse>>({ id: '', value: LOADING });
   const keysId = keyList(key).join('|');
-  const id = `${node}|${keysId}|${span}`;
+  const [value, update] = useLoadable<HistoryResponse>(`${node}|${keysId}|${span}`);
   useEffect(() => {
     let cancelled = false;
     const fetchOnce = () => {
       loadSpan(node, keysId.split('|'), span)
-        .then((data) => { if (!cancelled) setTagged(settleFor(id, { data })); })
-        .catch((error: unknown) => { if (!cancelled) setTagged(settleFor(id, { error })); });
+        .then((data) => { if (!cancelled) update({ data }); })
+        .catch((error: unknown) => { if (!cancelled) update({ error }); });
     };
     fetchOnce();
     const t = setInterval(fetchOnce, SPAN_REFRESH_MS[span]);
@@ -54,8 +53,8 @@ export function useSpanHistory(node: string, key: string | readonly string[], sp
       cancelled = true;
       clearInterval(t);
     };
-  }, [node, keysId, span, id]);
-  return tagged.id === id ? tagged.value : LOADING;
+  }, [node, keysId, span, update]);
+  return value;
 }
 
 /** GPU energy over a span (today / 7 days), summed over the counters in `key`: the span's history extended with the

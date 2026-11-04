@@ -1,6 +1,6 @@
 // Shared node-page hooks: freshness of a node's data and range-level aggregates (peaks, energy, means).
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { dataOf, LOADING, settleFor, type Tagged } from '../../../lib/loadable';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { dataOf, useLoadable } from '../../../lib/loadable';
 import type { TimeRange } from '../../../lib/prefs';
 import type { NodeStatus, Sample } from '../../../lib/types';
 import { serverNow, useCluster } from '../../../store/cluster';
@@ -48,14 +48,13 @@ export interface RangeData {
 export function useRangeData(nodeId: string, keys: readonly string[]): { range: TimeRange; data: RangeData | null; error: boolean } {
   const range = usePrefs((s) => s.timeRange);
   const keysId = keys.join('|');
-  const [tagged, setTagged] = useState<Tagged<RangeData>>({ id: '', value: LOADING });
-  const id = `${nodeId}|${keysId}|${range}`;
+  const [value, update] = useLoadable<RangeData>(`${nodeId}|${keysId}|${range}`);
 
   useEffect(() => {
     const ks = keysId.split('|');
     let cancelled = false;
     const done = (outcome: { data: RangeData } | { error: unknown }) => {
-      if (!cancelled) setTagged(settleFor(id, outcome));
+      if (!cancelled) update(outcome);
     };
     let tick: () => void;
     let stop: () => void;
@@ -80,9 +79,8 @@ export function useRangeData(nodeId: string, keys: readonly string[]): { range: 
       cancelled = true;
       stop();
     };
-  }, [nodeId, keysId, range, id]);
+  }, [nodeId, keysId, range, update]);
 
-  const value = tagged.id === id ? tagged.value : LOADING;
   return { range, data: dataOf(value), error: value.state === 'error' };
 }
 

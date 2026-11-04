@@ -1,8 +1,8 @@
 // Freshness and history helpers shared by the Overview, the node tabs and Wall mode, so every screen agrees on
 // when values are "not live", what the last known value is, and how a range is worded and refreshed.
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { api } from '../../lib/api';
-import { LOADING, settleFor, type Loadable, type Tagged } from '../../lib/loadable';
+import { useLoadable, type Loadable } from '../../lib/loadable';
 import type { TimeRange } from '../../lib/prefs';
 import type { HistoryResponse, NodeStatus } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
@@ -99,8 +99,7 @@ export function loadSpan(node: string, keys: readonly string[], span: Span): Pro
  *  `range` null = not needed (e.g. Live mode): stays 'loading' and fetches nothing. */
 export function useRangeHistory(node: string, keys: readonly string[], range: HistoryRange | null): Loadable<HistoryResponse> {
   const keysId = keys.join('|');
-  const id = `${node}|${keysId}|${range ?? ''}`;
-  const [tagged, setTagged] = useState<Tagged<HistoryResponse>>({ id: '', value: LOADING });
+  const [value, update] = useLoadable<HistoryResponse>(`${node}|${keysId}|${range ?? ''}`);
   useEffect(() => {
     if (!range || !keysId) return;
     let cancelled = false;
@@ -108,8 +107,8 @@ export function useRangeHistory(node: string, keys: readonly string[], range: Hi
     const fetchOnce = () => {
       historyCache
         .load(node, list, range, serverNow())
-        .then((data) => { if (!cancelled) setTagged(settleFor(id, { data })); })
-        .catch((error: unknown) => { if (!cancelled) setTagged(settleFor(id, { error })); });
+        .then((data) => { if (!cancelled) update({ data }); })
+        .catch((error: unknown) => { if (!cancelled) update({ error }); });
     };
     fetchOnce();
     const stop = joinHistoryRefresh(range, fetchOnce);
@@ -117,6 +116,6 @@ export function useRangeHistory(node: string, keys: readonly string[], range: Hi
       cancelled = true;
       stop();
     };
-  }, [node, keysId, range, id]);
-  return tagged.id === id ? tagged.value : LOADING;
+  }, [node, keysId, range, update]);
+  return value;
 }

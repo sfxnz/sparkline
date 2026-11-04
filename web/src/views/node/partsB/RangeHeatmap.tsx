@@ -9,7 +9,7 @@ import { HistoryUnavailable } from '../../../charts/HistoryUnavailable';
 import { RefreshFailed } from '../../../charts/RefreshFailed';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { fontScale } from '../../../charts/theme';
-import { LOADING, settle, type Loadable } from '../../../lib/loadable';
+import { useLoadable } from '../../../lib/loadable';
 import type { TimeRange } from '../../../lib/prefs';
 import type { CoreInfo, Sample } from '../../../lib/types';
 import { serverNow } from '../../../store/cluster';
@@ -52,8 +52,8 @@ export function RangeHeatmap({ node, cores, cpuModel }: { node: string; cores: r
 
 function HistoryHeatmap({ node, cores, cpuModel, range }: { node: string; cores: readonly CoreInfo[]; cpuModel: string; range: HistoryRange }) {
   const keys = useMemo(() => cores.map((c) => `cpu.core${c.id}.util`), [cores]);
-  const [state, setState] = useState<Loadable<{ store: LiveStore; empty: boolean }>>(LOADING);
   const [attempt, setAttempt] = useState(0);
+  const [state, update] = useLoadable<{ store: LiveStore; empty: boolean }>(`${node}|${keys.join('|')}|${range}|${attempt}`);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,10 +67,10 @@ function HistoryHeatmap({ node, cores, cpuModel, range }: { node: string; cores:
           const store = new HistoryStore(Math.max(resp.resolution_s, medianStep(resp.ts)) * 1000);
           store.seed(resp);
           store.flush();
-          setState((prev) => settle(prev, { data: { store, empty: resp.ts.length === 0 } }));
+          update({ data: { store, empty: resp.ts.length === 0 } });
         })
         .catch((error: unknown) => {
-          if (!cancelled) setState((prev) => settle(prev, { error }));
+          if (!cancelled) update({ error });
         });
     };
     load();
@@ -79,14 +79,14 @@ function HistoryHeatmap({ node, cores, cpuModel, range }: { node: string; cores:
       cancelled = true;
       stop();
     };
-  }, [node, keys, range, attempt]);
+  }, [node, keys, range, attempt, update]);
 
   const height = heatmapHeight(cores);
   if (state.state === 'loading') return <Skeleton height={height} radius={6} />;
   if (state.state === 'error') {
     return (
       <div className="nb-heatmap__problem" style={{ minHeight: height }}>
-        <HistoryUnavailable node={node} error={state.error} onRetry={() => { historyCache.clear(); setState(LOADING); setAttempt((a) => a + 1); }} />
+        <HistoryUnavailable node={node} error={state.error} onRetry={() => { historyCache.clear(); setAttempt((a) => a + 1); }} />
       </div>
     );
   }

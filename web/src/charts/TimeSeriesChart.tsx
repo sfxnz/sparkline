@@ -16,7 +16,7 @@ import { Unsupported } from '../design/components/Unsupported';
 import { useNow } from '../design/useNow';
 import { notReported, type NotReported } from '../lib/capabilities';
 import { formatAgo } from '../lib/format';
-import { dataOf, LOADING, settleFor, type Tagged } from '../lib/loadable';
+import { dataOf, useLoadable } from '../lib/loadable';
 import type { TimeRange } from '../lib/prefs';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
@@ -191,8 +191,6 @@ export function TimeSeriesChart({
   const formatRef = useRef(format);
   const pausedRef = useRef(false);
   const [paused, setPaused] = useState(false);
-  // Load state is tagged with the data identity it belongs to; anything else reads as 'loading'.
-  const [loadTagged, setLoadTagged] = useState<Tagged<Plotted>>({ id: '', value: LOADING });
   /** The data identity dataRef holds, so a rebuilt plot (theme, size) keeps its history if the refetch fails. */
   const dataIdRef = useRef('');
   const [summary, setSummary] = useState(title);
@@ -208,7 +206,7 @@ export function TimeSeriesChart({
   const keysId = JSON.stringify(series.map((s) => s.key));
   const keys = useMemo(() => JSON.parse(keysId) as string[], [keysId]);
   const dataId = `${node}|${keysId}|${range}|${reloadKey}`;
-  const load = loadTagged.id === dataId ? loadTagged.value : LOADING;
+  const [load, updateLoad] = useLoadable<Plotted>(dataId);
   const labelsId = JSON.stringify(series.map((s) => s.label));
   const labels = useMemo(() => JSON.parse(labelsId) as string[], [labelsId]);
   const seriesGpuId = JSON.stringify(series.map((s) => s.gpu ?? null));
@@ -293,10 +291,7 @@ export function TimeSeriesChart({
       return (gpu == null ? theme.series[i % theme.series.length] : theme.gpuColors[gpu]) ?? theme.axis;
     };
     const k = theme.fontPx / 11; // axis room grows with the user's font size
-    // Same tag and state => same object, so React skips the render: only transitions re-render, not every sample.
-    const setLoad = (state: 'loading' | Plotted) => {
-      setLoadTagged(state === 'loading' ? (prev) => (prev.id === dataId && prev.value.state === 'loading' ? prev : { id: dataId, value: LOADING }) : settleFor(dataId, { data: state }));
-    };
+    const setLoad = (state: 'loading' | Plotted) => { updateLoad(state === 'loading' ? state : { data: state }); };
     const sameData = dataIdRef.current === dataId;
     dataIdRef.current = dataId;
     const thresholdList: Threshold[] = JSON.parse(thresholdsId) as Threshold[];
@@ -564,7 +559,7 @@ export function TimeSeriesChart({
             setLoad(anyValue(w.values) ? 'points' : 'empty');
           })
           .catch((error: unknown) => {
-            if (!cancelled) setLoadTagged(settleFor(dataId, { error }));
+            if (!cancelled) updateLoad({ error });
           });
       };
       // The summary names the new range at once (no longer "last 3 minutes" while the history loads).
@@ -585,7 +580,7 @@ export function TimeSeriesChart({
       uRef.current = null;
       if (yGroup) yGroups.get(yGroup)?.delete(yToken);
     };
-  }, [node, keys, labels, seriesGpu, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
+  }, [node, keys, labels, seriesGpu, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateLoad, updateSummary, snapshotTable, paintLegend]);
 
   const swatches = stack
     ? series.map((s) => `tschart__swatch--area ${s.className}${s.hatched ? ' tschart__swatch--hatched' : ''}`)
