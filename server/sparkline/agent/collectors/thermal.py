@@ -143,13 +143,20 @@ class ThermalCollector:
         has_core_temps = any(
             re.fullmatch(r"core\s*\d+", label or "", re.I) for c in chips for label, _ in c.temps.values()
         )
+        no_sensors = "No temperature sensors exposed (hwmon)"
         self._caps: dict[str, Unsupported | None] = {
-            **dict.fromkeys(f"temp.{s.id}" for s in self.sensors),
+            **(
+                dict.fromkeys(f"temp.{s.id}" for s in self.sensors)
+                if self.sensors
+                else {"temp": Unsupported(metric="temp", reason=no_sensors)}
+            ),
             "cpu.temp": None
             if has_core_temps
             else Unsupported(
                 metric="cpu.temp",
-                reason="Per-core CPU temperature is not exposed (only unlabelled ACPI zones)",
+                reason="Per-core CPU temperature is not exposed (only unlabelled ACPI zones)"
+                if self.sensors
+                else no_sensors,
             ),
             "fan": Unsupported(
                 metric="fan",

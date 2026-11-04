@@ -24,7 +24,7 @@ from typing import Literal
 import psutil
 
 from ...common.netutil import default_route_iface
-from ...common.schema import NetIfInfo, NetSample
+from ...common.schema import NetIfInfo, NetSample, Unsupported
 from ..sources import EthReader, RootFs, Sources
 from . import SLOW_EVERY_S, Caps, counter_delta, slow_due
 
@@ -233,7 +233,19 @@ class NetCollector:
 
     def caps(self) -> Caps:
         fields = ("rx_bps", "tx_bps", "errors", "drops", "up")
-        return dict.fromkeys(f"net.{i.name}.{f}" for i in self.ifaces for f in fields)
+        if self.ifaces:
+            return dict.fromkeys(f"net.{i.name}.{f}" for i in self.ifaces for f in fields)
+        if self.info:
+            skipped = ", ".join(i.name for i in self.info)
+            return {
+                "net": Unsupported(
+                    metric="net",
+                    reason=f"Only Wi-Fi or virtual interfaces ({skipped}), which Sparkline skips "
+                    "unless include_virtual = true",
+                    kind="agent",
+                )
+            }
+        return {"net": Unsupported(metric="net", reason="No network interfaces exposed besides loopback")}
 
     def collect(self) -> dict:
         netdev = parse_net_dev(self.fs.read("/proc/net/dev"))

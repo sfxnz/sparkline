@@ -120,7 +120,7 @@ class _Gpu:
     def __init__(self, index: int, handle: Any) -> None:  # an NVML device handle
         self.index = index
         self.h = handle
-        self.disabled: set[str] = set()  # fields that raised NotSupported
+        self.disabled: set[str] = set()
         self.prev_viol: dict[int, int] = {}
         self.viol_t: float | None = None
         self.caps: dict[int, float | None] = {}
@@ -216,9 +216,10 @@ class GpuCollector:
                     info.power_limit_w = v / 1000
             except Exception as e:
                 note = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
-                self._caps[p + key] = _gap(
-                    nv, e, p + key, f"{label} not reported by {info.name}", retried, note
-                )
+                gap = _gap(nv, e, p + key, f"{label} not reported by {info.name}", retried, note)
+                self._caps[p + key] = gap
+                if gap:
+                    g.disabled.add(key)
             else:
                 self._caps[p + key] = None
         return info
@@ -245,16 +246,20 @@ class GpuCollector:
         for g in self.gpus:
             now = time.monotonic()
             util = self._read(g, "util", nv.nvmlDeviceGetUtilizationRates)
-            power = self._read(g, "power", nv.nvmlDeviceGetPowerUsage)
+            power = self._read(g, "power_w", nv.nvmlDeviceGetPowerUsage)
             power_w = power / 1000 if power is not None else None
             self._update_energy(g, now, power_w)
             g.prev_t = now
-            mask = self._read(g, "reasons", nv.nvmlDeviceGetCurrentClocksEventReasons)
+            mask = self._read(g, "throttle_mask", nv.nvmlDeviceGetCurrentClocksEventReasons)
             if g.viol_t is None or now - g.viol_t >= VIOLATION_EVERY_S:
                 elapsed = now - g.viol_t if g.viol_t is not None else 0.0
                 g.viol_t = now
-                for pol in (nv.NVML_PERF_POLICY_POWER, nv.NVML_PERF_POLICY_THERMAL):
-                    v = self._read(g, f"viol{pol}", nv.nvmlDeviceGetViolationStatus, pol)
+                policies = (
+                    (nv.NVML_PERF_POLICY_POWER, "power_capped_pct"),
+                    (nv.NVML_PERF_POLICY_THERMAL, "thermal_capped_pct"),
+                )
+                for pol, key in policies:
+                    v = self._read(g, key, nv.nvmlDeviceGetViolationStatus, pol)
                     if v is None:
                         g.caps[pol] = None
                         continue
@@ -264,10 +269,10 @@ class GpuCollector:
                 GpuSample(
                     index=g.index,
                     util=util.gpu if util is not None else None,
-                    sm_mhz=self._read(g, "sm", nv.nvmlDeviceGetClockInfo, nv.NVML_CLOCK_SM),
+                    sm_mhz=self._read(g, "sm_mhz", nv.nvmlDeviceGetClockInfo, nv.NVML_CLOCK_SM),
                     gr_mhz=self._read(g, "gr", nv.nvmlDeviceGetClockInfo, nv.NVML_CLOCK_GRAPHICS),
                     video_mhz=self._read(g, "video", nv.nvmlDeviceGetClockInfo, nv.NVML_CLOCK_VIDEO),
-                    temp_c=self._read(g, "temp", nv.nvmlDeviceGetTemperature, nv.NVML_TEMPERATURE_GPU),
+                    temp_c=self._read(g, "temp_c", nv.nvmlDeviceGetTemperature, nv.NVML_TEMPERATURE_GPU),
                     power_w=power_w,
                     energy_j=round(g.energy_j, 3) if g.energy_j is not None else None,
                     pstate=self._read(g, "pstate", nv.nvmlDeviceGetPerformanceState),
@@ -276,7 +281,7 @@ class GpuCollector:
                     thermal_capped_pct=g.caps.get(nv.NVML_PERF_POLICY_THERMAL),
                 )
             )
-            procs = self._read(g, "procs", nv.nvmlDeviceGetComputeRunningProcesses)
+            procs = self._read(g, "proc_mem", nv.nvmlDeviceGetComputeRunningProcesses)
             if procs is not None:
                 any_procs = True
                 for pr in procs:
@@ -288,7 +293,7 @@ class GpuCollector:
 
     def _update_energy(self, g: _Gpu, now: float, power_w: float | None) -> None:
         if now - g.energy_t >= ENERGY_EVERY_S:
-            mj = self._read(g, "energy", self.nv.nvmlDeviceGetTotalEnergyConsumption)
+            mj = self._read(g, "energy_j", self.nv.nvmlDeviceGetTotalEnergyConsumption)
             if mj is not None:
                 g.energy_t, g.energy_base, g.energy_integ = now, mj / 1000, 0.0
         elif g.energy_base is not None and power_w is not None and g.prev_t is not None:
