@@ -342,7 +342,7 @@ describe('GPU tab on a node with two vendors', () => {
 
   it('names a lost GPU the agent could not name once, in its title', () => {
     const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
-    const gpus = [gpuInfo(0, 'GPU 0', 'nvidia', 'nvml'), ...hybrid.gpus.slice(1)];
+    const gpus = [gpuInfo(0, 'GPU 0', 'nvidia', 'nvml'), ...hybrid.gpus.filter((g) => g.index !== 0)];
     showHybrid({ ...base, gpu: [reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: {} }, { ...hybrid, gpus, unsupported: [{ metric: 'gpu0', reason: lost, kind: 'hardware' }] });
 
     expect(within(section(0)).getAllByText('GPU 0')).toHaveLength(1);

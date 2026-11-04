@@ -1,7 +1,8 @@
 const GPU = /^gpus?$/;
 const WRAPPERS = new Set(['ChainExpression', 'TSNonNullExpression', 'TSAsExpression', 'TSSatisfiesExpression']);
-const COPIES = new Set(['filter', 'map', 'flatMap', 'slice', 'concat', 'toReversed', 'toSpliced', 'with', 'reverse']);
-const POSITIONAL = new Set(['at', 'pop', 'shift']);
+const COPIES = new Set(['filter', 'map', 'flatMap', 'slice', 'concat', 'toReversed', 'toSpliced', 'with', 'reverse', 'values']);
+// Calls that take or give positions: `slice` only with arguments (a bare slice() is a whole copy).
+const POSITIONAL = new Set(['at', 'pop', 'shift', 'next', 'splice', 'toSpliced', 'with', 'entries', 'keys']);
 const FUNCTIONS = new Set(['ArrowFunctionExpression', 'FunctionExpression']);
 const INDEX_PARAM = new Map([
   ...['find', 'findIndex', 'findLast', 'findLastIndex', 'filter', 'some', 'every', 'map', 'flatMap', 'forEach'].map((m) => [m, 1]),
@@ -12,6 +13,10 @@ const INDEX_PARAM = new Map([
 const staticKey = (key, computed) => (key.type === 'Literal' ? String(key.value) : computed ? '' : key.name);
 
 const method = (call) => (call.callee.type === 'MemberExpression' ? staticKey(call.callee.property, call.callee.computed) : '');
+
+const isCall = (call, object, name) => method(call) === name && call.callee.object.type === 'Identifier' && call.callee.object.name === object;
+
+const hasPositionKey = (pattern) => pattern.properties.some((p) => p.type === 'Property' && (p.computed || (p.key.type === 'Literal' && typeof p.key.value === 'number')));
 
 export default {
   meta: {
@@ -45,7 +50,9 @@ export default {
         case 'ArrayExpression':
           return node.elements.some((e) => e?.type === 'SpreadElement' && derivesFromGpuList(e.argument));
         case 'CallExpression':
-          if (method(node) === 'from' && node.callee.object.type === 'Identifier' && node.callee.object.name === 'Array') return derivesFromGpuList(node.arguments[0]);
+          if (isCall(node, 'Array', 'from') || isCall(node, 'Object', 'values')) return derivesFromGpuList(node.arguments[0]);
+          if (node.callee.type === 'Identifier' && node.callee.name === 'structuredClone') return derivesFromGpuList(node.arguments[0]);
+          if (method(node) === 'concat' && node.arguments.some((a) => derivesFromGpuList(a))) return true;
           return COPIES.has(method(node)) && derivesFromGpuList(node.callee.object);
         default:
           return false;
@@ -59,14 +66,15 @@ export default {
         const name = method(node);
         if (!name || !derivesFromGpuList(node.callee.object)) return;
         const callback = node.arguments[0];
-        if (POSITIONAL.has(name) || (INDEX_PARAM.has(name) && FUNCTIONS.has(callback?.type) && callback.params.length > INDEX_PARAM.get(name))) report(node);
+        if (POSITIONAL.has(name) || (name === 'slice' && node.arguments.length) || (INDEX_PARAM.has(name) && FUNCTIONS.has(callback?.type) && callback.params.length > INDEX_PARAM.get(name))) report(node);
       },
       VariableDeclarator(node) {
         if (node.id.type === 'Identifier' && node.init && derivesFromGpuList(node.init)) copies.add(variableOf(node.id));
-        if (node.id.type === 'ArrayPattern' && derivesFromGpuList(node.init)) report(node);
+        if ((node.id.type === 'ArrayPattern' || (node.id.type === 'ObjectPattern' && hasPositionKey(node.id))) && derivesFromGpuList(node.init)) report(node);
       },
       AssignmentExpression(node) {
-        if (node.left.type === 'ArrayPattern' && derivesFromGpuList(node.right)) report(node);
+        if (node.left.type === 'Identifier' && derivesFromGpuList(node.right)) copies.add(variableOf(node.left));
+        if ((node.left.type === 'ArrayPattern' || (node.left.type === 'ObjectPattern' && hasPositionKey(node.left))) && derivesFromGpuList(node.right)) report(node);
       },
       'ObjectPattern > Property'(node) {
         const value = node.value.type === 'AssignmentPattern' ? node.value.left : node.value;
