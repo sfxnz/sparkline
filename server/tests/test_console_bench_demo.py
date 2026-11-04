@@ -44,9 +44,27 @@ def test_demo_catalog_is_the_agents_catalog():
 def test_a_node_without_rdma_cannot_run_multi_node_benchmarks_and_says_why():
     info = FLEETS["mixed"]["ws1"](T0, 1.0).info
     ws1 = {s.id: s.availability["ws1"] for s in demo_catalog("ws1", info)}
-    assert {k for k, p in ws1.items() if p} == {"nccl-allreduce", "rdma-bw-lat"}
-    assert {p.message for p in ws1.values() if p} == {"ws1 has no RDMA interconnect"}
-    assert all("ConnectX-7" not in p.cause for p in ws1.values() if p)
+    rdma = [ws1["nccl-allreduce"], ws1["rdma-bw-lat"]]
+    assert all(p and p.message == "ws1 has no RDMA interconnect" for p in rdma)
+    assert all(p and "ConnectX-7" not in p.cause for p in rdma)
+
+
+def test_demo_results_modelled_on_gb10_are_offered_only_on_gb10_nodes(tmp_path):
+    gb10_only = {"gpu-matmul", "mem-bandwidth", "cpu-throughput"}
+    reason = "Demo results are modelled on GB10 only"
+    info = FLEETS["mixed"]["ws1"](T0, 1.0).info
+    ws1 = {s.id: s.availability["ws1"] for s in demo_catalog("ws1", info)}
+    assert {k for k, p in ws1.items() if p} == gb10_only | {"nccl-allreduce", "rdma-bw-lat"}
+    assert {ws1[b].message for b in gb10_only} == {reason}
+
+    cfg = ConsoleConfig(web_dist=tmp_path / "nodist")
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True, fleet="mixed")) as c:
+        catalog = {s["id"]: s["availability"] for s in c.get("/api/v1/bench/catalog").json()}
+        for bench in sorted(gb10_only):
+            assert catalog[bench]["ws1"]["message"] == reason
+            assert catalog[bench]["spark1"] is None
+            r = c.post("/api/v1/bench/runs", json={"bench_id": bench, "nodes": ["ws1"], "confirm": True})
+            assert r.status_code == 400 and r.json()["problem"]["message"] == reason
 
 
 def test_seeded_history_stays_on_the_dgx_cluster_in_the_mixed_fleet(tmp_path):
