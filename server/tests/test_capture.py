@@ -23,6 +23,7 @@ from sparkline.agent.capture import OutputNotEmpty, capture, exercise, facts_of
 from sparkline.agent.collectors.memory import MemoryCollector
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors
+from sparkline.agent.readset import matching
 from sparkline.agent.redact import CaptureRefused, Dir, Facts, Leak, Recording, leaks, redact
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.sources import NvmlReplay, RootFs, Sources, recorded
@@ -355,8 +356,9 @@ def test_a_replay_difference_that_holds_a_name_of_this_machine_refuses_and_remov
     with pytest.raises(CaptureRefused) as refused:
         capture(recorded(GB10), out, Facts(hostnames=("zorbsecret",)))
     assert not out.exists(), "the written recording is removed"
-    assert "node_info.os: hostname" in str(refused.value)
+    assert "a reading that the agent reports: hostname" in str(refused.value)
     assert "zorbsecret" not in str(refused.value)
+    assert "node_info.os" not in str(refused.value), "naming the reading would narrow the name to its words"
     assert "sudo hostname" in str(refused.value), "it says what to do"
 
 
@@ -381,7 +383,8 @@ def test_a_name_that_is_a_word_of_a_reviewed_path_refuses_before_writing(tmp_pat
     copy = gb10_copy(tmp_path)
     (copy / "root/proc/sys/kernel/hostname").write_text("cpu\n")
     message = refusal_of(copy, tmp_path / "out")
-    assert "reviewed path /sys/devices/system/cpu/cpufreq/policy[0-9]*/cpuinfo_max_freq: hostname" in message
+    assert "a fixed part of a path that the agent reads: hostname" in message
+    assert "cpufreq" not in message, "naming the path would narrow the name to its words"
     assert "sudo hostname" in message, "it says what to do"
 
 
@@ -500,6 +503,11 @@ def test_a_reviewed_text_file_that_is_not_utf8_is_refused(tmp_path):
     copy = gb10_copy(tmp_path)
     (copy / "root/proc/sys/kernel/osrelease").write_bytes(b"6.17.0-\xff\xfe-nvidia\n")
     assert "root/proc/sys/kernel/osrelease: binary content" in refusal_of(copy, tmp_path / "out")
+
+
+@pytest.mark.parametrize("disk", ["sda", "vda", "xvda", "hda", "mmcblk0"])
+def test_the_read_set_takes_the_size_of_any_disk_the_storage_collector_reads(disk):
+    assert ("/sys/devices/**/block/*/size", "text") in matching(f"/sys/devices/platform/x/block/{disk}/size")
 
 
 def gb10_readings() -> Recording:
@@ -643,10 +651,9 @@ def test_a_capture_that_fails_unexpectedly_prints_no_message_that_could_hold_a_v
     assert USER not in err and LAN_IP not in err
 
 
-def test_no_printed_line_holds_the_home_or_the_user_name(tmp_path, monkeypatch, capsys):
+def as_user(user: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Path]:
     import sparkline.agent.capture as cli
 
-    user = "zorbuser"
     home = tmp_path / "home" / user
     home.mkdir(parents=True)
     copy = gb10_copy(tmp_path)
@@ -657,6 +664,12 @@ def test_no_printed_line_holds_the_home_or_the_user_name(tmp_path, monkeypatch, 
     monkeypatch.setattr(cli.socket, "gethostname", lambda: HOST)
     monkeypatch.setattr(cli, "live", lambda: recorded(copy))
     monkeypatch.setattr(cli.logging, "disable", lambda _level: None)
+    return cli, home
+
+
+def test_no_printed_line_holds_the_home_or_the_user_name(tmp_path, monkeypatch, capsys):
+    user = "zorbuser"
+    cli, home = as_user(user, tmp_path, monkeypatch)
     codes = [cli.main([str(home / "first")]), cli.main(["~/second"]), cli.main([str(home / "first")])]
     assert codes == [0, 0, 3]
     assert (home / "second/recording.tgz").exists(), "a quoted ~ is expanded"
@@ -664,3 +677,23 @@ def test_no_printed_line_holds_the_home_or_the_user_name(tmp_path, monkeypatch, 
     lines = (printed.out + printed.err).splitlines()
     assert any(line.startswith("Recorded this machine into") for line in lines)
     assert [line for line in lines if str(home) in line or user in line] == []
+
+
+def test_a_user_named_like_a_word_of_the_printed_text_leaves_that_text_alone(tmp_path, monkeypatch, capsys):
+    cli, home = as_user("sparkline", tmp_path, monkeypatch)
+    assert cli.main([str(home / "out")]) == 0
+    printed = capsys.readouterr().out
+    assert f"Attach recording.tgz from /home/<user1>/out to a new issue: {cli.ISSUE_URL}" in printed
+
+
+def test_a_refusal_names_an_unreviewed_path_up_to_its_first_unreviewed_part(tmp_path, monkeypatch):
+    copy = gb10_copy(tmp_path)
+    (copy / "root/proc/self/net/if_inet6").write_text(f"{'0' * 31}1 01 80 10 80 lo\n")
+    by_id = copy / "root/dev/disk/by-id"
+    by_id.mkdir(parents=True)
+    (by_id / "nvme-Model_ZORBSERIAL9").symlink_to("../../nvme0n1")
+    also_reading(monkeypatch, lambda fs: (fs.read("/proc/net/if_inet6"), fs.listdir("/dev/disk/by-id")))
+    message = refusal_of(copy, tmp_path / "out")
+    assert "root/proc/self/net/if_inet6: not in the reviewed read set" in message
+    assert "root/dev/...: not in the reviewed read set" in message
+    assert "ZORBSERIAL9" not in message and "by-id" not in message
