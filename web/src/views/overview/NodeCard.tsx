@@ -271,21 +271,28 @@ function Temperature() {
   const gpu = useAcross([id], () => headroomGpu(info, temp, (i) => liveStore.latestValue(id, gpuKey(i, 'temp_c'))), shallowEqual, `${String(temp)}|${info?.node_id ?? ''}`);
   const gap = useTotalGap(id, 'temp_c');
   const room = tempRoom(gpu.temp, gpu.slowdown);
-  let footer: ReactNode = null;
-  if (room) {
-    const why = <span className="visually-hidden"> to the {gpu.slowdown} °C slowdown threshold</span>;
-    // A narrow card has two footer lines: the GPU is named only while its reading is flagged.
-    const who = gpu.name ? <span className="ov-stat__who">{gpu.name}</span> : null;
-    footer =
-      room.level === 'crit' ? (
-        <><span className="ov-flag tone-crit"><OctagonAlert aria-hidden="true" />At slowdown{why}</span>{who}</>
-      ) : room.level === 'warn' ? (
-        <><span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>{who}</>
-      ) : (
-        <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</>
-      );
-  }
-  return <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />;
+  const why = room ? <span className="visually-hidden"> to the {gpu.slowdown} °C slowdown threshold</span> : null;
+  const flag =
+    room?.level === 'crit' ? (
+      <span className="ov-flag tone-crit"><OctagonAlert aria-hidden="true" />At slowdown{why}</span>
+    ) : room?.level === 'warn' ? (
+      <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>
+    ) : null;
+  // The footer has two lines: the second names the flagged GPU.
+  const second = flag ? gpu.name : null;
+  const footer = room ? (
+    <>
+      {flag ?? <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</>}
+      {second ? <span className="ov-stat__who">{second}</span> : null}
+    </>
+  ) : null;
+  return (
+    <>
+      <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />
+      {/* A narrow card's stat column is narrower than the flag, so there it spans both stats (CSS picks one). */}
+      {flag && !gap ? <p className="ov-card__flag">{flag}{gpu.name ? <span className="ov-card__flag-who"> · {gpu.name}</span> : null}</p> : null}
+    </>
+  );
 }
 
 function Power() {

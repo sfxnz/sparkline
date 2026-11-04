@@ -33,6 +33,8 @@
 .ov-flag { display: inline-flex; align-items: center; gap: 4px; color: var(--tone-text); font-weight: 520; white-space: nowrap; }
 .ov-flag svg { width: 13px; height: 13px; flex: none; color: var(--tone); }
 .ov-stat__who { display: block; }
+.ov-card__flag { display: none; grid-column: 1 / -1; grid-row: 2; margin: 0; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
+.ov-card__flag-who { white-space: nowrap; }
 
 /* -------------------------------------------------------------- node cards */
 /* Three cards fit side by side down to a 1280 px laptop (sidebar open); the minimum is in rem so cards also drop to
@@ -62,6 +64,9 @@
   /* A stat column here is narrower than a label word plus its info button, so the button follows the text. */
   .ov-stat .unsupported { display: block; }
   .ov-stat .unsupported__info { display: inline-grid; vertical-align: middle; }
+  /* The temperature column is narrower than its flag: the flag and the GPU it names take a row under both stats. */
+  .ov-card__flag { display: block; }
+  .ov-stat .ov-flag, .ov-stat__who { display: none; }
 }
 .ov-card__panel { flex: 1; position: relative; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
 .ov-card:hover .ov-card__panel { border-color: var(--separator-strong); }
