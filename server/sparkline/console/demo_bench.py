@@ -52,6 +52,7 @@ from .bench import (
     BenchError,
     StateCallback,
     apply_baseline,
+    has_rail_ip,
     new_run_id,
     params_key,
     rail_ip,
@@ -92,7 +93,7 @@ SERVED_MODEL = {
 
 def _env(node: str, info: NodeInfo | None) -> probes.Env:
     env = probes.Env()
-    if rail_ip(info, "A") is None:
+    if not has_rail_ip(info):
         env.rdma = Problem(
             message=f"{node} has no ConnectX-7 peer",
             cause="Its ConnectX-7 ports have no cable or address, so it cannot reach another Spark",

@@ -162,6 +162,10 @@ def rail_ip(info: NodeInfo | None, rail: str) -> str | None:
     return n.ipv4[0] if n and n.ipv4 else None
 
 
+def has_rail_ip(info: NodeInfo | None) -> bool:
+    return info is not None and any(n.ipv4 for n in rails(info).values())
+
+
 def unsupported(r: BenchResult) -> bool:
     """A precision the node cannot run: value 0 with extras.unsupported, not a measurement."""
     return r.extras.get("unsupported") is True
@@ -533,7 +537,7 @@ class BenchManager:
             )
         av = mine.availability
         p = av[node] if node in av else (next(iter(av.values())) if len(av) == 1 else None)
-        if p is None and spec.min_nodes >= 2 and rail_ip(self.cluster.sources[node].state.info, "A") is None:
+        if p is None and spec.min_nodes >= 2 and not has_rail_ip(self.cluster.sources[node].state.info):
             p = Problem(
                 message=f"{node} has no ConnectX-7 peer",
                 cause="None of its ConnectX-7 interfaces has an IPv4 address: it cannot reach another Spark",
@@ -674,9 +678,11 @@ class BenchManager:
             return
         if run.bench_id == "nccl-allreduce":
             r0, r1 = run.nodes
-            ip = rail_ip(self._info(r0), "A")
-            if ip is None:
-                raise self._no_rail(r0, "A")
+            wanted = ["A", "B"] if run.params.get("rails", "both") == "both" else [str(run.params["rails"])]
+            ips = [rail_ip(self._info(r0), r) for r in wanted]
+            if None in ips:
+                raise self._no_rail(r0, wanted[ips.index(None)])
+            ip = ips[0]
             act.requests = {
                 n: BenchStartRequest(
                     **base,
