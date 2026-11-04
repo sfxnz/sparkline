@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BenchCompare, BenchParam, BenchSpec, Sample } from '../../lib/types';
 import { boundRuns, mergeRun } from '../../store/bench';
-import { CATALOG, LLM, MATMUL, RDMA, SOAK, result, run } from './fixtures';
+import { CATALOG, LLM, MATMUL, RDMA, SOAK, WS_MATMUL, result, run, wsGpuOptions } from './fixtures';
 import { LIVE_4, llmRun, nodeState } from './streams/fixtures';
 import {
   aboutDuration,
@@ -17,6 +17,7 @@ import {
   eta,
   filterRuns,
   formatValue,
+  gpuPick,
   groupCatalog,
   headlineCaption,
   headlineDetail,
@@ -30,13 +31,17 @@ import {
   modelledOn,
   modelledResults,
   nodesText,
+  orderedMeta,
   paramText,
   paramsSummary,
   parseCompareIds,
   parseRunSeries,
   resultDelta,
   resultText,
+  runEstimate,
+  runGpuLabel,
   runnableNodes,
+  runSentence,
   signedFormat,
   soakStats,
   splitDescription,
@@ -608,5 +613,73 @@ describe('valueWithUnit matches the live screens', () => {
     expect(resultText(result({ metric: 'tflops_change_pct', value: -12, unit: '%' }))).toBe('−12.0%');
     expect(resultText(result({ metric: 'completion_rate', value: 86.7, unit: '%' }))).toBe('86.7%');
     expect(valueWithUnit(89, '%')).toBe('89.0%');
+  });
+});
+
+describe('GPU choice', () => {
+  const lost = { message: 'GPU 1 on ws1 is not responding', cause: 'NVML: GPU is lost', fix: 'Reset GPU 1 on ws1' };
+  const spec = { ...WS_MATMUL, gpu_options: { ws1: wsGpuOptions({ 1: lost }) } };
+
+  it('picks the first GPU that can run it, keeps a previous pick while it still can, and leaves single-GPU nodes out', () => {
+    expect(gpuPick(spec, ['spark1', 'ws1'])).toEqual({ ws1: 0 });
+    expect(gpuPick(spec, ['ws1'], { ws1: 2 })).toEqual({ ws1: 2 });
+    expect(gpuPick(spec, ['ws1'], { ws1: 1 })).toEqual({ ws1: 0 }); // GPU 1 is lost
+    expect(gpuPick(spec, ['ws1'], { ws1: 9 })).toEqual({ ws1: 0 }); // no longer offered
+    expect(gpuPick({ gpu_options: { ws1: wsGpuOptions({ 0: lost }) } }, ['ws1'])).toEqual({ ws1: 1 });
+    expect(gpuPick(spec, ['spark1'], { ws1: 2 })).toEqual({});
+    expect(gpuPick(MATMUL, ['spark1', 'spark2'])).toEqual({});
+  });
+
+  it('names the GPU of each node that had a choice, from the run metadata', () => {
+    const meta = { nodes: { ws1: { gpu_name: 'NVIDIA RTX 6000 Ada Generation', gpu_index: 2 } } };
+    expect(runGpuLabel(run({ id: 'a', nodes: ['ws1'], gpu_index: { ws1: 2 }, metadata: meta }))).toBe('GPU 2 · NVIDIA RTX 6000 Ada Generation');
+    expect(runGpuLabel(run({ id: 'b', nodes: ['ws1'], gpu_index: { ws1: 2 } }))).toBe('GPU 2'); // before the agent reports
+    expect(runGpuLabel(run({ id: 'c', nodes: ['spark1', 'ws1'], gpu_index: { ws1: 3 }, metadata: meta }))).toBe('ws1 GPU 3 · NVIDIA RTX 6000 Ada Generation');
+    expect(runGpuLabel(run({ id: 'd', metadata: { nodes: { spark1: { gpu_name: 'NVIDIA GB10' } } } }))).toBeNull();
+  });
+
+  it('says which GPU of a node with a choice the run gets, and nothing new elsewhere', () => {
+    expect(runSentence(WS_MATMUL, ['ws1'], { ws1: 2 })).toBe('Runs GPU matmul on ws1 GPU 2.');
+    expect(runSentence(WS_MATMUL, ['spark1', 'ws1'], { ws1: 2 })).toBe('Runs GPU matmul on spark1 and ws1 GPU 2.');
+    expect(runSentence({ name: 'NCCL all-reduce', min_nodes: 2 }, ['ws1', 'ws2'], { ws1: 2, ws2: 0 })).toBe('Runs NCCL all-reduce between ws1 GPU 2 (source) and ws2 GPU 0 (target).');
+    expect(runSentence(MATMUL, ['spark1', 'spark2'])).toBe('Runs GPU matmul on spark1 and spark2.');
+  });
+
+  it('lists the GPU index with the other GPU facts in the metadata', () => {
+    expect(orderedMeta({ gpu_uuid: 'GPU-x', gpu_name: 'NVIDIA RTX 6000 Ada Generation', role: 'single', gpu_index: 2, hostname: 'ws1' }).map(([k]) => k)).toEqual(['hostname', 'gpu_index', 'gpu_name', 'gpu_uuid', 'role']);
+  });
+});
+
+describe('run estimate', () => {
+  const st = (node_id: string, metadata: Record<string, unknown>) => nodeState({ node_id, bench_id: 'gpu-matmul', metadata });
+  it("is the agents' own estimate once reported, else the catalog's for the run's parameters", () => {
+    expect(runEstimate(run({ id: 'a', status: 'running', node_states: { spark1: st('spark1', { est_duration_s: 120 }) } }), MATMUL)).toBe(120);
+    expect(runEstimate(run({ id: 'b', status: 'running', params: { ...defaultParams(MATMUL), iterations: 100 } }), MATMUL)).toBe(180);
+    expect(runEstimate(run({ id: 'c', status: 'running' }), undefined)).toBe(60);
+  });
+  it('is unknown when an agent reports none, never the GB10 catalog figure', () => {
+    const states = { spark1: st('spark1', { est_duration_s: 120 }), ws1: st('ws1', { est_duration_s: null }) };
+    expect(runEstimate(run({ id: 'd', status: 'running', nodes: ['spark1', 'ws1'], node_states: states }), MATMUL)).toBeNull();
+  });
+});
+
+describe('competition on a node with a choice of GPU', () => {
+  const ws = (utils: Record<number, number>, procs: Sample['procs'] = []) =>
+    ({ node_id: 'ws1', gpu: Object.entries(utils).map(([i, util]) => ({ index: Number(i), util })), cpu: { util: 5 }, disk: [], net: [], procs }) as unknown as Sample;
+  const vllm = [{ pid: 1, name: 'VLLM::Worker_TP', cmdline: 'VLLM::Worker_TP0', gpu_mem: 4e10, gpu_util: 86, model: 'nvidia/Llama-3.3-70B-Instruct-FP8', container: 'vllm-llama70b' }] as unknown as Sample['procs'];
+
+  it("reads the chosen GPU and names it: another GPU's workload does not make it busy", () => {
+    const s = ws({ 0: 86, 1: 87, 2: 3, 3: 86 }, vllm);
+    expect(competition(WS_MATMUL, ['ws1'], () => s, undefined, undefined, { ws1: 2 })[0]).toEqual({ node: 'ws1', busy: false, text: 'ws1 GPU 2 is idle (3%).' });
+    expect(competition(WS_MATMUL, ['ws1'], () => s, undefined, undefined, { ws1: 0 })[0]).toEqual({
+      node: 'ws1',
+      busy: true,
+      text: 'ws1 GPU 0 is 86% busy while ws1 is serving nvidia/Llama-3.3-70B-Instruct-FP8; results will be lower and the workload will slow down.',
+    });
+    expect(competition(WS_MATMUL, ['ws1'], () => ws({ 0: 1, 3: 40 }), undefined, undefined, { ws1: 3 })[0]?.text).toBe('ws1 GPU 3 is 40% busy; results will be lower and the workload will slow down.');
+  });
+  it('keeps the GB10 sentence for a node without a choice in the same run', () => {
+    const spark = { ...ws({ 0: 0 }), node_id: 'spark1' };
+    expect(competition(WS_MATMUL, ['spark1', 'ws1'], (n) => (n === 'ws1' ? ws({ 2: 3 }) : spark), undefined, undefined, { ws1: 2 }).map((c) => c.text)).toEqual(['spark1 GPU is idle (0%).', 'ws1 GPU 2 is idle (3%).']);
   });
 });

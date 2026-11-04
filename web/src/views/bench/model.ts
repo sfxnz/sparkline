@@ -4,7 +4,7 @@
 import type { Status } from '../../design/components/StatusPill';
 import { formatBytes, formatDuration, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
 import { decodeThrottle } from '../../lib/throttle';
-import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, NetIfInfo, ProcSample, RunStatus, Sample } from '../../lib/types';
+import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, ProcSample, RunStatus, Sample } from '../../lib/types';
 import { isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
 import { gpuAt } from '../../lib/gpu';
 
@@ -315,6 +315,45 @@ export function paramsSummary(spec: BenchSpec | undefined, params: Record<string
     .join(' · ');
 }
 
+// ------------------------------------------------------------------------------------------------ GPU choice
+
+/** Node -> the GPU a run uses there. Only nodes with a choice (two or more NVIDIA GPUs) have an entry. */
+export type GpuIndex = Readonly<Record<string, number>>;
+
+/** The GPUs a run of this bench can choose from on a node: none on a single-GPU node (every GB10). */
+export const gpuOptions = (spec: Pick<BenchSpec, 'gpu_options'>, node: string): readonly GpuOption[] => spec.gpu_options?.[node] ?? [];
+
+/** The GPU for each of these nodes that has a choice: the previous pick while it can still run the bench, else the
+ * first GPU that can. */
+export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly string[], prev: GpuIndex = {}): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const n of nodes) {
+    const usable = gpuOptions(spec, n).filter((o) => !o.problem);
+    const pick = usable.find((o) => o.index === prev[n]) ?? usable[0];
+    if (pick) out[n] = pick.index;
+  }
+  return out;
+}
+
+/** The GPU a run uses on a node, when the node had a choice. */
+export const runGpu = (run: Pick<BenchRun, 'gpu_index'>, node: string): number | undefined => run.gpu_index?.[node];
+
+/** "GPU 2 · NVIDIA RTX 6000 Ada Generation", or "GPU 2" when the name is not known. */
+export const gpuText = (index: number, name?: unknown): string => (typeof name === 'string' && name ? `GPU ${index} · ${name}` : `GPU ${index}`);
+
+/** The GPUs a run was given, named from each node's run metadata: "GPU 2 · NVIDIA RTX 6000 Ada Generation" for a
+ * one-node run, "ws1 GPU 2 · …, ws2 GPU 0 · …" across nodes. null when no node had a choice. */
+export function runGpuLabel(run: Pick<BenchRun, 'gpu_index' | 'nodes' | 'metadata' | 'node_states'>): string | null {
+  const meta = nodeMeta(run);
+  const parts = run.nodes.flatMap((n) => {
+    const index = runGpu(run, n);
+    if (index === undefined) return [];
+    const text = gpuText(index, meta[n]?.gpu_name);
+    return [run.nodes.length > 1 ? `${n} ${text}` : text];
+  });
+  return parts.length ? parts.join(', ') : null;
+}
+
 // ------------------------------------------------------------------------------------------------ run state
 
 export const isActive = (s: RunStatus) => s === 'queued' || s === 'running';
@@ -340,6 +379,16 @@ export function elapsed(run: Pick<BenchRun, 'created_ts' | 'started_ts' | 'finis
 /** Expected total duration: the estimate, or elapsed + remaining once progress is reported. */
 export function projectedTotal(run: Pick<BenchRun, 'created_ts' | 'started_ts' | 'finished_ts' | 'progress'>, now: number, estimate: number): number {
   return elapsed(run, now) + (eta(run, now, estimate) ?? 0);
+}
+
+/** Seconds a run should take: the agents' own estimate for these exact parameters once they report it, else the
+ * catalog's. null when an agent reports none (est_duration_s: null: its rates are GB10's and the node is not one),
+ * so nothing quotes a GB10 duration for another machine. */
+export function runEstimate(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states' | 'params'>, spec: BenchSpec | undefined): number | null {
+  const metas = Object.values(nodeMeta(run));
+  if (metas.some((m) => m.est_duration_s === null)) return null;
+  const agent = Math.max(0, ...metas.map((m) => (typeof m.est_duration_s === 'number' ? m.est_duration_s : 0)));
+  return agent > 0 ? agent : spec ? estimateDuration(spec, run.params as Partial<ParamValues>) : 60;
 }
 
 export function eta(run: Pick<BenchRun, 'created_ts' | 'started_ts' | 'finished_ts' | 'progress'>, now: number, estimate: number): number | null {
@@ -892,7 +941,9 @@ function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: s
  * What a benchmark will compete with on each node, from the latest live samples. GPU-bound benches look at GPU
  * load and GPU processes; CPU, storage and interconnect benches at CPU, NVMe and CX7 load respectively. For the
  * interconnect, a GPU workload counts as busy on its own (a TP=2 model across the nodes uses the link in bursts), and
- * `linkTraffic` gives each rail's peak over a recent window rather than one instantaneous sample.
+ * `linkTraffic` gives each rail's peak over a recent window rather than one instantaneous sample. On a node with a
+ * choice of GPU (`gpuIndex`) the chosen GPU's load decides: a process cannot be tied to one GPU of several, so a
+ * workload elsewhere on the node is named only when that GPU is busy.
  */
 export function competition(
   spec: Pick<BenchSpec, 'category' | 'impact'>,
@@ -900,12 +951,14 @@ export function competition(
   latest: (node: string) => Sample | null,
   interconnects: (node: string) => readonly NetIfInfo[] = () => [],
   linkTraffic?: (node: string, rails: readonly NetIfInfo[]) => LinkTraffic[],
+  gpuIndex: GpuIndex = {},
 ): Competition[] {
   const consequence = 'results will be lower and the workload will slow down';
   return nodes.map((node) => {
     const s = latest(node);
     if (!s) return { node, text: `${node} has not reported live data, so its current load is unknown.`, busy: false };
-    const gpu = gpuAt(s.gpu, 0);
+    const chosen = gpuIndex[node];
+    const gpu = gpuAt(s.gpu, chosen ?? 0);
     const util = gpu?.util ?? null;
     const work = gpuWorkload(s.procs);
     const pct = (v: number) => `${Math.round(v)}%`;
@@ -935,6 +988,12 @@ export function competition(
         return { node, busy: false, text: `${node} ConnectX-7 link is quiet.` };
       }
       default: {
+        if (chosen !== undefined) {
+          const which = `${node} GPU ${chosen}`;
+          if (util === null || util < GPU_BUSY_PCT) return { node, busy: false, text: `${which} is idle${util !== null ? ` (${pct(util)})` : ''}.` };
+          const why = work ? ` while ${node} is ${work.verb} ${work.what}` : '';
+          return { node, busy: true, text: `${which} is ${pct(util)} busy${why}; ${consequence}.` };
+        }
         const busy = (util ?? 0) >= GPU_BUSY_PCT || work !== null;
         if (!busy) return { node, busy, text: `${node} GPU is idle${util !== null ? ` (${pct(util)})` : ''}.` };
         const at = util !== null ? ` at ${pct(util)} GPU` : '';
@@ -946,10 +1005,12 @@ export function competition(
   });
 }
 
-/** "Runs GPU matmul on spark1 and spark2 (source spark1, target spark2)." */
-export function runSentence(spec: Pick<BenchSpec, 'name' | 'min_nodes'>, nodes: readonly string[]): string {
-  if (spec.min_nodes === 2 && nodes.length === 2) return `Runs ${spec.name} between ${nodes[0] ?? ''} (source) and ${nodes[1] ?? ''} (target).`;
-  return `Runs ${spec.name} on ${listNodes(nodes)}.`;
+/** "Runs GPU matmul on spark1 and spark2.", "… between spark1 (source) and spark2 (target).", with the chosen GPU of
+ * a node that has a choice ("on ws1 GPU 2"). */
+export function runSentence(spec: Pick<BenchSpec, 'name' | 'min_nodes'>, nodes: readonly string[], gpuIndex: GpuIndex = {}): string {
+  const where = nodes.map((n) => (gpuIndex[n] === undefined ? n : `${n} GPU ${gpuIndex[n]}`));
+  if (spec.min_nodes === 2 && where.length === 2) return `Runs ${spec.name} between ${where[0] ?? ''} (source) and ${where[1] ?? ''} (target).`;
+  return `Runs ${spec.name} on ${listNodes(where)}.`;
 }
 
 export const cancelSentence = (nodes: readonly string[]) =>
@@ -1039,7 +1100,7 @@ export function metaLabel(key: string): string {
 }
 
 /** Known metadata first (driver, CUDA, GPU, image, suite), then the rest in their own order. */
-export const META_ORDER = ['hostname', 'driver', 'cuda', 'nvml', 'gpu', 'gpu_name', 'gpu_uuid', 'image', 'suite_git', 'suite_sha', 'git_sha', 'agent_version', 'engine', 'runner'];
+export const META_ORDER = ['hostname', 'driver', 'cuda', 'nvml', 'gpu', 'gpu_index', 'gpu_name', 'gpu_uuid', 'image', 'suite_git', 'suite_sha', 'git_sha', 'agent_version', 'engine', 'runner'];
 
 export function orderedMeta(meta: Record<string, unknown>): [string, unknown][] {
   const rank = (k: string) => {

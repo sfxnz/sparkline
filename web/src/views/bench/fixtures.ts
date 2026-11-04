@@ -1,5 +1,6 @@
 // Test and preview fixtures for the benchmark screens: a catalog and runs shaped exactly like the console's.
-import type { BenchResult, BenchRun, BenchSpec } from '../../lib/types';
+import type { BenchResult, BenchRun, BenchSpec, GpuOption, NodeInfo, Problem } from '../../lib/types';
+import wsInfo from '../../test/fixtures/platforms/workstation/info.json';
 
 const impact = (thermal: 'low' | 'medium' | 'high', power: 'low' | 'medium' | 'high', disruptive: boolean, note = '') => ({ thermal, power, disruptive, note });
 const param = (p: Partial<BenchSpec['params'][number]> & Pick<BenchSpec['params'][number], 'name' | 'label' | 'type' | 'default'>): BenchSpec['params'][number] => ({
@@ -80,6 +81,19 @@ export const LLM: BenchSpec = {
 };
 
 export const CATALOG: BenchSpec[] = [MATMUL, RDMA, SOAK, LLM];
+
+/** ws1 from the platform fixtures: four NVIDIA RTX 6000 Ada Generation, so a GPU bench offers it a choice of GPU. */
+export const WS1 = wsInfo as unknown as NodeInfo;
+export const wsGpuOptions = (lost: Record<number, Problem> = {}): GpuOption[] => WS1.gpus.map((g) => ({ index: g.index, name: g.name, problem: lost[g.index] ?? null }));
+export const WS_MATMUL: BenchSpec = { ...MATMUL, availability: { spark1: null, ws1: null }, gpu_options: { ws1: wsGpuOptions() } };
+export const WS_SOAK: BenchSpec = { ...SOAK, availability: { spark1: null, ws1: null }, gpu_options: { ws1: wsGpuOptions() } };
+
+/** A Mac's availability for a GPU bench, as the agent words it. */
+export const MAC_GPU: Problem = {
+  message: 'GPU benchmarks need an NVIDIA GPU',
+  cause: "mac1 is a Mac (No GPU backend reads darwin yet). Sparkline runs GPU benchmarks as CUDA in NVIDIA's PyTorch container.",
+  fix: 'Apple GPUs are not supported yet.',
+};
 
 export const result = (p: Partial<BenchResult> & Pick<BenchResult, 'metric' | 'value'>): BenchResult => ({
   label: p.metric,
