@@ -57,6 +57,7 @@ from .bench import (
     BenchError,
     StateCallback,
     apply_baseline,
+    has_rail_ip,
     new_run_id,
     params_key,
     rail_ip,
@@ -106,7 +107,7 @@ def _env(node: str, info: NodeInfo | None) -> probes.Env:
             cause="None of its network interfaces has an RDMA device, so it cannot reach a peer over RDMA",
             fix="Run this benchmark on two nodes linked by RDMA, such as spark1 + spark2",
         )
-    elif rail_ip(info, "A") is None:
+    elif not has_rail_ip(info):
         env.rdma = Problem(
             message=f"{node} has no ConnectX-7 peer",
             cause="Its ConnectX-7 ports have no cable or address, so it cannot reach another Spark",
