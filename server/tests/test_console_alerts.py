@@ -6,10 +6,13 @@ from platforms import gb10_without
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors
 from sparkline.agent.sampler import Sampler
-from sparkline.common.schema import AlertRule, Event, Problem
+from sparkline.common.schema import AlertRule, ConsoleSettings, Event, Problem
 from sparkline.console.alerts import DEFAULT_RULES, AlertEngine, validate_rules
+from sparkline.console.cluster import Cluster
 from sparkline.console.demo import DemoModel
 from sparkline.console.demo_fleets import FLEETS
+from sparkline.console.hub import Hub
+from sparkline.console.store import Store
 
 T0 = 1_791_280_000.0
 
@@ -337,3 +340,57 @@ def test_on_a_one_gpu_node_the_default_gpu_rules_read_exactly_as_before(eng, inf
             "No longer throttling · cleared after 1 s · was warning",
         ),
     ]
+
+
+GPU0_METRICS = {
+    "gpu_temp_high": "gpu0.temp_c",
+    "gpu_temp_critical": "gpu0.temp_c",
+    "gpu_throttle": "gpu0.throttle_mask",
+    "gpu_power_cap": "gpu0.throttle_mask",
+}
+
+
+def saved(tmp_path, rules: list[dict]) -> Cluster:
+    store = Store(tmp_path / "console.sqlite")
+    store.kv_set("alert_rules", rules)
+    return Cluster(store, Hub(), ConsoleSettings())
+
+
+def test_saved_copies_of_the_gpu0_defaults_load_watching_every_gpu_and_still_fire(tmp_path):
+    rules = [{**r.model_dump(), "metric": GPU0_METRICS.get(r.id, r.metric)} for r in DEFAULT_RULES]
+    next(r for r in rules if r["id"] == "gpu_temp_high")["threshold"] = 75.0
+    cluster = saved(tmp_path, rules)
+
+    loaded = {r.id: r for r in cluster.alerts.rules}
+    assert {i: loaded[i].metric for i in GPU0_METRICS} == {
+        "gpu_temp_high": "gpu*.temp_c",
+        "gpu_temp_critical": "gpu*.temp_c",
+        "gpu_throttle": "gpu*.throttle_mask",
+        "gpu_power_cap": "gpu*.throttle_mask",
+    }
+    assert [r.model_dump() for r in cluster.alerts.rules] == [
+        {**raw, "metric": loaded[raw["id"]].metric} for raw in rules
+    ], "every other field stays as saved"
+    for i in range(31):
+        cluster.alerts.evaluate_sample("spark2", sample(T0 + i, temp=86.0), MODEL.info)
+        cluster.alerts.evaluate_sample(
+            "ws1", ws1_sample(WS1_QUIET_T + i, temps=(60.0, 60.0, 60.0, 86.0)), WS1.info
+        )
+    assert fired(cluster.store.list_events()) == [
+        ("gpu_temp_critical", "gpu0.temp_c", "GPU temperature critical on spark2"),
+        ("gpu_temp_critical", "gpu3.temp_c", "GPU temperature critical on ws1 · GPU 3"),
+        ("gpu_temp_high", "gpu0.temp_c", "GPU temperature high on spark2"),
+        ("gpu_temp_high", "gpu3.temp_c", "GPU temperature high on ws1 · GPU 3"),
+    ]
+
+
+def test_a_saved_rule_the_user_pointed_at_gpu0_under_its_own_id_still_watches_gpu_0_only(tmp_path):
+    mine = AlertRule(id="gpu0_hot", name="GPU 0 hot", metric="gpu0.temp_c", threshold=85, for_s=0)
+    cluster = saved(tmp_path, [mine.model_dump()])
+    assert cluster.alerts.rules == [mine]
+    cluster.alerts.evaluate_sample("ws1", ws1_sample(WS1_QUIET_T, temps=(60.0, 60.0, 60.0, 90.0)), WS1.info)
+    assert cluster.store.list_events() == []
+    cluster.alerts.evaluate_sample(
+        "ws1", ws1_sample(WS1_QUIET_T + 1, temps=(90.0, 60.0, 60.0, 90.0)), WS1.info
+    )
+    assert fired(cluster.store.list_events()) == [("gpu0_hot", "gpu0.temp_c", "GPU 0 hot on ws1 · GPU 0")]

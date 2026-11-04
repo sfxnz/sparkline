@@ -20,6 +20,19 @@ PING_S = 15.0
 SESSION_CHECK_S = 60.0
 VERSION = pkg_version("sparkline")
 
+GPU0_DEFAULT_UPGRADES: dict[tuple[str, str | None], str] = {
+    ("gpu_temp_high", "gpu0.temp_c"): "gpu*.temp_c",
+    ("gpu_temp_critical", "gpu0.temp_c"): "gpu*.temp_c",
+    ("gpu_throttle", "gpu0.throttle_mask"): "gpu*.throttle_mask",
+    ("gpu_power_cap", "gpu0.throttle_mask"): "gpu*.throttle_mask",
+}
+
+
+def _upgrade_saved_rule(raw: object) -> AlertRule:
+    r = AlertRule.model_validate(raw)
+    metric = GPU0_DEFAULT_UPGRADES.get((r.id, r.metric))
+    return r.model_copy(update={"metric": metric}) if metric else r
+
 
 class Cluster:
     def __init__(self, store: Store, hub: Hub, default_settings: ConsoleSettings, demo: bool = False):
@@ -29,9 +42,7 @@ class Cluster:
         saved = store.kv_get("settings")
         self.settings = ConsoleSettings.model_validate(saved) if saved else default_settings
         saved_rules = store.kv_get("alert_rules")
-        rules = (
-            [AlertRule.model_validate(r) for r in saved_rules] if saved_rules is not None else DEFAULT_RULES
-        )
+        rules = [_upgrade_saved_rule(r) for r in saved_rules] if saved_rules is not None else DEFAULT_RULES
         self.alerts = AlertEngine(rules, self.add_event, self.resolve_event)
         self.sources: dict[str, NodeSource] = {}
         self._tasks: list[asyncio.Task] = []
