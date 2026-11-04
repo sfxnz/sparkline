@@ -9,7 +9,7 @@ from typing import Literal
 import pytest
 from platforms import GB10
 from test_capture import (
-    also_reading,
+    a_collector_also_reads,
     capture_of,
     gb10_copy,
     surfaces,
@@ -93,7 +93,7 @@ def a_collector_reads(path: str, data: bytes, *also: Plant) -> Plant:
         carrier = copy / "root" / path.lstrip("/")
         carrier.parent.mkdir(parents=True, exist_ok=True)
         carrier.write_bytes(data)
-        also_reading(monkeypatch, lambda fs: fs.read(path))
+        a_collector_also_reads(monkeypatch, lambda fs: fs.read(path))
 
     return plant
 
@@ -103,7 +103,7 @@ def a_collector_lists(directory: str, name: str) -> Plant:
         listed = copy / "root" / directory.lstrip("/")
         listed.mkdir(parents=True)
         (listed / name).symlink_to("../../nvme0n1")
-        also_reading(monkeypatch, lambda fs: fs.listdir(directory))
+        a_collector_also_reads(monkeypatch, lambda fs: fs.listdir(directory))
 
     return plant
 

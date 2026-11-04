@@ -158,7 +158,7 @@ def dumps(doc: Any) -> str:
 class Spelling:
     form: Form
     original: str
-    placeholder: str | None  # None: never replaced, and a capture that meets it is refused
+    placeholder: str | None
     category: str
 
 
