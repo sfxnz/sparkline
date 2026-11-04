@@ -268,7 +268,7 @@ def test_a_capture_of_the_gb10_recording_loads_with_no_nvml_misses_and_the_same_
     assert sorted(flatten(sample)) == sorted(flatten(original_sample))
 
 
-CGNAT_IN_HEX = ("64451234", "12344064")
+CGNAT_IN_HEX = (hidden_from_guard("", "6445", "1234"), hidden_from_guard("", "1234", "4064"))
 
 
 def with_counters(copy: Path, first: str, second: str) -> Path:

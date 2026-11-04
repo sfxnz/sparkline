@@ -311,7 +311,24 @@ VETH = Detector(
 VOLUME_ID = Detector(
     "volume id", re.compile(r"(?<![\w-])([0-9A-F]{4})-[0-9A-F]{4}(?![\w-])"), lambda m: m[1] == "0000"
 )
-GATE = [*CAPTURE, HEX32, HEX64, HOME_WITH_DOMAIN, MEDIA, HF_MODEL, DOTTED_MAC, BRIDGE, VETH, VOLUME_ID]
+GATE_FOR_ROUTE_TABLES = [
+    *CAPTURE,
+    HEX32,
+    HEX64,
+    HOME_WITH_DOMAIN,
+    MEDIA,
+    HF_MODEL,
+    DOTTED_MAC,
+    BRIDGE,
+    VETH,
+    VOLUME_ID,
+]
+ROUTE_TABLES = ("/proc/net/route", "/proc/self/net/route")
+_HEX_IPV4 = next(d for d in CAPTURE if d.category == "IPv4 address (hex)")
+DECIMAL_IS_A_COUNTER = Detector(
+    _HEX_IPV4.category, _HEX_IPV4.pattern, lambda m: m[0].isdigit() or _HEX_IPV4.ok(m)
+)
+GATE = [DECIMAL_IS_A_COUNTER if d is _HEX_IPV4 else d for d in GATE_FOR_ROUTE_TABLES]
 
 
 class Placeholders:
@@ -807,8 +824,8 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
     )
 
 
-def _categories(text: str, binary: bool, originals: Spellings) -> set[str]:
-    found = {category for _, category in scan(text, GATE, binary)}
+def _categories(text: str, binary: bool, originals: Spellings, gate: list[Detector] = GATE) -> set[str]:
+    found = {category for _, category in scan(text, gate, binary)}
     if any(not m[0].lower().startswith(_UUID_PLACEHOLDER) for m in _UUID.finditer(text)):
         found.add("UUID")
     return found | originals.categories_in(text)
@@ -891,7 +908,8 @@ def leaks(red: Redacted) -> list[Leak]:
             ]
         elif isinstance(node, File):
             text, binary = text_of(node.data)
-            found = _categories(text, binary, originals)
+            gate = GATE_FOR_ROUTE_TABLES if red.read_at[path] in ROUTE_TABLES else GATE
+            found = _categories(text, binary, originals, gate)
             if binary:
                 found |= originals.categories_in_bytes(node.data)
             out += [Leak(where, c) for c in sorted(found)]
