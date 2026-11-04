@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BenchResult, BenchRun, NodeBenchState } from '../../lib/types';
 import { useBench } from '../../store/bench';
@@ -27,6 +27,7 @@ const GB10 = { modelled_on: 'GB10' };
 const STREAMS_NOTE = 'For ws1, token rates and timings are modelled on GB10, not measured.';
 const TOOL_EVAL_NOTE = 'For ws1, timings and the Responsiveness and Deployability scores are modelled on GB10, not measured.';
 const FOOTNOTE = 'For ws1, figures marked † are modelled on GB10, not measured.';
+const SCENARIO_NOTE = 'For ws1, timings are modelled on GB10, not measured.';
 
 const row = (metric: string, label: string, unit: string, extras: Record<string, unknown>, better: BenchResult['better'] = 'higher') => result({ metric, label, value: 46.2, unit, better, node_id: 'ws1', extras });
 const WS1_RESULTS = [
@@ -42,6 +43,12 @@ function ws1Eval(): BenchRun {
   const st = r.node_states?.ws1 as NodeBenchState;
   return { ...r, node_states: { ws1: { ...st, metadata: GB10 } } };
 }
+
+const openStream = () => { fireEvent.click(within(screen.getByRole('list', { name: /^Streams:|^Final outputs$/ })).getAllByRole('button')[0] as HTMLElement); };
+const openScenario = () => {
+  const [, first] = within(screen.getByRole('table', { name: 'Scenario results' })).getAllByRole('row');
+  fireEvent.click(within(first as HTMLElement).getByRole('button'));
+};
 
 const markedLabels = () =>
   within(screen.getByRole('region', { name: 'Results' }))
@@ -82,6 +89,35 @@ describe('figures modelled on other hardware', () => {
         expect(mark, name).toHaveAccessibleDescription(FOOTNOTE);
       }
     }
+  });
+
+  it('says so inside a ws1 stream dialog, live and finished, though the page note sits behind it', async () => {
+    const live = show(ws1Llm('running'));
+    openStream();
+    expect(within(screen.getByRole('dialog')).getByText(STREAMS_NOTE)).toBeInTheDocument();
+    live.unmount();
+
+    show(ws1Llm('succeeded'));
+    fireEvent.click(screen.getByText(/^Show \d+ streams$/));
+    await waitFor(() => { expect(screen.getByText(/^Hide \d+ streams$/)).toBeInTheDocument(); });
+    openStream();
+    expect(within(screen.getByRole('dialog')).getByText(STREAMS_NOTE)).toBeInTheDocument();
+  });
+
+  it('says which figures are modelled inside a ws1 scenario dialog', () => {
+    show(ws1Eval());
+    openScenario();
+    expect(within(screen.getByRole('dialog')).getByText(SCENARIO_NOTE)).toBeInTheDocument();
+  });
+
+  it('adds nothing to a spark1 stream or scenario dialog', () => {
+    const live = show(llmRun({ live: LIVE_4 }));
+    openStream();
+    expect(screen.getByRole('dialog')).not.toHaveTextContent(/modelled/i);
+    live.unmount();
+    show(FIXTURES.done());
+    openScenario();
+    expect(screen.getByRole('dialog')).not.toHaveTextContent(/modelled/i);
   });
 
   it('notes the tool-calling evaluation on ws1', () => {
