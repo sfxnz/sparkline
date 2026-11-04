@@ -127,4 +127,19 @@ describe('Overview', () => {
       expect(tile()).toHaveTextContent('excl. mem2');
     });
   });
+
+  it('says a Wi-Fi-only node has no direct link, not that ConnectX-7 is not collected yet', () => {
+    const reason = 'Only Wi-Fi or virtual interfaces (wlp2s0), which Sparkline skips unless include_virtual = true';
+    const wifi = { name: 'wlp2s0', role: 'wireless', label: 'Wi-Fi', mac: null, ipv4: [], speed_mbps: null, rdma_device: null, counter_source: 'netdev', peer: null };
+    const info = { node_id: 'wifi1', hostname: 'wifi1', gpus: [], net: [wifi], cores: [], disks: [], sensors: [], mem_total: 0, unsupported: [{ metric: 'net', reason, kind: 'agent' }] } as unknown as NodeInfo;
+    useCluster.getState().setHello(cluster([node('wifi1', { info })]));
+    act(() => {
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: 'wifi1', ts: now, net: [] });
+      liveStore.flush();
+    });
+    const { container } = render(<Overview />);
+    const row = container.querySelector('.ov-cx');
+    expect(row).toHaveTextContent('No direct link');
+    expect(row).not.toHaveTextContent('Not collected yet');
+  });
 });

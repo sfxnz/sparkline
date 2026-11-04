@@ -279,4 +279,20 @@ describe('Summary tab', () => {
     }
     expect(screen.getByText('GPU utilisation', { selector: '.stat__label' }).closest('.stat')).not.toHaveTextContent('Time the GPU was busy');
   });
+
+  it('says a Wi-Fi-only node has no direct link, not that ConnectX-7 is not collected yet', () => {
+    const reason = 'Only Wi-Fi or virtual interfaces (docker0, wlp2s0), which Sparkline skips unless include_virtual = true';
+    const net = [nif('docker0', 'virtual', 'Docker bridge'), nif('wlp2s0', 'wireless', 'Wi-Fi')];
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: { ...info, gpus: [], net, unsupported: [{ metric: 'net', reason, kind: 'agent' }] } } } });
+    push(sample({ net: [] }));
+    render(<Summary nodeId={NODE} />);
+    for (const dir of ['in', 'out']) {
+      const tile = screen.getByText(`ConnectX-7 ${dir}`, { selector: '.stat__label' }).closest('.stat');
+      expect(tile).toHaveTextContent('No direct link');
+      expect(within(tile as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription('No ConnectX-7 rail on this node is cabled to another node.');
+    }
+    const panel = screen.getByRole('region', { name: 'ConnectX-7 throughput' });
+    expect(panel).toHaveTextContent('No ConnectX-7 link is cabled on btest.');
+    expect(panel).not.toHaveTextContent('Not collected yet');
+  });
 });
