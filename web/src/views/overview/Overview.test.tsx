@@ -128,6 +128,57 @@ describe('Overview', () => {
     });
   });
 
+  describe('GPU totals without NVML', () => {
+    const reason = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+    const gaps = [{ metric: 'gpu*', reason, kind: 'dependency' }, { metric: 'mem.gpu', reason, kind: 'dependency' }];
+    const info = (id: string, unsupported: unknown[] = []) =>
+      ({ node_id: id, hostname: id, gpus: [], net: [], cores: [], disks: [], sensors: [], mem_total: (sampleJson as unknown as Sample).mem.total, unsupported }) as unknown as NodeInfo;
+    const full = sampleJson as unknown as Sample;
+    const push = (id: string, nvml: boolean) => {
+      liveStore.removeNode(id);
+      const procs = [
+        { pid: 41, name: 'python3', user: 'u', cmdline: 'python3 serve.py', state: 'S', cpu_pct: 3, rss: 2e9, gpu_mem: nvml ? 8e9 : null, gpu_util: null, container: 'vllm', model: null },
+        { pid: 42, name: 'bash', user: 'u', cmdline: 'bash', state: 'S', cpu_pct: 0, rss: 4e6, gpu_mem: null, gpu_util: null, container: null, model: null },
+      ];
+      liveStore.pushSample({ ...full, node_id: id, ts: now, gpu: nvml ? full.gpu : [], procs });
+    };
+    const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat');
+
+    it('says the GPU totals are not reported, not that every node is reporting, when the only node lacks NVML', () => {
+      useCluster.getState().setHello(cluster([node('amd1', { info: info('amd1', gaps) })]));
+      act(() => {
+        push('amd1', false);
+        liveStore.flush();
+      });
+      render(<Overview />);
+      for (const label of ['Cluster compute', 'GPU power', 'Active GPU processes']) {
+        expect(tile(label)).toHaveTextContent('Helper tool missing');
+        expect(tile(label)).not.toHaveTextContent('reporting');
+        expect(within(tile(label) as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(reason);
+      }
+    });
+
+    it('names the node without NVML that the GPU totals leave out', async () => {
+      vi.mocked(globalThis.fetch).mockImplementation((url) => {
+        const spark1 = typeof url === 'string' && new URL(url, 'http://x').searchParams.get('node') === 'spark1';
+        const series = spark1 ? { 'gpu0.energy_j': [123_000_000, 123_100_000] } : {};
+        return Promise.resolve(Response.json({ node_id: 'n', resolution_s: 60, ts: spark1 ? [now - 120, now - 60] : [], series, min: {}, max: {} }));
+      });
+      useCluster.getState().setHello(cluster([node('spark1', { info: info('spark1') }), node('amd1', { info: info('amd1', gaps) })]));
+      act(() => {
+        push('spark1', true);
+        push('amd1', false);
+        liveStore.flush();
+      });
+      render(<Overview />);
+      expect(tile('Cluster compute')).toHaveTextContent('91%');
+      expect(tile('Cluster compute')).toHaveTextContent('Mean GPU utilisation · excl. amd1');
+      expect(tile('Active GPU processes')).toHaveTextContent(/^Active GPU processes1In 1 container · excl\. amd1$/);
+      expect(tile('GPU power')).toHaveTextContent('32.4');
+      expect(await within(tile('GPU power') as HTMLElement).findByText(/excl\. amd1/)).toBeInTheDocument();
+    });
+  });
+
   it('says a Wi-Fi-only node has no direct link, not that ConnectX-7 is not collected yet', () => {
     const reason = 'Only Wi-Fi or virtual interfaces (wlp2s0), which Sparkline skips unless include_virtual = true';
     const wifi = { name: 'wlp2s0', role: 'wireless', label: 'Wi-Fi', mac: null, ipv4: [], speed_mbps: null, rdma_device: null, counter_source: 'netdev', peer: null };
