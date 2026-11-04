@@ -177,6 +177,54 @@ describe('Overview', () => {
       expect(tile('GPU power')).toHaveTextContent('32.4');
       expect(await within(tile('GPU power') as HTMLElement).findByText(/excl\. amd1/)).toBeInTheDocument();
     });
+
+    const gpuGap = (reason: string, kind: string) => [{ metric: 'gpu*', reason, kind }, { metric: 'mem.gpu', reason, kind }];
+    const showAll = (nodes: [string, unknown[]][]) => {
+      useCluster.getState().setHello(cluster(nodes.map(([id, u]) => node(id, { info: info(id, u) }))));
+      act(() => {
+        for (const [id] of nodes) push(id, false);
+        liveStore.flush();
+      });
+      render(<Overview />);
+    };
+    const why = (label: string) => within(tile(label) as HTMLElement).getByRole('button', { name: 'Why is this not reported?' });
+    const lines: Record<string, string> = { nogpu: 'nogpu: NVML found no NVIDIA GPU', gpuaccess: 'gpuaccess: Needs permission to open /dev/nvidiactl' };
+    const reasons: Record<string, unknown[]> = {
+      nogpu: gpuGap('NVML found no NVIDIA GPU', 'hardware'),
+      gpuaccess: gpuGap('Needs permission to open /dev/nvidiactl', 'access'),
+    };
+
+    it.each([
+      ['nogpu', 'gpuaccess'],
+      ['gpuaccess', 'nogpu'],
+    ])('says what is true of both nodes when %s and %s lack the GPU totals for different reasons', (a, b) => {
+      showAll([a, b].map((id) => [id, reasons[id] ?? []]));
+      for (const label of ['Cluster compute', 'GPU power', 'Active GPU processes']) {
+        expect(tile(label)).toHaveTextContent('Not reported on any node');
+        expect(tile(label)).not.toHaveTextContent(/by this hardware|No access/);
+        expect(why(label)).toHaveAccessibleDescription(`${lines[a] ?? ''}\n${lines[b] ?? ''}`);
+      }
+    });
+
+    it('keeps the one shared gap when every node lacks the GPU totals for the same reason', () => {
+      showAll([
+        ['amd1', gaps],
+        ['amd2', gaps],
+      ]);
+      for (const label of ['Cluster compute', 'GPU power', 'Active GPU processes']) {
+        expect(tile(label)).toHaveTextContent('Helper tool missing');
+        expect(why(label)).toHaveAccessibleDescription(reason);
+      }
+    });
+
+    it('keeps the shared kind and names each node when the nodes share a kind but not a reason', () => {
+      showAll([
+        ['mac1', gpuGap('No NVIDIA GPU on Apple silicon', 'hardware')],
+        ['nogpu', reasons.nogpu ?? []],
+      ]);
+      expect(tile('Cluster compute')).toHaveTextContent('Not reported by this hardware');
+      expect(why('Cluster compute')).toHaveAccessibleDescription(`mac1: No NVIDIA GPU on Apple silicon\n${lines.nogpu ?? ''}`);
+    });
   });
 
   it('says a Wi-Fi-only node has no direct link, not that ConnectX-7 is not collected yet', () => {
