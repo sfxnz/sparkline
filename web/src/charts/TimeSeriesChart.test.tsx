@@ -1,5 +1,5 @@
 import { act, render, screen, within } from '@testing-library/react';
-import type { NodeState } from '../lib/types';
+import type { NodeInfo, NodeState } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { liveStore, LiveStore } from '../store/live';
@@ -162,6 +162,19 @@ describe('live chart, as lines or as stacked layers', () => {
     act(() => { screen.getByRole('button', { name: 'Memory: data table' }).click(); });
     const row = within(screen.getByRole('table')).getAllByRole('row')[1];
     expect(row && within(row).getAllByRole('cell').map((c) => c.textContent)).toEqual(['1 B', '10 B', '100 B']);
+  });
+});
+
+describe('not-reported chart', () => {
+  it('still names its series and thresholds, with the gap and its reason in the plot area', () => {
+    const info = { unsupported: [{ metric: 'gpu*', kind: 'access', reason: 'Permission denied to the agent\'s user (NVML: Insufficient Permissions)' }] } as unknown as NodeInfo;
+    useCluster.setState({ nodes: { noperm: { node_id: 'noperm', url: '', status: 'online', since: 0, last_sample_ts: null, error: null, info, next_retry_ts: null } } });
+    render(<TimeSeriesChart node="noperm" title="noperm GPU temperature" series={[{ key: 'gpu0.temp_c', label: 'noperm' }]} format={(n) => `${n} °C`} range="live" legendValues="hover" thresholds={[{ value: 86, label: 'Slowdown 86 °C', tone: 'warn' }]} />);
+    const legend = screen.getByRole('list', { name: 'noperm GPU temperature series' });
+    expect(within(legend).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['noperm—', 'Slowdown 86 °C']);
+    expect(screen.getByText('No access')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Why is this not reported?' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /data table/ })).not.toBeInTheDocument();
   });
 });
 
