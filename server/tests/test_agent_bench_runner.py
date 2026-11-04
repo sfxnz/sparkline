@@ -823,7 +823,7 @@ async def test_thermal_soak_aligns_payload_tflops_with_samples(tmp_path):
     assert {x.metric for x in job.state.results} >= {"sm_mhz_mean", "temp_max_c"}
 
 
-async def test_thermal_soak_gauges_flow_through_the_real_pipeline(tmp_path):
+async def test_thermal_soak_gauges_flow_through_the_real_pipeline(tmp_path, monkeypatch):
     """Gauge lines from a real subprocess go through Job.run's parser into the soak series and results."""
     t = [time.time()]
 
@@ -833,12 +833,9 @@ async def test_thermal_soak_gauges_flow_through_the_real_pipeline(tmp_path):
 
     r = make_runner(tmp_path, latest=latest)
     r.jobs = {"thermal-soak": jobs.thermal_soak}
-    Job.docker_argv = lambda self, *a, **k: [sys.executable, str(FAKE), "soak"]  # type: ignore[method-assign]
-    try:
-        await r.start(req(bench_id="thermal-soak", params={"minutes": 1}))
-        await r.current.task
-    finally:
-        del Job.docker_argv  # back to the class attribute lookup
+    monkeypatch.setattr(Job, "docker_argv", lambda self, *a, **k: [sys.executable, str(FAKE), "soak"])
+    await r.start(req(bench_id="thermal-soak", params={"minutes": 1}))
+    await r.current.task
     st = r.get("r1")
     assert st.status == "succeeded", st.error
     assert set(st.series["tflops"]) <= {91.0, 92.5} and len(st.series["tflops"]) >= 3
