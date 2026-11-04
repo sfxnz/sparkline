@@ -16,6 +16,9 @@ LOCKFILES = {
     "web/package-lock.json": "generated; versions and hashes read as addresses, so only name checks run",
 }
 LOCKFILE_CATEGORIES = {"home directory", "Tailscale hostname", "Hugging Face cache path"}
+# Compressed bytes read as IPv6 often (17 hits in the 2.8 MB of screenshots); every other detector found none
+# there or in 50 MB of random bytes.
+BINARY_SKIPPED_CATEGORIES = {"IPv6 address"}
 CACHE_DIRS = {".ruff_cache", ".mypy_cache", ".pytest_cache", "__pycache__", "node_modules", ".venv", "dist"}
 
 _TEST = "test address in the LAN and bind checks, which need non-documentation addresses"
@@ -203,21 +206,27 @@ DETECTORS: list[tuple[str, re.Pattern[str], Callable[[re.Match[str]], bool]]] = 
 ]
 
 
-def findings(path: str, text: str) -> list[str]:
-    detectors = [d for d in DETECTORS if path not in LOCKFILES or d[0] in LOCKFILE_CATEGORIES]
+def findings(path: str, text: str, binary: bool = False) -> list[str]:
+    detectors = [
+        d
+        for d in DETECTORS
+        if (path not in LOCKFILES or d[0] in LOCKFILE_CATEGORIES)
+        and not (binary and d[0] in BINARY_SKIPPED_CATEGORIES)
+    ]
     out = []
     for n, line in enumerate(text.splitlines(), 1):
         line = _ESCAPED_WHITESPACE.sub(" ", line)
-        out += [f"{path}:{n}: {cat}" for cat, rx, ok in detectors for m in rx.finditer(line) if not ok(m)]
+        where = path if binary else f"{path}:{n}"
+        out += [f"{where}: {cat}" for cat, rx, ok in detectors for m in rx.finditer(line) if not ok(m)]
     return out
 
 
-def text_of(data: bytes) -> str | None:
+def text_of(data: bytes) -> tuple[str, bool]:
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
-        return None
-    return text.replace("\0", "\n")  # /proc/<pid>/cmdline and environ dumps separate with NUL
+        return "\n".join(r.decode("ascii") for r in re.findall(rb"[\x20-\x7e]{4,}", data)), True
+    return text.replace("\0", "\n"), False  # /proc/<pid>/cmdline and environ dumps separate with NUL
 
 
 def tracked_cache_findings(paths: list[str]) -> list[str]:
@@ -237,20 +246,16 @@ def tracked_paths() -> list[str]:
     return list(filter(None, listed.split("\0")))
 
 
-def tracked_text_files() -> dict[str, str]:
-    files = {}
-    for rel in tracked_paths():
-        p = ROOT / rel
-        if rel in NOT_SCANNED or p.is_symlink() or not p.is_file():
-            continue
-        text = text_of(p.read_bytes())
-        if text is not None:
-            files[rel] = text
-    return files
+def tracked_files() -> dict[str, tuple[str, bool]]:
+    return {
+        rel: text_of((ROOT / rel).read_bytes())
+        for rel in tracked_paths()
+        if rel not in NOT_SCANNED and not (ROOT / rel).is_symlink() and (ROOT / rel).is_file()
+    }
 
 
-def test_scope_is_every_tracked_text_file():
-    files = tracked_text_files()
+def test_scope_is_every_tracked_file():
+    files = tracked_files()
     for rel in (
         "README.md",
         "DISCOVERY.md",
@@ -263,11 +268,13 @@ def test_scope_is_every_tracked_text_file():
         "web/package-lock.json",
     ):
         assert rel in files
-    assert "docs/screenshots/overview-dark.png" not in files
+    assert files["docs/screenshots/overview-dark.png"][1]
 
 
 def test_no_real_identifiers_in_tracked_files():
-    found = [f for rel, text in sorted(tracked_text_files().items()) for f in findings(rel, text)]
+    found = [
+        f for rel, (text, binary) in sorted(tracked_files().items()) for f in findings(rel, text, binary)
+    ]
     assert not found, f"Use placeholders ({PLACEHOLDERS}):\n" + "\n".join(found)
 
 
@@ -320,10 +327,19 @@ def test_each_real_looking_form_is_flagged_by_category_only():
         assert findings("f", line) == [f"f:1: {category}"], line
 
 
-def test_nul_separated_text_is_scanned_by_line_and_binary_is_skipped():
-    cmdline = text_of(b"python3\0-m\0server\0--host\x0010.1.2.3\0")
-    assert cmdline is not None and findings("f", cmdline) == ["f:5: IPv4 address"]
-    assert text_of(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\xff") is None
+def test_nul_separated_text_is_scanned_by_line():
+    cmdline, binary = text_of(b"python3\0-m\0server\0--host\x0010.1.2.3\0")
+    assert not binary and findings("f", cmdline) == ["f:5: IPv4 address"]
+
+
+def test_binary_is_scanned_by_printable_runs_without_ipv6():
+    blob = (
+        b"\x89PNG\r\n\x1a\n\x00\xff/home/someone/projects/x\x00\x9cbox.tail1234ab.ts.net\xfe"
+        b"\x01lan 10.1.2.3\x02/ho\x03ab::cd:ef\x04"
+    )
+    text, binary = text_of(blob)
+    assert binary
+    assert findings("f", text, binary) == ["f: home directory", "f: Tailscale hostname", "f: IPv4 address"]
 
 
 def test_tracked_cache_and_build_output_is_flagged_by_path_only():
