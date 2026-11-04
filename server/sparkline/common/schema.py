@@ -78,7 +78,7 @@ class GpuInfo(BaseModel):
 class NetIfInfo(BaseModel):
     name: str
     role: Literal["interconnect", "lan", "virtual", "wireless", "other"]
-    label: str  # "CX7 rail A", "LAN"
+    label: str  # "Interconnect A", "Interconnect port (no cable)", "LAN", else the interface name
     mac: str | None = None
     ipv4: list[str] = Field(default_factory=list)
     speed_mbps: int | None = None
@@ -87,6 +87,7 @@ class NetIfInfo(BaseModel):
     # "ethtool_phy" is kept for compatibility but is not emitted by the agent (PHY counters are port-wide)
     counter_source: Literal["netdev_rdma", "ethtool_phy", "netdev"] = "netdev"
     peer: str | None = None  # node_id at the far end of an interconnect link, if known
+    nic_model: str | None = None  # "ConnectX-7", from PCI IDs; None if unknown or from an older agent
 
 
 class DiskInfo(BaseModel):

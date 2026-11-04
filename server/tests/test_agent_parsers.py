@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import struct
 from pathlib import Path
 
@@ -29,9 +30,11 @@ from sparkline.agent.collectors.net import (
     classify,
     display_order,
     find_peer,
+    nic_model,
     parse_net_dev,
     parse_rdma_state,
     phy_owners,
+    rail_letters,
 )
 from sparkline.agent.collectors.procs import (
     container_id,
@@ -45,8 +48,8 @@ from sparkline.agent.collectors.storage import disk_rates, parse_diskstats, pars
 from sparkline.agent.collectors.thermal import Chip, ThermalCollector, build_sensors
 from sparkline.agent.ethtool import parse_gstrings
 from sparkline.agent.sources import RootFs
-from sparkline.common.netutil import default_route_iface
-from sparkline.common.schema import NetIfInfo, Unsupported
+from sparkline.common.netutil import default_route_iface, rails
+from sparkline.common.schema import NetIfInfo, NodeInfo, Unsupported
 
 FIX = Path(__file__).parent / "fixtures" / "agent"
 
@@ -238,27 +241,68 @@ def test_net_dev():
     assert d["docker0"]["tx_drop"] == 146
 
 
-def test_roles_and_labels_from_sysfs_fixture():
+def _sysfs_raw() -> list[tuple[str, str, bool, str]]:
     snap = json.loads(fx("net_sysfs.json"))
     default_if = default_route_iface(snap["default_route"])
     assert default_if == "enP7s7"
     rdma = {i["name"] for i in snap["ifaces"] if i["rdma"]}
-    raw = [
+    return [
         (i["name"], classify(i["name"], rdma, default_if), i["operstate"] == "up", i["device"] or i["name"])
         for i in snap["ifaces"]
         if i["name"] != "lo"
     ]
+
+
+def test_roles_and_labels_from_sysfs_fixture():
+    raw = _sysfs_raw()
     roles = {n: r for n, r, _, _ in raw}
     assert roles["enP7s7"] == "lan" and roles["tailscale0"] == "virtual" and roles["docker0"] == "virtual"
     assert roles["wlP9s9"] == "wireless" and roles["enp1s0f0np0"] == "interconnect"
     labels = assign_labels(raw)
-    assert labels["enp1s0f1np1"] == "ConnectX-7 rail A"  # PCI domain 0000 sorts before 0002
-    assert labels["enP2p1s0f1np1"] == "ConnectX-7 rail B"
-    assert labels["enp1s0f0np0"] == labels["enP2p1s0f0np0"] == "ConnectX-7 port (no cable)"
-    assert labels["enP7s7"] == "LAN"
-    ordered = [n for n, r, _, _ in sorted(raw, key=lambda x: display_order(x[1], labels[x[0]], x[0]))]
+    assert labels["enp1s0f1np1"] == "Interconnect A"
+    assert labels["enP2p1s0f1np1"] == "Interconnect B"
+    assert labels["enp1s0f0np0"] == labels["enP2p1s0f0np0"] == "Interconnect port (no cable)"
+    assert labels["enP7s7"] == "LAN" and labels["docker0"] == "docker0"
+    ordered = [n.name for n in _net_as_agent_lists_it(raw)]
     assert ordered[:2] == ["enp1s0f1np1", "enP2p1s0f1np1"]  # rail A then B, though "enP2" sorts first by name
     assert ordered.index("enP7s7") < ordered.index("docker0") < ordered.index("wlP9s9")
+
+
+def _net_as_agent_lists_it(raw: list[tuple[str, str, bool, str]]) -> list[NetIfInfo]:
+    labels, letters = assign_labels(raw), rail_letters(raw)
+    ordered = sorted(raw, key=lambda r: display_order(r[1], letters.get(r[0]), r[0]))
+    return [NetIfInfo(name=n, role=role, label=labels[n]) for n, role, _up, _ in ordered]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(_sysfs_raw(), id="gb10-pci-first-port-uncabled"),
+        pytest.param(
+            [
+                ("ens2f0", "interconnect", False, "/sys/devices/pci0000:00/0000:02:00.0"),
+                ("ens2f1", "interconnect", True, "/sys/devices/pci0000:00/0000:02:00.1"),
+                ("ens1f0", "interconnect", True, "/sys/devices/pci0000:00/0000:03:00.0"),
+                ("eno1", "lan", True, "/sys/devices/pci0000:00/0000:04:00.0"),
+            ],
+            id="name-order-differs-from-pci-order",
+        ),
+    ],
+)
+def test_rail_letters_read_back_from_net_order_match_agent_labels(raw):
+    net = _net_as_agent_lists_it(raw)
+    by_letter = {letter: n.name for letter, n in rails(NodeInfo.model_construct(net=net)).items()}
+    lettered = {m[1]: n.name for n in net if (m := re.fullmatch(r"Interconnect ([A-Z])", n.label))}
+    assert lettered and all(by_letter[letter] == name for letter, name in lettered.items())
+    spare = [n.name for n in net if n.label == "Interconnect port (no cable)"]
+    assert list(by_letter.values())[len(lettered) :] == spare
+
+
+def test_nic_model_from_pci_ids():
+    assert nic_model("0x15b3", "0x1021") == "ConnectX-7"
+    assert nic_model("0x8086", "0x1592") == "Intel E810-C"
+    assert nic_model("0x10ec", "0x8127") is None
+    assert nic_model("0x15b3", "garbage") is None
 
 
 def test_peer_and_rdma_state():

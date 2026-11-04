@@ -189,17 +189,22 @@ def test_run_ids_are_short_and_sortable():
     assert len({new_run_id(1_791_280_000.0 + i / 1000) for i in range(200)}) == 200  # distinct ms
 
 
-def test_rail_ip_by_label_and_position():
+def test_rail_ip_by_position_ignoring_labels():
     assert rail_ip(INFO, "A") == "203.0.113.1" and rail_ip(INFO, "B") == "192.0.2.1"
-    unlabelled = INFO.model_copy(deep=True)
-    for n in unlabelled.net:
-        n.label = n.name
-    assert rail_ip(unlabelled, "B") == "192.0.2.1"
+    relabelled = INFO.model_copy(deep=True)
+    for n, label in zip(relabelled.net, ["Interconnect B", "fast link", "Interconnect A"], strict=False):
+        n.label = label
+    assert rail_ip(relabelled, "A") == "203.0.113.1" and rail_ip(relabelled, "B") == "192.0.2.1"
+    assert rail_ip(INFO, "C") is None
     no_rails = INFO.model_copy(deep=True)
     for n in no_rails.net:
         if n.role == "interconnect":
             n.ipv4 = []
     assert rail_ip(no_rails, "A") is None and rail_ip(None, "A") is None
+
+
+def test_old_agent_node_info_parses_without_nic_model():
+    assert INFO.net[0].label == "CX7 rail A" and all(n.nic_model is None for n in INFO.net)
 
 
 def test_csv_export_one_row_per_result():

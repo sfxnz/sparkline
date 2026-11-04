@@ -58,12 +58,12 @@ NODES = {  # node_id -> (LAN ip, rail A ip, rail B ip, peer, root used fraction,
     "spark3": ("198.51.100.61", None, None, None, 0.61, "vllm"),
 }
 RAILS = [
-    ("enp1s0f1np1", "rocep1s0f1", "ConnectX-7 rail A"),
-    ("enP2p1s0f1np1", "roceP2p1s0f1", "ConnectX-7 rail B"),
+    ("enp1s0f1np1", "rocep1s0f1", "Interconnect A"),
+    ("enP2p1s0f1np1", "roceP2p1s0f1", "Interconnect B"),
 ]
 SPARE_PORTS = [
-    ("enp1s0f0np0", "rocep1s0f0", "ConnectX-7 port (no cable)"),
-    ("enP2p1s0f0np0", "roceP2p1s0f0", "ConnectX-7 port (no cable)"),
+    ("enp1s0f0np0", "rocep1s0f0", "Interconnect port (no cable)"),
+    ("enP2p1s0f0np0", "roceP2p1s0f0", "Interconnect port (no cable)"),
 ]
 LAN = "enP7s7"
 # Listed in NodeInfo as the real agent lists them (labelled by name); not sampled unless include_virtual.
@@ -593,6 +593,7 @@ class DemoModel:
                     rdma_device=rdma,
                     counter_source="netdev_rdma",
                     peer=self.peer,
+                    nic_model="ConnectX-7",
                 )
             )
         for i, (name, rdma, label) in enumerate(SPARE_PORTS, start=2):
@@ -604,6 +605,7 @@ class DemoModel:
                     mac=mac(i),
                     rdma_device=rdma,
                     counter_source="netdev_rdma",
+                    nic_model="ConnectX-7",
                 )
             )
         net.append(
