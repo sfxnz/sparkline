@@ -158,6 +158,7 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   reduced-motion and reduced-transparency support.
 - **Demo mode** (`--demo`): three simulated nodes, including a thermal episode, a stalled stream and a node
   that goes offline and comes back. No hardware or token needed.
+- **Mixed demo** (`--demo-mixed`): the demo cluster plus a simulated 4-GPU x86 NVIDIA workstation, no RDMA.
 
 
 ## Install on the nodes (agent)
