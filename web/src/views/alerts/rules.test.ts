@@ -1,4 +1,5 @@
 import type { AlertRule } from '../../lib/types';
+import expected from '../../test/fixtures/flatten.expected.json';
 import { draftChanged, fromDisplay, fromDraft, GIB, maskReasons, ruleIdInError, toDisplay, toDraft, toggleBit, unitFor, validateDraft } from './rules';
 
 const rule = (patch: Partial<AlertRule> = {}): AlertRule => ({
@@ -13,6 +14,13 @@ describe('units', () => {
     expect(unitFor('mem.psi_full')).toBe('percent');
     expect(unitFor('fs.data.used_pct')).toBe('percent');
     expect(unitFor('cpu.load1')).toBe('plain');
+  });
+  it.each(Object.entries(expected.unit_for))('%s is edited in %s, the unit its alerts show', (key, unit) => {
+    expect(unitFor(key)).toBe(unit);
+  });
+  it('edits network rates in Mb/s and disk rates in MB/s', () => {
+    expect(toDraft(rule({ metric: 'net.*.rx_bps', threshold: 1_250_000 })).thresholdText).toBe('10');
+    expect(toDraft(rule({ metric: 'disk.*.write_bps', threshold: 412e6 })).thresholdText).toBe('412');
   });
   it('edits bytes in GiB and round-trips', () => {
     expect(toDisplay(8 * GIB, 'gib')).toBe('8');
@@ -47,6 +55,11 @@ describe('fromDraft / draftChanged', () => {
   it('converts display text back to wire values', () => {
     const d = toDraft(rule({ metric: 'mem.available', op: '<', threshold: 8 * GIB }));
     expect(fromDraft({ ...d, thresholdText: '12', forText: '45' })).toMatchObject({ threshold: 12 * GIB, for_s: 45 });
+  });
+  it('saves an untouched rule with its stored threshold, not the rounded display value', () => {
+    for (const saved of [rule({ metric: 'mem.available', op: '<', threshold: 5e9 }), rule({ metric: 'net.*.rx_bps', threshold: 1_234_567 })]) {
+      expect(fromDraft(toDraft(saved)).threshold).toBe(saved.threshold);
+    }
   });
   it('treats equal numbers as unchanged and edits as changed', () => {
     const saved = rule();

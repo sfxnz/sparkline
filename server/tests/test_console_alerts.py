@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 import pytest
 
+from sparkline.common.metrics import flatten
 from sparkline.common.schema import AlertRule, Event, Problem
-from sparkline.console.alerts import DEFAULT_RULES, AlertEngine, validate_rules
-from sparkline.console.demo import DemoModel
+from sparkline.console.alerts import DEFAULT_RULES, AlertEngine, fmt_value, validate_rules
+from sparkline.console.demo import NODES, DemoModel
 
 T0 = 1_791_280_000.0
 
@@ -190,3 +195,28 @@ def test_values_carry_units_and_throttle_reasons_read_as_a_phrase():
     assert _sentence(["Thermal limit", "Overheating"]) == "Thermal limit and overheating"
     three = _sentence(["Power cap", "Thermal limit", "Overheating"])
     assert three == "Power cap, thermal limit and overheating"
+
+
+UNIT_FIXTURE = Path(__file__).parents[2] / "web/src/test/fixtures/flatten.expected.json"
+SHOWN_AS = {
+    "celsius": {"°C"},
+    "gib": {"GiB"},
+    "percent": {"%"},
+    "watts": {"W"},
+    "mhz": {"MHz", "GHz"},
+    "mbit_s": {"b/s", "kb/s", "Mb/s", "Gb/s"},
+    "mbyte_s": {"MB/s"},
+    "kwh": {"kWh"},
+    "plain": {""},
+}
+
+
+def test_alert_text_uses_the_rule_editor_unit_for_every_demo_key():
+    editor_unit = json.loads(UNIT_FIXTURE.read_text())["unit_for"]
+    values: dict[str, float] = {}
+    for node in NODES:
+        values.update(flatten(DemoModel(node, T0).sample_at(T0)))
+    assert sorted(values) == sorted(editor_unit), "a demo key is missing from unit_for in the fixture"
+    shown = {k: re.sub(r"^-?[\d.e+-]+\s*", "", fmt_value(k, v)) for k, v in values.items()}
+    wrong = {k: (shown[k], editor_unit[k]) for k in values if shown[k] not in SHOWN_AS[editor_unit[k]]}
+    assert wrong == {}
