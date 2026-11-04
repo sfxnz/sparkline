@@ -57,13 +57,13 @@ def test_uvicorn_server_handshake_lines_are_masked():
     try:
         logger.debug("< %s: %s", "authorization", f"Bearer {TOKEN}")
         logger.debug("< %s: %s", "cookie", f"sparkline_session={SESSION}")
-        logger.debug("< %s: %s", "host", "10.20.20.48:9750")
+        logger.debug("< %s: %s", "host", "198.51.100.48:9750")
     finally:
         logger.removeHandler(sink)
         logger.setLevel(level)
     text = "\n".join(sink.lines)
     assert TOKEN not in text and SESSION not in text
-    assert "< authorization: ***" in text and "< host: 10.20.20.48:9750" in text
+    assert "< authorization: ***" in text and "< host: 198.51.100.48:9750" in text
 
 
 def test_container_hint_only_in_the_image():

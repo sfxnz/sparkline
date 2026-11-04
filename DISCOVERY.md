@@ -8,9 +8,9 @@ Everything below was observed directly. Metrics not listed here are not shown as
 | | spark1 | spark2 |
 |---|---|---|
 | Hostname | `spark1` | `spark2` |
-| LAN (10 GbE, `enP7s7`) | 10.20.20.48 | 10.20.20.195 |
-| CX7 rail A (`enp1s0f1np1`, RDMA `rocep1s0f1`) | 10.100.8.1 | 10.100.8.2 |
-| CX7 rail B (`enP2p1s0f1np1`, RDMA `roceP2p1s0f1`) | 10.100.9.1 | 10.100.9.2 |
+| LAN (10 GbE, `enP7s7`) | 198.51.100.48 | 198.51.100.195 |
+| CX7 rail A (`enp1s0f1np1`, RDMA `rocep1s0f1`) | 203.0.113.1 | 203.0.113.2 |
+| CX7 rail B (`enP2p1s0f1np1`, RDMA `roceP2p1s0f1`) | 192.0.2.1 | 192.0.2.2 |
 | OS | Ubuntu 24.04.4 (DGX OS), kernel 6.17.0-1032-nvidia, aarch64 | same |
 | Driver / CUDA | 580.173.02 / CUDA 13.0 (NVML 13.580.173.02) | same |
 

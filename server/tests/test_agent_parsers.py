@@ -191,11 +191,11 @@ def test_roles_and_labels_from_sysfs_fixture():
 
 
 def test_peer_and_rdma_state():
-    peers = {"spark2": "10.100.8.2"}
-    assert find_peer([("10.100.8.1", "255.255.255.0")], peers) == "spark2"
-    assert find_peer([("10.100.9.1", "255.255.255.0")], peers) is None
-    both = {"spark2": ["10.100.8.2", "10.100.9.2"]}
-    assert find_peer([("10.100.9.1", "255.255.255.0")], both) == "spark2"
+    peers = {"spark2": "203.0.113.2"}
+    assert find_peer([("203.0.113.1", "255.255.255.0")], peers) == "spark2"
+    assert find_peer([("192.0.2.1", "255.255.255.0")], peers) is None
+    both = {"spark2": ["203.0.113.2", "192.0.2.2"]}
+    assert find_peer([("192.0.2.1", "255.255.255.0")], both) == "spark2"
     assert parse_rdma_state("4: ACTIVE\n") == "ACTIVE" and parse_rdma_state("1: DOWN") == "DOWN"
 
 

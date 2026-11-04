@@ -42,7 +42,7 @@ import {
 
 describe('review fixes', () => {
   it('accepts only LAN or loopback LLM endpoints, like the agent', () => {
-    for (const h of ['localhost', '127.0.0.1', '10.20.20.48', '172.16.0.1', '192.168.1.5', '[::1]', '[fd00::5]']) expect(isLanHost(h)).toBe(true);
+    for (const h of ['localhost', '127.0.0.1', '10.0.0.48', '172.16.0.1', '192.168.1.5', '[::1]', '[fd00::5]']) expect(isLanHost(h)).toBe(true);
     for (const h of ['api.openai.com', '8.8.8.8', '169.254.169.254', '100.100.100.100', '100.100.1.2', '[fe80::1]', '172.32.0.1', '[fc::1]']) expect(isLanHost(h)).toBe(false);
     expect(validateParams(LLM, { ...toForm(LLM), base_url: 'https://api.openai.com' }).errors.base_url).toMatch(/LAN or loopback/);
     expect(validateParams(LLM, { ...toForm(LLM), base_url: 'http://169.254.169.254' }).errors.base_url).toMatch(/LAN or loopback/);
@@ -149,7 +149,7 @@ describe('params form', () => {
   it('only accepts http(s) endpoints and safe model names', () => {
     expect(validateParams(LLM, { ...toForm(LLM), base_url: 'file:///etc/passwd' }).errors.base_url).toMatch(/http/);
     expect(validateParams(LLM, { ...toForm(LLM), base_url: 'not a url' }).errors.base_url).toMatch(/http/);
-    expect(validateParams(LLM, { ...toForm(LLM), base_url: 'http://10.20.20.48:8000/v1' }).errors).toEqual({});
+    expect(validateParams(LLM, { ...toForm(LLM), base_url: 'http://10.0.0.48:8000/v1' }).errors).toEqual({});
     expect(validateParams(LLM, { ...toForm(LLM), model: 'x; rm -rf /' }).errors.model).toBeDefined();
     expect(validateParams(LLM, { ...toForm(LLM), model: 'deepseek-ai/DeepSeek-V4.1:flash' }).errors).toEqual({});
     expect(validateParams(LLM, { ...toForm(LLM), model: '' }).errors).toEqual({}); // the agent picks the first served model

@@ -113,9 +113,9 @@ def test_unknown_key_message():
 
 def test_valid_params_coerced():
     p = REGISTRY["llm-inference"].validate(
-        {"base_url": "http://10.20.20.48:8000/v1/", "model": "Qwen/Qwen3-8B:fp8", "concurrency": 4}
+        {"base_url": "http://10.0.0.48:8000/v1/", "model": "Qwen/Qwen3-8B:fp8", "concurrency": 4}
     )
-    assert p.base_url == "http://10.20.20.48:8000" and p.model == "Qwen/Qwen3-8B:fp8"
+    assert p.base_url == "http://10.0.0.48:8000" and p.model == "Qwen/Qwen3-8B:fp8"
 
 
 @pytest.mark.parametrize(
@@ -124,7 +124,7 @@ def test_valid_params_coerced():
         ("http://127.0.0.1:8000", "http://127.0.0.1:8000"),
         ("http://localhost:8000/v1", "http://localhost:8000"),
         ("https://192.168.1.5", "https://192.168.1.5"),
-        ("http://10.20.20.195:30000/", "http://10.20.20.195:30000"),
+        ("http://10.0.0.195:30000/", "http://10.0.0.195:30000"),
         ("http://[::1]:8000", "http://[::1]:8000"),
         ("http://[fd00::5]:8000", "http://[fd00::5]:8000"),  # ULA
         ("http://169.254.169.254", None),  # link-local (cloud metadata)
@@ -142,7 +142,7 @@ def test_valid_params_coerced():
         ("10.0.0.1:8000", None),
         ("http://127.0.0.1:9750", None),  # the agent itself
         ("http://127.0.0.1:22/x", None),  # SSH
-        ("http://10.20.20.48:9700/api", None),  # the console
+        ("http://10.0.0.48:9700/api", None),  # the console
         ("http://127.0.0.1:2375", None),  # Docker API
     ],
 )
@@ -200,8 +200,8 @@ def test_llm_showcase_params_and_estimate():
     assert (ps["fill_to_max"].default, ps["thinking"].default) == (True, False)
     assert b.estimate(b.validate({})) == pytest.approx(5 + 512 / 20)
     assert b.estimate(b.validate({"streams": 9, "max_tokens": 2048})) == pytest.approx(5 + 2048 / 20 * 3)
-    p = b.validate({"base_url": "http://10.20.20.48:8000/v1", "temperature": 0})
-    assert p.base_url == "http://10.20.20.48:8000" and p.temperature == 0
+    p = b.validate({"base_url": "http://10.0.0.48:8000/v1", "temperature": 0})
+    assert p.base_url == "http://10.0.0.48:8000" and p.temperature == 0
 
 
 def P(msg: str) -> Problem:

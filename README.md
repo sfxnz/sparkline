@@ -200,7 +200,7 @@ turns benchmarks back off.
 |---|---|
 | `--enable-benchmarks` | Allow benchmarks: Docker access for the agent and lifted CPU/memory caps. Asks for confirmation. |
 | `--nodes LIST` | Console: the agents to poll, as `id=url` pairs, e.g. `spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750`. |
-| `--peers LIST` | Agent: the far ends of the ConnectX-7 rails as `id=ip` pairs, e.g. `spark2=10.100.8.2,spark2=10.100.9.2`. Written to `peers` in a new config. |
+| `--peers LIST` | Agent: the far ends of the ConnectX-7 rails as `id=ip` pairs, e.g. `spark2=10.0.8.2,spark2=10.0.9.2`. Written to `peers` in a new config. |
 | `--agent-token TOKEN` | Use this token instead of generating one (or set `SPARKLINE_AGENT_TOKEN`). |
 | `--bind ADDR`, `--port N` | Written into a new config. Defaults are `auto` and 9750 (agent) or 9700 (console). |
 | `--prefix DIR` | Code and venv location (default `/opt/sparkline`). |
@@ -281,7 +281,7 @@ Restart the service after editing: `sudo systemctl restart sparkline-agent` (or 
 | `retention_10s_days` | `7` | Days of 10-second rollups. |
 | `retention_60s_days` | `30` | Days of 1-minute rollups. |
 | `procs_interval_s` | `5` | Process table refresh. It is the most expensive collector. |
-| `peers` | `{}` | Far ends of the ConnectX-7 rails, so the link can be named. Example: `{ spark2 = ["10.100.8.2", "10.100.9.2"] }` |
+| `peers` | `{}` | Far ends of the ConnectX-7 rails, so the link can be named. Example: `{ spark2 = ["10.0.8.2", "10.0.9.2"] }` |
 | `include_virtual` | `false` | Also show virtual and Wi-Fi interfaces (docker0, tailscale0, ...). |
 | `allow_public` | `false` | Allow binding a public address or 0.0.0.0. Avoid. |
 | `bench_image` | `nvcr.io/nvidia/pytorch:26.07-py3` | Container image for GPU benchmarks. It must already be pulled. |
