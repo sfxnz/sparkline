@@ -1,5 +1,5 @@
 import { CircleCheck, Clock, Unplug } from 'lucide-react';
-import { useCallback, useId, useMemo, type ReactNode } from 'react';
+import { useId, useMemo, type ReactNode } from 'react';
 import { TimeSeriesChart, type SeriesSpec, type Threshold } from '../../charts/TimeSeriesChart';
 import { gpuColor } from '../../charts/theme';
 import { EmptyState } from '../../design/components/EmptyState';
@@ -13,7 +13,7 @@ import { NoData, Unsupported } from '../../design/components/Unsupported';
 import { energyParts, formatAgo, formatFreq, formatPercent, formatTemp, formatWatts, percentParts, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { gpuKey, type GpuField, type GpuReading } from '../../lib/metrics';
 import { decodeThrottle } from '../../lib/throttle';
-import type { GpuInfo, NodeInfo, Sample } from '../../lib/types';
+import type { GpuInfo, NodeInfo } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { liveStore, useLatest } from '../../store/live';
 import { formatEnergyAuto, formatEnergyCost, historyEnergy } from '../shared/energy';
@@ -29,7 +29,8 @@ import { clockLevel, CollectorErrors, SEVERITY_META, throttleBadge, throttleHead
 import { ProcTable } from './parts/ProcTable';
 import { gpuPresent, gpuSelector } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
-import { gpuAt, notResponding } from '../../lib/gpu';
+import { gpuAt } from '../../lib/gpu';
+import { useGpuGap } from './parts/useGpuGap';
 
 const pct = (n: number) => formatPercent(n);
 const pct1 = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
@@ -40,14 +41,6 @@ const formatGhz = (mhz: number) => `${(mhz / 1000).toFixed(2)}\u00a0GHz`;
 
 const series = (index: number, field: GpuReading, label: string): SeriesSpec => ({ key: gpuKey(index, field), label });
 const rangeKeys = (index: number) => (['power_w', 'energy_j', 'power_capped_pct', 'thermal_capped_pct'] as const).map((f) => gpuKey(index, f));
-
-const sameGap = (a: NotReported | null, b: NotReported | null) => a?.label === b?.label && a?.detail === b?.detail;
-
-/** Why a key of GPU `index` has no value: the node declares it not reported, or the GPU sent nothing this tick. */
-function useGpuGap(nodeId: string, info: NodeInfo | null | undefined, index: number) {
-  const silent = useLatest(nodeId, useCallback((s: Sample | null) => notResponding(info, s, index), [info, index]), sameGap);
-  return (key: string) => notReported(info, key) ?? silent;
-}
 
 /** "2.17 / 3.00 GHz": the current SM clock over the GPU's maximum. */
 function smOverMax(maxMhz: number | null | undefined): Formatter {
@@ -112,7 +105,7 @@ function gpuStats(c: GpuCtx, smFormat: Formatter): GpuStatSpec[] {
 function GpuStats({ c }: { c: GpuCtx }) {
   const smMax = c.gpu?.sm_mhz_max ?? null;
   const smFormat = useMemo(() => smOverMax(smMax), [smMax]);
-  const gap = useGpuGap(c.nodeId, c.info, c.index);
+  const gap = useGpuGap(c.nodeId, c.index);
   return (
     <>
       {gpuStats(c, smFormat).map((spec) => {
@@ -163,7 +156,7 @@ function SingleGpu({ c }: { c: GpuCtx }) {
   const slowdown = gpu?.temp_slowdown_c ?? null;
   const shutdown = gpu?.temp_shutdown_c ?? null;
   const thresholds = useMemo(() => tempThresholds(slowdown, shutdown), [slowdown, shutdown]);
-  const gap = useGpuGap(nodeId, c.info, index);
+  const gap = useGpuGap(nodeId, index);
 
   return (
     <div className="view">
@@ -295,7 +288,7 @@ function GpuSection({ c }: { c: GpuCtx }) {
   const { nodeId, index, gpu } = c;
   const present = useLatest(nodeId, gpuPresent(index));
   const { waiting } = useFreshness(nodeId);
-  const gap = useGpuGap(nodeId, c.info, index);
+  const gap = useGpuGap(nodeId, index);
   const silent = gap(`gpu${index}`);
   const name = `GPU ${index}`;
   return (
