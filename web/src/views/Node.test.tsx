@@ -97,12 +97,13 @@ describe('Node page', () => {
     expect(screen.getByRole('link', { name: 'Go to Overview' })).toBeInTheDocument();
   });
 
-  it('says why a tab is not reported when its collector could not start, and leaves the other tabs alone', async () => {
+  it('says why a tab is not reported when its collector could not start, and leaves the other tabs and Thermals alone', async () => {
     const info = {
       hostname: 'spark2', agent_version: '0', boot_time: 0, gpus: [], net: [], cores: [], disks: [], sensors: [],
       unsupported: [
         { metric: 'mem', reason: 'The memory collector could not start: /proc/meminfo: No such file or directory', kind: 'hardware' },
         { metric: 'disk', reason: 'Needs read access to /proc/diskstats', kind: 'access' },
+        { metric: 'temp', reason: 'The thermal collector could not start: /sys/class/hwmon: No such file or directory', kind: 'hardware' },
       ],
     } as unknown as NodeInfo;
     useCluster.getState().setHello(hello([{ ...base, info }]));
@@ -117,6 +118,9 @@ describe('Node page', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'CPU' }));
     expect(await screen.findByText('CPU of spark2')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: /^Thermals/ }));
+    expect(await screen.findByText('Thermals of spark2')).toBeInTheDocument();
   });
 
   it('selects the tab from the URL, defaults to Summary, and moves with the arrow keys', async () => {

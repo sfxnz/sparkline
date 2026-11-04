@@ -28,7 +28,7 @@ import './views.css';
 
 // The metric prefix each tab's data comes from. When the agent declares one unsupported (its collector could not
 // start), the tab says why instead of drawing the agent's placeholder zeros.
-const TAB_METRIC: Partial<Record<NodeTab, string>> = { memory: 'mem', cpu: 'cpu', network: 'net', storage: 'disk', thermals: 'temp', processes: 'procs' };
+const TAB_METRIC: Partial<Record<NodeTab, string>> = { memory: 'mem', cpu: 'cpu', network: 'net', storage: 'disk', processes: 'procs' };
 
 export default function Node() {
   const params = useParams<{ id: string; tab?: string }>();

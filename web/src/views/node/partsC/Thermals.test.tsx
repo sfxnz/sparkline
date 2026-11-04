@@ -75,4 +75,24 @@ describe('Thermals tab', () => {
     expect(screen.getByRole('region', { name: 'GPU' })).toHaveClass('is-stale');
     expect(within(screen.getByRole('region', { name: 'GPU' })).getByRole('rowheader', { name: 'NVIDIA GB10' }).closest('tr')).toHaveTextContent('74');
   });
+
+  it('keeps the GPU temperature, power and energy from NVML when the board sensors could not be read', () => {
+    const reason = 'The thermal collector could not start: /sys/class/hwmon: No such file or directory';
+    const failed = { ...info, sensors: [], unsupported: ['temp', 'cpu.temp', 'fan', 'system.power_w'].map((metric) => ({ metric, reason, kind: 'hardware' })) } as unknown as NodeInfo;
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { ...state('online'), info: failed } } });
+    act(() => {
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: NODE, ts: 1_800_000_000, temps: [] });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={NODE} />);
+
+    expect(within(screen.getByRole('region', { name: 'GPU' })).getByRole('rowheader', { name: 'NVIDIA GB10' }).closest('tr')).toHaveTextContent(/15\s°C to slowdown/);
+    expect(screen.getByText('GPU temperature').closest('.stat')).toHaveTextContent('71');
+    expect(screen.getByText('GPU power', { selector: '.stat__label' }).closest('.stat')).toHaveTextContent('32.4');
+    for (const name of ['GPU power', 'GPU energy']) expect(screen.getByRole('region', { name })).toBeInTheDocument();
+
+    expect(screen.getByRole('region', { name: 'Board sensors' })).toHaveTextContent(reason);
+    expect(screen.getByText('Hottest sensor').closest('.stat')).toHaveTextContent('Not reported by this hardware');
+    expect(screen.queryByRole('region', { name: 'SoC · ACPI zones' })).not.toBeInTheDocument();
+  });
 });
