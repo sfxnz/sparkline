@@ -110,8 +110,7 @@ function ActiveRuns({ runs, specs }: { runs: BenchRun[]; specs: readonly BenchSp
     <ul className="bench-active" aria-label="Runs in progress">
       {runs.map((r) => {
         const spec = specs.find((s) => s.id === r.bench_id);
-        const estimate = runEstimate(r, spec);
-        const left = estimate === null ? null : eta(r, serverNow(), estimate);
+        const left = runEstimate(r, spec) === null ? null : eta(r, serverNow(), spec?.est_duration_s ?? 60);
         return (
           <li key={r.id}>
             <Link href={runPath(r.id)} className="bench-active__item material-regular">
