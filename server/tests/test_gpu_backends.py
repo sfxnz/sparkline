@@ -293,3 +293,60 @@ def test_a_backend_that_opens_with_no_gpu_counts_as_absent_and_the_chain_moves_o
     monkeypatch.setitem(CHAINS, "linux", (Chain("amd", (OpensNothing,)),))
     gap = GpuCollector(gb10()).caps()["gpu*"]
     assert (gap.reason, gap.kind) == ("empty: Opened, but found no GPU", "hardware")
+
+
+def nvml_handles(count: int, **failing: str) -> Sources:
+    """The GB10 recording as `count` GPUs sharing its one handle; `i<n>="text"` makes handle n fail."""
+    calls = json.loads((GB10 / "nvml.json").read_text())
+    handles = {f"[{i}]": calls["nvmlDeviceGetHandleByIndex"]["[0]"] for i in range(count)}
+    handles |= {f"[{i[1:]}]": {"__error__": 15, "str": text} for i, text in failing.items()}
+    return gb10(
+        nvml=NvmlReplay({**calls, "nvmlDeviceGetCount": {"[]": count}, "nvmlDeviceGetHandleByIndex": handles})
+    )
+
+
+def test_nvml_that_sees_a_gpu_but_opens_none_keeps_the_versions_and_says_it_could_not_open_it(monkeypatch):
+    info, sample, _ = warm(monkeypatch, nvml_handles(1, i0="GPU is lost"))
+
+    assert (info.driver, info.cuda) == ("580.178.04", "13.0")
+    assert info.versions == {
+        "nvidia.Driver": "580.178.04",
+        "nvidia.CUDA": "13.0",
+        "nvidia.NVML": "13.580.178.04",
+    }
+    gaps = {u.metric: u for u in info.unsupported}
+    assert gaps["gpu.backend.nvml"].kind == "hardware"
+    assert (
+        "could not open" in gaps["gpu.backend.nvml"].reason
+        and "GPU is lost" in gaps["gpu.backend.nvml"].reason
+    )
+    assert gaps["gpu.backend"].reason == gaps["gpu*"].reason, "a GPU is here, so no backend in use is a gap"
+    assert_every_metric_is_reported_or_declared(info, sample)
+
+
+def test_a_lost_nvidia_gpu_stays_named_once_another_vendor_opens(monkeypatch):
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (Nvml,)), Chain("amd", (AmdFake,))))
+    info, sample, _ = warm(monkeypatch, nvml_handles(1, i0="GPU is lost"))
+
+    assert [g.vendor for g in info.gpus] == ["amd", "amd"]
+    nvml = next(u for u in info.unsupported if u.metric == "gpu.backend.nvml")
+    assert nvml.kind == "hardware" and "GPU is lost" in nvml.reason
+    assert info.versions["nvidia.Driver"] == "580.178.04"
+    assert_every_metric_is_reported_or_declared(info, sample)
+
+
+def test_a_gpu_whose_handle_fails_keeps_its_nvml_index_and_says_so_instead_of_renumbering(monkeypatch):
+    info, sample, _ = warm(monkeypatch, nvml_handles(3, i1="GPU is lost"))
+
+    assert [(g.index, g.name) for g in info.gpus] == [(0, "NVIDIA GB10"), (1, "GPU 1"), (2, "NVIDIA GB10")]
+    gaps = {u.metric: u for u in info.unsupported}
+    lost = [u for k, u in gaps.items() if k.startswith("gpu1.")]
+    assert len(lost) == len(get_args(GpuField))
+    assert {(u.reason, u.kind) for u in lost} == {
+        ("NVML could not open GPU 1 (NVML: GPU is lost)", "hardware")
+    }
+    assert not any(k.startswith(("gpu0.", "gpu2.")) and "could not open" in u.reason for k, u in gaps.items())
+    flat = flatten(sample)
+    assert "gpu0.util" in flat and "gpu2.util" in flat and not any(k.startswith("gpu1.") for k in flat)
+    assert [s.index for s in sample.gpu] == [0, 1, 2]
+    assert_every_metric_is_reported_or_declared(info, sample)
