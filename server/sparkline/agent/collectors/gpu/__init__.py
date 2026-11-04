@@ -36,7 +36,7 @@ def _failure(backend: str, e: Exception) -> _Failure:
     return _Failure(backend, f"{type(e).__name__}: {e}", kind, False)
 
 
-def _gap(metric: str, failures: list[_Failure]) -> Unsupported:
+def _joined(metric: str, failures: list[_Failure]) -> Unsupported:
     return Unsupported(
         metric=metric,
         reason="; ".join(f"{f.backend}: {f.reason}" for f in failures),
@@ -80,17 +80,18 @@ class GpuCollector:
             self._caps["mem.gpu"] = (
                 first.model_copy(update={"metric": "mem.gpu"}) if first and all(procs) else None
             )
-            fallbacks = [f for f in failures if not f.vendor_absent]
-            self._caps["gpu.backend"] = _gap("gpu.backend", fallbacks) if fallbacks else None
-            return
-        for metric in ("gpu*", "mem.gpu", "gpu.backend"):
-            self._caps[metric] = (
-                _gap(metric, failures)
-                if failures
-                else Unsupported(
-                    metric=metric, reason=f"No GPU backend reads {src.platform} yet", kind="agent"
-                )
-            )
+            self._caps["gpu.backend"] = None
+            failures = [f for f in failures if not f.vendor_absent]
+        else:
+            none = Unsupported(metric="gpu*", reason=f"No GPU backend reads {src.platform} yet", kind="agent")
+            gap = _joined("gpu*", failures) if failures else none
+            self._caps["gpu*"] = gap
+            self._caps["mem.gpu"] = gap.model_copy(update={"metric": "mem.gpu"})
+            absent = failures and all(f.vendor_absent for f in failures)
+            self._caps["gpu.backend"] = None if absent else gap.model_copy(update={"metric": "gpu.backend"})
+        for f in failures:
+            metric = f"gpu.backend.{f.backend}"
+            self._caps[metric] = Unsupported(metric=metric, reason=f.reason, kind=f.kind)
 
     def _adopt(
         self,

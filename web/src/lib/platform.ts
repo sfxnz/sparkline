@@ -1,4 +1,4 @@
-import { notReported, type NotReported } from './capabilities';
+import { describeGap, notReported, type NotReported } from './capabilities';
 import { GPU_VENDORS, type GpuVendor, type NodeInfo } from './types';
 
 const PLATFORM_LABEL = new Map([['linux', 'Linux'], ['darwin', 'macOS']]);
@@ -10,9 +10,10 @@ export interface BackendInUse {
   gpus: string[];
 }
 
+/** A backend the agent tried and did not use. `backend` is null for a node-wide reason that names no backend. */
 export interface SkippedBackend {
   backend: string | null;
-  reason: string;
+  gap: NotReported;
 }
 
 export interface VersionGroup {
@@ -23,7 +24,8 @@ export interface VersionGroup {
 export interface PlatformSheet {
   platform: string;
   backends: BackendInUse[];
-  backendGap: NotReported | null;
+  /** With no backend in use: what the node lacks. Null while a backend is in use. */
+  missing: 'No GPU backend opened' | 'No GPU found' | 'No GPUs reported' | null;
   skipped: SkippedBackend[];
   versions: VersionGroup[];
 }
@@ -35,12 +37,12 @@ const vendorRank = (v: string) => {
   return i < 0 ? GPU_VENDORS.length : i;
 };
 
-function parseSkipped(reason: string): SkippedBackend[] {
-  return reason.split('; ').map((item) => {
-    const at = item.indexOf(': ');
-    const backend = item.slice(0, at);
-    return at > 0 && /^[\w-]+$/.test(backend) ? { backend, reason: item.slice(at + 2) } : { backend: null, reason: item };
-  });
+const BACKEND_ENTRY = 'gpu.backend.';
+
+export function skippedBackends(info: NodeInfo): SkippedBackend[] {
+  return info.unsupported
+    .filter((u) => u.metric.startsWith(BACKEND_ENTRY))
+    .map((u) => ({ backend: u.metric.slice(BACKEND_ENTRY.length), gap: describeGap(u) }));
 }
 
 export function platformSheet(info: NodeInfo): PlatformSheet {
@@ -63,12 +65,10 @@ export function platformSheet(info: NodeInfo): PlatformSheet {
   }
   const versions = [...groups.entries()].sort(([a], [b]) => vendorRank(a) - vendorRank(b)).map(([, g]) => g);
 
-  const backendGap = notReported(info, 'gpu.backend');
-  return {
-    platform: platformLabel(info.platform ?? 'linux'),
-    backends,
-    backendGap,
-    skipped: backendGap ? parseSkipped(backendGap.detail) : [],
-    versions,
-  };
+  const noBackend = notReported(info, 'gpu.backend');
+  const tried = skippedBackends(info);
+  const skipped = tried.length || !noBackend ? tried : [{ backend: null, gap: noBackend }];
+  let missing: PlatformSheet['missing'] = null;
+  if (!backends.length) missing = noBackend ? 'No GPU backend opened' : tried.length ? 'No GPU found' : 'No GPUs reported';
+  return { platform: platformLabel(info.platform ?? 'linux'), backends, missing, skipped, versions };
 }
