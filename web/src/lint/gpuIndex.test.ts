@@ -2,7 +2,8 @@
 import { ESLint, Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
 
-const RULE = 'no-restricted-syntax';
+const PLUGIN = 'sparkline';
+const RULE = `${PLUGIN}/gpu-index`;
 
 const flagged = [
   's.gpu[0]',
@@ -22,6 +23,24 @@ const flagged = [
   'const [g] = s?.gpu',
   'const [g] = gpus',
   '[g] = s.gpu',
+  'const { gpu: [g] } = s',
+  'const { gpus: [a, b] } = info',
+  '[...s.gpu][0]',
+  'Array.from(s.gpu)[0]',
+  's.gpu.filter(Boolean)[0]',
+  's.gpu.toReversed()[0]',
+  's.gpu.find((_, i) => i === 0)',
+  'info.gpus.map((g) => g.name)[0]',
+  '[...s.gpu].toReversed().at(0)',
+  'const [g] = s.gpu.filter(Boolean)',
+  's.gpu.reduce((a, g, i) => a, 0)',
+  '(s.gpu ?? [])[0]',
+  '(ok ? s.gpu : [])[0]',
+  'const { gpu: [g] = [] } = s',
+  's.gpu.pop()',
+  'info.gpus.shift()',
+  'const copy = [...s.gpu]; copy[0]',
+  'const hot = s.gpu.filter(Boolean); hot.at(0)',
 ];
 
 const allowed = [
@@ -34,13 +53,23 @@ const allowed = [
   'for (const g of s.gpu) use(g)',
   'const [first] = s.cores',
   'values[0]',
+  's.gpu.find((g) => g.index === 0)',
+  '[...s.cores][0]',
+  'Array.from(values)[0]',
+  's.gpu.filter(Boolean).length',
+  'const { cores: [c] } = s',
+  's.gpu.toSorted((a, b) => b.temp_c - a.temp_c)[0]',
+  '(s.cores ?? [])[0]',
+  'const copy = [...s.cores]; copy[0]',
+  'const names = s.gpu.map((g) => g.name); names.length',
 ];
 
 async function lint(): Promise<(code: string) => number> {
   const config = (await new ESLint().calculateConfigForFile('src/lib/gpu.ts')) as Linter.Config;
+  const plugin = config.plugins?.[PLUGIN] ?? {};
   const rule = config.rules?.[RULE];
   const linter = new Linter({ configType: 'flat' });
-  const only: Linter.Config[] = [{ files: ['**/*.ts'], languageOptions: { parser: tseslint.parser }, rules: { [RULE]: rule ?? 'off' } }];
+  const only: Linter.Config[] = [{ files: ['**/*.ts'], languageOptions: { parser: tseslint.parser }, plugins: { [PLUGIN]: plugin }, rules: { [RULE]: rule ?? 'off' } }];
   return (code) => linter.verify(`let g, a, b; ${code};`, only, 'probe.ts').filter((m) => m.ruleId === RULE).length;
 }
 

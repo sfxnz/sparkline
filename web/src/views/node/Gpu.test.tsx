@@ -169,8 +169,7 @@ describe('GPU tab on a multi-GPU node', () => {
     const empty = section(gone.index);
     expect(within(empty).getByText(`GPU ${gone.index} not responding`)).toBeInTheDocument();
     expect(within(empty).queryByText('Utilisation')).not.toBeInTheDocument();
-    const others = workstation.info.gpus.filter((g) => g.index !== gone.index).map((g) => g.index);
-    expect(empty).toHaveTextContent(`GPUs ${others.slice(0, -1).join(', ')} and ${String(others.at(-1))} still report.`);
+    expect(empty).toHaveTextContent('GPUs 0, 1 and 3 still report.');
     for (const g of workstation.info.gpus.filter((x) => x.index !== gone.index)) {
       expect(within(section(g.index)).queryByText(/not responding/)).not.toBeInTheDocument();
       expect(stat(section(g.index), 'Utilisation')).not.toHaveTextContent('—');
