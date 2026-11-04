@@ -5,8 +5,7 @@ import { useMemo, useState } from 'react';
 import { Panel } from '../../../design/components/Panel';
 import { SegmentedControl } from '../../../design/components/SegmentedControl';
 import type { BenchRun, BenchSpec } from '../../../lib/types';
-import { isActive, MODELLED_FIGURES, modelledNodes } from '../model';
-import { ModelledNote } from '../parts';
+import { isActive, modelledNodes } from '../model';
 import { LiveView, WaitingView } from './Live';
 import { evalNodes, subtitle, viewKind, type NodeEval } from './model';
 import { ScenarioDialog, ScenariosPanel } from './Scenarios';
@@ -68,9 +67,9 @@ export function ToolEvalSection({ run, spec }: { run: BenchRun; spec: BenchSpec 
         options={evals.map((e) => ({ value: e.node, label: e.node }))}
       />
     ) : undefined;
+  const modelled = modelledNodes({ nodes: [ev.node], node_states: run.node_states });
   // First in every branch, so an open dialog survives the run moving from live to done or stopped.
-  const note = <ModelledNote modelled={modelledNodes({ nodes: [ev.node], node_states: run.node_states })} figures={MODELLED_FIGURES.scenario} />;
-  const dialog = <ScenarioDialog record={ev.records.find((r) => r.id === openId) ?? null} note={note} onClose={() => { setOpenId(null); }} />;
+  const dialog = <ScenarioDialog record={ev.records.find((r) => r.id === openId) ?? null} modelled={modelled} onClose={() => { setOpenId(null); }} />;
   const sub = headline(run, ev);
 
   if (kind === 'live') {

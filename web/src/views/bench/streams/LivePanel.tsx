@@ -11,7 +11,7 @@ import { Skeleton } from '../../../design/components/Skeleton';
 import { Sparkline } from '../../../design/components/Sparkline';
 import { Stat } from '../../../design/components/Stat';
 import type { Formatter } from '../../../lib/format';
-import { formatValue } from '../model';
+import { formatValue, type Modelled } from '../model';
 import {
   accumulate,
   cardState,
@@ -45,8 +45,7 @@ const SIZES = [
 ] as const;
 
 /** `requests`: the run's request count, which every later level of a sweep runs (at least one per stream). */
-/** `note` heads an opened stream's dialog: the node's modelled-figures note, which the page shows behind it. */
-export function LivePanel({ snap, requests, actions, note }: { snap: LiveSnapshot; requests: number; actions?: ReactNode; note?: ReactNode }) {
+export function LivePanel({ snap, requests, actions, modelled = null }: { snap: LiveSnapshot; requests: number; actions?: ReactNode; modelled?: Modelled | null }) {
   const [choice, setChoice] = useState<DensityChoice>('auto');
   const [open, setOpen] = useState<number | null>(null);
   // The text each card has seen, folded in once per snapshot (derived state: no extra render pass per update).
@@ -97,7 +96,7 @@ export function LivePanel({ snap, requests, actions, note }: { snap: LiveSnapsho
           requests={snap.requests}
           showcase={snap.showcase}
           context={sweeping ? `${levelText} · ${plural(snap.level, 'stream', 'streams')}` : plural(snap.level, 'stream', 'streams')}
-          note={note}
+          modelled={modelled}
           onClose={() => { setOpen(null); }}
         />
       ) : null}

@@ -129,7 +129,6 @@ export function DeltaBadge({ delta, better, showHint }: { delta: DeltaLook | nul
   );
 }
 
-/** Says which figures follow other hardware's model instead of a measurement; nothing for measured ones. */
 export function ModelledNote({ modelled, figures }: { modelled: Modelled | null; figures: string }) {
   return modelled ? <Banner tone="stale" title="Modelled figures" text={modelledNote(modelled, figures)} /> : null;
 }

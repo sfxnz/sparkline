@@ -45,7 +45,6 @@ def reported(key: str, info: NodeInfo, sample: Sample, flat: dict[str, float]) -
     if m := re.fullmatch(r"gpu(\d+)\.power_limit_w", key):
         return next(g.power_limit_w for g in info.gpus if g.index == int(m.group(1))) is not None
     if key.endswith(".proc_mem"):
-        # The process table shows it; mem.gpu is its sum only where GPU memory is system memory (GB10)
         if sample.procs and any(p.gpu_mem is not None for p in sample.procs):
             return True
         return "mem.gpu" in flat if "mem.used" in flat else None

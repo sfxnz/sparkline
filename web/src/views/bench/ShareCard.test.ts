@@ -3,7 +3,8 @@ import type { BenchRun } from '../../lib/types';
 import { result, run } from './fixtures';
 import { CARD_H, drawShareCard } from './ShareCard';
 
-/** A canvas whose 2D context keeps every line of text drawn, measuring text about as wide as the UI font. */
+const UI_FONT_CHAR_EM = 0.5;
+
 function recorder() {
   const drawn: { text: string; y: number }[] = [];
   const state: Record<string | symbol, unknown> = { font: '' };
@@ -11,7 +12,7 @@ function recorder() {
   const ctx = new Proxy(state, {
     get: (t, k) => {
       if (k === 'fillText') return (text: string, _x: number, y: number) => drawn.push({ text, y });
-      if (k === 'measureText') return (text: string) => ({ width: text.length * px() * 0.5 });
+      if (k === 'measureText') return (text: string) => ({ width: text.length * px() * UI_FONT_CHAR_EM });
       if (k === 'createRadialGradient') return () => ({ addColorStop: () => undefined });
       return k in t ? t[k] : () => undefined;
     },

@@ -1049,7 +1049,6 @@ SHOWCASE_STRUCTURAL = [
         ],
     ),
 ]
-# The story's sensor reading is a DGX Spark's; on other hardware it would read as that node's own
 SPARK_READING, NO_READING = "41 degrees", "cool air"
 SHOWCASE_THINKING = [
     "The user wants a long answer, so I should plan a few sections first.",
@@ -1086,8 +1085,7 @@ class ShowcaseDemo:
     """A simulated llm-showcase run on one node with each stream's one request planned up front (simulated
     seconds since they all went out), at LlmDemo's GB10-like rates for that many streams. With Fill to output
     length every stream writes max_tokens, so they end within a few percent of each other; without it some end
-    early. Thinking spends the first ~15% of each stream's tokens reasoning. Off GB10, the story about a DGX
-    Spark gives no sensor reading."""
+    early. Thinking spends the first ~15% of each stream's tokens reasoning."""
 
     def __init__(
         self, p: dict[str, Any], node: str, rng: random.Random, info: NodeInfo | None = None

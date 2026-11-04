@@ -148,7 +148,6 @@ export function drawShareCard(canvas: HTMLCanvasElement, run: BenchRun, spec: Be
     ctx.fillText('No results', pad, 210);
   }
 
-  // Footer: environment, and beneath it the note for a modelled figure's mark (the rule moves up to make room).
   const marked = modelledResults(heads);
   const rule = marked ? 268.5 : 278.5;
   const envY = marked ? 292 : 306;

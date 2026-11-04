@@ -411,7 +411,7 @@ function Headline({ result: r, showNode, celebrate, regressionPct, footnote }: {
     <li className="bench-head">
       <span className="bench-head__label">
         {r.label}
-        <ModelledMark result={r} footnote={footnote} />
+        <ModelledMark result={r} footnote={footnote} inline={showNode && !!r.node_id} />
         {showNode && r.node_id ? <span className="bench-head__node"> · {r.node_id}</span> : null}
       </span>
       <span className="bench-head__value">
@@ -524,11 +524,11 @@ function ResultsPanel({ run, regressionPct, onShare }: { run: BenchRun; regressi
 
 // ------------------------------------------------------------------------------------------------ modelled figures
 
-function ModelledMark({ result, footnote }: { result: BenchResult; footnote: string }) {
+function ModelledMark({ result, footnote, inline = false }: { result: BenchResult; footnote: string; inline?: boolean }) {
   const on = modelledOn(result.extras);
   if (!on) return null;
   return (
-    <span className="bench-modelled">
+    <span className={`bench-modelled${inline ? ' bench-modelled--inline' : ''}`}>
       <span className="bench-modelled__mark" aria-describedby={footnote}>{MODELLED_MARK}</span>
       <span className="visually-hidden">, modelled on {on}</span>
     </span>

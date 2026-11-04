@@ -4,7 +4,7 @@
 // filter finds the flaky and never-passed ones. Model-produced text (summaries, notes, tool calls, traces) is always
 // plain text.
 import { CircleCheck, CircleX, Search, ShieldAlert } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { Dialog } from '../../../design/components/Dialog';
 import { Panel } from '../../../design/components/Panel';
 import { Table, type Column } from '../../../design/components/Table';
@@ -28,6 +28,8 @@ import {
   type Outcome,
   type ScenarioRecord,
 } from './model';
+import { MODELLED_FIGURES, type Modelled } from '../model';
+import { ModelledNote } from '../parts';
 import { CategoryTag, DifficultyDots, HistoryPips, StatusGlyph, VerdictPill } from './parts';
 
 const FILTERS: readonly { value: Filter; label: string }[] = [
@@ -151,8 +153,7 @@ export function ScenariosPanel({ records, total, incomplete, trials = 1, flaky =
 
 // ------------------------------------------------------------------------------------------------ dialog
 
-/** `note` heads the body: the node's modelled-figures note, which the page shows behind the dialog. */
-export function ScenarioDialog({ record, note, onClose }: { record: ScenarioRecord | null; note?: ReactNode; onClose: () => void }) {
+export function ScenarioDialog({ record, modelled = null, onClose }: { record: ScenarioRecord | null; modelled?: Modelled | null; onClose: () => void }) {
   return (
     <Dialog
       open={record !== null}
@@ -162,7 +163,7 @@ export function ScenarioDialog({ record, note, onClose }: { record: ScenarioReco
       className="te-dialog"
       description={record ? <DialogMeta r={record} /> : undefined}
     >
-      {record ? <DialogBody r={record} note={note} /> : null}
+      {record ? <DialogBody r={record} modelled={modelled} /> : null}
     </Dialog>
   );
 }
@@ -182,12 +183,12 @@ function DialogMeta({ r }: { r: ScenarioRecord }) {
   );
 }
 
-function DialogBody({ r, note }: { r: ScenarioRecord; note: ReactNode }) {
+function DialogBody({ r, modelled }: { r: ScenarioRecord; modelled: Modelled | null }) {
   const tokens = r.promptTokens === null && r.completionTokens === null ? null : (r.promptTokens ?? 0) + (r.completionTokens ?? 0);
   const calls = toolCallList(r.toolCalls);
   return (
     <div className="te-dlg">
-      {note}
+      <ModelledNote modelled={modelled} figures={MODELLED_FIGURES.scenario} />
       {r.safetyViolation ? (
         <div className="ops-banner tone-crit">
           <ShieldAlert aria-hidden="true" />

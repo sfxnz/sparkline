@@ -146,7 +146,6 @@ async function openFinished(page: Page, id: string) {
   };
 }
 
-/** Each † in these elements, with the visible characters its box covers. */
 const daggerCovers = (scopes: Locator) =>
   scopes.evaluateAll((els) =>
     els.flatMap((el) => {
@@ -168,10 +167,14 @@ const daggerCovers = (scopes: Locator) =>
     }),
   );
 
-/** Height by the label's own text, plus the Node column for a row. */
-const heightsBy = (scopes: Locator, label: string) =>
+const heights = (scopes: Locator, label: string) =>
   scopes.evaluateAll(
-    (els, sel) => Object.fromEntries(els.map((el) => [`${el.querySelector(sel)?.firstChild?.textContent ?? ''}|${el instanceof HTMLTableRowElement ? (el.cells[1]?.textContent ?? '') : ''}`, el.getBoundingClientRect().height])),
+    (els, sel) =>
+      els.map((el) => ({
+        label: el.querySelector(sel)?.firstChild?.textContent ?? '',
+        node: el instanceof HTMLTableRowElement ? (el.cells[1]?.textContent ?? '') : '',
+        height: el.getBoundingClientRect().height,
+      })),
     label,
   );
 
@@ -193,17 +196,14 @@ test.describe.serial('figures ws1 shows from the GB10 model', () => {
 
     await page.setViewportSize({ width: 375, height: 900 });
     const { heads, rows } = await openFinished(page, ws1First);
-    const rowHeight = await heightsBy(rows, '.bench-res__metric > span');
-    const ws1Rows = Object.entries(rowHeight).filter(([k]) => k.endsWith('|ws1'));
-    for (const [k, h] of ws1Rows) {
-      const twin = rowHeight[k.replace(/\|ws1$/, '|spark1')];
-      if (twin !== undefined) expect(h, k).toBeLessThanOrEqual(twin + 0.5);
-    }
-    expect(ws1Rows.length).toBeGreaterThanOrEqual(5);
-    const ws1Heads = await heightsBy(heads, '.bench-head__label');
-    const spark1Heads = await heightsBy((await openFinished(page, spark1First)).heads, '.bench-head__label');
-    expect(Object.keys(ws1Heads).sort()).toEqual(Object.keys(spark1Heads).sort());
-    for (const [k, h] of Object.entries(ws1Heads)) expect(h, k).toBeLessThanOrEqual((spark1Heads[k] ?? 0) + 0.5);
+    const rowHeights = await heights(rows, '.bench-res__metric > span');
+    const pairs = rowHeights.filter((r) => r.node === 'ws1').map((r) => ({ ...r, twin: rowHeights.find((t) => t.node === 'spark1' && t.label === r.label) }));
+    expect(pairs.filter((p) => p.twin).length).toBeGreaterThanOrEqual(5);
+    for (const p of pairs) if (p.twin) expect(p.height, p.label).toBeLessThanOrEqual(p.twin.height + 0.5);
+    const ws1Heads = await heights(heads, '.bench-head__label');
+    const spark1Heads = await heights((await openFinished(page, spark1First)).heads, '.bench-head__label');
+    expect(ws1Heads.map((h) => h.label).sort()).toEqual(spark1Heads.map((h) => h.label).sort());
+    for (const h of ws1Heads) expect(h.height, h.label).toBeLessThanOrEqual((spark1Heads.find((t) => t.label === h.label)?.height ?? 0) + 0.5);
   });
 
   test('llm-inference names them in the note, the headlines, the Results rows, Metadata and the share card', async ({ page }) => {

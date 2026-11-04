@@ -527,7 +527,6 @@ export const modelledNodes = (run: Pick<BenchRun, 'nodes' | 'node_states'>) => m
 /** "For ws1, token rates and timings are modelled on GB10, not measured." */
 export const modelledNote = (m: Modelled, figures: string) => `For ${listNodes(m.nodes)}, ${figures} are modelled on ${m.on}, not measured.`;
 
-/** The figures each view's note names: its streams, its tool-calling evaluation, and one scenario's dialog. */
 export const MODELLED_FIGURES = {
   streams: 'token rates and timings',
   toolEval: 'timings and the Responsiveness and Deployability scores',
