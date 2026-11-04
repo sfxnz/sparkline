@@ -9,7 +9,7 @@ from collections import Counter
 from typing import Literal
 
 from ...common.schema import CoreInfo, CpuSample
-from . import parse_psi, read, read_once
+from . import Caps, parse_psi, read, read_once
 
 # MIDR "CPU part" for implementer 0x41 (Arm Ltd).
 ARM_PARTS = {
@@ -161,6 +161,9 @@ class CpuCollector:
         self._freq_paths = [_clock_path(i) for i in ids]
         self._prev: dict[int, tuple[int, int]] | None = None
         self._psi = os.path.exists("/proc/pressure/cpu")
+
+    def caps(self) -> Caps:
+        return {}
 
     def collect(self) -> dict:
         cur = parse_proc_stat(read("/proc/stat"))

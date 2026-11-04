@@ -8,7 +8,7 @@ import time
 
 from ...common.metrics import mount_key
 from ...common.schema import DiskInfo, DiskSample, FsSample
-from . import counter_delta, read, read_once
+from . import Caps, counter_delta, read, read_once
 
 WHOLE_DISK = re.compile(r"^(nvme\d+n\d+|sd[a-z]+|vd[a-z]+)$")
 REAL_FS = {"ext4", "xfs", "btrfs", "f2fs", "zfs"}
@@ -95,6 +95,9 @@ class StorageCollector:
                 )
             )
         return out
+
+    def caps(self) -> Caps:
+        return {}
 
     def collect(self) -> dict:
         now = time.monotonic()

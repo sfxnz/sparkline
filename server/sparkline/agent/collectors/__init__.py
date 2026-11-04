@@ -1,11 +1,25 @@
-"""Collectors. Each module keeps pure parsing functions (unit-tested on fixtures) separate from IO.
-
-A collector object exposes ``name`` and ``collect() -> dict`` whose keys are ``Sample`` field names.
-"""
+"""Collectors. Each module keeps pure parsing functions (unit-tested on fixtures) separate from IO."""
 
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
+from typing import Any, Protocol
+
+from ...common.schema import Unsupported
+
+Caps = Mapping[str, Unsupported | None]  # flattened metric key -> None when supported, else why not
+
+
+class Collector(Protocol):
+    name: str
+
+    def collect(self) -> dict[str, Any]:
+        """Sample fields, keyed by ``Sample`` field name."""
+        ...
+
+    def caps(self) -> Caps: ...
+
 
 SLOW_EVERY_S = 10.0
 

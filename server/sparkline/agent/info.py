@@ -12,6 +12,7 @@ import socket
 import psutil
 
 from ..common.schema import NodeInfo
+from .collectors import Collector
 from .collectors.cpu import CpuCollector
 from .collectors.gpu import GpuCollector
 from .collectors.memory import MemoryCollector
@@ -78,7 +79,7 @@ class Collectors:
         self.procs = ProcsCollector(self.gpu, cfg.procs_interval_s)
         self.tools = probe_tools()
 
-    def ordered(self) -> list:
+    def ordered(self) -> list[Collector]:
         return [self.gpu, self.memory, self.cpu, self.net, self.storage, self.thermal, self.procs]
 
     def node_info(self, cfg: AgentConfig) -> NodeInfo:

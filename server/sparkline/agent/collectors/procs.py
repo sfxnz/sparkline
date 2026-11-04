@@ -12,7 +12,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ...common.schema import ProcSample
-from . import read_once
+from . import Caps, read_once
 
 if TYPE_CHECKING:
     from .gpu import GpuCollector
@@ -187,6 +187,9 @@ class ProcsCollector:
             except KeyError:
                 self._users[uid] = str(uid)
         return self._users[uid]
+
+    def caps(self) -> Caps:
+        return {}
 
     def collect(self) -> dict:
         now = time.monotonic()

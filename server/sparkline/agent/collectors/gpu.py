@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ...common.schema import GpuInfo, GpuSample, Unsupported
-from . import counter_delta
+from . import Caps, counter_delta
 
 log = logging.getLogger(__name__)
 
@@ -187,6 +187,9 @@ class GpuCollector:
         except nv.NVMLError as e:
             log.debug("gpu%d %s: %s", g.index, field, e)
         return None
+
+    def caps(self) -> Caps:
+        return {}
 
     def collect(self) -> dict:
         out = []
