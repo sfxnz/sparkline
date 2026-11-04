@@ -474,8 +474,7 @@ def test_a_capture_that_meets_an_identifier_it_cannot_replace_writes_nothing(tmp
     assert HOST not in str(refused.value)
 
 
-def also_reading(monkeypatch: pytest.MonkeyPatch, read: Callable[[RootFs], object]) -> None:
-    """A future collector: the memory collector also reads through its traced fs."""
+def a_collector_also_reads(monkeypatch: pytest.MonkeyPatch, read: Callable[[RootFs], object]) -> None:
     collect = MemoryCollector.collect
 
     def collect_and_read(self: MemoryCollector) -> dict:
@@ -495,7 +494,7 @@ def refusal_of(copy: Path, out: Path) -> str:
 def test_a_collector_that_reads_outside_the_reviewed_read_set_is_refused_by_name(tmp_path, monkeypatch):
     copy = gb10_copy(tmp_path)
     (copy / "root/proc/vmstat").write_text("nr_free_pages 1\n")
-    also_reading(monkeypatch, lambda fs: fs.read("/proc/vmstat"))
+    a_collector_also_reads(monkeypatch, lambda fs: fs.read("/proc/vmstat"))
     assert "root/proc/vmstat: not in the reviewed read set" in refusal_of(copy, tmp_path / "out")
 
 
@@ -692,7 +691,9 @@ def test_a_refusal_names_an_unreviewed_path_up_to_its_first_unreviewed_part(tmp_
     by_id = copy / "root/dev/disk/by-id"
     by_id.mkdir(parents=True)
     (by_id / "nvme-Model_ZORBSERIAL9").symlink_to("../../nvme0n1")
-    also_reading(monkeypatch, lambda fs: (fs.read("/proc/net/if_inet6"), fs.listdir("/dev/disk/by-id")))
+    a_collector_also_reads(
+        monkeypatch, lambda fs: (fs.read("/proc/net/if_inet6"), fs.listdir("/dev/disk/by-id"))
+    )
     message = refusal_of(copy, tmp_path / "out")
     assert "root/proc/self/net/if_inet6: not in the reviewed read set" in message
     assert "root/dev/...: not in the reviewed read set" in message

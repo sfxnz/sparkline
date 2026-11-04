@@ -514,13 +514,17 @@ def write_archive(out: Path) -> Path:
     return archive
 
 
+def _in_an_order_no_rename_moves(items: list[Any]) -> list[Any]:
+    return sorted(items, key=lambda v: json.dumps(v, sort_keys=True))
+
+
 def _masked(doc: Any, where: str) -> Any:
     if where in IDENTIFIER_FIELDS:
         return "an identifier"
     if isinstance(doc, dict):
         return {k: _masked(v, f"{where}.{k}") for k, v in doc.items()}
-    if isinstance(doc, list):  # sorted, so that a renamed identifier cannot misalign the list
-        return sorted((_masked(v, f"{where}[*]") for v in doc), key=lambda v: json.dumps(v, sort_keys=True))
+    if isinstance(doc, list):
+        return _in_an_order_no_rename_moves([_masked(v, f"{where}[*]") for v in doc])
     return doc
 
 

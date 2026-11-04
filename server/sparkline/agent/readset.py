@@ -6,9 +6,8 @@ from typing import Literal
 
 Holds = Literal["text", "entry", "binary"]
 
-# A capture keeps only what these allow, so adding an entry is the privacy review point when collectors
-# grow the read set (#21 to #28): whoever adds one checks that a file there can hold no identifier the
-# redaction misses.
+# The capture writes only what this list allows, so adding an entry is the privacy review when collectors
+# grow the read set (#21 to #28). No file an entry matches may hold an identifier that the redaction misses.
 PATHS: dict[str, Holds] = {
     "/proc/*": "entry",
     "/proc/[0-9]*/cgroup": "text",
