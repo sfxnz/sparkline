@@ -308,6 +308,10 @@ def test_rdma_refuses_a_rail_the_server_has_no_address_on(tmp_path):
     refused = _start(tmp_path, "rdma-bw-lat", ["spark1", "spark2"], {"rail": "A"})
     assert isinstance(refused, BenchError) and refused.status == 400
     assert refused.problem.message == "spark2 has no address on rail A"
+    assert refused.problem.fix == (
+        "Check the interconnect link on spark2 (`ip -br addr`) and restart its agent after fixing it, "
+        "or pick the other rail"
+    )
 
 
 @pytest.mark.parametrize(
