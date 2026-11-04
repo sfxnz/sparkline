@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import re
 import time
 
 import pytest
@@ -237,6 +238,23 @@ def test_the_workstation_carries_only_documentation_addresses_and_local_macs():
         assert all(any(ipaddress.ip_address(a) in d for d in docs) for a in n.ipv4), n
         first = int(n.mac.split(":")[0], 16)
         assert first & 0x02 and not first & 0x01, n.mac  # locally administered, unicast
+
+
+def test_every_mixed_fleet_gpu_carries_a_placeholder_uuid():
+    uuids = [g.uuid or "" for make in FLEETS["mixed"].values() for g in make(T0, 1.0).info.gpus]
+    assert len(set(uuids)) == len(uuids) == 7
+    assert all(re.fullmatch(r"GPU-00000000-0000-0000-0000-0000[0-9a-f]{8}", u) for u in uuids), uuids
+
+
+def test_the_workstation_reports_its_platform_gpu_backend_and_versions_as_an_nvml_agent_does():
+    info = ws1().info
+    assert info.platform == "linux"
+    assert info.versions == {
+        "nvidia.Driver": "580.95.05",
+        "nvidia.CUDA": "13.0",
+        "nvidia.NVML": "13.580.95.05",
+    }
+    assert {(g.vendor, g.backend) for g in info.gpus} == {("nvidia", "nvml")}
 
 
 def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
