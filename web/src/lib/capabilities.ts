@@ -34,6 +34,13 @@ export function notReported(info: NodeInfo | null | undefined, key: string): Not
   return { kind, label: LABEL[kind], detail: best.reason };
 }
 
+/** The `net` gap as it bears on the ConnectX-7 interconnect. An `agent` gap says only that Sparkline skipped Wi-Fi or
+ *  virtual interfaces; when none of the node's interfaces is an interconnect, it has no link to report. */
+export function interconnectGap(info: NodeInfo | null | undefined): NotReported | null {
+  const gap = notReported(info, 'net');
+  return gap && (gap.kind !== 'agent' || (info?.net ?? []).some((n) => n.role === 'interconnect')) ? gap : null;
+}
+
 export function notReportedByHardware(reason: string): NotReported {
   return { kind: 'hardware', label: LABEL.hardware, detail: reason };
 }

@@ -21,7 +21,7 @@ import { api } from '../../lib/api';
 import { bitrateParts, DASH, formatAgo, formatBytes, formatPercent, formatWatts, text, wattsParts } from '../../lib/format';
 import { tempRoom } from '../../lib/condition';
 import type { NodeInfo, Sample } from '../../lib/types';
-import { notReported, type NotReported } from '../../lib/capabilities';
+import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { useNodeDisplayStatus } from '../../store/attention';
@@ -393,7 +393,7 @@ function Interconnect() {
     names,
   );
   const peers = [...new Set(rails.map((r) => r.peer))];
-  const gap = notReported(info, 'net');
+  const gap = interconnectGap(info);
   if (!rails.length) {
     return (
       <div className="ov-row ov-cx">
