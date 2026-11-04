@@ -16,7 +16,7 @@ import { benchApi, problemOf } from '../../lib/api';
 import type { BenchResult, BenchRun, BenchSpec, Problem } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useBench } from '../../store/bench';
-import { ProblemBanner } from '../alerts/parts/Banner';
+import { Banner, ProblemBanner } from '../alerts/parts/Banner';
 import { listNodes } from '../overview/model';
 import { PENDING_PREFIX, runPath, useCatalog, useRun, useRunList } from './hooks';
 import {
@@ -33,6 +33,12 @@ import {
   baselineCoverage,
   metaLabel,
   metaText,
+  MODELLED_MARK,
+  modelledNodes,
+  modelledNote,
+  modelledOn,
+  modelledResults,
+  type Modelled,
   nodeMeta,
   nodesText,
   servedModel,
@@ -169,6 +175,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
   const runAgain = () => { navigate(`/benchmarks?configure=${encodeURIComponent(run.bench_id)}&from=${encodeURIComponent(run.id)}`); };
 
   const statusText = `${name} ${run.status === 'succeeded' ? 'finished' : run.status}`;
+  const modelled = modelledNodes(run);
 
   return (
     <div className="view bench-run">
@@ -244,8 +251,18 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
       )}
 
       {/* Per-benchmark views lead the page for these benchmarks, so they come before the telemetry. */}
-      {run.bench_id === 'llm-inference' || run.bench_id === 'llm-showcase' ? <StreamsSection run={run} spec={spec} /> : null}
-      {run.bench_id === 'tool-eval' ? <ToolEvalSection run={run} spec={spec} /> : null}
+      {run.bench_id === 'llm-inference' || run.bench_id === 'llm-showcase' ? (
+        <>
+          <ModelledNote modelled={modelled} figures="token rates and timings" />
+          <StreamsSection run={run} spec={spec} />
+        </>
+      ) : null}
+      {run.bench_id === 'tool-eval' ? (
+        <>
+          <ModelledNote modelled={modelled} figures="timings and the Responsiveness and Deployability scores" />
+          <ToolEvalSection run={run} spec={spec} />
+        </>
+      ) : null}
 
       {active || run.started_ts != null ? (
         <Panel title={active ? 'Live telemetry' : 'Telemetry during the run'} subtitle={run.nodes.length > 1 ? 'One line per node · dashed rules mark the run' : 'Dashed rules mark the run'}>
@@ -356,6 +373,7 @@ function Completion({ run, celebrate, regressionPct }: { run: BenchRun; celebrat
   const dur = run.started_ts != null && run.finished_ts != null ? run.finished_ts - run.started_ts : null;
   const regressions = run.results.filter((r) => resultDelta(r, regressionPct)?.regression).length;
   const coverage = baselineCoverage(run.results);
+  const marked = modelledResults(heads);
   return (
     <section className={`bench-done material-regular${celebrate ? ' is-celebrating' : ''}`} aria-label="Result">
       <svg className="bench-done__check" viewBox="0 0 52 52" aria-hidden="true">
@@ -372,6 +390,7 @@ function Completion({ run, celebrate, regressionPct }: { run: BenchRun; celebrat
               : 'No baseline yet for these parameters. Set this run as the baseline to compare future runs.'}
         </p>
         {isSmoke(run.results) ? <p className="bench-done__sub"><strong>Smoke run:</strong> the GPU payload ran on the CPU at tiny sizes to test the code path. These are not GPU measurements.</p> : null}
+        {marked ? <p className="bench-done__sub">{modelledNote(marked, `figures marked ${MODELLED_MARK}`)}</p> : null}
       </div>
       <ul className="bench-done__heads">
         {heads.map((r) => <Headline key={`${r.metric}|${r.node_id ?? ''}`} result={r} showNode={run.nodes.length > 1} celebrate={celebrate} regressionPct={regressionPct} />)}
@@ -391,6 +410,7 @@ function Headline({ result: r, showNode, celebrate, regressionPct }: { result: B
     <li className="bench-head">
       <span className="bench-head__label">
         {r.label}
+        <ModelledMark result={r} />
         {showNode && r.node_id ? <span className="bench-head__node"> · {r.node_id}</span> : null}
       </span>
       <span className="bench-head__value">
@@ -414,6 +434,7 @@ function ResultsPanel({ run, regressionPct, onShare }: { run: BenchRun; regressi
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
   const multiNode = new Set(run.results.map((r) => r.node_id)).size > 1;
+  const marked = modelledResults(run.results);
 
   const setBaseline = () => {
     setBusy(true);
@@ -442,7 +463,10 @@ function ResultsPanel({ run, regressionPct, onShare }: { run: BenchRun; regressi
       sortValue: (r) => r.label,
       render: (r) => (
         <span className="bench-res__metric">
-          <span>{r.label}</span>
+          <span>
+            {r.label}
+            <ModelledMark result={r} />
+          </span>
           <BetterHint better={r.better} />
         </span>
       ),
@@ -490,8 +514,26 @@ function ResultsPanel({ run, regressionPct, onShare }: { run: BenchRun; regressi
       }
     >
       {problem ? <div className="bench-res__problem"><ProblemBanner problem={problem} action={<Button size="sm" variant="ghost" onClick={() => { setProblem(null); }}>Dismiss</Button>} /></div> : null}
+      {marked ? <p className="bench-res__note">{modelledNote(marked, `figures marked ${MODELLED_MARK}`)}</p> : null}
       <Table caption={`Results of this run`} columns={columns} rows={run.results} rowKey={(r) => `${r.metric}|${r.node_id ?? ''}`} />
     </Panel>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------ modelled figures
+
+function ModelledNote({ modelled, figures }: { modelled: Modelled | null; figures: string }) {
+  return modelled ? <Banner tone="stale" title={modelledNote(modelled, figures)} /> : null;
+}
+
+function ModelledMark({ result }: { result: BenchResult }) {
+  const on = modelledOn(result.extras);
+  if (!on) return null;
+  return (
+    <>
+      <span className="bench-modelled" aria-hidden="true"><span>{MODELLED_MARK}</span></span>
+      <span className="visually-hidden">, modelled on {on}</span>
+    </>
   );
 }
 
