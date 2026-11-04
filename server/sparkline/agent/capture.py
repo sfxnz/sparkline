@@ -35,7 +35,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, NoReturn, TypeVar
 
 import psutil
 
@@ -76,6 +76,8 @@ EAGAIN_WAIT_S = 0.02
 RECORDING = ("platform.json", "host.json", "nvml.json", "root")
 NOT_SHOWN = "(a value that would name this machine is not shown)"
 OUTPUT_DIRECTORY = "the output directory"
+NOT_USABLE = 3
+STOPPED = 130
 
 Need = Literal["content", "listing", "entry"]
 T = TypeVar("T")
@@ -582,7 +584,10 @@ def replay_check(info: NodeInfo, sample: Sample, out: Path, names: Spellings) ->
     try:
         rinfo, rsample, _ = exercise(src)
     except Exception as e:
-        return [f"the replay failed ({type(e).__name__})"], []
+        failed = Leak("the replay of the recording", f"failed with {type(e).__name__}")
+        raise CaptureRefused(
+            [failed], "\n".join(["Where it failed:", *where_it_failed_without_the_message(e)])
+        ) from e
     found = _differences(
         _masked(info.model_dump(mode="json"), "node_info"),
         _masked(rinfo.model_dump(mode="json"), "node_info"),
@@ -645,16 +650,16 @@ def capture(src: Sources, out: Path, facts: Facts) -> Report:
     try:
         out.mkdir(exist_ok=True)
         write(red.recording, out)
+        differences, collided = replay_check(info, sample, out, red.originals)
+        if collided:
+            raise CaptureRefused(collided, RENAME)
+        archive = write_archive(out)
     except BaseException:
         _remove(out, created)
         raise
-    differences, collided = replay_check(info, sample, out, red.originals)
-    if collided:
-        _remove(out, created)
-        raise CaptureRefused(collided, RENAME)
     return Report(
         out,
-        write_archive(out),
+        archive,
         red.counts,
         red.left_out,
         len(red.recording.meta["unreadable"]),
@@ -705,8 +710,23 @@ def where_it_failed_without_the_message(e: BaseException) -> list[str]:
     ]
 
 
+class _Arguments(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        print("sparkline-capture takes at most one argument, the output directory.", file=sys.stderr)
+        raise SystemExit(NOT_USABLE)
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+    try:
+        return _run(argv)
+    except KeyboardInterrupt:
+        print("sparkline-capture stopped. It keeps no partial recording.", file=sys.stderr)
+        return STOPPED
+
+
+def _run(argv: list[str] | None) -> int:
+    parser = _Arguments(
         prog="sparkline-capture",
         description="Record this machine as a redacted recorded platform to attach to a Sparkline issue.",
     )
@@ -718,14 +738,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     silence_logs_that_name_unredacted_paths()
-    src = live()
     try:
+        src = live()
         report = capture(src, Path(os.path.expanduser(args.out)), _session_facts(facts_of(src)))
+        print(_summary(report))
     except OutputNotEmpty:
         print(
             "The output directory already exists and is not empty. Choose another directory.", file=sys.stderr
         )
-        return 3
+        return NOT_USABLE
     except CaptureRefused as e:
         print(e, file=sys.stderr)
         print(f"Please open an issue saying so (paste the lines above): {ISSUE_URL}", file=sys.stderr)
@@ -736,7 +757,6 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(frames), file=sys.stderr)
         print(f"Please open an issue with these lines: {ISSUE_URL}", file=sys.stderr)
         return 4
-    print(_summary(report))
     return 1 if report.differences else 0
 
 
