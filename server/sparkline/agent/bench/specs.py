@@ -19,7 +19,7 @@ import annotated_types
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ...common.netutil import is_private
-from ...common.schema import BenchImpact, BenchParam, BenchSpec, NodeInfo
+from ...common.schema import BenchImpact, BenchParam, BenchSpec, GpuOption, NodeInfo
 
 
 def _param(default: Any, label: str, help: str, unit: str | None = None, **bounds: Any) -> Any:
@@ -32,6 +32,11 @@ def _unique(v: list) -> list:
     if len(set(v)) != len(v):
         raise ValueError("duplicate choices")
     return v
+
+
+def is_gb10(info: NodeInfo | None) -> bool:
+    """A DGX Spark (or a node not described yet): the hardware the estimate rates were measured on."""
+    return info is None or any(g.name == "NVIDIA GB10" for g in info.gpus)
 
 
 def mem_growth_label(info: NodeInfo | None) -> str:
@@ -405,6 +410,19 @@ def est_soak(p: ThermalSoakParams) -> float:
     return CONTAINER_START_S + p.minutes * 60
 
 
+@dataclass(frozen=True)
+class Estimate:
+    """A run's expected duration. Grounded when it rests on rates measured on this hardware (or is the
+    duration the user asked for); otherwise only the timeout guard uses it."""
+
+    seconds: float
+    grounded: bool
+
+    @property
+    def timeout_s(self) -> float:
+        return self.seconds * 3 + 120 if self.grounded else self.seconds * 10 + 600
+
+
 # --------------------------------------------------------------------------------------------------------
 # Registry
 # --------------------------------------------------------------------------------------------------------
@@ -423,14 +441,18 @@ class Bench:
     min_nodes: int = 1
     max_nodes: int | None = 1
     roles: tuple[str, ...] = ("single",)
+    gpu: bool = False  # runs on one GPU of the node (probes.resolve_gpu picks it)
+    gb10_rates: bool = False  # the estimate rests on GB10 / DGX Spark rates
 
     def validate(self, raw: dict[str, Any]) -> Params:
         return self.params.model_validate(raw)
 
-    def timeout_s(self, p: Params) -> float:
-        return self.estimate(p) * 3 + 120
+    def estimate_on(self, p: Params, info: NodeInfo | None) -> Estimate:
+        return Estimate(self.estimate(p), grounded=not self.gb10_rates or is_gb10(info))
 
-    def spec(self, availability: dict, note: str = "") -> BenchSpec:
+    def spec(
+        self, availability: dict, note: str = "", gpu_options: dict[str, list[GpuOption]] | None = None
+    ) -> BenchSpec:
         return BenchSpec(
             id=self.id,
             name=self.name,
@@ -443,6 +465,7 @@ class Bench:
             max_nodes=self.max_nodes,
             requires=list(self.requires),
             availability=availability,
+            gpu_options={n: o for n, o in (gpu_options or {}).items() if o and self.gpu},
         )
 
 
@@ -499,6 +522,8 @@ REGISTRY: dict[str, Bench] = {
             GpuMatmulParams,
             est_gpu_matmul,
             GPU_TOOLS,
+            gpu=True,
+            gb10_rates=True,
         ),
         Bench(
             "mem-bandwidth",
@@ -517,6 +542,8 @@ REGISTRY: dict[str, Bench] = {
             MemBandwidthParams,
             est_mem_bandwidth,
             GPU_TOOLS,
+            gpu=True,
+            gb10_rates=True,
         ),
         Bench(
             "cpu-throughput",
@@ -550,6 +577,8 @@ REGISTRY: dict[str, Bench] = {
             2,
             2,
             ("rank",),
+            gpu=True,
+            gb10_rates=True,
         ),
         Bench(
             "rdma-bw-lat",
@@ -583,6 +612,7 @@ REGISTRY: dict[str, Bench] = {
             _impact("low", "low", False, "Heavy disk I/O; model loading or checkpointing will be slower."),
             StorageParams,
             est_storage,
+            gb10_rates=True,
         ),
         Bench(
             "llm-inference",
@@ -605,6 +635,7 @@ REGISTRY: dict[str, Bench] = {
             ),
             LlmInferenceParams,
             est_llm,
+            gb10_rates=True,
         ),
         Bench(
             "llm-showcase",
@@ -625,6 +656,7 @@ REGISTRY: dict[str, Bench] = {
             ),
             LlmShowcaseParams,
             est_showcase,
+            gb10_rates=True,
         ),
         Bench(
             "tool-eval",
@@ -644,6 +676,7 @@ REGISTRY: dict[str, Bench] = {
             ),
             ToolEvalParams,
             est_tool_eval,
+            gb10_rates=True,
         ),
         Bench(
             "thermal-soak",
@@ -663,6 +696,7 @@ REGISTRY: dict[str, Bench] = {
             ThermalSoakParams,
             est_soak,
             GPU_TOOLS,
+            gpu=True,
         ),
     ]
 }

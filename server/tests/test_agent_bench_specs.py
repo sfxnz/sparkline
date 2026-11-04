@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from test_agent_bench_runner import node_info, workstation_info
 
 from sparkline.agent.bench import probes
 from sparkline.agent.bench.specs import (
@@ -46,12 +47,23 @@ def test_registry_ids_and_specs():
         for prm in spec.params:  # defaults validate and every param is labelled
             assert prm.label and prm.help
         b.validate({})
-        assert b.timeout_s(b.params()) == b.estimate(b.params()) * 3 + 120
+        assert b.estimate_on(b.params(), node_info()).timeout_s == b.estimate(b.params()) * 3 + 120
     assert REGISTRY["nccl-allreduce"].min_nodes == REGISTRY["nccl-allreduce"].max_nodes == 2
     assert REGISTRY["rdma-bw-lat"].min_nodes == REGISTRY["rdma-bw-lat"].max_nodes == 2
     gm = REGISTRY["gpu-matmul"].impact
     assert (gm.thermal, gm.power, gm.disruptive) == ("high", "high", True)
     assert REGISTRY["gpu-matmul"].requires == ("docker", "pytorch_image")
+
+
+def test_estimates_from_gb10_rates_only_hold_on_gb10_and_off_it_only_guard_the_timeout():
+    on_gb10_rates = {"gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio"}
+    on_gb10_rates |= {"llm-inference", "llm-showcase", "tool-eval"}
+    for b in REGISTRY.values():
+        s = b.estimate(b.params())
+        gb10, ws = b.estimate_on(b.params(), node_info()), b.estimate_on(b.params(), workstation_info())
+        assert gb10.seconds == ws.seconds == s and gb10.grounded, b.id
+        assert ws.grounded == (b.id not in on_gb10_rates), b.id
+        assert ws.timeout_s == (s * 3 + 120 if ws.grounded else s * 10 + 600), b.id
 
 
 def test_bench_params_derivation():

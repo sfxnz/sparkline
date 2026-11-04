@@ -7,7 +7,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
-from test_agent_bench_runner import FAKE_DOCKER, amd_info, fake, mac_info, node_info
+from test_agent_bench_runner import FAKE_DOCKER, amd_info, fake, mac_info, node_info, workstation_info
 
 from sparkline.agent.app import create_app
 from sparkline.agent.bench import probes
@@ -129,6 +129,18 @@ def test_catalog_says_gpu_benchmarks_need_an_nvidia_gpu_before_saying_docker_is_
         p = cat[bench]["availability"]["n1"]
         assert p["message"] == "GPU benchmarks need an NVIDIA GPU", bench
         assert cause in p["cause"] and fix in p["fix"], bench
+
+
+def test_catalog_offers_each_gpu_of_a_workstation_to_its_gpu_benchmarks(tmp_path):
+    cat = probed_catalog(tmp_path, lambda: workstation_info({2: "NVML: Unknown Error"}))
+    for bench in GPU_BENCHES:
+        (node,) = cat[bench]["gpu_options"]
+        opts = cat[bench]["gpu_options"][node]
+        assert node == "n1" and [o["index"] for o in opts] == [0, 1, 2, 3], bench
+        causes = [o["problem"] and o["problem"]["cause"] for o in opts]
+        assert causes == [None, None, "NVML: Unknown Error", None], bench
+    assert all(s["gpu_options"] == {} for b, s in cat.items() if b not in GPU_BENCHES)
+    assert all(s["gpu_options"] == {} for s in probed_catalog(tmp_path, node_info).values())
 
 
 def test_catalog_on_gb10_without_docker_still_names_docker(tmp_path):
