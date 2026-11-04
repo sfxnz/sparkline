@@ -24,9 +24,14 @@ export interface CoreInfo {
   cluster: number | null;
 }
 
+export const GPU_VENDORS = ['nvidia', 'amd', 'apple'] as const;
+export type GpuVendor = (typeof GPU_VENDORS)[number];
+
 export interface GpuInfo {
   index: number;
   name: string;
+  vendor?: string;
+  backend?: string;
   uuid: string | null;
   arch: string | null;
   compute_capability: string | null;
@@ -69,11 +74,13 @@ export interface NodeInfo {
   node_id: string;
   hostname: string;
   agent_version: string;
+  platform?: string;
   os: string;
   kernel: string;
   driver: string | null;
   cuda: string | null;
   nvml: string | null;
+  versions?: Record<string, string>;
   cpu_model: string;
   cores: CoreInfo[];
   mem_total: number;

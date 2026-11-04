@@ -202,6 +202,14 @@ for (const scheme of ['dark', 'light'] as const) {
     await expect(page.locator('.chart-table[role="region"]').first()).toBeVisible();
     await check('chart data table open');
 
+    const details = page.getByRole('button', { name: 'Details', exact: true });
+    await details.click();
+    const sheet = page.locator(`[id="${await details.getAttribute('aria-controls') ?? ''}"]`);
+    await expect(sheet).toContainText('Linux');
+    await expect(sheet).toContainText('nvml');
+    await expect(sheet.locator(':scope > div')).toHaveCSS('opacity', '1');
+    await check('node details open');
+
     await page.goto('/node/spark1/processes');
     await ready(page);
     await page.locator('.procs__toggle').first().click();

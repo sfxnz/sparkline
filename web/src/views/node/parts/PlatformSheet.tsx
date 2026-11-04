@@ -1,0 +1,86 @@
+import { platformSheet, type SkippedBackend } from '../../../lib/platform';
+import type { NodeInfo, UnsupportedKind } from '../../../lib/types';
+
+const KIND_TONE: Record<UnsupportedKind, string> = { access: 'tone-warn', dependency: 'tone-warn', hardware: 'tone-info', agent: 'tone-info' };
+
+export function PlatformSheet({ info }: { info: NodeInfo }) {
+  const sheet = platformSheet(info);
+  const gap = sheet.backendGap;
+  return (
+    <div className="nsheet">
+      <div className="nsheet__group">
+        <h3 className="nsheet__label">Platform</h3>
+        <p className="nsheet__primary">{sheet.platform}</p>
+        {info.os ? <p className="nsheet__line">{info.os}</p> : null}
+        {info.kernel ? <p className="nsheet__line"><code>{info.kernel}</code></p> : null}
+      </div>
+
+      <div className="nsheet__group">
+        <h3 className="nsheet__label">GPU backend</h3>
+        {sheet.backends.length ? (
+          <ul className="nsheet__list">
+            {sheet.backends.map((b) => (
+              <li key={`${b.vendor}/${b.backend}`} className="nsheet__backend">
+                <p className="nsheet__primary">
+                  {b.vendor} <code>{b.backend}</code>
+                </p>
+                <p className="nsheet__line num">
+                  {b.gpus.length} {b.gpus.length === 1 ? 'GPU' : 'GPUs'} · {[...new Set(b.gpus)].join(', ')}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="nsheet__primary">{gap ? 'No GPU backend opened' : 'No GPUs reported'}</p>
+        )}
+        {gap ? (
+          <div className="nsheet__skipped">
+            <p className="nsheet__sublabel">
+              {sheet.backends.length ? 'Skipped' : null}
+              <span className={`nsheet__tag ${KIND_TONE[gap.kind]}`}>{gap.label}</span>
+            </p>
+            <ul className="nsheet__list nsheet__skips">
+              {sheet.skipped.map((s, i) => <SkippedRow key={i} item={s} />)}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="nsheet__group">
+        <h3 className="nsheet__label">Versions</h3>
+        {sheet.versions.length ? (
+          sheet.versions.map((g) => (
+            <div key={g.vendor} className="nsheet__vgroup">
+              <h4 className="nsheet__sublabel">{g.vendor}</h4>
+              <dl className="nsheet__kv">
+                {g.rows.map((r) => (
+                  <div key={r.label}>
+                    <dt>{r.label}</dt>
+                    <dd className="num">{r.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ))
+        ) : (
+          <p className="nsheet__line">No GPU versions reported</p>
+        )}
+        <dl className="nsheet__kv nsheet__kv--agent">
+          <div>
+            <dt>Sparkline agent</dt>
+            <dd className="num">{info.agent_version}</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+function SkippedRow({ item }: { item: SkippedBackend }) {
+  return (
+    <li className="nsheet__skip">
+      {item.backend ? <code>{item.backend}</code> : null}
+      <span className="nsheet__reason">{item.reason}</span>
+    </li>
+  );
+}
