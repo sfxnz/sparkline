@@ -10,6 +10,7 @@ const LABEL: Record<UnsupportedKind, string> = {
   hardware: 'Not reported by this hardware',
   access: 'No access',
   dependency: 'Helper tool missing',
+  agent: 'Not collected yet',
 };
 
 const isKind = (k: unknown): k is UnsupportedKind => (UNSUPPORTED_KINDS as readonly unknown[]).includes(k);
