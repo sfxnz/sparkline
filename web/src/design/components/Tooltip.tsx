@@ -19,17 +19,25 @@ export function Tooltip({ content, children, placement = 'top', delay = 350 }: P
 
   // Keep the bubble inside the viewport: an anchor near the right/left edge shifts it sideways. Checked on mount
   // (a hidden bubble still counts toward page width), on open and on resize; written only when it changes.
+  // An open bubble also stays inside every ancestor that clips it, such as the shell's content column.
   useLayoutEffect(() => {
     const el = bubble.current;
     if (!el) return;
     const fit = () => {
       const cur = parseFloat(el.style.getPropertyValue('--tt-shift')) || 0;
       const r = el.getBoundingClientRect();
-      const vw = document.documentElement.clientWidth;
       const margin = 8;
+      let lo = margin;
+      let hi = document.documentElement.clientWidth - margin;
+      for (let p = open ? el.parentElement : null; p; p = p.parentElement) {
+        if (getComputedStyle(p).overflowX === 'visible') continue;
+        const b = p.getBoundingClientRect();
+        lo = Math.max(lo, b.left + margin);
+        hi = Math.min(hi, b.right - margin);
+      }
       let shift = 0;
-      if (r.right - cur > vw - margin) shift = vw - margin - (r.right - cur);
-      if (r.left - cur + shift < margin) shift = margin - (r.left - cur);
+      if (r.right - cur > hi) shift = hi - (r.right - cur);
+      if (r.left - cur + shift < lo) shift = lo - (r.left - cur);
       if (Math.round(shift) !== Math.round(cur)) el.style.setProperty('--tt-shift', `${Math.round(shift)}px`);
     };
     fit();

@@ -58,6 +58,9 @@
   .ov-card__top .ring { width: 5rem !important; height: 5rem !important; }
   .ov-cx__long { display: none; }
   .ov-cx__short { display: inline; }
+  /* A stat column here is narrower than a label word plus its info button, so the button follows the text. */
+  .ov-stat .unsupported { display: block; }
+  .ov-stat .unsupported__info { display: inline-grid; vertical-align: middle; }
 }
 .ov-card__panel { flex: 1; position: relative; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
 .ov-card:hover .ov-card__panel { border-color: var(--separator-strong); }
