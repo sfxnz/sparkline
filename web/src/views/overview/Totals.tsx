@@ -83,9 +83,9 @@ export function Totals() {
             ) : (
               <span className="num">
                 Today {formatKwh(energy.joules)}
+                {energy.missing.length ? ` · excl. ${listNodes(energy.missing)}` : ''}
                 {rate ? ` · ${formatEnergyCost(energy.joules, rate.energy_rate_per_kwh, rate.currency)}` : ''}
                 {Object.entries(energy.until).map(([id, ts]) => ` · ${id} until ${formatHm(ts)}`).join('')}
-                {energy.missing.length ? ` · excl. ${listNodes(energy.missing)}` : ''}
               </span>
             )
           }
@@ -101,8 +101,8 @@ export function Totals() {
             totals.memUsed !== null && totals.memTotal ? (
               <span className="num">
                 {formatBytes(totals.memUsed).replace(/\s?GiB$/, '')} of {formatBytes(totals.memTotal)}
-                {totals.psi !== null ? (totals.psi < 0.05 ? ' · no memory pressure' : ` · waiting on memory ${formatPercent(totals.psi, totals.psi < 10 ? 1 : 0)} of the time`) : ''}
                 {memMissing.length ? ` · excl. ${listNodes(memMissing)}` : ''}
+                {totals.psi !== null ? (totals.psi < 0.05 ? ' · no memory pressure' : ` · waiting on memory ${formatPercent(totals.psi, totals.psi < 10 ? 1 : 0)} of the time`) : ''}
               </span>
             ) : stale ? (
               of
