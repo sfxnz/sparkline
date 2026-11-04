@@ -69,7 +69,6 @@ export interface ClusterGpuNow {
   power: number | null;
   /** Nodes left out of `power` because `nodeTotalGap` explains their missing power, one per line. */
   dropped: string;
-  /** `utilGpusRead`. */
   utilFrom: string;
 }
 

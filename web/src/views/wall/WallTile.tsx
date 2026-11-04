@@ -51,7 +51,6 @@ function LiveTotal({ node, field, parts, quantum, info }: { node: string; field:
   return <BigValue value={value} parts={parts} />;
 }
 
-/** "3 of 4 GPUs" under a reading that covers only some of the node's GPUs. */
 function TotalFrom({ node, field }: { node: string; field: Exclude<NodeTotal, 'power_w'> }) {
   const from = useTotalFrom(node, field);
   return from ? <span className="wall-from">{from}</span> : null;

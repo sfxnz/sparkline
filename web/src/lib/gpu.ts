@@ -99,7 +99,6 @@ export function totalFrom(info: NodeInfo | null | undefined, s: Sample | null, f
   return from > 0 && from < listed.length ? { from, of: listed.length } : null;
 }
 
-/** "3 of 4 GPUs". */
 export const gpuCountText = (c: GpuCount) => `${String(c.from)} of ${String(c.of)} GPUs`;
 
 export interface SilentBackend {

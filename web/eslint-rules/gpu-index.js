@@ -1,7 +1,6 @@
 const GPU = /^gpus?$/;
 const WRAPPERS = new Set(['ChainExpression', 'TSNonNullExpression', 'TSAsExpression', 'TSSatisfiesExpression']);
 const COPIES = new Set(['filter', 'map', 'flatMap', 'slice', 'concat', 'toReversed', 'toSpliced', 'with', 'reverse', 'values']);
-// Calls that take or give positions: `slice` only with arguments (a bare slice() is a whole copy).
 const POSITIONAL = new Set(['at', 'pop', 'shift', 'next', 'splice', 'toSpliced', 'with', 'entries', 'keys']);
 const FUNCTIONS = new Set(['ArrowFunctionExpression', 'FunctionExpression']);
 const INDEX_PARAM = new Map([
@@ -13,6 +12,8 @@ const INDEX_PARAM = new Map([
 const staticKey = (key, computed) => (key.type === 'Literal' ? String(key.value) : computed ? '' : key.name);
 
 const method = (call) => (call.callee.type === 'MemberExpression' ? staticKey(call.callee.property, call.callee.computed) : '');
+
+const takesOrGivesPositions = (call) => POSITIONAL.has(method(call)) || (method(call) === 'slice' && call.arguments.length > 0);
 
 const isCall = (call, object, name) => method(call) === name && call.callee.object.type === 'Identifier' && call.callee.object.name === object;
 
@@ -66,7 +67,7 @@ export default {
         const name = method(node);
         if (!name || !derivesFromGpuList(node.callee.object)) return;
         const callback = node.arguments[0];
-        if (POSITIONAL.has(name) || (name === 'slice' && node.arguments.length) || (INDEX_PARAM.has(name) && FUNCTIONS.has(callback?.type) && callback.params.length > INDEX_PARAM.get(name))) report(node);
+        if (takesOrGivesPositions(node) || (INDEX_PARAM.has(name) && FUNCTIONS.has(callback?.type) && callback.params.length > INDEX_PARAM.get(name))) report(node);
       },
       VariableDeclarator(node) {
         if (node.id.type === 'Identifier' && node.init && derivesFromGpuList(node.init)) copies.add(variableOf(node.id));

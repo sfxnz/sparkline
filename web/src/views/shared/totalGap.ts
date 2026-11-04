@@ -17,7 +17,6 @@ export function useTotalFrom(nodeId: string, field: Exclude<NodeTotal, 'power_w'
   }, [info, field]));
 }
 
-/** Live `nodeTotalGap`. */
 export function useTotalGap(nodeId: string, field: NodeTotal): NotReported | null {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   return useLatest(nodeId, useCallback((s: Sample | null) => nodeTotalGap(info, s, field), [info, field]), sameGap);

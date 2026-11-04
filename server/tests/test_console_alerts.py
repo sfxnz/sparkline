@@ -435,7 +435,6 @@ def test_defaults_the_user_never_touched_still_watch_every_gpu_after_a_save_and_
 
 
 def test_an_older_console_reads_each_saved_throttle_default_as_a_key_it_can_watch(tmp_path):
-    """Older consoles read a throttle rule's metric as one literal key and glob only threshold rules."""
     cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
     cluster.update_rules(DEFAULT_RULES)
     stored = {r["id"]: r["metric"] for r in cluster.store.kv_get("alert_rules")}
@@ -461,8 +460,8 @@ def test_rules_an_older_console_saved_after_a_downgrade_keep_this_consoles_choic
         if r["id"] == "mem_pressure":
             r["threshold"] = 20.0
         if r["id"] == "gpu_temp_critical":
-            r["metric"] = "gpu0.temp_c"  # "GPU temperature" picked in the older console's editor
-    cluster.store.kv_set("alert_rules", older)  # an older console's save writes only this key
+            r["metric"] = "gpu0.temp_c"
+    cluster.store.kv_set("alert_rules", older)
 
     loaded = {r.id: r for r in restart(cluster).alerts.rules}
     assert {i: loaded[i].metric for i in GPU0_METRICS} == {

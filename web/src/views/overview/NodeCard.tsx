@@ -280,7 +280,6 @@ function Temperature() {
     ) : room?.level === 'warn' ? (
       <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>
     ) : null;
-  // The footer has two lines: the second names the flagged GPU, or else how many GPUs the reading covers.
   const second = flag ? gpu.name : from;
   const footer = room || second ? (
     <>
@@ -291,7 +290,6 @@ function Temperature() {
   return (
     <>
       <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />
-      {/* A narrow card's stat column is narrower than the flag, so there it spans both stats (CSS picks one). */}
       {flag && !gap ? <p className="ov-card__flag">{flag}{gpu.name ? <span className="ov-card__flag-who"> · {gpu.name}</span> : null}</p> : null}
     </>
   );

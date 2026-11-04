@@ -246,7 +246,6 @@ function Toolbar({ location }: { location: string }) {
   useEffect(() => {
     const el = bar.current;
     if (!el) return;
-    // Its controls wrap on a narrow screen, so scroll targets below it read its real height.
     const ro = new ResizeObserver(() => { document.documentElement.style.setProperty('--toolbar-offset', `${String(el.offsetHeight)}px`); });
     ro.observe(el);
     return () => { ro.disconnect(); };

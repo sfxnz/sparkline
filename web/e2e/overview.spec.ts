@@ -82,7 +82,6 @@ for (const linked of [false, true]) {
 
 interface GpuReading { index: number; temp_c?: number | null }
 
-/** A stubbed console with one node, ws1 (four RTX 6000 Ada, slowdown 93 °C), whose GPUs read as `gpus` makes them. */
 async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading) {
   const now = Date.now() / 1000;
   const info = { ...fixture('platforms/workstation/info.json'), node_id: 'ws1' };
@@ -105,7 +104,6 @@ async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading) {
   });
 }
 
-/** Whether `el` paints `text` in full: a visible copy lies inside every box above it that clips (overflow, line clamp). */
 const paintsInFull = (el: Element, text: string) => {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {

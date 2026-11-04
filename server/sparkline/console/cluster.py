@@ -41,15 +41,13 @@ def _stored_metric(r: AlertRule) -> str | None:
 
 
 def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> list[AlertRule]:
-    """A rule this console saved loads as saved. A default rule only an older console saved watches GPU 0
-    because that was the older default, so it loads watching every GPU."""
     rules = []
     for raw in saved:
         r = AlertRule.model_validate(raw)
         if metrics is not None and r.id in metrics:
             meant = r.model_copy(update={"metric": metrics[r.id]})
-            # Another stored metric was picked in an older console after this one saved: keep that choice.
-            rules.append(meant if _stored_metric(meant) == r.metric else r)
+            unchanged_since_saved_here = _stored_metric(meant) == r.metric
+            rules.append(meant if unchanged_since_saved_here else r)
         elif upgrade := GPU0_DEFAULT_UPGRADES.get((r.id, r.metric)):
             rules.append(r.model_copy(update={"metric": upgrade}))
         else:
