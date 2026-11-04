@@ -136,6 +136,15 @@ describe('GPU tab on a multi-GPU node', () => {
     expect(within(section(b.index)).getByText('Power cap', { selector: '.status__label' })).toBeInTheDocument();
   });
 
+  it('lists a section’s warning and critical clock-limit reasons, leaving the informational ones to its headline', () => {
+    const [a, b] = workstation.info.gpus;
+    if (!a || !b) throw new Error('fixture has fewer than two GPUs');
+    show(workstation, { sample: withGpu(withGpu(workstation.sample, a.index, { throttle_mask: 0x4 }), b.index, { throttle_mask: 0x64 }) });
+    const rows = (index: number) => within(section(index)).queryAllByRole('listitem').map((li) => li.querySelector('.throttle__title')?.textContent);
+    expect(rows(a.index)).toEqual([]);
+    expect(rows(b.index)).toEqual(['Overheating', 'Thermal limit']);
+  });
+
   it('reads power against each GPU’s own limit, with no single-GPU rail wording', () => {
     show(workstation);
     for (const g of workstation.info.gpus) expect(stat(section(g.index), 'GPU power')).toHaveTextContent(/% of the .+ limit/);

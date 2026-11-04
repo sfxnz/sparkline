@@ -395,6 +395,9 @@
 }
 .ngpu-section__swatch { display: inline-block; width: 10px; height: 10px; margin-right: var(--space-2); border-radius: 3px; vertical-align: 0.05em; }
 .ngpu-section__stats { row-gap: var(--space-5); }
+@media (max-width: 760px) {
+  .ngpu-section__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .ngpu-section__clock { margin-top: var(--space-5); padding-top: var(--space-4); border-top: var(--hairline) solid var(--separator); }
 .ngpu-section .throttle-head__text { font-size: var(--fs-callout); line-height: var(--lh-callout); }
 .ngpu-group { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }

@@ -330,7 +330,7 @@ function GpuSection({ c }: { c: GpuCtx }) {
             <GpuStats c={c} />
           </div>
           <div className="nclock ngpu-section__clock">
-            <ThrottleNow nodeId={nodeId} index={index} smMax={gpu?.sm_mhz_max ?? null} gap={gap(gpuKey(index, 'throttle_mask'))} />
+            <ThrottleNow nodeId={nodeId} index={index} smMax={gpu?.sm_mhz_max ?? null} gap={gap(gpuKey(index, 'throttle_mask'))} rows="alerts" />
             <CappedShare nodeId={nodeId} index={index} info={c.info} />
           </div>
         </>
@@ -375,13 +375,16 @@ function GpuProcesses({ nodeId }: { nodeId: string }) {
   );
 }
 
-function ThrottleNow({ nodeId, index, smMax, gap }: { nodeId: string; index: number; smMax: number | null; gap: NotReported | null }) {
+/** `rows="alerts"` (a section among several) lists only the warning and critical reasons: the headline already names
+ *  the informational ones, and repeating them in every section buries the GPU that needs attention. */
+function ThrottleNow({ nodeId, index, smMax, gap, rows = 'all' }: { nodeId: string; index: number; smMax: number | null; gap: NotReported | null; rows?: 'all' | 'alerts' }) {
   const { waiting } = useFreshness(nodeId);
   const mask = useLatest(nodeId, gpuSelector(index, 'throttle_mask'));
   const clocks = useLatest(nodeId, (s) => clockLevel(s, smMax, index));
   const reasons = decodeThrottle(mask);
   const head = throttleHeadline(reasons, clocks);
   const meta = head.severity === 'ok' ? null : SEVERITY_META[head.severity];
+  const listed = rows === 'all' ? reasons : reasons.filter((r) => r.severity !== 'info');
   const Icon = meta?.icon ?? CircleCheck;
   if (mask === null && waiting && !gap) {
     return (
@@ -404,7 +407,7 @@ function ThrottleNow({ nodeId, index, smMax, gap }: { nodeId: string; index: num
           <p className="throttle-head__sub num">Clocks-event mask 0x{mask.toString(16)}</p>
         </div>
       </div>
-      {reasons.length ? <ThrottleRows reasons={reasons} /> : null}
+      {listed.length ? <ThrottleRows reasons={listed} /> : null}
     </>
   );
 }
