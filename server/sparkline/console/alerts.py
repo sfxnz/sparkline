@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ..common.metrics import flatten
+from ..common.metrics import GPU_TOTALS, flatten
 from ..common.schema import AlertRule, Event, NodeInfo, NodeStatus, Problem, Sample
 from ..common.throttle import decode
 
 GIB = 1 << 30
 DEFAULT_RULES: list[AlertRule] = [
-    AlertRule(id="gpu_temp_high", name="GPU temperature high", metric="gpu0.temp_c", threshold=80, for_s=30),
+    AlertRule(id="gpu_temp_high", name="GPU temperature high", metric="gpu*.temp_c", threshold=80, for_s=30),
     AlertRule(
         id="gpu_temp_critical",
         name="GPU temperature critical",
-        metric="gpu0.temp_c",
+        metric="gpu*.temp_c",
         threshold=85,
         for_s=10,
         severity="critical",
@@ -26,7 +27,7 @@ DEFAULT_RULES: list[AlertRule] = [
         id="gpu_throttle",
         name="GPU throttling",
         kind="throttle",
-        metric="gpu0.throttle_mask",
+        metric="gpu*.throttle_mask",
         threshold=0x8 | 0x20 | 0x40 | 0x80,
         for_s=10,
     ),
@@ -34,7 +35,7 @@ DEFAULT_RULES: list[AlertRule] = [
         id="gpu_power_cap",
         name="Power capping",
         kind="throttle",
-        metric="gpu0.throttle_mask",
+        metric="gpu*.throttle_mask",
         threshold=0x4,
         for_s=10,
         severity="info",
@@ -61,6 +62,18 @@ DEFAULT_RULES: list[AlertRule] = [
         for_s=60,
     ),
 ]
+
+
+_GPU_KEY = re.compile(r"gpu(\d+)\.(.+)")
+
+
+def _watched_keys(metric: str, flat: dict[str, float]) -> list[str]:
+    if "*" not in metric:
+        return [metric]
+    keys = fnmatch.filter(flat, metric)
+    fields = {m[2] for k in keys if (m := _GPU_KEY.fullmatch(k))}
+    shadowed_totals = {f"gpu.{f}" for f in GPU_TOTALS if f in fields}
+    return [k for k in keys if k not in shadowed_totals]
 
 
 def validate_rules(rules: list[AlertRule]) -> None:
@@ -152,13 +165,13 @@ class AlertEngine:
 
     def evaluate_sample(self, node: str, s: Sample, info: NodeInfo | None = None) -> None:
         flat = flatten(s)
+        gpus = len(info.gpus) if info else len(s.gpu)
         for r in self.rules:
             if not self._applies(r, node):
                 continue
             if r.kind == "threshold" and r.metric and r.threshold is not None:
-                keys = fnmatch.filter(flat, r.metric) if "*" in r.metric else [r.metric]
                 margin = abs(r.threshold) * 0.02 or 1.0
-                for key in keys:
+                for key in _watched_keys(r.metric, flat):
                     v = flat.get(key)
                     if v is None:
                         continue  # metric absent this tick (collector error): keep state
@@ -166,14 +179,14 @@ class AlertEngine:
                         breach, clear = v > r.threshold, v < r.threshold - margin
                     else:
                         breach, clear = v < r.threshold, v > r.threshold + margin
-                    self._step(r, node, key, v, breach, clear, s.ts)
+                    self._step(r, node, key, v, breach, clear, s.ts, gpus=gpus)
             elif r.kind == "throttle" and r.threshold:
-                key = r.metric or "gpu0.throttle_mask"
-                v = flat.get(key)
-                if v is None:
-                    continue
-                hit = int(v) & int(r.threshold)
-                self._step(r, node, key, v, bool(hit), not hit, s.ts)
+                for key in _watched_keys(r.metric or "gpu*.throttle_mask", flat):
+                    v = flat.get(key)
+                    if v is None:
+                        continue
+                    hit = int(v) & int(r.threshold)
+                    self._step(r, node, key, v, bool(hit), not hit, s.ts, gpus=gpus)
             elif r.kind == "link_down":
                 inter = {n.name for n in info.net if n.role == "interconnect"} if info else None
                 # cabled (IP or peer configured) = expected up, even if it was already down when we started
@@ -220,6 +233,7 @@ class AlertEngine:
         clear: bool,
         ts: float,
         detail: str | None = None,
+        gpus: int = 1,
     ) -> None:
         st = self._st.setdefault((r.id, node, key), _State())
         if st.active is None:
@@ -229,6 +243,8 @@ class AlertEngine:
             if st.start is None:
                 st.start = ts
             if ts - st.start >= r.for_s:
+                gpu = _GPU_KEY.fullmatch(key)
+                title = f"{r.name} on {node}" + (f" · GPU {gpu[1]}" if gpu and gpus > 1 else "")
                 st.active = self._add(
                     Event(
                         id=0,
@@ -237,7 +253,7 @@ class AlertEngine:
                         severity=r.severity,
                         kind="alert",
                         rule_id=r.id,
-                        title=f"{r.name} on {node}",
+                        title=title,
                         detail=detail or self._detail(r, key, v),
                         metric=key or None,
                         value=v if r.kind in ("threshold", "throttle") else None,
@@ -260,7 +276,7 @@ class AlertEngine:
                     severity="info",
                     kind="recovered",
                     rule_id=r.id,
-                    title=f"Resolved: {r.name} on {node}",
+                    title=f"Resolved: {ev.title}",
                     detail=f"{now_txt} · cleared after {_dur(ts - ev.ts)} · was {ev.severity}",
                     metric=key or None,
                     value=v if r.kind == "threshold" else None,

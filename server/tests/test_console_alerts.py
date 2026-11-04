@@ -9,6 +9,7 @@ from sparkline.agent.sampler import Sampler
 from sparkline.common.schema import AlertRule, Event, Problem
 from sparkline.console.alerts import DEFAULT_RULES, AlertEngine, validate_rules
 from sparkline.console.demo import DemoModel
+from sparkline.console.demo_fleets import FLEETS
 
 T0 = 1_791_280_000.0
 
@@ -53,6 +54,28 @@ def feed(engine, start: float, seconds: int, **kw) -> float:
     for i in range(seconds):
         engine.evaluate_sample("spark2", sample(start + i, **kw))
     return start + seconds
+
+
+WS1 = FLEETS["mixed"]["ws1"](T0, 1.0)
+WS1_QUIET_T = T0 + 300
+COOL = (60.0, 60.0, 60.0, 60.0)
+
+
+def ws1_sample(ts: float, temps: tuple[float, ...] = COOL, masks: tuple[int, ...] = (0, 0, 0, 0)):
+    s = WS1.sample_at(ts)
+    for g, temp, mask in zip(s.gpu, temps, masks, strict=True):
+        g.temp_c, g.throttle_mask = temp, mask
+    return s
+
+
+def feed_ws1(engine, start: float, seconds: int, info=WS1.info, **kw) -> float:
+    for i in range(seconds):
+        engine.evaluate_sample("ws1", ws1_sample(start + i, **kw), info)
+    return start + seconds
+
+
+def fired(events: list[Event], kind: str = "alert") -> list[tuple[str | None, str | None, str]]:
+    return [(e.rule_id, e.metric, e.title) for e in sorted(events, key=lambda e: e.id) if e.kind == kind]
 
 
 def test_fires_once_after_for_s_and_recovers_with_hysteresis(eng):
@@ -203,3 +226,114 @@ def test_values_carry_units_and_throttle_reasons_read_as_a_phrase():
     assert _sentence(["Thermal limit", "Overheating"]) == "Thermal limit and overheating"
     three = _sentence(["Power cap", "Thermal limit", "Overheating"])
     assert three == "Power cap, thermal limit and overheating"
+
+
+def test_the_default_temperature_rules_fire_for_gpu_3_alone_on_a_four_gpu_node_and_name_it(eng):
+    engine, sink = eng
+    t = feed_ws1(engine, WS1_QUIET_T, 31, temps=(60.0, 60.0, 60.0, 86.0))
+    assert fired(sink.events) == [
+        ("gpu_temp_critical", "gpu3.temp_c", "GPU temperature critical on ws1 · GPU 3"),
+        ("gpu_temp_high", "gpu3.temp_c", "GPU temperature high on ws1 · GPU 3"),
+    ]
+    assert sink.events[0].detail == "86 °C for 10 s (threshold 85 °C)"
+    one_gpu_now = WS1.info.model_copy(update={"gpus": WS1.info.gpus[:1]})
+    feed_ws1(engine, t, 1, info=one_gpu_now)
+    assert fired(sink.events, "recovered") == [
+        ("gpu_temp_high", "gpu3.temp_c", "Resolved: GPU temperature high on ws1 · GPU 3"),
+        ("gpu_temp_critical", "gpu3.temp_c", "Resolved: GPU temperature critical on ws1 · GPU 3"),
+    ]
+
+
+def test_a_node_that_lists_several_gpus_names_the_gpu_while_a_failed_backend_leaves_one_in_the_sample(eng):
+    engine, sink = eng
+    for i in range(11):
+        s = ws1_sample(WS1_QUIET_T + i, temps=(86.0, 60.0, 60.0, 60.0))
+        engine.evaluate_sample("ws1", s.model_copy(update={"gpu": s.gpu[:1]}), WS1.info)
+    assert fired(sink.events) == [
+        ("gpu_temp_critical", "gpu0.temp_c", "GPU temperature critical on ws1 · GPU 0"),
+    ]
+
+
+def test_two_hot_gpus_give_two_events(eng):
+    engine, sink = eng
+    feed_ws1(engine, WS1_QUIET_T, 11, temps=(60.0, 88.0, 60.0, 87.0))
+    assert fired(sink.events) == [
+        ("gpu_temp_critical", "gpu1.temp_c", "GPU temperature critical on ws1 · GPU 1"),
+        ("gpu_temp_critical", "gpu3.temp_c", "GPU temperature critical on ws1 · GPU 3"),
+    ]
+
+
+def test_throttle_rules_accept_globs_and_one_with_no_metric_watches_every_gpu(eng):
+    engine, sink = eng
+    feed_ws1(engine, WS1_QUIET_T, 11, masks=(0, 0, 0x20, 0))
+    (ev,) = [e for e in sink.events if e.rule_id == "gpu_throttle"]
+    assert (ev.metric, ev.title, ev.detail) == (
+        "gpu2.throttle_mask",
+        "GPU throttling on ws1 · GPU 2",
+        "Thermal limit for 10 s",
+    )
+    no_metric = AlertRule(id="any", name="Clock limit", kind="throttle", threshold=0x20, for_s=0)
+    engine.set_rules([no_metric], WS1_QUIET_T)
+    feed_ws1(engine, WS1_QUIET_T + 20, 1, masks=(0x20, 0, 0x20, 0))
+    assert fired([e for e in sink.events if e.rule_id == "any"]) == [
+        ("any", "gpu0.throttle_mask", "Clock limit on ws1 · GPU 0"),
+        ("any", "gpu2.throttle_mask", "Clock limit on ws1 · GPU 2"),
+    ]
+
+
+def test_a_glob_rule_fires_once_for_one_hot_gpu_although_the_node_total_matches_it_too(eng):
+    engine, sink = eng
+    engine.set_rules(
+        [
+            AlertRule(id="any_gpu", name="Any GPU hot", metric="gpu*.temp_c", threshold=85, for_s=0),
+            AlertRule(id="any_temp", name="Anything hot", metric="*.temp_c", threshold=85, for_s=0),
+        ],
+        T0,
+    )
+    feed_ws1(engine, WS1_QUIET_T, 1, temps=(60.0, 60.0, 60.0, 90.0))
+    feed(engine, T0, 1, temp=90.0)
+    assert fired(sink.events) == [
+        ("any_gpu", "gpu3.temp_c", "Any GPU hot on ws1 · GPU 3"),
+        ("any_temp", "gpu3.temp_c", "Anything hot on ws1 · GPU 3"),
+        ("any_gpu", "gpu0.temp_c", "Any GPU hot on spark2"),
+        ("any_temp", "gpu0.temp_c", "Anything hot on spark2"),
+    ]
+
+
+def test_a_rule_naming_the_node_total_fires_on_the_total_and_so_does_a_glob_over_totals_only(eng):
+    engine, sink = eng
+    engine.set_rules(
+        [
+            AlertRule(id="total", name="Hottest GPU", metric="gpu.temp_c", threshold=85, for_s=0),
+            AlertRule(id="totals", name="Node GPU temperature", metric="gpu.temp*", threshold=85, for_s=0),
+        ],
+        T0,
+    )
+    feed_ws1(engine, WS1_QUIET_T, 1, temps=(60.0, 60.0, 60.0, 90.0))
+    assert fired(sink.events) == [
+        ("total", "gpu.temp_c", "Hottest GPU on ws1"),
+        ("totals", "gpu.temp_c", "Node GPU temperature on ws1"),
+    ]
+
+
+@pytest.mark.parametrize("info", [MODEL.info, None], ids=["with node info", "before the hello"])
+def test_on_a_one_gpu_node_the_default_gpu_rules_read_exactly_as_before(eng, info):
+    engine, sink = eng
+    for i in range(11):
+        engine.evaluate_sample("spark2", sample(T0 + i, temp=86.0, mask=0x20), info)
+    engine.evaluate_sample("spark2", sample(T0 + 11), info)
+    events = [e for e in sink.events if e.rule_id and e.rule_id.startswith("gpu_")]
+    assert [(e.metric, e.title, e.detail) for e in events] == [
+        ("gpu0.temp_c", "GPU temperature critical on spark2", "86 °C for 10 s (threshold 85 °C)"),
+        ("gpu0.throttle_mask", "GPU throttling on spark2", "Thermal limit for 10 s"),
+        (
+            "gpu0.temp_c",
+            "Resolved: GPU temperature critical on spark2",
+            "Now 60 °C · cleared after 1 s · was critical",
+        ),
+        (
+            "gpu0.throttle_mask",
+            "Resolved: GPU throttling on spark2",
+            "No longer throttling · cleared after 1 s · was warning",
+        ),
+    ]
