@@ -227,6 +227,23 @@ describe('Overview', () => {
     });
   });
 
+  it('reads a lost GPU as not responding in its ring, like the stats beside it', () => {
+    const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+    const gaps = ['gpu0', 'gpu0.util', 'gpu0.temp_c', 'gpu0.power_w'].map((metric) => ({ metric, reason: lost, kind: 'hardware' }));
+    const info = { node_id: 'lost1', hostname: 'lost1', gpus: [{ index: 0, name: 'GPU 0', vendor: 'nvidia', backend: 'nvml' }], net: [], cores: [], disks: [], sensors: [], mem_total: 0, unsupported: gaps } as unknown as NodeInfo;
+    useCluster.getState().setHello(cluster([node('lost1', { info })]));
+    act(() => {
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: 'lost1', ts: now, gpu: [{ index: 0 }] as Sample['gpu'] });
+      liveStore.flush();
+    });
+    render(<Overview />);
+    const card = screen.getByRole('region', { name: 'Node lost1' });
+    const ring = within(card).getByRole('img', { name: /^GPU utilisation/ });
+    expect(ring).toHaveAccessibleName('GPU utilisation not responding');
+    expect(ring).toHaveTextContent('Not responding');
+    expect(within(card).getByText('GPU temp').parentElement).toHaveTextContent('Not responding');
+  });
+
   it('says a Wi-Fi-only node has no direct link, not that ConnectX-7 is not collected yet', () => {
     const reason = 'Only Wi-Fi or virtual interfaces (wlp2s0), which Sparkline skips unless include_virtual = true';
     const wifi = { name: 'wlp2s0', role: 'wireless', label: 'Wi-Fi', mac: null, ipv4: [], speed_mbps: null, rdma_device: null, counter_source: 'netdev', peer: null };
