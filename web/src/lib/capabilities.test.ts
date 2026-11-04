@@ -85,3 +85,23 @@ describe('notReported', () => {
     expect(notReported(undefined, 'gpu0.util')).toBeNull();
   });
 });
+
+describe('notReported for a lost GPU', () => {
+  const lost = 'NVML could not open GPU 1 (NVML: GPU is lost)';
+  const info = {
+    unsupported: [
+      { metric: 'gpu1', reason: lost, kind: 'hardware' },
+      { metric: 'gpu1.util', reason: lost, kind: 'hardware' },
+      { metric: 'gpu0.fan_pct', reason: 'No fan', kind: 'hardware' },
+    ],
+  } as unknown as NodeInfo;
+
+  it("says every one of its metrics is not responding, not that the hardware lacks it", () => {
+    expect(notReported(info, 'gpu1.util')).toEqual({ kind: 'hardware', label: 'Not responding', detail: lost });
+    expect(notReported(info, 'gpu1.temp_c')?.label).toBe('Not responding');
+  });
+  it('leaves the other GPUs alone', () => {
+    expect(notReported(info, 'gpu0.fan_pct')?.label).toBe('Not reported by this hardware');
+    expect(notReported(info, 'gpu0.util')).toBeNull();
+  });
+});
