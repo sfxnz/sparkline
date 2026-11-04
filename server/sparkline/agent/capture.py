@@ -30,6 +30,7 @@ import sys
 import tarfile
 import time
 import traceback
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -38,21 +39,26 @@ from typing import Any, Literal, TypeVar
 import psutil
 
 from ..common.metrics import flatten
-from ..common.schema import NodeInfo
+from ..common.schema import NodeInfo, Sample
 from .collectors.gpu import GpuCollector
 from .config import AgentConfig
 from .info import AGENT_VERSION, Collectors
+from .readset import IDENTIFIER_FIELDS
 from .redact import (
+    RENAME,
     CaptureRefused,
     Dir,
     Facts,
     File,
+    Leak,
     Link,
     Node,
     Recording,
+    Spellings,
     User,
     dumps,
     leaks,
+    name_collisions,
     platform_doc,
     redact,
 )
@@ -301,7 +307,7 @@ def traced(src: Sources) -> tuple[Sources, Tape]:
     return Sources(**readings), tape
 
 
-def exercise(src: Sources) -> tuple[NodeInfo, dict[str, float], set[int]]:
+def exercise(src: Sources) -> tuple[NodeInfo, Sample, set[int]]:
     cfg = AgentConfig(node_id=NODE_ID_NOT_THE_HOSTNAME, data_dir=DATA_DIR_NEVER_CREATED)
     collectors = Collectors(cfg, src)
     try:
@@ -313,7 +319,7 @@ def exercise(src: Sources) -> tuple[NodeInfo, dict[str, float], set[int]]:
             gpu_pids = set(collectors.gpu.proc_mem)
     finally:
         collectors.close()
-    return info, flatten(sample), gpu_pids
+    return info, sample, gpu_pids
 
 
 def ask_what_a_second_tick_asks(gpu: GpuCollector) -> None:
@@ -504,54 +510,81 @@ def write_archive(out: Path) -> Path:
     return archive
 
 
-def _shape(v: Any) -> Any:
-    if isinstance(v, dict):
-        return {k: _shape(x) for k, x in v.items()}
-    if isinstance(v, list):
-        return [_shape(x) for x in v]
-    return type(v).__name__
+def _masked(doc: Any, where: str) -> Any:
+    if where in IDENTIFIER_FIELDS:
+        return "an identifier"
+    if isinstance(doc, dict):
+        return {k: _masked(v, f"{where}.{k}") for k, v in doc.items()}
+    if isinstance(doc, list):  # sorted, so that a renamed identifier cannot misalign the list
+        return sorted((_masked(v, f"{where}[*]") for v in doc), key=lambda v: json.dumps(v, sort_keys=True))
+    return doc
 
 
-def _differences(a: Any, b: Any, where: str) -> list[str]:
-    if isinstance(a, dict) and isinstance(b, dict):
-        return [d for k in sorted(set(a) | set(b)) for d in _differences(a.get(k), b.get(k), f"{where}.{k}")]
-    if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+def _proc_texts(sample: Sample, pids: set[int]) -> list[dict[str, Any]]:
+    return [
+        {
+            k: v
+            for k, v in p.model_dump(mode="json").items()
+            if isinstance(v, str) and f"procs[*].{k}" not in IDENTIFIER_FIELDS
+        }
+        for p in sorted(sample.procs or [], key=lambda p: p.pid)
+        if p.pid in pids
+    ]
+
+
+def _differences(live: Any, replay: Any, where: str) -> list[tuple[str, Any]]:
+    if isinstance(live, dict) and isinstance(replay, dict):
         return [
-            d for i, (x, y) in enumerate(zip(a, b, strict=True)) for d in _differences(x, y, f"{where}[{i}]")
+            d
+            for k in sorted(set(live) | set(replay))
+            for d in _differences(live.get(k), replay.get(k), f"{where}.{k}")
         ]
-    return [] if a == b else [where]
+    if isinstance(live, list) and isinstance(replay, list) and len(live) == len(replay):
+        return [d for x, y in zip(live, replay, strict=True) for d in _differences(x, y, f"{where}[*]")]
+    return [] if live == replay else [(where, live)]
 
 
-def _keys_without_instance_names(flat: dict[str, float]) -> dict[str, int]:
-    out: dict[str, int] = {}
-    for key in flat:
-        parts = key.split(".")
-        family = key
-        if len(parts) > 2:
-            family = f"{parts[0]}.*.{parts[-1]}"
-        elif parts[0] == "temp":
-            family = "temp.*"
-        out[family] = out.get(family, 0) + 1
-    return out
+def _instance_masked(key: str) -> str:
+    family, _, rest = key.partition(".")
+    return f"{family}.*.{rest.rpartition('.')[2]}" if family in ("net", "fs") and "." in rest else key
 
 
-def replay_differences(info: NodeInfo, flat: dict[str, float], out: Path) -> list[str]:
+def _family(key: str) -> str:
+    parts = key.split(".")
+    if parts[0] == "temp":
+        return "temp.*"
+    return f"{parts[0]}.*.{parts[-1]}" if len(parts) > 2 else key
+
+
+def replay_check(info: NodeInfo, sample: Sample, out: Path, names: Spellings) -> tuple[list[str], list[Leak]]:
     src = recorded(out)
     try:
-        rinfo, rflat, _ = exercise(src)
+        rinfo, rsample, _ = exercise(src)
     except Exception as e:
-        return [f"the replay failed ({type(e).__name__})"]
+        return [f"the replay failed ({type(e).__name__})"], []
     found = _differences(
-        _shape(info.model_dump(mode="json")), _shape(rinfo.model_dump(mode="json")), "node_info"
+        _masked(info.model_dump(mode="json"), "node_info"),
+        _masked(rinfo.model_dump(mode="json"), "node_info"),
+        "node_info",
     )
-    replayed = _keys_without_instance_names(rflat)
-    lost_by_the_replay = [k for k, n in _keys_without_instance_names(flat).items() if replayed.get(k, 0) < n]
-    found += [f"sample key {k}" for k in sorted(lost_by_the_replay)]
+    both = {p.pid for p in sample.procs or []} & {p.pid for p in rsample.procs or []}
+    found += _differences(_proc_texts(sample, both), _proc_texts(rsample, both), "procs")
+    flat = flatten(sample)
+    replayed = Counter(_instance_masked(k) for k in flatten(rsample))
+    wanted = Counter(_instance_masked(k) for k in flat)
+    lost = {k for k, n in wanted.items() if replayed[k] < n}
+    found += [(f"sample key {_family(k)}", k) for k in sorted(flat) if _instance_masked(k) in lost]
+    collided = [
+        Leak(where, c)
+        for where, live in found
+        for c in sorted(names.names_in(live if isinstance(live, str) else json.dumps(live)))
+    ]
+    differences = list(dict.fromkeys(where for where, _ in found))
     if isinstance(src.nvml, NvmlReplay):
-        found += [
+        differences += [
             f"NVML call {m.split('[')[0]} is not in the recording" for m in dict.fromkeys(src.nvml.misses)
         ]
-    return found
+    return differences, list(dict.fromkeys(collided))
 
 
 @dataclass(frozen=True)
@@ -564,32 +597,42 @@ class Report:
     differences: list[str]
 
 
+def _remove(out: Path, created: bool) -> None:
+    if created:
+        shutil.rmtree(out, ignore_errors=True)
+        return
+    for child in out.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
 def capture(src: Sources, out: Path, facts: Facts) -> Report:
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
         raise OutputNotEmpty(f"{out} already exists and is not an empty directory")
     tsrc, tape = traced(src)
-    info, flat, gpu_pids = exercise(tsrc)
+    info, sample, gpu_pids = exercise(tsrc)
     tree, dropped = materialize(tape, src.fs, gpu_pids)
     raw = Recording(src.platform, _meta(info, tape, dropped), tree, tape.nvml, tape.host)
     red = redact(raw, facts)
     found = leaks(red)
     if found:
         raise CaptureRefused(found)
+    collided = name_collisions(red)
+    if collided:
+        raise CaptureRefused(collided, RENAME)
     created = not out.exists()
     try:
         out.mkdir(exist_ok=True)
         write(red.recording, out)
     except BaseException:
-        if created:
-            shutil.rmtree(out, ignore_errors=True)
-        else:
-            for child in out.iterdir():
-                if child.is_dir() and not child.is_symlink():
-                    shutil.rmtree(child)
-                else:
-                    child.unlink()
+        _remove(out, created)
         raise
-    differences = replay_differences(info, flat, out)
+    differences, collided = replay_check(info, sample, out, red.originals)
+    if collided:
+        _remove(out, created)
+        raise CaptureRefused(collided, RENAME)
     return Report(
         out,
         write_archive(out),
