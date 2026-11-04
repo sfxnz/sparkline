@@ -19,8 +19,17 @@ from sparkline.console.bench import REGISTRY, params_key, validate_params
 from sparkline.console.bench_store import BenchStore
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel
-from sparkline.console.demo_bench import demo_catalog, demo_duration, make_results, seed_history, validate
+from sparkline.console.demo_bench import (
+    demo_catalog,
+    demo_duration,
+    make_results,
+    seed_history,
+    soak_point,
+    soak_results,
+    validate,
+)
 from sparkline.console.demo_fleets import FLEETS
+from sparkline.console.demo_workstation import SM_MAX_MHZ
 from sparkline.console.store import Store
 
 T0 = 1_791_280_000.0
@@ -50,7 +59,7 @@ def test_a_node_without_rdma_cannot_run_multi_node_benchmarks_and_says_why():
 
 
 def test_demo_results_modelled_on_gb10_are_offered_only_on_gb10_nodes(tmp_path):
-    gb10_only = {"gpu-matmul", "mem-bandwidth", "cpu-throughput"}
+    gb10_only = {"gpu-matmul", "mem-bandwidth", "cpu-throughput", "storage-fio"}
     reason = "Demo results are modelled on GB10 only"
     info = FLEETS["mixed"]["ws1"](T0, 1.0).info
     ws1 = {s.id: s.availability["ws1"] for s in demo_catalog("ws1", info)}
@@ -65,6 +74,24 @@ def test_demo_results_modelled_on_gb10_are_offered_only_on_gb10_nodes(tmp_path):
             assert catalog[bench]["spark1"] is None
             r = c.post("/api/v1/bench/runs", json={"bench_id": bench, "nodes": ["ws1"], "confirm": True})
             assert r.status_code == 400 and r.json()["problem"]["message"] == reason
+
+
+def _soak(model) -> dict[str, float]:
+    series: dict[str, list[float]] = {}
+    rng = random.Random(0)
+    for k in range(0, 60, 2):
+        for key, v in soak_point(model, T0 + k, rng).items():
+            series.setdefault(key, []).append(v)
+    return {r.metric: r.value for r in soak_results(series)}
+
+
+def test_the_thermal_soak_reports_gb10_throughput_only_on_gb10():
+    ws1 = _soak(FLEETS["mixed"]["ws1"](T0, 1.0))
+    assert not any("tflops" in m for m in ws1)
+    assert {"sm_mhz_mean", "sm_mhz_min", "temp_max_c", "throttled_pct", "power_capped_pct"} <= set(ws1)
+    assert 2000 <= ws1["sm_mhz_mean"] <= SM_MAX_MHZ
+    spark1 = _soak(DemoModel("spark1", T0))
+    assert 80 <= spark1["tflops_first"] <= 100 and "tflops_change_pct" in spark1
 
 
 def test_seeded_history_stays_on_the_dgx_cluster_in_the_mixed_fleet(tmp_path):
