@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { headroomGpu, type HeadroomGpu } from '../../../lib/condition';
 import { gpuKey } from '../../../lib/metrics';
 import { useCluster } from '../../../store/cluster';
+import { useTotalFrom } from '../../shared/totalGap';
 import type { LiveStore } from '../../../store/live';
 import { useLiveDerived } from '../partsC/hooks';
 import { tempHeadroom } from './gpu';
@@ -21,5 +22,6 @@ export function NodeTempFooter({ nodeId, oneGpuTemp }: { nodeId: string; oneGpuT
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const compute = useCallback((st: LiveStore) => headroomGpu(info, oneGpuTemp, (i) => st.latestValue(nodeId, gpuKey(i, 'temp_c'))), [info, oneGpuTemp, nodeId]);
   const gpu = useLiveDerived(nodeId, compute, sameHeadroom);
-  return <TempFooter temp={gpu.temp} slowdown={gpu.slowdown} shutdown={gpu.shutdown} name={gpu.name} />;
+  const from = useTotalFrom(nodeId, 'temp_c');
+  return <><TempFooter temp={gpu.temp} slowdown={gpu.slowdown} shutdown={gpu.shutdown} name={gpu.name} />{from ? ` · ${from}` : null}</>;
 }

@@ -2,7 +2,7 @@
 // on connect), so an offline node still shows its last known values after a reload. Each hook re-renders only its
 // own leaf, and only when its (quantised) value changes.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
-import { gpuSetGap, nodeGpuKey, nodeTotalGap } from '../../lib/gpu';
+import { gpuCountText, gpuSetGap, nodeGpuKey, nodeTotalGap, totalFrom } from '../../lib/gpu';
 import type { HistoryResponse, NodeState, NodeStatus } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -69,6 +69,25 @@ export interface ClusterGpuNow {
   power: number | null;
   /** Nodes left out of `power` because `nodeTotalGap` explains their missing power, one per line. */
   dropped: string;
+  /** `utilGpusRead`. */
+  utilFrom: string;
+}
+
+/** "4 of 5 GPUs": the GPUs the nodes' utilisation totals read, while one node's total reads only some of its GPUs
+ *  (`totalFrom`); '' otherwise, so a cluster of one-GPU nodes never shows it. */
+export function utilGpusRead(ids: readonly string[], nodes: Readonly<Record<string, NodeState | undefined>>): string {
+  let from = 0;
+  let of = 0;
+  let partial = false;
+  for (const id of ids) {
+    const info = nodes[id]?.info;
+    const listed = info?.gpus.length ?? 0;
+    const count = totalFrom(info, liveStore.latest(id), 'util');
+    partial ||= count !== null;
+    from += count?.from ?? (liveStore.latestValue(id, nodeGpuKey(info, 'util')) === null ? 0 : listed);
+    of += listed;
+  }
+  return partial ? gpuCountText({ from, of }) : '';
 }
 
 /** The live nodes' GPU load and power from each node's totals: mean utilisation and summed power. A node whose power
@@ -90,7 +109,7 @@ export function clusterGpuNow(ids: readonly string[], nodes: Readonly<Record<str
     if (p !== null) power = (power ?? 0) + p;
     else if (nodeTotalGap(info, liveStore.latest(id), 'power_w')) dropped.push(id);
   }
-  return { util: utilN ? utilSum / utilN : null, power, dropped: dropped.join('\n') };
+  return { util: utilN ? utilSum / utilN : null, power, dropped: dropped.join('\n'), utilFrom: utilGpusRead(ids, nodes) };
 }
 
 /** True once the browser holds any sample for the node (live or seeded). */

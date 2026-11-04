@@ -30,7 +30,7 @@ import { preloadSummary } from '../node/tabs';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from './hooks';
 import { memSplit, topGpuProcess, workloadName } from './model';
 import { spanPhrase } from '../shared/live';
-import { useTotalGap } from '../shared/totalGap';
+import { useTotalFrom, useTotalGap } from '../shared/totalGap';
 import { everyGpuLost, nodeGpuKey } from '../../lib/gpu';
 import { gpuKey } from '../../lib/metrics';
 
@@ -226,9 +226,10 @@ function CardNotice() {
 function UtilRing() {
   const { id, freshness, info } = useContext(Ctx);
   const util = useLiveValue(id, nodeGpuKey(info, 'util'), 1);
+  const from = useTotalFrom(id, 'util');
   const lost = everyGpuLost(info);
   if (util === null && freshness === 'waiting' && !lost) return <Skeleton width={RING} height={RING} radius={RING / 2} />;
-  const said = lost ? lost.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%`;
+  const said = lost ? lost.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%${from ? `, from ${from}` : ''}`;
   return (
     <RingGauge value={lost ? null : util === null ? null : util / 100} size={RING} stroke={8} label={`GPU utilisation ${said}`}>
       <span className="ov-ring">
@@ -240,7 +241,7 @@ function UtilRing() {
             {util !== null ? <span className="ov-ring__unit">%</span> : null}
           </span>
         )}
-        <span className="ov-ring__label">GPU</span>
+        <span className="ov-ring__label">{from && !lost ? from : 'GPU'}</span>
       </span>
     </RingGauge>
   );
@@ -270,6 +271,7 @@ function Temperature() {
   const temp = useLiveValue(id, nodeGpuKey(info, 'temp_c'), 1);
   const gpu = useAcross([id], () => headroomGpu(info, temp, (i) => liveStore.latestValue(id, gpuKey(i, 'temp_c'))), shallowEqual, `${String(temp)}|${info?.node_id ?? ''}`);
   const gap = useTotalGap(id, 'temp_c');
+  const from = useTotalFrom(id, 'temp_c');
   const room = tempRoom(gpu.temp, gpu.slowdown);
   const why = room ? <span className="visually-hidden"> to the {gpu.slowdown} °C slowdown threshold</span> : null;
   const flag =
@@ -278,8 +280,8 @@ function Temperature() {
     ) : room?.level === 'warn' ? (
       <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>
     ) : null;
-  // The footer has two lines: the second names the flagged GPU.
-  const second = flag ? gpu.name : null;
+  // The footer has two lines: the second names the flagged GPU, or else how many GPUs the reading covers.
+  const second = flag ? gpu.name : from;
   const footer = room ? (
     <>
       {flag ?? <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</>}

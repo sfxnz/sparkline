@@ -14,6 +14,7 @@ import { NowLabel } from './parts/NowLabel';
 import { TabLink } from './parts/TabLink';
 import { NodeTempFooter } from './parts/TempFooter';
 import { useNodeGpuGap } from './parts/useGpuGap';
+import { useTotalFrom } from '../shared/totalGap';
 import { CollectorErrors, ThrottleNotice } from './parts/Notices';
 import { cpuUtil, cx7Rails, memAvailable, NO_LINK_REASON, nodeGpuSelector, railShort, rootUsedPct, sumNet } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
@@ -54,6 +55,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
     [rails],
   );
   const utilGap = useNodeGpuGap(nodeId, 'util');
+  const utilFrom = useTotalFrom(nodeId, 'util');
   const tempGap = useNodeGpuGap(nodeId, 'temp_c');
   const powerGap = useNodeGpuGap(nodeId, 'power_w');
   const netGap = interconnectGap(info);
@@ -63,7 +65,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
       <Panel label="At a glance">
         <NowLabel />
         <div className="nstats nstats--8">
-          <LiveStat nodeId={nodeId} label="GPU utilisation" select={nodeGpuSelector(info, 'util')} metric={utilKey} format={percentParts} unsupported={utilGap} href={paths.node(nodeId, 'gpu')} footer={() => 'Time the GPU was busy'} />
+          <LiveStat nodeId={nodeId} label="GPU utilisation" select={nodeGpuSelector(info, 'util')} metric={utilKey} format={percentParts} unsupported={utilGap} href={paths.node(nodeId, 'gpu')} footer={() => `Time the GPU was busy${utilFrom ? ` · ${utilFrom}` : ''}`} />
           <LiveStat
             nodeId={nodeId}
             label="GPU temperature"

@@ -83,6 +83,25 @@ export function nodeTotalGap(info: NodeInfo | null | undefined, s: Sample | null
   return notReported(info, nodeGpuKey(info, field)) ?? totalGap(info, s, field);
 }
 
+/** How many of the GPUs a node lists a node total read this tick. */
+export interface GpuCount {
+  from: number;
+  of: number;
+}
+
+/** The GPUs the node's mean utilisation or hottest temperature reads, when that is fewer than the node lists (one
+ *  lost, or silent this tick). Null on a node with one GPU, and when every GPU or none has `field`. A power total is
+ *  never partial: it needs every GPU. */
+export function totalFrom(info: NodeInfo | null | undefined, s: Sample | null, field: Exclude<NodeTotal, 'power_w'>): GpuCount | null {
+  const listed = info?.gpus ?? [];
+  if (listed.length < 2 || !s) return null;
+  const from = listed.filter((g) => gpuAt(s.gpu, g.index)?.[field] != null).length;
+  return from > 0 && from < listed.length ? { from, of: listed.length } : null;
+}
+
+/** "3 of 4 GPUs". */
+export const gpuCountText = (c: GpuCount) => `${String(c.from)} of ${String(c.of)} GPUs`;
+
 export interface SilentBackend {
   backend: string;
   /** The backend's error from `errors.gpu`, when the agent named it. */

@@ -324,7 +324,7 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
   it("reads utilisation and temperature from GPUs 1 to 3 while GPU 0 is lost, keeps counting ws1's processes and gives the lost GPU as the power gap", () => {
     const lost = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
     const card = show(withGpus({ 0: { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null } }), lost);
-    expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 87%');
+    expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 87%, from 3 of 4 GPUs');
     expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C/);
     expect(stat(card, 'GPU power')).toHaveTextContent('No total');
     expect(why(stat(card, 'GPU power'))).toHaveAccessibleDescription(`GPU 0: ${LOST}`);

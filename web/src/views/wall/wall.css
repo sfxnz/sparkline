@@ -130,6 +130,7 @@
 .wall-value { display: inline-flex; align-items: baseline; gap: 0.18em; color: var(--text-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wall-value__num { font-size: calc(var(--u) * 2.3); line-height: 1.1; font-weight: 640; letter-spacing: -0.02em; }
 .wall-value__unit { font-size: calc(var(--u) * 1.1); font-weight: 560; color: var(--text-2); }
+.wall-from { display: block; font-size: calc(var(--u) * 0.85); line-height: 1.2; font-weight: 520; color: var(--text-3); }
 
 .wall-tile__hero { display: grid; gap: calc(var(--u) * 0.2); }
 .wall-tile__hero .wall-value__num { font-size: calc(var(--u) * 6.4); line-height: 1; font-weight: 660; letter-spacing: -0.04em; }

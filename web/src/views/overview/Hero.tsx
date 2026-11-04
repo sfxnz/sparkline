@@ -38,6 +38,7 @@ function Activity() {
         util: now.util === null ? null : Math.round(now.util),
         power: now.power === null ? null : Math.round(now.power * 10) / 10,
         dropped: now.dropped,
+        utilFrom: now.utilFrom,
       };
     },
     shallowEqual,
@@ -59,6 +60,7 @@ function Activity() {
         <span className="ov-hero__numbers">
           {a.workload ? <span className="ov-hero__sep" aria-hidden="true">· </span> : null}
           GPU <AnimatedNumber value={a.util} format={intText} />%
+          {a.utilFrom ? ` (${a.utilFrom})` : null}
           {a.power !== null ? (
             <>
               {' '}at <AnimatedNumber value={a.power} format={wattsText} />{' '}W

@@ -2,6 +2,7 @@
 // The UI flags these values the moment they appear (red "At slowdown", a critical clock-limit banner), so the node's
 // status pill and the cluster sentence must reflect them too; alert durations only gate notifications.
 import { formatTemp } from './format';
+import { lostGpu } from './capabilities';
 import { gpuAt, gpuIndexes, gpuList } from './gpu';
 import { decodeThrottle, worstSeverity } from './throttle';
 import type { GpuInfo, NodeInfo, Sample } from './types';
@@ -90,11 +91,16 @@ function gpuCondition(index: number, gpu: ConditionInput, slowdownC: number | nu
   return null;
 }
 
-/** Each GPU's live condition in the sample, in index order; GPUs with nothing on screen to flag are left out. */
+const lostCondition = (index: number): GpuCondition => ({
+  index, level: 'warning', text: 'has a GPU not responding', what: 'Not responding', reading: 'Not responding', clause: { one: 'not responding', many: 'not responding' },
+});
+
+/** Each GPU's live condition in the sample, in index order; GPUs with nothing on screen to flag are left out. On a node
+ *  with several GPUs, a lost one is not responding (a node with one says so in its own notice). */
 export function gpuConditions(info: NodeInfo | null | undefined, s: Sample | null): GpuCondition[] {
-  return (s?.gpu ?? [])
-    .toSorted((a, b) => a.index - b.index)
-    .flatMap((g) => gpuCondition(g.index, g, gpuAt(info?.gpus, g.index)?.temp_slowdown_c) ?? []);
+  const lost = (info?.gpus.length ?? 0) > 1 ? (info?.gpus ?? []).filter((g) => lostGpu(info, g.index)).map((g) => lostCondition(g.index)) : [];
+  const live = (s?.gpu ?? []).flatMap((g) => (lost.some((c) => c.index === g.index) ? [] : (gpuCondition(g.index, g, gpuAt(info?.gpus, g.index)?.temp_slowdown_c) ?? [])));
+  return [...lost, ...live].toSorted((a, b) => a.index - b.index);
 }
 
 export interface ConditionGroup {

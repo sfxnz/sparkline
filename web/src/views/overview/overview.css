@@ -64,7 +64,8 @@
   /* A stat column here is narrower than a label word plus its info button, so the button follows the text. */
   .ov-stat .unsupported { display: block; }
   .ov-stat .unsupported__info { display: inline-grid; vertical-align: middle; }
-  /* The temperature column is narrower than its flag: the flag and the GPU it names take a row under both stats. */
+  /* The temperature column is narrower than its flag: the flag and the GPU it names take a row under both stats,
+     and the footer's second line, a GPU count, has no room. */
   .ov-card__flag { display: block; }
   .ov-stat .ov-flag, .ov-stat__who { display: none; }
 }

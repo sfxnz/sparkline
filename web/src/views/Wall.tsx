@@ -88,7 +88,7 @@ function ClusterLine() {
     ids,
     () => {
       const now = clusterGpuNow(ids, nodes);
-      return { util: now.util === null ? null : Math.round(now.util), power: now.power === null ? null : Math.round(now.power * 2) / 2, dropped: now.dropped };
+      return { util: now.util === null ? null : Math.round(now.util), power: now.power === null ? null : Math.round(now.power * 2) / 2, dropped: now.dropped, utilFrom: now.utilFrom };
     },
     shallowEqual,
     Object.keys(nodes).join(),
@@ -98,7 +98,7 @@ function ClusterLine() {
     <p className="wall-hero__line">
       <span>GPU </span>
       <AnimatedNumber value={v.util} format={pct} />
-      <span>% across {ids.length === 1 ? '1 live node' : `${ids.length} live nodes`}</span>
+      <span>% across {ids.length === 1 ? '1 live node' : `${ids.length} live nodes`}{v.utilFrom ? ` (${v.utilFrom})` : ''}</span>
       <span className="wall-hero__sep" aria-hidden="true">·</span>
       <AnimatedNumber value={v.power} format={watts} />
       <span> W GPU power{v.dropped ? ` · excl. ${listNodes(v.dropped.split('\n'))}` : ''}</span>

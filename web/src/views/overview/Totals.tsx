@@ -10,7 +10,7 @@ import type { NodeState } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { formatEnergyCost, formatKwh } from '../shared/energy';
-import { shallowEqual, useAcross, useEnergyToday, useOnlineIds } from './hooks';
+import { shallowEqual, useAcross, useEnergyToday, useOnlineIds, utilGpusRead } from './hooks';
 import { clusterTotals, gpuProcesses, listNodes } from './model';
 
 /** "16:13": the local time of a reading. */
@@ -69,6 +69,7 @@ export function Totals() {
         procs: known ? procs.length : null,
         containers,
         utilDropped: droppedOut(ids, infos, 'util'),
+        utilFrom: utilGpusRead(ids, infos),
         powerDropped: droppedOut(ids, infos, 'power_w'),
         updatedAt: lastTs ? Math.floor(lastTs) : null,
       };
@@ -97,7 +98,7 @@ export function Totals() {
   return (
     <Panel label="Cluster totals" className="ov-totals">
       <div className="ov-totals__row">
-        <Stat label="Cluster compute" size="lg" value={totals.util} format={percentParts} unsupported={util.gap} footer={`Mean GPU utilisation${exclText(util.excl)} · ${of}`} {...staleProps} />
+        <Stat label="Cluster compute" size="lg" value={totals.util} format={percentParts} unsupported={util.gap} footer={`Mean GPU utilisation${totals.utilFrom ? ` (${totals.utilFrom})` : ''}${exclText(util.excl)} · ${of}`} {...staleProps} />
         <Stat
           label="GPU power"
           size="lg"

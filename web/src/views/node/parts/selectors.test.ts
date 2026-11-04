@@ -43,7 +43,7 @@ describe('node GPU selectors', () => {
 describe('node attention on a sample without GPU 0', () => {
   it("does not raise GPU 0's slowdown from another GPU's temperature", () => {
     const base = sampleJson as unknown as Sample;
-    const info = { gpus: [{ index: 0, temp_slowdown_c: 86 }, { index: 1, temp_slowdown_c: 110 }] } as unknown as NodeInfo;
+    const info = { gpus: [{ index: 0, temp_slowdown_c: 86 }, { index: 1, temp_slowdown_c: 110 }], unsupported: [] } as unknown as NodeInfo;
     const node = { node_id: 'att', status: 'online', info } as unknown as NodeState;
     useCluster.setState({ nodes: { att: node } });
     act(() => {

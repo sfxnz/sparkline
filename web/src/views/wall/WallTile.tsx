@@ -17,7 +17,7 @@ import { useConnection } from '../../store/connection';
 import { useNodeDisplayStatus } from '../../store/attention';
 import { liveStore } from '../../store/live';
 import { useTick } from '../alerts/parts/tick';
-import { useTotalGap } from '../shared/totalGap';
+import { useTotalFrom, useTotalGap } from '../shared/totalGap';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from '../overview/hooks';
 import { cx7Throughput, gbpsParts, interconnectNames } from './model';
 
@@ -49,6 +49,12 @@ function LiveTotal({ node, field, parts, quantum, info }: { node: string; field:
   const gap = useTotalGap(node, field);
   if (gap) return <Unsupported gap={gap} />;
   return <BigValue value={value} parts={parts} />;
+}
+
+/** "3 of 4 GPUs" under a reading that covers only some of the node's GPUs. */
+function TotalFrom({ node, field }: { node: string; field: Exclude<NodeTotal, 'power_w'> }) {
+  const from = useTotalFrom(node, field);
+  return from ? <span className="wall-from">{from}</span> : null;
 }
 
 function Cx7({ node, info }: { node: string; info: NodeInfo | null }) {
@@ -127,6 +133,7 @@ export function WallTile({ id }: { id: string }) {
           <div className="wall-tile__hero">
             <span className="wall-label">GPU utilisation</span>
             <LiveTotal node={id} field="util" parts={pctParts} quantum={1} info={info} />
+            <TotalFrom node={id} field="util" />
           </div>
           <div className="wall-tile__spark">
             <Sparkline label={`${id} GPU utilisation, last 5 minutes`} source={{ node: id, metric: nodeGpuKey(info, 'util'), windowS: 300 }} format={(n) => formatPercent(n)} min={0} max={100} height={sparkH} />
@@ -134,7 +141,7 @@ export function WallTile({ id }: { id: string }) {
           <dl className="wall-tile__stats">
             <div>
               <dt className="wall-label">GPU temperature</dt>
-              <dd><LiveTotal node={id} field="temp_c" parts={tempParts} quantum={1} info={info} /></dd>
+              <dd><LiveTotal node={id} field="temp_c" parts={tempParts} quantum={1} info={info} /><TotalFrom node={id} field="temp_c" /></dd>
             </div>
             <div>
               <dt className="wall-label">GPU power</dt>
