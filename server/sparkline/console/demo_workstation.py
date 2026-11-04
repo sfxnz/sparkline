@@ -508,10 +508,18 @@ class WorkstationModel:
             ],
             sensors=sensors,
             unsupported=[
+                *(
+                    Unsupported(metric=m, reason="This CPU has no performance/efficiency core split")
+                    for m in ("cpu.perf_util", "cpu.eff_util")
+                ),
                 Unsupported(metric="fan", reason="No fan sensors exposed by this hardware (hwmon)"),
                 Unsupported(
                     metric="system.power_w",
                     reason="Whole-system power is not exposed; only GPU board power (NVML) is",
+                ),
+                Unsupported(
+                    metric="mem.gpu",
+                    reason="These GPUs use dedicated memory (VRAM), not system memory",
                 ),
             ],
             tools={

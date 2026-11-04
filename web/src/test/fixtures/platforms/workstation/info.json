@@ -655,6 +655,16 @@
   ],
   "unsupported": [
     {
+      "metric": "cpu.perf_util",
+      "reason": "This CPU has no performance/efficiency core split",
+      "kind": "hardware"
+    },
+    {
+      "metric": "cpu.eff_util",
+      "reason": "This CPU has no performance/efficiency core split",
+      "kind": "hardware"
+    },
+    {
       "metric": "fan",
       "reason": "No fan sensors exposed by this hardware (hwmon)",
       "kind": "hardware"
@@ -662,6 +672,11 @@
     {
       "metric": "system.power_w",
       "reason": "Whole-system power is not exposed; only GPU board power (NVML) is",
+      "kind": "hardware"
+    },
+    {
+      "metric": "mem.gpu",
+      "reason": "These GPUs use dedicated memory (VRAM), not system memory",
       "kind": "hardware"
     }
   ],

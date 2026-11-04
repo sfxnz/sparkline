@@ -307,7 +307,13 @@ def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
     assert {k.split(".")[0] for k in keys if k.startswith("gpu")} == {"gpu0", "gpu1", "gpu2", "gpu3"}
     assert "mem.gpu" not in keys
     assert not [n.name for n in m.info.net if n.rdma_device or n.role == "interconnect"]
-    assert {u.metric for u in m.info.unsupported} == {"fan", "system.power_w"}
+    assert {u.metric for u in m.info.unsupported} == {
+        "cpu.perf_util",
+        "cpu.eff_util",
+        "fan",
+        "system.power_w",
+        "mem.gpu",
+    }
     assert len(m.info.cores) == 64 and {c.cluster for c in m.info.cores} == {0, 1, 2, 3}
     assert {"temp.k10temp.tctl", "temp.nvme.composite", "temp.nvme1.composite"} <= set(keys)
     procs = m.sample_at(T0, procs=True).procs or []
