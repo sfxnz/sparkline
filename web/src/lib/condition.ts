@@ -2,9 +2,9 @@
 // The UI flags these values the moment they appear (red "At slowdown", a critical clock-limit banner), so the node's
 // status pill and the cluster sentence must reflect them too; alert durations only gate notifications.
 import { formatTemp } from './format';
-import { gpuAt, gpuList } from './gpu';
+import { gpuAt, gpuIndexes, gpuList } from './gpu';
 import { decodeThrottle, worstSeverity } from './throttle';
-import type { NodeInfo, Sample } from './types';
+import type { GpuInfo, NodeInfo, Sample } from './types';
 
 export interface LiveCondition {
   level: 'warning' | 'critical';
@@ -24,6 +24,37 @@ export function tempRoom(tempC: number | null | undefined, limitC: number | null
   const shown = (c: number) => Math.round(c);
   const degrees = shown(limitC) - shown(tempC);
   return { degrees, level: degrees <= 0 ? 'crit' : degrees <= HEADROOM_WARN_C ? 'warn' : 'ok' };
+}
+
+export interface HeadroomGpu {
+  temp: number | null;
+  slowdown: number | null;
+  shutdown: number | null;
+  /** "GPU 3" on a node with several GPUs, null on a node with one. */
+  name: string | null;
+}
+
+/** The GPU a node's temperature footer measures. A node with one GPU (or none): that GPU at the node's own reading
+ *  `nodeTemp`. A node with several: the one with the least headroom to its own slowdown in `tempOf` (ties: lowest
+ *  index; without any slowdown, the hottest), named. */
+export function headroomGpu(info: NodeInfo | null | undefined, nodeTemp: number | null, tempOf: (index: number) => number | null): HeadroomGpu {
+  const gpus = info?.gpus ?? [];
+  if (gpus.length <= 1) {
+    const [only = 0] = gpuIndexes(info);
+    const g = gpuAt(gpus, only);
+    return { temp: nodeTemp, slowdown: g?.temp_slowdown_c ?? null, shutdown: g?.temp_shutdown_c ?? null, name: null };
+  }
+  let best: { g: GpuInfo; temp: number; room: number } | null = null;
+  for (const g of gpus.toSorted((a, b) => a.index - b.index)) {
+    const temp = tempOf(g.index);
+    if (temp === null) continue;
+    const room = tempRoom(temp, g.temp_slowdown_c)?.degrees ?? Infinity;
+    const closer = room === Infinity ? best?.room === Infinity && temp > best.temp : room < (best?.room ?? Infinity);
+    if (!best || closer) best = { g, temp, room };
+  }
+  return best
+    ? { temp: best.temp, slowdown: best.g.temp_slowdown_c, shutdown: best.g.temp_shutdown_c, name: `GPU ${best.g.index}` }
+    : { temp: null, slowdown: null, shutdown: null, name: null };
 }
 
 interface ConditionInput {

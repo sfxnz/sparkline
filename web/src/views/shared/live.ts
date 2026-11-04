@@ -84,12 +84,12 @@ export const SPAN_REFRESH_MS: Record<Span, number> = { today: 60_000, '7d': 300_
 const spanFrom = (span: Span, now: number) => (span === 'today' ? startOfDay(now) : now - 7 * 86400);
 const spanCache = historyCache.spans;
 
-export function loadSpan(node: string, key: string, span: Span): Promise<HistoryResponse> {
-  const id = `${node}|${key}|${span}`;
+export function loadSpan(node: string, keys: readonly string[], span: Span): Promise<HistoryResponse> {
+  const id = `${node}|${keys.join('|')}|${span}`;
   const hit = spanCache.get(id);
   if (hit && Date.now() - hit.at < SPAN_REFRESH_MS[span] / 2) return hit.promise;
   const now = serverNow();
-  const promise = api.history(node, [key], spanFrom(span, now), now, 600);
+  const promise = api.history(node, [...keys], spanFrom(span, now), now, 600);
   promise.catch(() => spanCache.delete(id));
   spanCache.set(id, { at: Date.now(), promise });
   if (spanCache.size > 32) spanCache.delete(spanCache.keys().next().value ?? '');

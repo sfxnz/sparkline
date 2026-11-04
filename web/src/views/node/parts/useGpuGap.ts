@@ -4,8 +4,7 @@ import { notResponding } from '../../../lib/gpu';
 import type { Sample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
-
-const sameGap = (a: NotReported | null, b: NotReported | null) => a?.label === b?.label && a?.detail === b?.detail;
+import { sameGap } from '../../shared/totalGap';
 
 /** Why a metric of GPU `index` has no value: the agent declares it not reported, or the GPU sent no reading this
  *  tick. */

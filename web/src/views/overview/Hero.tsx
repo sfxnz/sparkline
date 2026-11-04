@@ -3,9 +3,10 @@ import { AnimatedNumber } from '../../design/components/AnimatedNumber';
 import { Skeleton } from '../../design/components/Skeleton';
 import { StatusPill } from '../../design/components/StatusPill';
 import { wattsParts } from '../../lib/format';
+import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
-import { shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './hooks';
-import { workloadSentence } from './model';
+import { clusterGpuNow, shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './hooks';
+import { listNodes, workloadSentence } from './model';
 
 const intText = (n: number) => n.toFixed(0);
 const wattsText = (n: number) => wattsParts(n, 'W').value;
@@ -27,28 +28,20 @@ export function Hero() {
 /** "Serving X across 2 nodes · GPU 91% at 58 W". Re-renders when the words change; numbers animate in place. */
 function Activity() {
   const online = useOnlineIds();
+  const nodes = useCluster((s) => s.nodes);
   const a = useAcross(
     online,
     () => {
-      let utilSum = 0;
-      let utilN = 0;
-      let power: number | null = null;
-      for (const id of online) {
-        const u = liveStore.latestValue(id, 'gpu0.util');
-        const p = liveStore.latestValue(id, 'gpu0.power_w');
-        if (u !== null) {
-          utilSum += u;
-          utilN++;
-        }
-        if (p !== null) power = (power ?? 0) + p;
-      }
+      const now = clusterGpuNow(online, nodes);
       return {
         workload: workloadSentence(online.map((id) => ({ id, procs: liveStore.latest(id)?.procs ?? null }))),
-        util: utilN ? Math.round(utilSum / utilN) : null,
-        power: power === null ? null : Math.round(power * 10) / 10,
+        util: now.util === null ? null : Math.round(now.util),
+        power: now.power === null ? null : Math.round(now.power * 10) / 10,
+        dropped: now.dropped,
       };
     },
     shallowEqual,
+    Object.keys(nodes).join(),
   );
 
   if (!online.length) return <p className="ov-hero__activity ov-dim">No node is reporting live data.</p>;
@@ -69,6 +62,7 @@ function Activity() {
           {a.power !== null ? (
             <>
               {' '}at <AnimatedNumber value={a.power} format={wattsText} />{' '}W
+              {a.dropped ? ` · excl. ${listNodes(a.dropped.split('\n'))}` : null}
             </>
           ) : null}
         </span>

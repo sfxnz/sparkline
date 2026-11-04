@@ -4,6 +4,8 @@ import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
 import sampleJson from '../../test/fixtures/sample.json';
+import wsInfo from '../../test/fixtures/platforms/workstation/info.json';
+import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
 import { WallTile } from './WallTile';
 
 const now = Date.now() / 1000;
@@ -28,4 +30,33 @@ it('says a Wi-Fi-only node has no direct link, not that ConnectX-7 is not collec
   const cx7 = screen.getByText('ConnectX-7 in + out').closest('div') as HTMLElement;
   expect(within(cx7).getByText('No direct link')).toBeInTheDocument();
   expect(cx7).not.toHaveTextContent('Not collected yet');
+});
+
+describe('a four-GPU workstation on the wall (ws1)', () => {
+  const reading = wsSample as unknown as Sample;
+  const show = (sample: Sample) => {
+    const state: NodeState = { node_id: 'ws1', url: '', status: 'online', since: now, last_sample_ts: now, error: null, info: wsInfo as unknown as NodeInfo, next_retry_ts: null };
+    useConnection.setState({ status: 'live', everLive: true });
+    useCluster.setState({ clockOffset: 0, nodes: { ws1: state } });
+    act(() => {
+      liveStore.removeNode('ws1');
+      liveStore.pushSample({ ...sample, ts: now });
+      liveStore.flush();
+    });
+    render(<WallTile id="ws1" />);
+  };
+  const value = (label: string) => screen.getByText(label, { selector: '.wall-label' }).parentElement as HTMLElement;
+
+  it('shows the mean utilisation, the hottest GPU and the four powers summed', () => {
+    show(reading);
+    expect(value('GPU utilisation')).toHaveTextContent(/^GPU utilisation86%/);
+    expect(value('GPU temperature')).toHaveTextContent(/^GPU temperature77°C$/);
+    expect(value('GPU power')).toHaveTextContent(/^GPU power1069W$/);
+  });
+
+  it('says there is no power total, naming GPU 2, while GPU 2 sends no power reading', () => {
+    show({ ...reading, gpu: reading.gpu.map((g) => (g.index === 2 ? { ...g, power_w: null } : g)) });
+    expect(value('GPU power')).toHaveTextContent('No total');
+    expect(within(value('GPU power')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription('GPU 2 sent no power reading this tick, so a sum would understate.');
+  });
 });

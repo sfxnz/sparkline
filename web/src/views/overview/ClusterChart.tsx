@@ -3,7 +3,9 @@
 import { lazy, Suspense } from 'react';
 import { Panel } from '../../design/components/Panel';
 import { formatPercent, formatWatts } from '../../lib/format';
+import { nodeGpuKey } from '../../lib/gpu';
 import type { TimeRange } from '../../lib/prefs';
+import { useCluster } from '../../store/cluster';
 import { usePrefs } from '../../store/prefs';
 import { ChartSkeleton } from '../placeholders';
 
@@ -22,6 +24,7 @@ const pct = (n: number) => formatPercent(n);
 
 export function ClusterChart({ nodes }: { nodes: readonly string[] }) {
   const range = usePrefs((s) => s.timeRange);
+  const infos = useCluster((s) => s.nodes);
   return (
     <Suspense fallback={<ClusterChartSkeleton rows={nodes.length} />}>
       <Panel title="GPU activity" subtitle={`Utilisation and GPU power per node, on shared scales · ${RANGE_TEXT[range]}`}>
@@ -30,8 +33,8 @@ export function ClusterChart({ nodes }: { nodes: readonly string[] }) {
           <span className="ov-chart__col t-eyebrow" aria-hidden="true">GPU power</span>
           {nodes.map((id) => (
             <div key={id} className="ov-chart__row">
-              <TimeSeriesChart node={id} title={`${id} GPU utilisation`} series={[{ key: 'gpu0.util', label: id }]} format={pct} yMin={0} yMax={100} height={CHART_H} />
-              <TimeSeriesChart node={id} title={`${id} GPU power`} series={[{ key: 'gpu0.power_w', label: id }]} format={formatWatts} yMin={0} yGroup="overview-gpu-power" height={CHART_H} />
+              <TimeSeriesChart node={id} title={`${id} GPU utilisation`} series={[{ key: nodeGpuKey(infos[id]?.info, 'util'), label: id }]} format={pct} yMin={0} yMax={100} height={CHART_H} />
+              <TimeSeriesChart node={id} title={`${id} GPU power`} series={[{ key: nodeGpuKey(infos[id]?.info, 'power_w'), label: id }]} format={formatWatts} yMin={0} yGroup="overview-gpu-power" height={CHART_H} />
             </div>
           ))}
         </div>

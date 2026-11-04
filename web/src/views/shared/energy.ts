@@ -1,6 +1,9 @@
-// Energy from NVML's cumulative counter (gpu0.energy_j) and its display, shared by the Overview, GPU and
+// Energy from NVML's cumulative counters (gpu<i>.energy_j) and its display, shared by the Overview, GPU and
 // Thermals & Power screens so every screen totals and formats energy the same way. Unit-tested in energy.test.ts.
 import { DASH } from '../../lib/format';
+import { gpuIndexes } from '../../lib/gpu';
+import { gpuKey } from '../../lib/metrics';
+import type { NodeInfo } from '../../lib/types';
 
 const J_PER_KWH = 3.6e6;
 const NBSP = '\u00a0';
@@ -73,6 +76,19 @@ export function historyPlusLive(resp: { ts: readonly number[]; resolution_s: num
   // Live readings from the start of the last bucket on: extendCounter skips the ones that bucket already counted.
   const extra = extendCounter(values[i] ?? null, liveAfter((resp.ts[i] ?? 0) - resp.resolution_s));
   return (base ?? 0) + extra;
+}
+
+/** A node's GPU energy counters, one per GPU it lists. */
+export const energyKeys = (info: NodeInfo | null | undefined) => gpuIndexes(info).map((i) => gpuKey(i, 'energy_j'));
+
+/** historyPlusLive summed over several counters (one per GPU), or null when none of them has a reading. */
+export function sumCounters(resp: Parameters<typeof historyPlusLive>[0], keys: readonly string[], liveAfter: (key: string, ts: number) => readonly (number | null)[]): number | null {
+  let sum: number | null = null;
+  for (const k of keys) {
+    const j = historyPlusLive(resp, k, (t) => liveAfter(k, t));
+    if (j !== null) sum = (sum ?? 0) + j;
+  }
+  return sum;
 }
 
 export const joulesToKwh = (j: number) => j / J_PER_KWH;

@@ -4,6 +4,8 @@ import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
 import { gapAcross, notReported, type NotReported } from '../../lib/capabilities';
 import { formatBytes, formatPercent, percentParts, wattsParts, type Formatter } from '../../lib/format';
+import { gpuSetGap, nodeGpuKey, totalGap } from '../../lib/gpu';
+import type { NodeTotal } from '../../lib/metrics';
 import type { NodeState } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
@@ -16,13 +18,17 @@ const formatHm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { ho
 
 const countParts: Formatter = (n) => ({ value: n.toFixed(0), unit: '' });
 
-function leftOut(ids: readonly string[], nodes: Record<string, NodeState>, key: string): { excl: string[]; gap: NotReported | null } {
+function leftOut(ids: readonly string[], gapOf: (id: string) => NotReported | null): { excl: string[]; gap: NotReported | null } {
   const gaps = ids.flatMap((id) => {
-    const gap = notReported(nodes[id]?.info, key);
+    const gap = gapOf(id);
     return gap ? [[id, gap] as const] : [];
   });
   return { excl: gaps.map(([id]) => id), gap: gaps.length && gaps.length === ids.length ? gapAcross(gaps) : null };
 }
+
+/** Nodes whose `field` total dropped out of their latest sample, one per line (stable across ticks that agree). */
+const droppedOut = (ids: readonly string[], nodes: Record<string, NodeState>, field: NodeTotal) =>
+  ids.filter((id) => totalGap(nodes[id]?.info, liveStore.latest(id), field)).join('\n');
 const exclText = (excl: readonly string[]) => (excl.length ? ` · excl. ${listNodes(excl)}` : '');
 
 export function Totals() {
@@ -37,14 +43,14 @@ export function Totals() {
     () => {
       const t = clusterTotals(
         ids.map((id) => ({
-          util: liveStore.latestValue(id, 'gpu0.util'),
-          power: liveStore.latestValue(id, 'gpu0.power_w'),
+          util: liveStore.latestValue(id, nodeGpuKey(infos[id]?.info, 'util')),
+          power: liveStore.latestValue(id, nodeGpuKey(infos[id]?.info, 'power_w')),
           memUsed: liveStore.latestValue(id, 'mem.used'),
           memTotal: infos[id]?.info?.mem_total ?? null,
           psi: liveStore.latestValue(id, 'mem.psi_some'),
         })),
       );
-      const counted = ids.filter((id) => !notReported(infos[id]?.info, 'gpu0.proc_mem'));
+      const counted = ids.filter((id) => !gpuSetGap(infos[id]?.info, 'proc_mem', 'any'));
       const procs = counted.flatMap((id) => gpuProcesses(liveStore.latest(id)?.procs).map((p) => ({ id, p })));
       // A container is per node: the same name on two nodes (a TP=2 job) is two containers.
       const containers = new Set(procs.filter(({ p }) => p.container).map(({ id, p }) => `${id}/${p.container ?? ''}`)).size;
@@ -63,6 +69,8 @@ export function Totals() {
         memMissing: memMissing.join('\n'),
         procs: known ? procs.length : null,
         containers,
+        utilDropped: droppedOut(ids, infos, 'util'),
+        powerDropped: droppedOut(ids, infos, 'power_w'),
         updatedAt: lastTs ? Math.floor(lastTs) : null,
       };
     },
@@ -75,10 +83,17 @@ export function Totals() {
   const of = stale ? 'No node is reporting live data' : `${online.length === order.length ? 'All' : `${online.length} of`} ${order.length} ${order.length === 1 ? 'node' : 'nodes'} reporting`;
   const memMissing = totals.memMissing ? totals.memMissing.split('\n') : [];
   const memGap = !stale && ids.length === 1 && memMissing.length === 1 ? notReported(infos[ids[0] ?? '']?.info, 'mem') : null;
-  const util = leftOut(ids, infos, 'gpu0.util');
-  const power = leftOut(ids, infos, 'gpu0.power_w');
-  const gpuProcs = leftOut(ids, infos, 'gpu0.proc_mem');
-  const energyExcl = [...new Set([...power.excl, ...energy.missing])];
+  const totalOut = (field: NodeTotal, dropped: string) => (id: string) => {
+    const info = infos[id]?.info;
+    return notReported(info, nodeGpuKey(info, field)) ?? (dropped.split('\n').includes(id) ? totalGap(info, liveStore.latest(id), field) : null);
+  };
+  const util = leftOut(ids, totalOut('util', totals.utilDropped));
+  const power = leftOut(ids, totalOut('power_w', totals.powerDropped));
+  const gpuProcs = leftOut(ids, (id) => gpuSetGap(infos[id]?.info, 'proc_mem', 'any'));
+  const energyGaps = leftOut(ids, (id) => gpuSetGap(infos[id]?.info, 'energy_j', 'every'));
+  const energyExcl = [...new Set([...energyGaps.excl, ...energy.missing])];
+  const powerOnly = power.excl.filter((id) => !energyExcl.includes(id));
+  const nowExcl = powerOnly.length ? `Now excl. ${listNodes(powerOnly)} · ` : '';
 
   return (
     <Panel label="Cluster totals" className="ov-totals">
@@ -95,10 +110,10 @@ export function Totals() {
             energy.loading ? (
               <Skeleton width={150} height={12} />
             ) : energy.joules === null ? (
-              `Energy today unavailable${exclText(power.excl)}`
+              `${nowExcl}Energy today unavailable${exclText(energyGaps.excl)}`
             ) : (
               <span className="num">
-                Today {formatKwh(energy.joules)}
+                {nowExcl}Today {formatKwh(energy.joules)}
                 {exclText(energyExcl)}
                 {rate ? ` · ${formatEnergyCost(energy.joules, rate.energy_rate_per_kwh, rate.currency)}` : ''}
                 {Object.entries(energy.until).map(([id, ts]) => ` · ${id} until ${formatHm(ts)}`).join('')}

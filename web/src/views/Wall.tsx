@@ -10,10 +10,10 @@ import { formatDuration, wattsParts } from '../lib/format';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { useEvents } from '../store/events';
-import { liveStore } from '../store/live';
 import { SeverityBadge } from './alerts/parts/SeverityBadge';
 import { useTick } from './alerts/parts/tick';
-import { shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './overview/hooks';
+import { clusterGpuNow, shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './overview/hooks';
+import { listNodes } from './overview/model';
 import { tickerAlerts, wallColumns } from './wall/model';
 import { useFullscreen, useIdle, useWakeLock } from './wall/useWallChrome';
 import { WallTile } from './wall/WallTile';
@@ -83,24 +83,15 @@ const watts = (n: number) => wattsParts(n, 'W').value;
 /** Cluster-wide GPU load and GPU-rail power, from the nodes that are live right now. */
 function ClusterLine() {
   const ids = useOnlineIds();
+  const nodes = useCluster((s) => s.nodes);
   const v = useAcross(
     ids,
     () => {
-      let util = 0;
-      let nUtil = 0;
-      let power: number | null = null;
-      for (const id of ids) {
-        const u = liveStore.latestValue(id, 'gpu0.util');
-        const p = liveStore.latestValue(id, 'gpu0.power_w');
-        if (u !== null) {
-          util += u;
-          nUtil++;
-        }
-        if (p !== null) power = (power ?? 0) + p;
-      }
-      return { util: nUtil ? Math.round(util / nUtil) : null, power: power === null ? null : Math.round(power * 2) / 2 };
+      const now = clusterGpuNow(ids, nodes);
+      return { util: now.util === null ? null : Math.round(now.util), power: now.power === null ? null : Math.round(now.power * 2) / 2, dropped: now.dropped };
     },
     shallowEqual,
+    Object.keys(nodes).join(),
   );
   if (!ids.length) return <p className="wall-hero__line">No live data</p>;
   return (
@@ -110,7 +101,7 @@ function ClusterLine() {
       <span>% across {ids.length === 1 ? '1 live node' : `${ids.length} live nodes`}</span>
       <span className="wall-hero__sep" aria-hidden="true">·</span>
       <AnimatedNumber value={v.power} format={watts} />
-      <span> W GPU power</span>
+      <span> W GPU power{v.dropped ? ` · excl. ${listNodes(v.dropped.split('\n'))}` : ''}</span>
     </p>
   );
 }

@@ -20,6 +20,13 @@ export function nodeGpuKey(info: NodeInfo | null | undefined, field: NodeTotal):
   return more.length ? `gpu.${field}` : gpuKey(only, field);
 }
 
+/** Why none of the node's GPUs can be read: the first one's lost gap when every GPU the node lists is lost (GPU 0's
+ *  on a node that lists none). */
+export function everyGpuLost(info: NodeInfo | null | undefined): NotReported | null {
+  const gaps = gpuIndexes(info).map((i) => lostGpu(info, i));
+  return gaps.every((g) => g !== null) ? (gaps[0] ?? null) : null;
+}
+
 /** "GPU 2", "GPUs 1 and 2". */
 export const gpuList = (indexes: readonly number[]) => `${indexes.length === 1 ? 'GPU' : 'GPUs'} ${andList(indexes)}`;
 

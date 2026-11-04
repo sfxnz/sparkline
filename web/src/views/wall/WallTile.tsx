@@ -9,12 +9,15 @@ import { StatusPill } from '../../design/components/StatusPill';
 import { Unsupported } from '../../design/components/Unsupported';
 import { interconnectGap, notReported } from '../../lib/capabilities';
 import { bytesParts, DASH, formatAgo, formatPercent, tempParts, wattsParts, type Formatter } from '../../lib/format';
+import { nodeGpuKey } from '../../lib/gpu';
+import type { NodeTotal } from '../../lib/metrics';
 import type { NodeInfo } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { useNodeDisplayStatus } from '../../store/attention';
 import { liveStore } from '../../store/live';
 import { useTick } from '../alerts/parts/tick';
+import { useTotalGap } from '../shared/totalGap';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from '../overview/hooks';
 import { cx7Throughput, gbpsParts, interconnectNames } from './model';
 
@@ -37,6 +40,14 @@ const wParts: Formatter = (n) => wattsParts(n, 'W');
 function LiveMetric({ node, metric, parts, quantum, info }: { node: string; metric: string; parts: Formatter; quantum?: number; info: NodeInfo | null }) {
   const value = useLiveValue(node, metric, quantum);
   const gap = notReported(info, metric);
+  if (gap) return <Unsupported gap={gap} />;
+  return <BigValue value={value} parts={parts} />;
+}
+
+/** The node's GPU total of `field`, or why it has none. */
+function LiveTotal({ node, field, parts, quantum, info }: { node: string; field: NodeTotal; parts: Formatter; quantum: number; info: NodeInfo | null }) {
+  const value = useLiveValue(node, nodeGpuKey(info, field), quantum);
+  const gap = useTotalGap(node, field);
   if (gap) return <Unsupported gap={gap} />;
   return <BigValue value={value} parts={parts} />;
 }
@@ -116,19 +127,19 @@ export function WallTile({ id }: { id: string }) {
         <div className="wall-tile__body">
           <div className="wall-tile__hero">
             <span className="wall-label">GPU utilisation</span>
-            <LiveMetric node={id} metric="gpu0.util" parts={pctParts} quantum={1} info={info} />
+            <LiveTotal node={id} field="util" parts={pctParts} quantum={1} info={info} />
           </div>
           <div className="wall-tile__spark">
-            <Sparkline label={`${id} GPU utilisation, last 5 minutes`} source={{ node: id, metric: 'gpu0.util', windowS: 300 }} format={(n) => formatPercent(n)} min={0} max={100} height={sparkH} />
+            <Sparkline label={`${id} GPU utilisation, last 5 minutes`} source={{ node: id, metric: nodeGpuKey(info, 'util'), windowS: 300 }} format={(n) => formatPercent(n)} min={0} max={100} height={sparkH} />
           </div>
           <dl className="wall-tile__stats">
             <div>
               <dt className="wall-label">GPU temperature</dt>
-              <dd><LiveMetric node={id} metric="gpu0.temp_c" parts={tempParts} quantum={1} info={info} /></dd>
+              <dd><LiveTotal node={id} field="temp_c" parts={tempParts} quantum={1} info={info} /></dd>
             </div>
             <div>
               <dt className="wall-label">GPU power</dt>
-              <dd><LiveMetric node={id} metric="gpu0.power_w" parts={wParts} quantum={0.5} info={info} /></dd>
+              <dd><LiveTotal node={id} field="power_w" parts={wParts} quantum={0.5} info={info} /></dd>
             </div>
             <div>
               <dt className="wall-label">Memory available</dt>
