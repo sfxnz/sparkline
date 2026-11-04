@@ -75,14 +75,14 @@ class CaptureRefused(Exception):
         )
 
 
-IN_A_PATH = "a fixed part of a path that the agent reads"
-IN_A_READING = "a reading that the agent reports"
+IN_A_READING = "a word in what the agent reads"
 RENAME = (
     "A name of this machine is also an ordinary word in what the agent reads, so replacing the name "
-    "would change a reading. Give that name another value for the run, then capture again. For the "
-    "hostname, run sudo hostname sparkline-capture and set it back after. For a Docker container, run "
-    "docker rename. For a user name, capture from another account. Before you attach, search "
-    "root/proc/self/mounts for the old name. Or open an issue and paste these lines."
+    "would change a reading and show the name. Give that name another value for the run, then capture "
+    "again. For the hostname, run sudo hostname sparkline-capture and set it back after. For a Docker "
+    "container, run docker rename. For a user name, capture from another account. Before you attach, "
+    "search the recording for the old name, for example with grep -ri, and read the mount points in "
+    "root/proc/self/mounts and the statvfs keys in host.json. Or open an issue and paste these lines."
 )
 
 
@@ -111,6 +111,7 @@ GENERIC_NAMES = {
     "localdomain",
     "lan",
     "home.arpa",
+    "sparkline-capture",
 }
 OS_RELEASE = ("/etc/os-release", "/usr/lib/os-release")
 OS_RELEASE_KEYS = {"PRETTY_NAME"}
@@ -161,7 +162,7 @@ def dumps(doc: Any) -> str:
 class Spelling:
     form: Form
     original: str
-    placeholder: str | None
+    placeholder: str
     category: str
 
 
@@ -185,11 +186,7 @@ class Spellings:
         return self._items[m.lastindex - 1]
 
     def sub(self, text: str) -> str:
-        def placeholder(m: re.Match[str]) -> str:
-            got = self._spelling(m).placeholder
-            return m[0] if got is None else got
-
-        return self._rx.sub(placeholder, text) if self._rx else text
+        return self._rx.sub(lambda m: self._spelling(m).placeholder, text) if self._rx else text
 
     def categories_in(self, text: str) -> set[str]:
         return {self._spelling(m).category for m in self._rx.finditer(text)} if self._rx else set()
@@ -198,13 +195,17 @@ class Spellings:
         found = (self._spelling(m) for m in self._rx.finditer(text)) if self._rx else ()
         return {s.category for s in found if s.form in _WORDS}
 
+    def outside(self, text: str, slots: list[tuple[int, int]]) -> set[str]:
+        found = self._rx.finditer(text) if self._rx else ()
+        return {
+            self._spelling(m).category
+            for m in found
+            if not any(start <= m.start() and m.end() <= end for start, end in slots)
+        }
+
     def categories_in_bytes(self, data: bytes) -> set[str]:
         low = data.lower()
-        return {
-            s.category
-            for s in self._items
-            if s.placeholder is not None and s.original.lower().encode() in low
-        }
+        return {s.category for s in self._items if s.original.lower().encode() in low}
 
 
 def _mac_forms(b: bytes) -> list[str]:
@@ -470,6 +471,7 @@ class Redacted:
     left_out: dict[str, int]
     originals: Spellings
     read_at: dict[str, str]
+    collisions: list[Leak]
     rewrite: Callable[[str], str] = field(repr=False)
 
     def printable(self, line: str) -> str | None:
@@ -640,11 +642,7 @@ class _Harvest:
         if category == "hostname" and "." in value:
             value, _, domain = value.partition(".")
             self.name("domain name", domain)
-        if not value or value.lower() in GENERIC_NAMES:
-            return
-        if len(value) < 3:
-            if category == "user":
-                self.spellings.append(Spelling("name", value, None, category))
+        if not value or value.lower() in GENERIC_NAMES or (category == "serial number" and len(value) < 3):
             return
         placeholder = self.ph.name(category, value)
         form: Form = "name"
@@ -740,6 +738,53 @@ def _harvest(rec: Recording, facts: Facts, ph: Placeholders) -> list[Spelling]:
     return h.spellings
 
 
+HOSTNAME = "/proc/sys/kernel/hostname"
+CPUINFO = "/proc/cpuinfo"
+CONTAINER_NAMES = ("docker", "/containers/json", "result", "Names")
+READING_META = ("device", "unreadable")
+_HOME_SLOT = re.compile(
+    r"(?<![\w.])/(?:home|Users|media|run/media)/((?:[\w-]+\.)+[\w-]+/[\w.-]+|[\w.-]+(?:@[\w.-]+)?)"
+)
+_SERIAL_LINE = re.compile(r"^Serial\s*:\s*(\S.*)$", re.MULTILINE)
+
+
+def _where_names_live(path: str, text: str) -> list[tuple[int, int]]:
+    if path == HOSTNAME:
+        return [(0, len(text))]
+    slots = [m.span(1) for m in _HOME_SLOT.finditer(text)]
+    if path == CPUINFO:
+        slots += [m.span(1) for m in _SERIAL_LINE.finditer(text)]
+    return slots
+
+
+def _strings_at(doc: Any, where: tuple[str, ...] = ()) -> Iterable[tuple[tuple[str, ...], str]]:
+    if isinstance(doc, str):
+        yield where, doc
+    elif isinstance(doc, dict):
+        for k, v in doc.items():
+            yield where, str(k)
+            yield from _strings_at(v, (*where, str(k)))
+    elif isinstance(doc, list):
+        for v in doc:
+            yield from _strings_at(v, where)
+
+
+def _collisions(rec: Recording, names: Spellings) -> list[Leak]:
+    found: set[str] = set()
+    for path, node in rec.tree.items():
+        found |= names.outside(path, _where_names_live("", path))
+        if isinstance(node, Link):
+            found |= names.outside(node.target, _where_names_live("", node.target))
+        elif isinstance(node, File):
+            text = text_of(node.data)[0]
+            found |= names.outside(text, _where_names_live(path, text))
+    for doc in (rec.nvml, rec.host):
+        for where, text in _strings_at(doc):
+            slots = [(0, len(text))] if where == CONTAINER_NAMES else _where_names_live("", text)
+            found |= names.outside(text, slots)
+    return [Leak(IN_A_READING, c) for c in sorted(found)]
+
+
 def _rewriters(ph: Placeholders) -> list[tuple[Detector, Callable[[re.Match[str]], str]]]:
     def mac(m: re.Match[str]) -> str:
         text = m[0]
@@ -800,7 +845,9 @@ def _sub_flagged(d: Detector, fix: Callable[[re.Match[str]], str], text: str) ->
 def redact(rec: Recording, facts: Facts) -> Redacted:
     rec, left_out = _minimize(rec)
     ph = Placeholders("\n".join(_surfaces(rec)).lower())
-    originals = Spellings(_harvest(rec, facts, ph))
+    harvested = _harvest(rec, facts, ph)
+    originals = Spellings(harvested)
+    collisions = _collisions(rec, Spellings(s for s in harvested if s.form in _WORDS))
     passes = _rewriters(ph)
 
     def plain_uuid(m: re.Match[str]) -> str:
@@ -833,12 +880,12 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
     tree = {path: rewrite_node(rec.tree[raw]) for path, raw in read_at.items()}
     nvml = rewrite_doc(rec.nvml)
     host = rewrite_doc(rec.host)
-    meta = rewrite_doc(rec.meta)
+    meta = {k: rewrite_doc(v) if k in READING_META else v for k, v in rec.meta.items()}
     left = {**meta.get("left_out", {}), **left_out}
     counts = dict(sorted(ph.counts.items()))
     meta |= {"redacted": counts, "left_out": dict(sorted(left.items()))}
     return Redacted(
-        Recording(rec.platform, meta, tree, nvml, host), counts, left, originals, read_at, rewrite
+        Recording(rec.platform, meta, tree, nvml, host), counts, left, originals, read_at, collisions, rewrite
     )
 
 
@@ -892,18 +939,6 @@ def _unreviewed_readings(rec: Recording, originals: Spellings) -> list[Leak]:
     ]
 
 
-def _admitting(raw: str, node: Node) -> list[str]:
-    if isinstance(node, File):
-        return [pattern for pattern, holds in matching(raw) if admits(holds, node.data)]
-    return [pattern for pattern, _ in matching(raw)]
-
-
-def name_collisions(red: Redacted) -> list[Leak]:
-    patterns = {p for path, node in red.recording.tree.items() for p in _admitting(red.read_at[path], node)}
-    found = {c for p in patterns for c in red.originals.names_in(p)}
-    return [Leak(IN_A_PATH, c) for c in sorted(found)]
-
-
 def leaks(red: Redacted) -> list[Leak]:
     rec, originals = red.recording, red.originals
     out: list[Leak] = []
@@ -932,6 +967,10 @@ def leaks(red: Redacted) -> list[Leak]:
                 found |= originals.categories_in_bytes(node.data)
             out += [Leak(where, c) for c in sorted(found)]
     out += _unreviewed_readings(rec, originals)
-    for name, doc in (("nvml.json", rec.nvml), ("host.json", rec.host), ("platform.json", platform_doc(rec))):
+    for name, doc in (("nvml.json", rec.nvml), ("host.json", rec.host)):
         out += [Leak(name, c) for c in sorted(_categories(dumps(doc), False, originals))]
+    meta = platform_doc(rec)
+    readings = {k: meta[k] for k in READING_META if k in meta}
+    found = _categories(dumps(meta), False, Spellings([])) | _categories(dumps(readings), False, originals)
+    out += [Leak("platform.json", c) for c in sorted(found)]
     return list(dict.fromkeys(out))
