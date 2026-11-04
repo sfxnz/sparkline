@@ -113,7 +113,10 @@ GENERIC_NAMES = {
     "home.arpa",
 }
 OS_RELEASE = ("/etc/os-release", "/usr/lib/os-release")
-OS_RELEASE_KEYS = {"NAME", "PRETTY_NAME", "ID", "ID_LIKE", "VERSION", "VERSION_ID", "VERSION_CODENAME"}
+OS_RELEASE_KEYS = {"PRETTY_NAME"}
+SYSTEM_BIN = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin", "/snap/bin"}
+ELSEWHERE = "<elsewhere>"
+DISK = re.compile(r"/dev/(?:nvme\d+n\d+(?:p\d+)?|(?:sd|vd|xvd|hd)[a-z]+\d*|mmcblk\d+(?:p\d+)?|md\d+|dm-\d+)")
 SERIAL_ANYWHERE = 8
 
 _HEX = "[0-9A-Fa-f]"
@@ -488,9 +491,18 @@ def _minimize(rec: Recording) -> tuple[Recording, Counter[str]]:
     left: Counter[str] = Counter()
     mounts = _text(tree.get("/proc/self/mounts"))
     if mounts is not None:
-        lines = mounts.splitlines(keepends=True)
-        kept = [line for line in lines if len(f := line.split()) > 2 and f[2] in REAL_FS]
+        lines = mounts.splitlines()
+        kept: list[str] = []
+        sources: dict[str, str] = {}
+        for f in (line.split() for line in lines):
+            if len(f) < 3 or f[2] not in REAL_FS:
+                continue
+            source = f[0] if DISK.fullmatch(f[0]) else sources.setdefault(f[0], f"<source{len(sources) + 1}>")
+            options = "ro" if "ro" in (f[3] if len(f) > 3 else "").split(",") else "rw"
+            left["mount options other than rw or ro"] += len(f) > 3 and f[3] != options
+            kept.append(f"{source} {f[1]} {f[2]} {options} 0 0\n")
         left["mount lines of other filesystems"] += len(lines) - len(kept)
+        left["mount sources that are not a disk"] += len(sources)
         tree["/proc/self/mounts"] = File("".join(kept).encode())
     for path in OS_RELEASE:
         text = _text(tree.get(path))
@@ -498,7 +510,7 @@ def _minimize(rec: Recording) -> tuple[Recording, Counter[str]]:
             continue
         lines = [line for line in text.splitlines(keepends=True) if line.strip()]
         kept = [line for line in lines if line.partition("=")[0].strip() in OS_RELEASE_KEYS]
-        left["os-release lines other than the OS name and version"] += len(lines) - len(kept)
+        left["os-release lines other than PRETTY_NAME"] += len(lines) - len(kept)
         tree[path] = File("".join(kept).encode())
     cids: set[str] = set()
     for path, node in list(tree.items()):
@@ -538,7 +550,13 @@ def _minimize(rec: Recording) -> tuple[Recording, Counter[str]]:
             docker[api] = {"result": kept_containers}
         else:
             docker[api] = entry
-    host = {**rec.host, "docker": docker}
+    which: dict[str, str | None] = {}
+    for name, found in rec.host["which"].items():
+        which[name] = (
+            found if found is None or posixpath.dirname(found) in SYSTEM_BIN else f"{ELSEWHERE}/{name}"
+        )
+        left["directories of tools found outside the system directories"] += which[name] != found
+    host = {**rec.host, "docker": docker, "which": which}
     return Recording(rec.platform, dict(rec.meta), tree, rec.nvml, host), +left
 
 
