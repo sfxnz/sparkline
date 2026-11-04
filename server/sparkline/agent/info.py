@@ -120,6 +120,10 @@ class Collectors:
     def _gpu_mem(self) -> int | None:
         return self.gpu.proc_mem_total if self.gpu else None
 
+    def close(self) -> None:
+        if self.gpu:
+            self.gpu.close()
+
     def ordered(self) -> list[Collector]:
         built = [self.gpu, self.memory, self.cpu, self.net, self.storage, self.thermal, self.procs]
         return [c for c in built if c is not None]

@@ -59,6 +59,9 @@ class Opens:
     def proc_util(self) -> dict[int, float] | None:
         return self.util
 
+    def close(self) -> None:
+        pass
+
 
 class NvidiaFake(Opens):
     name = "nvidia-fake"

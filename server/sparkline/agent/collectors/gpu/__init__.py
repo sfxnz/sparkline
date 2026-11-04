@@ -48,6 +48,13 @@ def _known_versions(backend: GpuBackend) -> Mapping[str, str]:
         return {}
 
 
+def _close(backend: GpuBackend) -> None:
+    try:
+        backend.close()
+    except Exception as e:
+        log.warning("closing the %s backend failed: %s", backend.name, e)
+
+
 def _labelled(vendor: Vendor, versions: Mapping[str, str]) -> dict[str, str]:
     return {f"{vendor}.{label}": v for label, v in versions.items()}
 
@@ -91,6 +98,7 @@ class GpuCollector:
                 except Exception as e:
                     failures.append(_failure(make.name, e))
                     self.versions |= _labelled(chain.vendor, _known_versions(backend))
+                    _close(backend)
                     continue
                 self._adopt(chain.vendor, backend, gpus, caps)
                 self.versions |= _labelled(chain.vendor, versions)
@@ -161,6 +169,11 @@ class GpuCollector:
         self.proc_mem = proc_mem
         self.proc_mem_total = sum(proc_mem.values()) if reported else None
         return {"gpu": out}
+
+    def close(self) -> None:
+        live, self._live = self._live, []
+        for each in live:
+            _close(each.backend)
 
     def process_util(self) -> dict[int, float]:
         acc: dict[int, list[float]] = {}

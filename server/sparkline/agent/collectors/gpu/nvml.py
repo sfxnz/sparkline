@@ -144,6 +144,7 @@ class Nvml:
         self._caps: dict[int, dict[GpuField, Gap | None]] = {}
         self._versions: dict[str, str] = {}
         self._lost: list[int] = []
+        self._inited = False
 
     def _driver_loaded(self) -> bool:
         return self.fs.exists("/proc/driver/nvidia")
@@ -156,6 +157,7 @@ class Nvml:
             raise NoDevice(NO_DRIVER)
         try:
             nv.nvmlInit()
+            self._inited = True
             n = nv.nvmlDeviceGetCount()
         except Exception as e:
             if _no_permission(nv, e):
@@ -197,6 +199,11 @@ class Nvml:
 
     def caps(self) -> dict[int, dict[GpuField, Gap | None]]:
         return self._caps
+
+    def close(self) -> None:
+        if self._inited:
+            self._inited = False
+            self.nv.nvmlShutdown()
 
     def versions(self) -> dict[str, str]:
         return self._versions

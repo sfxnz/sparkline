@@ -44,6 +44,11 @@ class GpuBackend(Protocol):
 
     def proc_util(self) -> Mapping[int, float] | None: ...
 
+    def close(self) -> None:
+        """Release what open() acquired (a child process, a library handle). Called once on every backend
+        that was built, whether or not open() succeeded, when the chain drops it or the agent stops."""
+        ...
+
 
 class Chain(NamedTuple):
     vendor: Vendor
