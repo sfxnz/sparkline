@@ -240,10 +240,11 @@ function MultiGpu({ nodeId, info, gpus, currency, rate }: MultiProps) {
   const perGpu = (field: GpuReading): SeriesSpec[] => gpus.map((g) => ({ key: gpuKey(g.index, field), label: `GPU ${g.index}`, gpu: g.index }));
   const smMaxes = gpus.map((g) => g.sm_mhz_max);
   const smTop = smMaxes.every((m) => m != null) ? Math.max(...smMaxes) : null;
-  const first = gpus[0];
-  const sharedThresholds = gpus.every((g) => g.temp_slowdown_c === first?.temp_slowdown_c) && gpus.every((g) => g.temp_shutdown_c === first?.temp_shutdown_c);
-  const slowdown = sharedThresholds ? (first?.temp_slowdown_c ?? null) : null;
-  const shutdown = sharedThresholds ? (first?.temp_shutdown_c ?? null) : null;
+  const slowdowns = new Set(gpus.map((g) => g.temp_slowdown_c ?? null));
+  const shutdowns = new Set(gpus.map((g) => g.temp_shutdown_c ?? null));
+  const sharedThresholds = slowdowns.size === 1 && shutdowns.size === 1;
+  const slowdown = sharedThresholds ? ([...slowdowns].pop() ?? null) : null;
+  const shutdown = sharedThresholds ? ([...shutdowns].pop() ?? null) : null;
   const thresholds = useMemo(() => tempThresholds(slowdown, shutdown), [slowdown, shutdown]);
 
   return (

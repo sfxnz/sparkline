@@ -208,8 +208,8 @@ export function TimeSeriesChart({
   const load = loadTagged.id === dataId ? loadTagged.state : 'loading';
   const labelsId = JSON.stringify(series.map((s) => s.label));
   const labels = useMemo(() => JSON.parse(labelsId) as string[], [labelsId]);
-  const gpusId = JSON.stringify(series.map((s) => s.gpu ?? null));
-  const gpus = useMemo(() => JSON.parse(gpusId) as (number | null)[], [gpusId]);
+  const seriesGpuId = JSON.stringify(series.map((s) => s.gpu ?? null));
+  const seriesGpu = useMemo(() => JSON.parse(seriesGpuId) as (number | null)[], [seriesGpuId]);
   const thresholdsId = JSON.stringify(thresholds ?? []);
   const layersId = stack ? JSON.stringify(series) : '';
   const unsupported =
@@ -286,8 +286,8 @@ export function TimeSeriesChart({
     if (!el || isUnsupported) return;
     const theme = readChartTheme();
     const lineColor = (i: number) => {
-      const gpu = gpus[i];
-      return (gpu == null ? theme.series[i % theme.series.length] : theme.gpu[gpu]) ?? theme.axis;
+      const gpu = seriesGpu[i];
+      return (gpu == null ? theme.series[i % theme.series.length] : theme.gpuColors[gpu]) ?? theme.axis;
     };
     const k = theme.fontPx / 11; // axis room grows with the user's font size
     // Same tag and state => same object, so React skips the render: only transitions re-render, not every sample.
@@ -348,7 +348,7 @@ export function TimeSeriesChart({
             points: { show: false },
             spanGaps: false,
             fill:
-              i === 0 && gpus[0] == null
+              i === 0 && seriesGpu[0] == null
                 ? (u) => {
                     const g = u.ctx.createLinearGradient(0, u.bbox.top, 0, u.bbox.top + u.bbox.height);
                     g.addColorStop(0, withAlpha(color, 0.2));
@@ -581,7 +581,7 @@ export function TimeSeriesChart({
       uRef.current = null;
       if (yGroup) yGroups.get(yGroup)?.delete(yToken);
     };
-  }, [node, keys, labels, gpus, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
+  }, [node, keys, labels, seriesGpu, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
 
   const swatches = stack
     ? series.map((s) => `tschart__swatch--area ${s.className}${s.hatched ? ' tschart__swatch--hatched' : ''}`)

@@ -136,7 +136,8 @@ describe('GPU tab on a multi-GPU node', () => {
   });
 
   it('lists a section’s warning and critical clock-limit reasons, leaving the informational ones to its headline', () => {
-    const [a, b] = workstation.info.gpus;
+    const a = gpuAt(workstation.info.gpus, 0);
+    const b = gpuAt(workstation.info.gpus, 1);
     if (!a || !b) throw new Error('fixture has fewer than two GPUs');
     show(workstation, { sample: withGpu(withGpu(workstation.sample, a.index, { throttle_mask: 0x4 }), b.index, { throttle_mask: 0x64 }) });
     const rows = (index: number) => within(section(index)).queryAllByRole('listitem').map((li) => li.querySelector('.throttle__title')?.textContent);

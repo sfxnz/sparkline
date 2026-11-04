@@ -10,7 +10,7 @@ export interface ChartTheme {
   /** Series colours: accent first, then restrained neutrals. Status colours are only for thresholds. */
   series: string[];
   /** One colour per GPU index (--gpu-0..7); see gpuColor. */
-  gpu: string[];
+  gpuColors: string[];
   /** Sequential ramp stops (--heat-0..4) at HEAT_STOPS: one hue, lightness ordered by value. */
   heat: string[];
   warn: string;
@@ -73,7 +73,7 @@ function computeChartTheme(): ChartTheme {
     separator: v('--separator-strong', 'rgba(128,128,128,0.3)'),
     surface: v('--surface-3', '#222'),
     series: [v('--chart-1', '#7286ff'), v('--chart-2', '#ccc'), v('--chart-3', '#888'), v('--chart-4', '#b4a4f5')],
-    gpu: GPU_FALLBACK.map((f, i) => v(`--gpu-${i}`, f)),
+    gpuColors: GPU_FALLBACK.map((f, i) => v(`--gpu-${i}`, f)),
     heat: ['#272b4f', '#4b5ed8', '#7b8dff', '#abb7ff', '#e0e4ff'].map((f, i) => v(`--heat-${i}`, f)),
     warn: v('--warn', '#f2b440'),
     crit: v('--crit', '#ff645b'),
