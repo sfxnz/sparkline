@@ -371,6 +371,43 @@ def test_demo_llm_sweep_streams_live_and_leaves_detail_and_results(demo):
     assert seeded and all("sweep" not in x["params_key"] for x in seeded if not x["params"]["sweep"])
 
 
+@pytest.fixture
+def mixed(tmp_path, monkeypatch):
+    monkeypatch.setattr(demo_bench, "demo_duration", lambda bench, p: 1.5)
+    cfg = ConsoleConfig(web_dist=tmp_path / "nodist")
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True, fleet="mixed")) as c:
+        yield c
+
+
+def _llm_run(c, node: str, sweep: bool) -> BenchRun:
+    body = {"bench_id": "llm-inference", "nodes": [node], "params": {"concurrency": 2, "sweep": sweep}}
+    r = c.post("/api/v1/bench/runs", json={**body, "confirm": True})
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(_wait(c, r.json()["id"]))
+    assert run.status == "succeeded", run.error
+    return run
+
+
+@pytest.mark.parametrize("sweep", [False, True])
+def test_ws1_llm_results_describe_ws1_and_say_which_figures_are_modelled_on_gb10(mixed, sweep):
+    res = {x.metric: x for x in _llm_run(mixed, "ws1", sweep).results}
+    growth, serving = res.pop("mem_used_delta_gib"), res.pop("serving_gpu_mem_gib")
+    assert growth.label == "System memory growth during run"
+    assert serving.extras["source"] == "pid 41022 and its children"
+    workers = [
+        p.gpu_mem for p in FLEETS["mixed"]["ws1"](T0, 1.0).sample_at(time.time(), procs=True).procs or []
+    ]
+    assert serving.value == pytest.approx(sum(m for m in workers if m) / 2**30, rel=0.01)
+    assert res and all(x.label.endswith(" · modelled on GB10") for x in res.values())
+
+
+def test_spark1_llm_results_keep_their_gb10_labels_and_serving_process(mixed):
+    res = {x.metric: x for x in _llm_run(mixed, "spark1", False).results}
+    assert res["mem_used_delta_gib"].label == "Unified memory growth during run"
+    assert res["serving_gpu_mem_gib"].extras["source"] == "pid 4242 and its children"
+    assert not any("GB10" in x.label for x in res.values())
+
+
 def test_demo_history_holds_a_finished_sweep(demo):
     sweeps = [x for x in demo.get("/api/v1/bench/runs?bench_id=llm-inference").json() if x["params"]["sweep"]]
     assert len(sweeps) == 1 and sweeps[0]["status"] == "succeeded" and sweeps[0]["node_states"] == {}  # list
