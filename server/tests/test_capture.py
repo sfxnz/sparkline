@@ -9,6 +9,7 @@ import re
 import shutil
 import sys
 import tarfile
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
@@ -1002,3 +1003,38 @@ def test_a_command_line_with_more_than_one_argument_is_not_echoed(tmp_path, monk
     err = capsys.readouterr().err
     assert "usage: sparkline-capture" in err
     assert USER not in err
+
+
+@pytest.fixture(autouse=True)
+def python_hooks_restored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+    monkeypatch.setattr(sys, "unraisablehook", sys.unraisablehook)
+    monkeypatch.setattr(threading, "excepthook", threading.excepthook)
+
+
+def test_an_error_python_ignores_or_one_in_a_thread_prints_no_traceback(tmp_path, monkeypatch, capsys):
+    import sparkline.agent.capture as cli
+
+    monkeypatch.setattr(sys, "unraisablehook", sys.__unraisablehook__)
+    monkeypatch.setattr(threading, "excepthook", threading.__excepthook__)
+
+    class FailsWhenFreed:
+        def __del__(self) -> None:
+            raise OSError(13, "denied", HOME)
+
+    def fail() -> None:
+        raise OSError(13, "denied", HOME)
+
+    def stopped_while_archiving(_out: Path) -> Path:
+        FailsWhenFreed()
+        worker = threading.Thread(target=fail)
+        worker.start()
+        worker.join()
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "write_archive", stopped_while_archiving)
+    out = tmp_path / "out"
+    assert main_of(tmp_path, monkeypatch, str(out)) == 130
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and ".py" not in err and USER not in err
+    assert not out.exists()
