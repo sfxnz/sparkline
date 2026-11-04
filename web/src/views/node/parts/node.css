@@ -399,7 +399,8 @@
 .ngpu-attn__swatches { flex: none; display: inline-flex; gap: 3px; }
 .ngpu-attn__swatches .ngpu-section__swatch { margin-right: 0; }
 .ngpu-attn__text { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-2); }
-.ngpu-attn__reading { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ngpu-attn > li { min-width: 0; }
+.ngpu-attn__reading { min-width: 0; }
 .ngpu-attn__go { flex: none; width: 16px; height: 16px; color: var(--text-3); }
 .ngpu-section__swatch { display: inline-block; width: 10px; height: 10px; margin-right: var(--space-2); border-radius: 3px; vertical-align: 0.05em; }
 .ngpu-section__stats { row-gap: var(--space-5); }

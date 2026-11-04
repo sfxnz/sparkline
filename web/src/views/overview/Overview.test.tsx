@@ -299,7 +299,7 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
   it('shows the node totals on the card, the hero and the cluster totals: mean utilisation, the hottest GPU, the four powers summed', () => {
     const card = show(reading);
     expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 86%');
-    expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°CGPU 2 · 16\s°C headroom/);
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C16\s°C headroom to the 93 °C slowdown threshold$/);
     expect(stat(card, 'GPU power')).toHaveTextContent(/^GPU power1069W/);
     expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 86% at 1069 W$/);
     expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute86%Mean GPU utilisation · /);
@@ -338,6 +338,11 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     const card = show(withGpus(over));
     expect(pill(card)).toBe('critical');
     expect(screen.getByRole('heading', { name: sentence })).toBeInTheDocument();
+  });
+
+  it('flags the hottest GPU on the card and names it under the flag', () => {
+    const card = show(withGpus({ 3: { temp_c: 94 } }));
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp94°CAt slowdown to the 93 °C slowdown thresholdGPU 3$/);
   });
 
   it('keeps the card pill healthy while every GPU is calm', () => {

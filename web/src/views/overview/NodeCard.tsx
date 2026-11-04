@@ -274,14 +274,15 @@ function Temperature() {
   let footer: ReactNode = null;
   if (room) {
     const why = <span className="visually-hidden"> to the {gpu.slowdown} °C slowdown threshold</span>;
-    const who = gpu.name ? `${gpu.name} · ` : null;
+    // A narrow card has two footer lines: the GPU is named only while its reading is flagged.
+    const who = gpu.name ? <span className="ov-stat__who">{gpu.name}</span> : null;
     footer =
       room.level === 'crit' ? (
-        <span className="ov-flag tone-crit"><OctagonAlert aria-hidden="true" />{who}At slowdown{why}</span>
+        <><span className="ov-flag tone-crit"><OctagonAlert aria-hidden="true" />At slowdown{why}</span>{who}</>
       ) : room.level === 'warn' ? (
-        <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" />{who}<span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>
+        <><span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>{who}</>
       ) : (
-        <>{who}<span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</>
+        <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</>
       );
   }
   return <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />;

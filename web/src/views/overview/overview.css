@@ -32,6 +32,7 @@
 .ov-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); min-width: 0; }
 .ov-flag { display: inline-flex; align-items: center; gap: 4px; color: var(--tone-text); font-weight: 520; white-space: nowrap; }
 .ov-flag svg { width: 13px; height: 13px; flex: none; color: var(--tone); }
+.ov-stat__who { display: block; }
 
 /* -------------------------------------------------------------- node cards */
 /* Three cards fit side by side down to a 1280 px laptop (sidebar open); the minimum is in rem so cards also drop to
