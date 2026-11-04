@@ -174,6 +174,9 @@ interface RunJson {
   id: string;
   status: string;
   results: { metric: string; label: string; extras: Record<string, unknown> }[];
+  gpu_index?: Record<string, number>;
+  series: Record<string, number[]>;
+  metadata: { nodes?: Record<string, Record<string, unknown>> };
 }
 
 const STREAMS_NOTE = 'For ws1, token rates and timings are modelled on GB10, not measured.';
@@ -348,5 +351,32 @@ test.describe.serial('figures ws1 shows from the GB10 model', () => {
     await succeeded(page, id);
     await expect(page.getByRole('region', { name: 'Results' }).getByRole('table')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/modelled|†/i)).toHaveCount(0);
+  });
+
+  test('a thermal soak on ws1 runs on the GPU you pick, and the run says which', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.goto(`${MIXED}/benchmarks`);
+    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^ws1/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.bench-card').first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Configure Thermal soak…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Configure Thermal soak' });
+    await dialog.getByRole('checkbox', { name: /^ws1/ }).check();
+    await dialog.getByRole('checkbox', { name: /^spark1/ }).uncheck();
+    await dialog.getByLabel('GPU on ws1').selectOption('2');
+    await dialog.getByLabel('Duration').fill('1');
+    await dialog.getByRole('button', { name: /Review & run/ }).click();
+    const confirm = page.getByRole('dialog', { name: 'Run Thermal soak?' });
+    await expect(confirm.getByText('Runs Thermal soak on ws1 GPU 2.')).toBeVisible();
+    await confirm.getByRole('button', { name: 'Run benchmark' }).click();
+    await expect.poll(() => page.url(), { timeout: 15_000 }).toMatch(/\/benchmarks\/runs\/(?!pending-)/);
+    const header = page.locator('.bench-run__sub');
+    await expect(header).toContainText('GPU 2', { timeout: 15_000 });
+    const run = await succeeded(page, decodeURIComponent(page.url().split('/').pop() ?? ''));
+    await expect(header).toContainText('GPU 2 · NVIDIA RTX 6000 Ada Generation', { timeout: 15_000 });
+    expect(run.gpu_index).toEqual({ ws1: 2 });
+    expect(run.metadata.nodes?.ws1?.gpu_index).toBe(2);
+    const soak = Object.keys(run.series).filter((k) => /^ws1\.gpu\d+\./.test(k));
+    expect(soak.length).toBeGreaterThan(0);
+    expect(soak.every((k) => k.startsWith('ws1.gpu2.')), soak.join()).toBe(true);
   });
 });
