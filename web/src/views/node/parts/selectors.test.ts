@@ -5,21 +5,38 @@ import { useLiveConditions } from '../../../store/attention';
 import { useCluster } from '../../../store/cluster';
 import { liveStore } from '../../../store/live';
 import sampleJson from '../../../test/fixtures/sample.json';
-import { clockLevel, selectThrottleMask } from './Notices';
-import { gpuEnergy, gpuPower, gpuPstate, gpuSm, gpuTemp, gpuUtil } from './selectors';
+import { clockLevel } from './Notices';
+import { gpuSelector, nodeGpuSelector } from './selectors';
 
 const onlyOthers = { gpu: [{ index: 1, util: 37, sm_mhz: 2900, temp_c: 99, power_w: 140, pstate: 2, energy_j: 5, throttle_mask: 0x40 }] } as unknown as Sample;
 
 describe('GPU 0 selectors on a sample without GPU 0', () => {
-  it.each([gpuUtil, gpuSm, gpuTemp, gpuPower, gpuPstate, gpuEnergy, selectThrottleMask])('%o reads nothing rather than GPU 1', (select) => {
-    expect(select(onlyOthers)).toBeNull();
+  it.each(['util', 'sm_mhz', 'temp_c', 'power_w', 'pstate', 'energy_j', 'throttle_mask'] as const)('%s of GPU 0 reads nothing rather than GPU 1', (reading) => {
+    expect(gpuSelector(0, reading)(onlyOthers)).toBeNull();
   });
   it('gives no clock level from another GPU', () => {
-    expect(clockLevel(onlyOthers, 3000)).toBeNull();
+    expect(clockLevel(onlyOthers, 3000, 0)).toBeNull();
   });
   it('picks GPU 0 wherever it sits', () => {
     const both = { gpu: [...onlyOthers.gpu, { index: 0, util: 91 }] } as unknown as Sample;
-    expect(gpuUtil(both)).toBe(91);
+    expect(gpuSelector(0, 'util')(both)).toBe(91);
+  });
+});
+
+describe('node GPU selectors', () => {
+  const sample = { gpu: [{ index: 0, util: 90, temp_c: 70, power_w: 250 }, { index: 1, util: 30, temp_c: 80, power_w: 200 }], errors: {} } as unknown as Sample;
+  const one = { gpus: [{ index: 0 }] } as unknown as NodeInfo;
+  const two = { gpus: [{ index: 0 }, { index: 1 }] } as unknown as NodeInfo;
+
+  it("read a one-GPU node's own GPU", () => {
+    expect(nodeGpuSelector(one, 'util')(sample)).toBe(90);
+    expect(nodeGpuSelector(one, 'temp_c')(sample)).toBe(70);
+  });
+  it('read the totals on a node with several GPUs, as flatten writes them', () => {
+    expect(nodeGpuSelector(two, 'util')(sample)).toBe(60);
+    expect(nodeGpuSelector(two, 'temp_c')(sample)).toBe(80);
+    expect(nodeGpuSelector(two, 'power_w')(sample)).toBe(450);
+    expect(nodeGpuSelector(two, 'power_w')(null)).toBeNull();
   });
 });
 

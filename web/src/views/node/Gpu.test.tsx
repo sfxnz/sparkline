@@ -11,6 +11,7 @@ import { gpuAt } from '../../lib/gpu';
 import type { GpuInfo, GpuSample, NodeInfo, NodeState, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
+import { historyCache } from '../../store/history';
 import { liveStore } from '../../store/live';
 import { usePrefs } from '../../store/prefs';
 import sampleJson from '../../test/fixtures/sample.json';
@@ -276,16 +277,15 @@ describe('GPU tab on a node with two vendors', () => {
   });
 
   it.each([
-    ['Summary', 'At a glance', Summary, ['GPU utilisation', 'GPU temperature', 'GPU power']],
-    ['Thermals', `${NODE} thermals and power summary`, Thermals, ['GPU temperature', 'GPU power']],
-  ] as const)('says GPU 0 is not responding on %s too when its backend misses a tick', (_, panel, View, labels) => {
+    ['Summary', 'At a glance', Summary, { 'GPU utilisation': /^GPU utilisation47%/, 'GPU temperature': /^GPU temperature64°C/ }],
+    ['Thermals', `${NODE} thermals and power summary`, Thermals, { 'GPU temperature': /^GPU temperature64°C/ }],
+  ] as const)("reads the other GPUs on %s when GPU 0's backend misses a tick, and has no power total", (_, panel, View, values) => {
     const now = showHybrid({ ...base, gpu: [reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: { gpu: `nvml: ${NV_ERROR}` } }, hybrid, panel, View);
 
-    for (const label of labels) {
-      const stat = within(now).getByText(label).closest('.stat');
-      expect(stat).toHaveTextContent('Not responding');
-      expect(stat).not.toHaveTextContent('No data');
-    }
+    for (const [label, value] of Object.entries(values)) expect(within(now).getByText(label).closest('.stat')).toHaveTextContent(value);
+    const power = within(now).getByText('GPU power').closest('.stat') as HTMLElement;
+    expect(power).toHaveTextContent('No total');
+    expect(within(power).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0 not responding (${NV_ERROR}), so a sum would understate.`);
   });
 
   it('gives a lost GPU and GPUs whose backend missed a tick the same notice, and never says the others still report when none do', () => {
@@ -337,5 +337,62 @@ describe('GPU tab on a node with two vendors', () => {
     expect(within(now).getAllByText('Not responding').length).toBeGreaterThanOrEqual(4);
     const why = within(now).getAllByRole('button', { name: 'Why is this not reported?' });
     for (const button of why) expect(button).toHaveAccessibleDescription(NV_ERROR);
+  });
+});
+
+describe('Summary and Thermals on a four-GPU workstation (ws1, slowdown 93 °C)', () => {
+  const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+  const showWs1 = (View: ComponentType<{ nodeId: string }>, sample: Sample = workstation.sample, info: NodeInfo = workstation.info) => {
+    liveStore.removeNode('ws1');
+    useCluster.setState({ clockOffset: 0, nodes: { ws1: { node_id: 'ws1', url: '', status: 'online', since: 0, last_sample_ts: TS, error: null, info, next_retry_ts: null } } });
+    act(() => {
+      liveStore.pushSample({ ...sample, ts: Date.now() / 1000 - 1 });
+      liveStore.flush();
+    });
+    render(
+      <Router hook={memoryLocation({ path: '/' }).hook}>
+        <View nodeId="ws1" />
+      </Router>,
+    );
+  };
+  const stat = (label: string) => screen.getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+  const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+
+  it('shows the mean utilisation, the hottest GPU with the closest one to slowdown named, the four powers summed, and charts the totals', () => {
+    showWs1(Summary);
+    expect(stat('GPU utilisation')).toHaveTextContent(/^GPU utilisation86%/);
+    expect(stat('GPU temperature')).toHaveTextContent(/^GPU temperature77°CGPU 2 · 16 °C below slowdown \(93 °C\)$/);
+    expect(stat('GPU power')).toHaveTextContent(/^GPU power1068W/);
+    expect(charts.find((c) => c.title === 'GPU utilisation')?.series.map((x) => x.key)).toEqual(['gpu.util']);
+    expect(charts.find((c) => c.title === 'GPU power')?.series.map((x) => x.key)).toEqual(['gpu.power_w']);
+  });
+
+  it.each([
+    ['Summary', Summary],
+    ['Thermals', Thermals],
+  ] as const)('says on %s that there is no power total, naming GPU 2, while GPU 2 sends no power reading', (_, View) => {
+    showWs1(View, withGpu(workstation.sample, 2, { power_w: null }));
+    const power = within(screen.getByRole('region', { name: View === Summary ? 'At a glance' : 'ws1 thermals and power summary' })).getByText('GPU power').closest('.stat') as HTMLElement;
+    expect(power).toHaveTextContent('No total');
+    expect(why(power)).toHaveAccessibleDescription('GPU 2 sent no power reading this tick, so a sum would understate.');
+  });
+
+  it('reads utilisation and temperature from GPUs 1 to 3 while GPU 0 is lost, and gives the lost GPU as the power gap', () => {
+    const info = { ...workstation.info, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    showWs1(Summary, withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null }), info);
+    expect(stat('GPU utilisation')).toHaveTextContent(/^GPU utilisation87%/);
+    expect(stat('GPU temperature')).toHaveTextContent(/^GPU temperature77°C/);
+    expect(stat('GPU power')).toHaveTextContent('No total');
+    expect(why(stat('GPU power'))).toHaveAccessibleDescription(`GPU 0: ${LOST}`);
+  });
+
+  it("sums every GPU's power limit and every GPU's energy counter on Thermals", async () => {
+    const series = Object.fromEntries(workstation.sample.gpu.map((g) => [`gpu${g.index}.energy_j`, [(g.energy_j ?? 0) - 360_000, g.energy_j]]));
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json({ node_id: 'ws1', resolution_s: 60, ts: [TS - 120, TS - 60], series, min: {}, max: {} }))));
+    historyCache.clear();
+    showWs1(Thermals);
+    expect(stat('Power limit')).toHaveTextContent(/^Power limit1200W$/);
+    expect(await within(screen.getByRole('region', { name: 'ws1 thermals and power summary' })).findByText('0.400')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'GPU energy' })).getByText('Today').nextSibling).toHaveTextContent(/^0\.400\skWh/);
   });
 });

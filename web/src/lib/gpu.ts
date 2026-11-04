@@ -27,6 +27,13 @@ export function everyGpuLost(info: NodeInfo | null | undefined): NotReported | n
   return gaps.every((g) => g !== null) ? (gaps[0] ?? null) : null;
 }
 
+/** The node's GPU power limit: the sum over the GPUs it lists, when every one of them has a limit. */
+export function powerLimit(info: NodeInfo | null | undefined): number | null {
+  const gpus = info?.gpus ?? [];
+  if (!gpus.length || gpus.some((g) => g.power_limit_w == null)) return null;
+  return gpus.reduce((sum, g) => sum + (g.power_limit_w ?? 0), 0);
+}
+
 /** "GPU 2", "GPUs 1 and 2". */
 export const gpuList = (indexes: readonly number[]) => `${indexes.length === 1 ? 'GPU' : 'GPUs'} ${andList(indexes)}`;
 

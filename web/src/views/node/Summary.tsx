@@ -6,25 +6,23 @@ import { Panel } from '../../design/components/Panel';
 import { Unsupported } from '../../design/components/Unsupported';
 import { bitrateParts, bytesParts, formatBitrate, formatBytes, formatPercent, formatWatts, percentParts, tempParts, wattsParts } from '../../lib/format';
 import { interconnectGap, notReported } from '../../lib/capabilities';
+import { nodeGpuKey } from '../../lib/gpu';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
 import { TabLink } from './parts/TabLink';
-import { TempFooter } from './parts/TempFooter';
-import { useGpuGap } from './parts/useGpuGap';
+import { NodeTempFooter } from './parts/TempFooter';
+import { useNodeGpuGap } from './parts/useGpuGap';
 import { CollectorErrors, ThrottleNotice } from './parts/Notices';
-import { cpuUtil, cx7Rails, gpuPower, gpuTemp, gpuUtil, memAvailable, NO_LINK_REASON, railShort, rootUsedPct, sumNet } from './parts/selectors';
+import { cpuUtil, cx7Rails, memAvailable, NO_LINK_REASON, nodeGpuSelector, railShort, rootUsedPct, sumNet } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
-import { gpuAt } from '../../lib/gpu';
 
 const pct = (n: number) => formatPercent(n);
 const CPU_SERIES: readonly SeriesSpec[] = [
   { key: 'cpu.perf_util', label: 'Performance' },
   { key: 'cpu.eff_util', label: 'Efficiency' },
 ];
-const UTIL_SERIES: readonly SeriesSpec[] = [{ key: 'gpu0.util', label: 'Utilisation' }];
-const POWER_SERIES: readonly SeriesSpec[] = [{ key: 'gpu0.power_w', label: 'GPU power' }];
 const MEM_SERIES: readonly SeriesSpec[] = [
   { key: 'mem.used', label: 'Used' },
   { key: 'mem.gpu', label: 'GPU-allocated' },
@@ -32,7 +30,11 @@ const MEM_SERIES: readonly SeriesSpec[] = [
 
 export default function Summary({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
-  const gpu = gpuAt(info?.gpus, 0);
+  const utilKey = nodeGpuKey(info, 'util');
+  const tempKey = nodeGpuKey(info, 'temp_c');
+  const powerKey = nodeGpuKey(info, 'power_w');
+  const utilSeries = useMemo<SeriesSpec[]>(() => [{ key: utilKey, label: 'Utilisation' }], [utilKey]);
+  const powerSeries = useMemo<SeriesSpec[]>(() => [{ key: powerKey, label: 'GPU power' }], [powerKey]);
   const memTotal = info?.mem_total ?? null;
   const rails = useMemo(() => cx7Rails(info), [info]);
   const railNames = useMemo(() => rails.map((r) => r.name), [rails]);
@@ -51,7 +53,9 @@ export default function Summary({ nodeId }: NodeTabProps) {
     ]),
     [rails],
   );
-  const gap = useGpuGap(nodeId);
+  const utilGap = useNodeGpuGap(nodeId, 'util');
+  const tempGap = useNodeGpuGap(nodeId, 'temp_c');
+  const powerGap = useNodeGpuGap(nodeId, 'power_w');
   const netGap = interconnectGap(info);
 
   return (
@@ -59,18 +63,18 @@ export default function Summary({ nodeId }: NodeTabProps) {
       <Panel label="At a glance">
         <NowLabel />
         <div className="nstats nstats--8">
-          <LiveStat nodeId={nodeId} label="GPU utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} unsupported={gap('gpu0.util')} href={paths.node(nodeId, 'gpu')} footer={() => 'Time the GPU was busy'} />
+          <LiveStat nodeId={nodeId} label="GPU utilisation" select={nodeGpuSelector(info, 'util')} metric={utilKey} format={percentParts} unsupported={utilGap} href={paths.node(nodeId, 'gpu')} footer={() => 'Time the GPU was busy'} />
           <LiveStat
             nodeId={nodeId}
             label="GPU temperature"
-            select={gpuTemp}
-            metric="gpu0.temp_c"
+            select={nodeGpuSelector(info, 'temp_c')}
+            metric={tempKey}
             format={tempParts}
-            unsupported={gap('gpu0.temp_c')}
+            unsupported={tempGap}
             href={paths.node(nodeId, 'gpu')}
-            footer={(v) => <TempFooter temp={v} slowdown={gpu?.temp_slowdown_c ?? null} shutdown={gpu?.temp_shutdown_c ?? null} />}
+            footer={(v) => <NodeTempFooter nodeId={nodeId} value={v} />}
           />
-          <LiveStat nodeId={nodeId} label="GPU power" select={gpuPower} metric="gpu0.power_w" format={wattsParts} unsupported={gap('gpu0.power_w')} href={paths.node(nodeId, 'gpu')} footer={() => 'GPU rail only'} />
+          <LiveStat nodeId={nodeId} label="GPU power" select={nodeGpuSelector(info, 'power_w')} metric={powerKey} format={wattsParts} unsupported={powerGap} href={paths.node(nodeId, 'gpu')} footer={() => 'GPU rail only'} />
           <LiveStat
             nodeId={nodeId}
             label="Memory available"
@@ -104,10 +108,10 @@ export default function Summary({ nodeId }: NodeTabProps) {
 
       <div className="nsum__charts">
         <Panel title="GPU utilisation" subtitle="Share of time the GPU was busy" actions={<TabLink nodeId={nodeId} tab="gpu">GPU</TabLink>}>
-          <TimeSeriesChart node={nodeId} title="GPU utilisation" series={UTIL_SERIES} format={pct} yMin={0} yMax={100} height={168} />
+          <TimeSeriesChart node={nodeId} title="GPU utilisation" series={utilSeries} format={pct} yMin={0} yMax={100} height={168} />
         </Panel>
         <Panel title="GPU power" subtitle="GPU rail only — not whole-system power" actions={<TabLink nodeId={nodeId} tab="gpu">GPU</TabLink>}>
-          <TimeSeriesChart node={nodeId} title="GPU power" series={POWER_SERIES} format={formatWatts} yMin={0} height={168} />
+          <TimeSeriesChart node={nodeId} title="GPU power" series={powerSeries} format={formatWatts} yMin={0} height={168} />
         </Panel>
         <Panel title="Unified memory" subtitle="Shared by CPU and GPU" actions={<TabLink nodeId={nodeId} tab="memory">Memory</TabLink>}>
           <TimeSeriesChart node={nodeId} title="Unified memory used" series={MEM_SERIES} format={formatBytes} yMin={0} yMax={memTotal ?? undefined} yIncrs={BYTE_INCRS} height={168} />
