@@ -387,6 +387,10 @@ def test_a_replay_difference_prints_its_field_path_and_no_value(tmp_path, monkey
     assert report.differences == ["node_info.os"]
 
 
+def left_as_found(out: Path, made_before: bool) -> bool:
+    return list(out.iterdir()) == [] if made_before else not out.exists()
+
+
 @pytest.mark.parametrize("made_before", [False, True], ids=["new directory", "empty directory"])
 def test_a_replay_difference_that_holds_a_name_of_this_machine_refuses_and_removes_the_output(
     made_before, tmp_path, monkeypatch
@@ -397,7 +401,7 @@ def test_a_replay_difference_that_holds_a_name_of_this_machine_refuses_and_remov
         out.mkdir()
     with pytest.raises(CaptureRefused) as refused:
         capture(recorded(GB10), out, Facts(hostnames=("zorbsecret",)))
-    assert (list(out.iterdir()) if made_before else out.exists()) in ([], False), "nothing written is left"
+    assert left_as_found(out, made_before)
     assert "a word in what the agent reads: hostname" in str(refused.value)
     assert "zorbsecret" not in str(refused.value)
     assert "node_info.os" not in str(refused.value), "naming the reading would narrow the name to its words"
@@ -511,7 +515,7 @@ def test_a_name_that_is_also_a_word_shows_its_placeholder_only_where_the_name_li
     try:
         capture_of(copy, out)
     except CaptureRefused as refused:
-        assert not out.exists(), "nothing is written"
+        assert not out.exists()
         assert {leak.surface for leak in refused.leaks} == {"a word in what the agent reads"}
         assert "sudo hostname" in str(refused) and "docker rename" in str(refused)
         return
@@ -945,7 +949,7 @@ def test_a_replay_that_fails_refuses_and_leaves_nothing_written(made_before, tmp
         out.mkdir()
     with pytest.raises(CaptureRefused) as refused:
         capture(recorded(GB10), out, Facts())
-    assert (list(out.iterdir()) if made_before else out.exists()) in ([], False), "nothing written is left"
+    assert left_as_found(out, made_before)
     assert "the replay of the recording: failed with RuntimeError" in str(refused.value)
     assert USER not in str(refused.value)
 
