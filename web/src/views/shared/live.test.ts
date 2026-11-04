@@ -104,14 +104,33 @@ describe('range figures whose refresh fails', () => {
     expect(hist.result.current).toEqual({ state: 'ready', data: resp('r1', 7) });
   });
 
-  it('keep the GPU tab range total instead of "unavailable"', async () => {
+  it('keep the GPU tab range total instead of "unavailable", until a refresh succeeds', async () => {
     usePrefs.setState({ timeRange: '24h' });
-    vi.spyOn(api, 'history').mockResolvedValueOnce(resp('r2', 5)).mockRejectedValueOnce(new Error('timed out'));
+    vi.spyOn(api, 'history').mockResolvedValueOnce(resp('r2', 5)).mockRejectedValueOnce(new Error('timed out')).mockResolvedValueOnce(resp('r2', 7));
     const range = renderHook(() => useRangeData('r2', ['gpu0.energy_j']));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(range.result.current.data?.series['gpu0.energy_j']).toEqual([5, 15]);
     await refresh();
     expect(range.result.current.error).toBe(false);
     expect(range.result.current.data?.series['gpu0.energy_j']).toEqual([5, 15]);
+    await refresh();
+    expect(range.result.current.data?.series['gpu0.energy_j']).toEqual([7, 17]);
+  });
+
+  it('start over when the range changes and comes back before the other range loaded', async () => {
+    usePrefs.setState({ timeRange: '24h' });
+    vi.spyOn(api, 'history')
+      .mockResolvedValueOnce(resp('r3', 5))
+      .mockReturnValueOnce(new Promise(() => undefined))
+      .mockRejectedValueOnce(new Error('timed out'));
+    const range = renderHook(() => useRangeData('r3', ['gpu0.energy_j']));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(range.result.current.data?.series['gpu0.energy_j']).toEqual([5, 15]);
+    act(() => { usePrefs.setState({ timeRange: '1h' }); });
+    historyCache.clear();
+    act(() => { usePrefs.setState({ timeRange: '24h' }); });
+    expect(range.result.current).toEqual({ range: '24h', data: null, error: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(range.result.current).toEqual({ range: '24h', data: null, error: true });
   });
 });

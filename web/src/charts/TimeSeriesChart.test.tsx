@@ -294,6 +294,23 @@ describe('history chart whose refresh fails', () => {
     expect(screen.getByRole('button', { name: /Couldn’t refresh/ })).toBeInTheDocument();
   });
 
+  it('offers Retry, not a note over an empty plot, when it returns to a range before the other range loaded', async () => {
+    vi.spyOn(api, 'history')
+      .mockResolvedValueOnce(resp(40))
+      .mockReturnValueOnce(new Promise(() => undefined))
+      .mockRejectedValueOnce(new Error('timed out'));
+    const at = (range: '24h' | '1h') => <TimeSeriesChart node={NODE} title="Utilisation" series={[{ key: KEY, label: 'Utilisation' }]} format={fmt} range={range} />;
+    const { rerender } = render(at('24h'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(plotted()).toEqual([40, 40]);
+    rerender(at('1h'));
+    historyCache.clear();
+    rerender(at('24h'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Couldn’t refresh/ })).toBeNull();
+  });
+
   it('still offers Retry when the first load fails, with nothing to show', async () => {
     vi.spyOn(api, 'history').mockRejectedValue(new Error('timed out'));
     const { container } = chart();

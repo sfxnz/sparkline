@@ -26,8 +26,8 @@ describe('RangeHeatmap on a history range', () => {
     usePrefs.setState({ timeRange: 'live' });
   });
 
-  it('keeps the loaded heatmap with a quiet note when a refresh fails', async () => {
-    vi.spyOn(api, 'history').mockResolvedValueOnce(resp).mockRejectedValueOnce(new Error('timed out'));
+  it('keeps the loaded heatmap with a quiet note when a refresh fails, until a refresh succeeds', async () => {
+    vi.spyOn(api, 'history').mockResolvedValueOnce(resp).mockRejectedValueOnce(new Error('timed out')).mockResolvedValueOnce(resp);
     render(<RangeHeatmap node={NODE} cores={cores} cpuModel="" />);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(screen.getByRole('img')).toBeInTheDocument();
@@ -37,6 +37,11 @@ describe('RangeHeatmap on a history range', () => {
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
     expect(screen.getByRole('img')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Couldn’t refresh/ })).toBeInTheDocument();
+
+    historyCache.clear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(historyRefreshMs('24h')); });
+    expect(screen.getByRole('img')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Couldn’t refresh/ })).toBeNull();
   });
 
   it('offers Retry when the first load fails', async () => {
