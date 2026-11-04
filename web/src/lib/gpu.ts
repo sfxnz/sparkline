@@ -77,6 +77,12 @@ export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, fi
   return { kind: 'hardware', label: 'No total', detail: `${clauses.join('; ')}${why}.` };
 }
 
+/** Why the node's GPU `field` has no value: the agent declares it not reported, or (several GPUs) the total dropped
+ *  out of this sample. */
+export function nodeTotalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
+  return notReported(info, nodeGpuKey(info, field)) ?? totalGap(info, s, field);
+}
+
 export interface SilentBackend {
   backend: string;
   /** The backend's error from `errors.gpu`, when the agent named it. */

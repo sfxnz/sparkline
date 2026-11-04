@@ -2,7 +2,7 @@
 // on connect), so an offline node still shows its last known values after a reload. Each hook re-renders only its
 // own leaf, and only when its (quantised) value changes.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
-import { gpuSetGap, nodeGpuKey, totalGap } from '../../lib/gpu';
+import { gpuSetGap, nodeGpuKey, nodeTotalGap } from '../../lib/gpu';
 import type { HistoryResponse, NodeState, NodeStatus } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -67,12 +67,13 @@ export function shallowEqual<T extends object>(a: T, b: T): boolean {
 export interface ClusterGpuNow {
   util: number | null;
   power: number | null;
-  /** Nodes whose power total dropped out of this tick (left out of `power`), one per line. */
+  /** Nodes left out of `power` because `nodeTotalGap` explains their missing power, one per line. */
   dropped: string;
 }
 
 /** The live nodes' GPU load and power from each node's totals: mean utilisation and summed power. A node whose power
- *  total dropped out this tick is named in `dropped`, so the sum never silently loses it. */
+ *  the agent declares not reported, or whose total dropped out this tick, is named in `dropped`, as the cluster
+ *  totals name it. */
 export function clusterGpuNow(ids: readonly string[], nodes: Readonly<Record<string, NodeState | undefined>>): ClusterGpuNow {
   let utilSum = 0;
   let utilN = 0;
@@ -87,7 +88,7 @@ export function clusterGpuNow(ids: readonly string[], nodes: Readonly<Record<str
       utilN++;
     }
     if (p !== null) power = (power ?? 0) + p;
-    else if (totalGap(info, liveStore.latest(id), 'power_w')) dropped.push(id);
+    else if (nodeTotalGap(info, liveStore.latest(id), 'power_w')) dropped.push(id);
   }
   return { util: utilN ? utilSum / utilN : null, power, dropped: dropped.join('\n') };
 }
