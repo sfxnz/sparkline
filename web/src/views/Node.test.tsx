@@ -103,6 +103,7 @@ describe('Node page', () => {
       unsupported: [
         { metric: 'mem', reason: 'The memory collector could not start: /proc/meminfo: No such file or directory', kind: 'hardware' },
         { metric: 'disk', reason: 'Needs read access to /proc/diskstats', kind: 'access' },
+        { metric: 'fs', reason: 'Needs read access to /proc/diskstats', kind: 'access' },
         { metric: 'temp', reason: 'The thermal collector could not start: /sys/class/hwmon: No such file or directory', kind: 'hardware' },
       ],
     } as unknown as NodeInfo;
@@ -121,6 +122,17 @@ describe('Node page', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: /^Thermals/ }));
     expect(await screen.findByText('Thermals of spark2')).toBeInTheDocument();
+  });
+
+  it('keeps the Storage tab when only disks are not reported, so filesystem capacity still shows', () => {
+    const info = {
+      hostname: 'spark2', agent_version: '0', boot_time: 0, gpus: [], net: [], cores: [], disks: [], sensors: [],
+      unsupported: [{ metric: 'disk', reason: 'Disk I/O is not collected yet for mmcblk0 (Sparkline reads NVMe, SATA/SAS and virtio disks)', kind: 'agent' }],
+    } as unknown as NodeInfo;
+    useCluster.getState().setHello(hello([{ ...base, info }]));
+    renderAt('/node/spark2/storage');
+    expect(screen.getByText('Storage of spark2')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Storage not reported' })).not.toBeInTheDocument();
   });
 
   it('selects the tab from the URL, defaults to Summary, and moves with the arrow keys', async () => {

@@ -178,6 +178,18 @@ describe('Stat / AnimatedNumber', () => {
     expect(why).toHaveAccessibleDescription('Install nvidia-ml-py to read NVIDIA GPU metrics');
   });
 
+  it('shows its caption under a value, and drops it under a gap, where it would describe a value that is not there', () => {
+    const gap = notReportedByHardware('Not reported by GB10 (NVML: Not Supported)');
+    const { rerender } = render(<Stat label="GPU utilisation" value={40} format={tempParts} reporting footer="Time the GPU was busy" />);
+    expect(screen.getByText('Time the GPU was busy')).toBeInTheDocument();
+    rerender(<Stat label="GPU utilisation" value={null} format={tempParts} unsupported={gap} reporting footer="Time the GPU was busy" />);
+    expect(screen.getByText('Not reported by this hardware')).toBeInTheDocument();
+    expect(screen.queryByText('Time the GPU was busy')).not.toBeInTheDocument();
+    rerender(<Stat label="GPU utilisation" value={null} format={tempParts} reporting footer="Time the GPU was busy" />);
+    expect(screen.getByText('No data')).toBeInTheDocument();
+    expect(screen.queryByText('Time the GPU was busy')).not.toBeInTheDocument();
+  });
+
   it('writes the final value immediately under reduced motion', () => {
     const mm = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({ matches: q.includes('reduce'), media: q, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false }));
     const fmt = (n: number) => n.toFixed(0);
