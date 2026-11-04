@@ -5,8 +5,10 @@ import { Dialog } from '../design/components/Dialog';
 import { Kbd } from '../design/components/Kbd';
 import { benchApi } from '../lib/api';
 import { fuzzyFilter } from '../lib/fuzzy';
+import { nicAbbr, nicHeading, nicModel } from '../lib/interconnect';
 import { nextTheme, resolveTheme } from '../lib/prefs';
 import type { BenchSpec } from '../lib/types';
+import { useShallow } from 'zustand/react/shallow';
 import { useCluster } from '../store/cluster';
 import { usePrefs } from '../store/prefs';
 import { useUi } from '../store/ui';
@@ -25,7 +27,7 @@ export interface Command {
 }
 
 /** Metrics people look for by name, and the node tab that shows each. Listed per node, only once the user types. */
-const METRICS: readonly { label: string; tab: NodeTab; keywords: string }[] = [
+const METRICS: readonly { label: string | ((nic: string) => string); tab: NodeTab; keywords: string }[] = [
   { label: 'GPU utilisation', tab: 'gpu', keywords: 'usage load busy sm' },
   { label: 'GPU temperature', tab: 'gpu', keywords: 'temp thermal heat slowdown shutdown' },
   { label: 'GPU power', tab: 'gpu', keywords: 'watts rail' },
@@ -37,8 +39,8 @@ const METRICS: readonly { label: string; tab: NodeTab; keywords: string }[] = [
   { label: 'Memory pressure', tab: 'memory', keywords: 'psi stall waiting' },
   { label: 'CPU utilisation', tab: 'cpu', keywords: 'cores load performance efficiency' },
   { label: 'Per-core heatmap', tab: 'cpu', keywords: 'cores' },
-  { label: 'ConnectX-7 throughput', tab: 'network', keywords: 'cx7 rdma interconnect rail bandwidth traffic' },
-  { label: 'ConnectX-7 errors', tab: 'network', keywords: 'cx7 rdma interconnect drops counters link' },
+  { label: (nic) => `${nic} throughput`, tab: 'network', keywords: 'rdma interconnect rail bandwidth traffic' },
+  { label: (nic) => `${nic} errors`, tab: 'network', keywords: 'rdma interconnect drops counters link' },
   { label: 'Disk throughput', tab: 'storage', keywords: 'nvme read write iops busy io' },
   { label: 'Disk capacity', tab: 'storage', keywords: 'space filesystems free used' },
   { label: 'NVMe temperature', tab: 'storage', keywords: 'temp disk ssd' },
@@ -62,6 +64,7 @@ function useCatalog(): BenchSpec[] {
 function useCommands(close: () => void, query: string): Command[] {
   const [, navigate] = useLocation();
   const order = useCluster((s) => s.order);
+  const models = useCluster(useShallow((s) => s.order.map((id) => nicModel(s.nodes[id]?.info?.net))));
   const theme = usePrefs((s) => s.theme);
   const reduceTransparency = usePrefs((s) => s.reduceTransparency);
   const collapsed = usePrefs((s) => s.sidebarCollapsed);
@@ -89,11 +92,13 @@ function useCommands(close: () => void, query: string): Command[] {
     });
     // Metrics and individual benchmarks would bury the short list; they appear once the user types.
     if (typing) {
-      for (const id of order) {
+      order.forEach((id, i) => {
+        const model = models[i] ?? null;
         for (const m of METRICS) {
-          cmds.push({ id: `metric-${id}-${m.label}`, group: 'Metrics', label: `${id} › ${m.label}`, keywords: m.keywords, icon: Activity, run: go(paths.node(id, m.tab)) });
+          const [label, keywords] = typeof m.label === 'string' ? [m.label, m.keywords] : [m.label(nicHeading(model)), `${nicAbbr(model)?.toLowerCase() ?? ''} ${m.keywords}`];
+          cmds.push({ id: `metric-${id}-${label}`, group: 'Metrics', label: `${id} › ${label}`, keywords, icon: Activity, run: go(paths.node(id, m.tab)) });
         }
-      }
+      });
       for (const spec of specs) {
         cmds.push({ id: `bench-${spec.id}`, group: 'Benchmarks', label: `${spec.name}…`, keywords: `${spec.category} benchmark run ${spec.id.replaceAll('-', ' ')}`, icon: Gauge, run: go(`${paths.benchmarks}?configure=${encodeURIComponent(spec.id)}`) });
       }
@@ -107,7 +112,7 @@ function useCommands(close: () => void, query: string): Command[] {
       { id: 'act-single-keys', group: 'Actions', label: singleKeys ? 'Turn off single-key shortcuts' : 'Turn on single-key shortcuts', keywords: 'keyboard keys speech accessibility', icon: Keyboard, run: () => { setPrefs({ singleKeyShortcuts: !singleKeys }); } },
     );
     return cmds;
-  }, [order, theme, reduceTransparency, collapsed, singleKeys, navigate, close, setPrefs, cycleTheme, setHelp, specs, typing]);
+  }, [order, models, theme, reduceTransparency, collapsed, singleKeys, navigate, close, setPrefs, cycleTheme, setHelp, specs, typing]);
 }
 
 /** ⌘K / Ctrl+K palette: combobox + listbox with grouped options and fuzzy filtering. */

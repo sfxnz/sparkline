@@ -8,6 +8,7 @@ import { Sparkline } from '../../design/components/Sparkline';
 import { StatusPill } from '../../design/components/StatusPill';
 import { Unsupported } from '../../design/components/Unsupported';
 import { bytesParts, DASH, formatAgo, formatPercent, tempParts, wattsParts, type Formatter } from '../../lib/format';
+import { nicHeading, nicModel, noLinkReason } from '../../lib/interconnect';
 import type { NodeInfo } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -49,7 +50,7 @@ function Cx7({ node, info }: { node: string; info: NodeInfo | null }) {
     // 0.8 Mb/s steps (below display precision), but any traffic at all stays above zero.
     return { v: t === null ? null : t > 0 ? Math.max(1, Math.round(t / 1e5) * 1e5) : 0 };
   }, shallowEqual, names.join(','));
-  if (!names.length) return <Unsupported reason="No ConnectX-7 rail on this node is cabled to another node." label="No direct link" />;
+  if (!names.length) return <Unsupported reason={noLinkReason(nicModel(info?.net))} label="No direct link" />;
   return <BigValue value={v.v} parts={gbpsParts} />;
 }
 
@@ -97,6 +98,7 @@ export function WallTile({ id }: { id: string }) {
   useBreath(ref, id, freshness === 'live');
   const sparkH = useVh(0.075, 48);
   const dim = freshness === 'stale' || freshness === 'down';
+  const linkLabel = `${nicHeading(nicModel(info?.net))} in + out`;
 
   return (
     <section ref={ref} className={`wall-tile${dim ? ' is-dim' : ''}${freshness === 'down' ? ' is-down' : ''}`} data-breath="0" aria-label={`Node ${id}`} aria-busy={freshness === 'waiting' || undefined}>
@@ -110,7 +112,7 @@ export function WallTile({ id }: { id: string }) {
       <Freshness id={id} freshness={freshness} />
 
       {freshness === 'waiting' ? (
-        <TileSkeleton sparkH={sparkH} />
+        <TileSkeleton sparkH={sparkH} linkLabel={linkLabel} />
       ) : (
         <div className="wall-tile__body">
           <div className="wall-tile__hero">
@@ -134,7 +136,7 @@ export function WallTile({ id }: { id: string }) {
               <dd><LiveMetric node={id} metric="mem.available" parts={gibParts} quantum={0.1 * 1024 ** 3} info={info} /></dd>
             </div>
             <div>
-              <dt className="wall-label">ConnectX-7 in + out</dt>
+              <dt className="wall-label">{linkLabel}</dt>
               <dd><Cx7 node={id} info={info} /></dd>
             </div>
           </dl>
@@ -144,7 +146,7 @@ export function WallTile({ id }: { id: string }) {
   );
 }
 
-function TileSkeleton({ sparkH }: { sparkH: number }) {
+function TileSkeleton({ sparkH, linkLabel }: { sparkH: number; linkLabel: string }) {
   return (
     <div className="wall-tile__body" aria-hidden="true">
       <div className="wall-tile__hero">
@@ -153,7 +155,7 @@ function TileSkeleton({ sparkH }: { sparkH: number }) {
       </div>
       <Skeleton height={sparkH} radius={10} />
       <dl className="wall-tile__stats">
-        {['GPU temperature', 'GPU power', 'Memory available', 'ConnectX-7 in + out'].map((l) => (
+        {['GPU temperature', 'GPU power', 'Memory available', linkLabel].map((l) => (
           <div key={l}>
             <dt className="wall-label">{l}</dt>
             <dd><span className="wall-value"><span className="wall-value__num">{DASH}</span></span></dd>

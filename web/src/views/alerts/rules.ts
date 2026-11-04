@@ -170,5 +170,5 @@ export function ruleIdInError(cause: string): string | null {
 /** Plain-English condition for rules without a metric threshold. */
 export const KIND_CONDITION: Record<Exclude<AlertRule['kind'], 'threshold' | 'throttle'>, string> = {
   node_offline: 'When a node stops responding or its agent is unreachable',
-  link_down: 'When a cabled ConnectX-7 link or its RDMA port goes down',
+  link_down: 'When a cabled interconnect link or its RDMA port goes down',
 };
