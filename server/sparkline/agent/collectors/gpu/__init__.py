@@ -141,7 +141,7 @@ class GpuCollector:
         vendor: Vendor,
         backend: GpuBackend,
         gpus: list[GpuInfo],
-        caps: Mapping[int, Mapping[GpuField, Gap | None]],
+        caps: Mapping[int, Mapping[GpuField, Gap | None] | Gap],
     ) -> None:
         base = len(self.info)
         self._live.append(_Live(backend, base))
@@ -150,6 +150,10 @@ class GpuCollector:
             index = base + g.index
             self.info.append(g.model_copy(update={"index": index, "vendor": vendor, "backend": backend.name}))
             gaps = caps.get(g.index, {})
+            if isinstance(gaps, Gap):
+                key = f"gpu{index}"
+                self._caps[key] = Unsupported(metric=key, reason=gaps.reason, kind=gaps.kind)
+                gaps = dict.fromkeys(get_args(GpuField), gaps)
             for field, gap in {**gaps, **{f: missing for f in get_args(GpuField) if f not in gaps}}.items():
                 key = f"gpu{index}.{field}"
                 self._caps[key] = Unsupported(metric=key, reason=gap.reason, kind=gap.kind) if gap else None

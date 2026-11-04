@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, ClassVar, NamedTuple, get_args
+from typing import Any, ClassVar, NamedTuple
 
 from ....common.schema import GpuInfo, GpuSample
 from ...sources import Sources
@@ -141,7 +141,7 @@ class Nvml:
         self.nv = src.nvml
         self.fs = src.fs
         self.gpus: list[_Gpu] = []
-        self._caps: dict[int, dict[GpuField, Gap | None]] = {}
+        self._caps: dict[int, dict[GpuField, Gap | None] | Gap] = {}
         self._versions: dict[str, str] = {}
         self._lost: list[int] = []
         self._inited = False
@@ -185,19 +185,15 @@ class Nvml:
                 continue
             self.gpus.append(g)
             info.append(self._probe(g))
-        if not self.gpus:
-            if lost:
-                why = "; ".join(dict.fromkeys(lost.values()))
-                seen = "1 GPU but could not open it" if n == 1 else f"{n} GPUs but could not open any"
-                raise CannotOpen(f"NVML sees {seen} ({why})")
+        if not n:
             raise NoDevice("NVML found no NVIDIA GPU")
         for i, why in lost.items():
             info.append(GpuInfo(index=i, name=f"GPU {i}"))
-            self._caps[i] = dict.fromkeys(get_args(GpuField), Gap(f"NVML could not open GPU {i} ({why})"))
+            self._caps[i] = Gap(f"NVML could not open GPU {i} ({why})")
         self._lost = sorted(lost)
         return sorted(info, key=lambda g: g.index)
 
-    def caps(self) -> dict[int, dict[GpuField, Gap | None]]:
+    def caps(self) -> dict[int, dict[GpuField, Gap | None] | Gap]:
         return self._caps
 
     def close(self) -> None:

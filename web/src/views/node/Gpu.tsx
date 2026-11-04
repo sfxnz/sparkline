@@ -24,7 +24,7 @@ import { clockLevel, CollectorErrors, SEVERITY_META, selectThrottleMask, throttl
 import { ProcTable } from './parts/ProcTable';
 import { gpuEnergy, gpuPower, gpuPstate, gpuSm, gpuTemp, gpuUtil } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
-import { gpuAt, notResponding } from '../../lib/gpu';
+import { gpuAt, lostGpu, notResponding } from '../../lib/gpu';
 
 const pct = (n: number) => formatPercent(n);
 const pct1 = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
@@ -67,9 +67,10 @@ export default function Gpu({ nodeId }: NodeTabProps) {
     if (shutdown != null) t.push({ value: shutdown, label: `Shutdown ${formatTemp(shutdown)}`, tone: 'crit' });
     return t;
   }, [slowdown, shutdown]);
-  const limitReason = notReported(info, 'gpu0.power_limit_w');
   const silent = useLatest(nodeId, useCallback((s: Sample | null) => notResponding(info, s, 0), [info]), sameGap);
-  const gap = (key: string) => notReported(info, key) ?? silent;
+  const lost = lostGpu(info, 0);
+  const limitReason = lost ?? notReported(info, 'gpu0.power_limit_w');
+  const gap = (key: string) => lost ?? notReported(info, key) ?? silent;
   const energyGap = gap('gpu0.energy_j');
 
   return (

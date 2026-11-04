@@ -16,7 +16,7 @@ import { useNow } from '../design/useNow';
 import { api } from '../lib/api';
 import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
-import { noGpuLabel } from '../lib/platform';
+import { gpuHeadline } from '../lib/platform';
 import type { NodeInfo, NodeState } from '../lib/types';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
@@ -27,7 +27,6 @@ import { SummarySkeleton } from './node/parts/SummarySkeleton';
 import { ChartPanelSkeleton, StatSkeleton } from './placeholders';
 import './node/parts/node.css';
 import './views.css';
-import { gpuAt } from '../lib/gpu';
 
 // The metric prefixes each tab's data comes from. When the agent declares all of them unsupported (its collector
 // could not start), the tab says why instead of drawing the agent's placeholder zeros.
@@ -115,7 +114,7 @@ function metaItems(node: NodeState, now: number): string[] {
   return [
     info.hostname !== node.node_id ? info.hostname : null,
     host,
-    gpuAt(info.gpus, 0)?.name ?? noGpuLabel(info),
+    gpuHeadline(info),
     info.driver ? `Driver ${info.driver}` : null,
     info.cuda ? `CUDA ${info.cuda}` : null,
     `Agent ${info.agent_version}`,

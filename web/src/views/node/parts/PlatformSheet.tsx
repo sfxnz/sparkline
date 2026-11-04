@@ -24,8 +24,22 @@ export function PlatformSheet({ info }: { info: NodeInfo }) {
                   {b.vendor} <code>{b.backend}</code>
                 </p>
                 <p className="nsheet__line num">
-                  {b.gpus.length} {b.gpus.length === 1 ? 'GPU' : 'GPUs'} · {[...new Set(b.gpus)].join(', ')}
+                  {countGpus(b.gpus.length + b.notResponding.length)}
+                  {b.gpus.length ? ` · ${[...new Set(b.gpus)].join(', ')}` : ''}
                 </p>
+                {b.notResponding.length ? (
+                  <ul className="nsheet__list nsheet__skips">
+                    {b.notResponding.map((g) => (
+                      <li key={g.index} className="nsheet__skip">
+                        <p className="nsheet__skiphead">
+                          <code>GPU {g.index}</code>
+                          <span className="nsheet__tag tone-warn">Not responding</span>
+                        </p>
+                        <p className="nsheet__reason">{g.reason}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -71,6 +85,8 @@ export function PlatformSheet({ info }: { info: NodeInfo }) {
     </div>
   );
 }
+
+const countGpus = (n: number) => `${String(n)} ${n === 1 ? 'GPU' : 'GPUs'}`;
 
 function SkippedRow({ item }: { item: SkippedBackend }) {
   return (
