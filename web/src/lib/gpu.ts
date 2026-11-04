@@ -57,3 +57,10 @@ export function andList(items: readonly (string | number)[]): string {
   const s = items.map(String);
   return s.length <= 1 ? (s[0] ?? '') : `${s.slice(0, -1).join(', ')} and ${s[s.length - 1] ?? ''}`;
 }
+
+/** "GPU 1 still reports." or "GPUs 1 and 2 still report.", for GPUs that `reportingGpus` kept. */
+export function stillReport(indexes: readonly number[]): string {
+  return indexes.length === 1 ? `GPU ${String(indexes[0])} still reports.` : `GPUs ${andList(indexes)} still report.`;
+}
+
+export const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);

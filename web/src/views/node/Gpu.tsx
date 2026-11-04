@@ -8,7 +8,7 @@ import { Stat } from '../../design/components/Stat';
 import { Skeleton } from '../../design/components/Skeleton';
 import '../../design/components/StatusPill.css';
 import { useNow } from '../../design/useNow';
-import { notReported, type NotReported } from '../../lib/capabilities';
+import { lostGpu, notReported, type NotReported } from '../../lib/capabilities';
 import { NoData, Unsupported } from '../../design/components/Unsupported';
 import { energyParts, formatAgo, formatFreq, formatPercent, formatTemp, formatWatts, percentParts, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { gpuKey, type GpuField, type GpuReading } from '../../lib/metrics';
@@ -25,11 +25,11 @@ import type { TimeRange } from '../../lib/prefs';
 import { useFreshness, useRangeData, type RangeData } from './parts/hooks';
 import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
-import { clockLevel, CollectorErrors, SEVERITY_META, throttleBadge, throttleHeadline, ThrottleRows } from './parts/Notices';
+import { clockLevel, CollectorErrors, selectReporting, SEVERITY_META, throttleBadge, throttleHeadline, ThrottleRows } from './parts/Notices';
 import { ProcTable } from './parts/ProcTable';
 import { gpuPresent, gpuSelector } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
-import { gpuAt } from '../../lib/gpu';
+import { gpuAt, reportingGpus, sentence, stillReport } from '../../lib/gpu';
 import { useGpuGap } from './parts/useGpuGap';
 
 const pct = (n: number) => formatPercent(n);
@@ -290,6 +290,9 @@ function GpuSection({ c }: { c: GpuCtx }) {
   const { waiting } = useFreshness(nodeId);
   const gap = useGpuGap(nodeId, index);
   const silent = gap(`gpu${index}`);
+  const reportingKey = useLatest(nodeId, selectReporting);
+  const down = present === false || lostGpu(c.info, index) !== null;
+  const others = down && reportingKey ? reportingGpus(c.info, reportingKey.split(',').map(Number)).filter((i) => i !== index) : [];
   const name = `GPU ${index}`;
   return (
     <Panel
@@ -302,12 +305,13 @@ function GpuSection({ c }: { c: GpuCtx }) {
         </>
       }
       subtitle={gpu?.name}
-      actions={present === false ? null : <GpuStatus nodeId={nodeId} index={index} />}
+      actions={down ? null : <GpuStatus nodeId={nodeId} index={index} />}
       busy={waiting}
     >
-      {present === false ? (
+      {down ? (
         <EmptyState icon={Unplug} title={`${name} not responding`} compact>
-          {silent?.detail ?? 'The latest sample has no entry for this GPU.'} The other GPUs are unaffected.
+          {sentence(silent?.detail ?? 'The latest sample has no entry for this GPU')}
+          {others.length ? ` ${stillReport(others)}` : null}
         </EmptyState>
       ) : (
         <>

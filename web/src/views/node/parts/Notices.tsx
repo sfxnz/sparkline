@@ -7,7 +7,7 @@ import { decodeThrottle, worstSeverity, type ThrottleReason } from '../../../lib
 import type { NodeInfo, Sample, Severity } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
-import { andList, gpuAt, reportingGpus, silentBackends, type SilentBackend } from '../../../lib/gpu';
+import { andList, gpuAt, reportingGpus, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
 import { gpuSelector } from './selectors';
 
 // ------------------------------------------------------------------ collector errors
@@ -31,13 +31,12 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
   return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 };
 
-const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
+export const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
 
 /** A lost GPU 0 declares `gpu0` too, but the GPU collector still runs and reads the other GPUs. */
 const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
   notReported(info, COLLECTORS[name]?.metric ?? name) !== null && !(name === 'gpu' && lostGpu(info, 0));
 
-const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
  *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. While
@@ -88,8 +87,7 @@ function SilentNote({ item, reporting, details }: { item: SilentBackend; reporti
         <strong>{indexes.length === 1 ? 'GPU' : 'GPUs'} {andList(indexes)} ({names}) not responding:</strong>{' '}
         <span className="nnote__msg">{sentence(item.message ?? 'no reading this tick')}</span>
         <span className="nnote__aside">
-          {' '}The <code>{item.backend}</code> backend sent no reading this tick. {others.length === 1 ? 'GPU' : 'GPUs'} {andList(others)} still{' '}
-          {others.length === 1 ? 'reports' : 'report'}.
+          {' '}The <code>{item.backend}</code> backend sent no reading this tick. {stillReport(others)}
         </span>
       </p>
       {details}
