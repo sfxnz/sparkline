@@ -1326,10 +1326,12 @@ spans = os.open(sys.argv[2], os.O_WRONLY | os.O_APPEND)
 def held(*a):  # 1 ms holding the GIL, like Python's own work around each real I/O
     t = time.perf_counter()
     usleep(1000)
-    os.write(spans, f"{t} {time.perf_counter()}\\n".encode())
+    os.write(spans, f"{os.getpid()} {t} {time.perf_counter()}\\n".encode())
     return b.RAND_BS
 os.preadv = held
-b.rand_io(sys.argv[1], 2**20, 0.5, 4, False)
+t = time.perf_counter()
+ops = b.rand_io(sys.argv[1], 2**20, 0.5, 4, False)[2]
+print(t, ops)
 """
 
 
@@ -1347,8 +1349,16 @@ def test_builtin_io_random_workers_do_not_share_a_gil(tmp_path):
         env={**os.environ, "PYTHONPATH": PAYLOAD_DIR},
     )
     assert r.returncode == 0, r.stderr[-2000:]
-    spans = sorted(tuple(map(float, ln.split())) for ln in log.read_text().splitlines())
-    assert len(spans) > 4 and any(nxt[0] < cur[1] for cur, nxt in pairwise(spans))
+    t, ops = r.stdout.split()
+    rows = [ln.split() for ln in log.read_text().splitlines()]
+    starts: dict[str, list[float]] = {}
+    for pid, start, _ in rows:
+        starts.setdefault(pid, []).append(float(start))
+    assert int(ops) == len(rows) and len(starts) == 4
+    # a worker stops on its first I/O at or after stop_at = (a clock read after t) + runtime
+    assert all(max(s) >= float(t) + 0.5 for s in starts.values())
+    spans = sorted((float(start), float(end)) for _, start, end in rows)
+    assert any(nxt[0] < cur[1] for cur, nxt in pairwise(spans))
 
 
 def test_builtin_io_sigterm_removes_file(tmp_path):
