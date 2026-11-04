@@ -5,14 +5,24 @@ import json
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
+from sparkline.common.metrics import flatten
 from sparkline.common.schema import ConsoleSettings, NodeInfo, Sample
+from sparkline.console.app import create_app
 from sparkline.console.cluster import Cluster
+from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel, DemoSource, demo_history
+from sparkline.console.demo_fleets import FLEETS
 from sparkline.console.hub import Hub
 from sparkline.console.store import Store
 
 T0 = 1_791_280_000.0
+THERMAL_BITS = 0x20 | 0x40  # sw_thermal, hw_thermal
+
+
+def ws1(t0: float = T0):
+    return FLEETS["mixed"]["ws1"](t0, 1.0)
 
 
 def test_demo_samples_and_info_validate_against_schema():
@@ -138,3 +148,99 @@ def test_demo_gpu_matches_discovery_numbers():
         assert busy and capped == 0, node
         assert all(28 <= g.power_w <= 40 and 2100 <= g.sm_mhz <= 2300 for g in busy), node
         assert idle and all(g.power_w <= 8 and g.sm_mhz == 208 and g.throttle_mask == 0 for g in idle), node
+
+
+def test_the_mixed_fleet_runs_a_four_gpu_workstation_beside_the_dgx_cluster(tmp_path):
+    cfg = ConsoleConfig(token="", agent_token="a", web_dist=tmp_path / "missing-dist")
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True, fleet="mixed")) as c:
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            nodes = {n["node_id"]: n for n in c.get("/api/v1/cluster").json()["nodes"]}
+            if nodes["ws1"]["info"]:
+                break
+            time.sleep(0.05)
+    assert list(nodes) == ["spark1", "spark2", "spark3", "ws1"]
+    gpus = nodes["ws1"]["info"]["gpus"]
+    assert [g["index"] for g in gpus] == [0, 1, 2, 3]
+    assert {g["name"] for g in gpus} == {"NVIDIA RTX 6000 Ada Generation"}
+    assert len({g["uuid"] for g in gpus}) == 4
+
+
+def test_workstation_samples_stay_plausible_over_a_long_span():
+    m = ws1()
+    gpu = m.info.gpus[0]
+    assert gpu.power_limit_w == 300.0 and gpu.temp_shutdown_c is not None and gpu.temp_slowdown_c is not None
+    last = [0.0] * 4
+    bits = [0] * 4
+    for i in range(0, 2 * 3600, 3):  # 20 of GPU 3's episodes
+        s = m.sample_at(T0 + i, i, procs=i % 300 == 0)
+        if i % 300 == 0:
+            assert Sample.model_validate(json.loads(s.model_dump_json())) == s
+        assert [g.index for g in s.gpu] == [0, 1, 2, 3] and s.mem.gpu is None
+        for g in s.gpu:
+            assert 0 <= g.util <= 100
+            assert g.power_w <= gpu.power_limit_w * 1.02, (i, g)
+            assert g.temp_c < gpu.temp_shutdown_c, (i, g)
+            assert g.energy_j > last[g.index], (i, g)
+            last[g.index] = g.energy_j
+            bits[g.index] |= g.throttle_mask
+    assert bits[3] & THERMAL_BITS == THERMAL_BITS
+    assert [b & THERMAL_BITS for b in bits[:3]] == [0, 0, 0]
+    hot = m.sample_at(T0 + 115).gpu  # inside the first episode, from 90 s
+    assert hot[3].temp_c > gpu.temp_slowdown_c and hot[3].sm_mhz < min(g.sm_mhz for g in hot[:3]) * 0.75
+    assert max(hot[:3], key=lambda g: g.temp_c).index == 2  # otherwise the sandwiched card runs hottest
+
+
+def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
+    m = ws1()
+    keys = flatten(m.sample_at(T0, procs=True))
+    assert {k.split(".")[0] for k in keys if k.startswith("gpu")} == {"gpu0", "gpu1", "gpu2", "gpu3"}
+    assert "mem.gpu" not in keys  # VRAM is not system RAM
+    assert not [n.name for n in m.info.net if n.rdma_device or n.role == "interconnect"]
+    assert {u.metric for u in m.info.unsupported} == {"fan", "system.power_w"}
+    assert len(m.info.cores) == 64 and {c.cluster for c in m.info.cores} == {0, 1, 2, 3}
+    assert {"temp.k10temp.tctl", "temp.nvme.composite", "temp.nvme1.composite"} <= set(keys)
+    procs = m.sample_at(T0, procs=True).procs or []
+    assert sorted(p.gpu_mem for p in procs if p.gpu_mem) == pytest.approx([43.4e9] * 4, rel=0.01)
+
+
+def test_demo_history_works_for_the_workstation():
+    m = ws1()
+    now = T0 + 600
+    keys = ["gpu0.util", "gpu3.temp_c", "gpu3.energy_j"]
+    h = demo_history(m, keys, now - 3600, now, 600, now=now)
+    assert h.node_id == "ws1" and h.resolution_s == 10 and set(h.series) == set(keys)
+    assert all(len(v) == len(h.ts) and None not in v for v in h.series.values())
+    energy = h.series["gpu3.energy_j"]
+    assert all(b > a for a, b in zip(energy, energy[1:], strict=False))
+
+
+class _Collect:
+    def __init__(self) -> None:
+        self.samples: list[Sample] = []
+
+    def on_hello(self, src) -> None:
+        pass
+
+    def on_sample(self, src, s: Sample) -> None:
+        self.samples.append(s)
+
+    def on_status(self, src, old) -> None:
+        pass
+
+
+@pytest.mark.parametrize("node", ["spark1", "ws1"])
+async def test_the_live_energy_counter_of_every_gpu_integrates_its_power(node):
+    listener = _Collect()
+    src = DemoSource(FLEETS["mixed"][node](time.time(), 1.0), listener)
+    src.interval = 0.01
+    task = asyncio.create_task(src.session())
+    try:
+        while len(listener.samples) < 8:
+            await asyncio.sleep(0.01)
+    finally:
+        task.cancel()
+    first, rest = listener.samples[0], listener.samples[1:]
+    for i, g in enumerate(first.gpu):
+        gained = rest[-1].gpu[i].energy_j - g.energy_j
+        assert gained == pytest.approx(sum(s.gpu[i].power_w for s in rest) * 0.01, abs=0.2), i
