@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
-from ...common.schema import GpuInfo, GpuSample, Unsupported
+from ...common.schema import GpuInfo, GpuSample, Unsupported, UnsupportedKind
 from ..sources import Sources
 from . import Caps, counter_delta
 
@@ -60,6 +60,62 @@ def _denied(e: Exception) -> str:
     return f"Permission denied to the agent's user ({_reason(e)})"
 
 
+class _Probe(NamedTuple):
+    key: str
+    label: str
+    retried: bool  # read every tick, so only Not Supported or No Permission at startup is a gap
+    call: Callable[[], Any]
+
+
+def _probes(nv: Any, h: Any) -> list[_Probe]:
+    return [
+        _Probe("util", "Utilisation", True, lambda: nv.nvmlDeviceGetUtilizationRates(h)),
+        _Probe("sm_mhz", "SM clock", True, lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_SM)),
+        _Probe(
+            "temp_c", "Temperature", True, lambda: nv.nvmlDeviceGetTemperature(h, nv.NVML_TEMPERATURE_GPU)
+        ),
+        _Probe("power_w", "Power draw", True, lambda: nv.nvmlDeviceGetPowerUsage(h)),
+        _Probe("energy_j", "Energy counter", True, lambda: nv.nvmlDeviceGetTotalEnergyConsumption(h)),
+        _Probe(
+            "throttle_mask", "Clock event reasons", True, lambda: nv.nvmlDeviceGetCurrentClocksEventReasons(h)
+        ),
+        _Probe(
+            "power_capped_pct",
+            "Power-capped time",
+            True,
+            lambda: nv.nvmlDeviceGetViolationStatus(h, nv.NVML_PERF_POLICY_POWER),
+        ),
+        _Probe(
+            "thermal_capped_pct",
+            "Thermal-capped time",
+            True,
+            lambda: nv.nvmlDeviceGetViolationStatus(h, nv.NVML_PERF_POLICY_THERMAL),
+        ),
+        _Probe(
+            "proc_mem", "Per-process GPU memory", True, lambda: nv.nvmlDeviceGetComputeRunningProcesses(h)
+        ),
+        _Probe("power_limit_w", "Power limit", False, lambda: nv.nvmlDeviceGetPowerManagementLimit(h)),
+        _Probe("mem_mhz", "Memory clock", False, lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_MEM)),
+        _Probe("fan_pct", "Fan speed", False, lambda: nv.nvmlDeviceGetFanSpeed(h)),
+        _Probe("fb_memory", "Dedicated GPU memory (FB)", False, lambda: nv.nvmlDeviceGetMemoryInfo(h)),
+        _Probe("ecc", "ECC", False, lambda: nv.nvmlDeviceGetEccMode(h)),
+        _Probe(
+            "pcie_bps",
+            "PCIe throughput",
+            False,
+            lambda: nv.nvmlDeviceGetPcieThroughput(h, nv.NVML_PCIE_UTIL_TX_BYTES),
+        ),
+    ]
+
+
+def _gap(nv: Any, e: Exception, metric: str, what: str, retried: bool, note: str = "") -> Unsupported | None:
+    if _no_permission(nv, e):
+        return Unsupported(metric=metric, reason=_denied(e), kind="access")
+    if retried and not isinstance(e, nv.NVMLError_NotSupported):
+        return None
+    return Unsupported(metric=metric, reason=f"{what} ({_reason(e)}){note}")
+
+
 class _Gpu:
     def __init__(self, index: int, handle: Any) -> None:  # an NVML device handle
         self.index = index
@@ -83,26 +139,21 @@ class GpuCollector:
         self.nv = nv = src.nvml
         self.gpus: list[_Gpu] = []
         self.info: list[GpuInfo] = []
-        self.unsupported: list[Unsupported] = []
+        self._caps: dict[str, Unsupported | None] = {}
         self.driver = self.cuda = self.nvml = None
         self.proc_mem: dict[int, int] = {}  # pid -> bytes, refreshed every tick
         self.proc_mem_total: int | None = None
         if nv is None:
-            self.unsupported.append(
-                Unsupported(
-                    metric="gpu*", reason="Install nvidia-ml-py to read NVIDIA GPU metrics", kind="dependency"
-                )
-            )
+            self._no_gpus("Install nvidia-ml-py to read NVIDIA GPU metrics", "dependency")
             return
         try:
             nv.nvmlInit()
             n = nv.nvmlDeviceGetCount()
         except Exception as e:
             if _no_permission(nv, e):
-                gap = Unsupported(metric="gpu*", reason=_denied(e), kind="access")
+                self._no_gpus(_denied(e), "access")
             else:
-                gap = Unsupported(metric="gpu*", reason=f"NVML unavailable ({_reason(e)})")
-            self.unsupported.append(gap)
+                self._no_gpus(f"NVML unavailable ({_reason(e)})", "hardware")
             return
         self.driver = self._try(nv.nvmlSystemGetDriverVersion)
         cuda = self._try(nv.nvmlSystemGetCudaDriverVersion_v2)
@@ -116,6 +167,18 @@ class GpuCollector:
                 continue
             self.gpus.append(g)
             self.info.append(self._probe(g))
+        if not self.gpus:
+            self._no_gpus("NVML found no NVIDIA GPU", "hardware")
+            return
+        procs = [self._caps[f"gpu{g.index}.proc_mem"] for g in self.gpus]
+        first = procs[0]
+        self._caps["mem.gpu"] = (
+            first.model_copy(update={"metric": "mem.gpu"}) if first and all(procs) else None
+        )
+
+    def _no_gpus(self, reason: str, kind: UnsupportedKind) -> None:
+        for metric in ("gpu*", "mem.gpu"):
+            self._caps[metric] = Unsupported(metric=metric, reason=reason, kind=kind)
 
     @staticmethod
     def _try(fn: Callable[..., Any], *args: Any) -> Any:
@@ -146,33 +209,18 @@ class GpuCollector:
                 nv.nvmlDeviceGetTemperatureThreshold, h, nv.NVML_TEMPERATURE_THRESHOLD_GPU_MAX
             ),
         )
-        probes = [
-            ("power_limit_w", "Power limit", lambda: nv.nvmlDeviceGetPowerManagementLimit(h)),
-            ("mem_mhz", "Memory clock", lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_MEM)),
-            ("fan_pct", "Fan speed", lambda: nv.nvmlDeviceGetFanSpeed(h)),
-            ("fb_memory", "Dedicated GPU memory (FB)", lambda: nv.nvmlDeviceGetMemoryInfo(h)),
-            ("ecc", "ECC", lambda: nv.nvmlDeviceGetEccMode(h)),
-            (
-                "pcie_bps",
-                "PCIe throughput",
-                lambda: nv.nvmlDeviceGetPcieThroughput(h, nv.NVML_PCIE_UTIL_TX_BYTES),
-            ),
-        ]
-        for key, label, fn in probes:
+        for key, label, retried, call in _probes(nv, h):
             try:
-                v = fn()
+                v = call()
                 if key == "power_limit_w":
                     info.power_limit_w = v / 1000
             except Exception as e:
-                if _no_permission(nv, e):
-                    self.unsupported.append(Unsupported(metric=p + key, reason=_denied(e), kind="access"))
-                    continue
-                why = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
-                self.unsupported.append(
-                    Unsupported(
-                        metric=p + key, reason=f"{label} not reported by {info.name} ({_reason(e)}){why}"
-                    )
+                note = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
+                self._caps[p + key] = _gap(
+                    nv, e, p + key, f"{label} not reported by {info.name}", retried, note
                 )
+            else:
+                self._caps[p + key] = None
         return info
 
     def _read(self, g: _Gpu, field: str, fn: Callable[..., Any], *args: Any) -> Any:
@@ -187,7 +235,7 @@ class GpuCollector:
         return None
 
     def caps(self) -> Caps:
-        return {}
+        return self._caps
 
     def collect(self) -> dict:
         nv = self.nv

@@ -6,9 +6,9 @@ import re
 from collections import Counter
 from typing import Literal
 
-from ...common.schema import CoreInfo, CpuSample
+from ...common.schema import CoreInfo, CpuSample, Unsupported
 from ..sources import RootFs, Sources
-from . import Caps, parse_psi
+from . import Caps, parse_psi, psi_caps
 
 # MIDR "CPU part" for implementer 0x41 (Arm Ltd).
 ARM_PARTS = {
@@ -161,9 +161,20 @@ class CpuCollector:
         self._freq_paths = [_clock_path(fs, i) for i in ids]
         self._prev: dict[int, tuple[int, int]] | None = None
         self._psi = fs.exists("/proc/pressure/cpu")
+        split = "This CPU has no performance/efficiency core split"
+        no_clock = "CPU clocks are not exposed (no cpufreq under /sys/devices/system/cpu)"
+        self._caps: dict[str, Unsupported | None] = {
+            **dict.fromkeys(("cpu.util", "cpu.load1", "cpu.load5", "cpu.load15", "cpu.core*.util")),
+            "cpu.perf_util": None if self.perf else Unsupported(metric="cpu.perf_util", reason=split),
+            "cpu.eff_util": None if self.eff else Unsupported(metric="cpu.eff_util", reason=split),
+            "cpu.core*.mhz": None
+            if any(fs.exists(p) for p in self._freq_paths)
+            else Unsupported(metric="cpu.core*.mhz", reason=no_clock),
+            **psi_caps(fs, "cpu", ("cpu.psi_some",)),
+        }
 
     def caps(self) -> Caps:
-        return {}
+        return self._caps
 
     def collect(self) -> dict:
         cur = parse_proc_stat(self.fs.read("/proc/stat"))

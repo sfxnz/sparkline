@@ -1,17 +1,81 @@
 """Collectors. Each module keeps pure parsing functions (unit-tested on fixtures) separate from IO.
 
 A collector implements ``Collector``: ``collect()`` returns a dict whose keys are ``Sample`` field names, and
-``caps()`` maps flattened metric keys to None (supported) or the reason they are not.
+``caps()`` maps each metric key it owns to None (reported) or the reason it is not. Caps are fixed at startup.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any, Protocol
 
 from ...common.schema import Unsupported
+from ..sources import RootFs
 
 Caps = Mapping[str, Unsupported | None]
+
+_GPU = (
+    "util",
+    "sm_mhz",
+    "temp_c",
+    "power_w",
+    "energy_j",
+    "throttle_mask",
+    "power_capped_pct",
+    "thermal_capped_pct",
+    "proc_mem",
+    "power_limit_w",
+    "mem_mhz",
+    "fan_pct",
+    "fb_memory",
+    "ecc",
+    "pcie_bps",
+)
+_MEM = (
+    "used",
+    "available",
+    "anon",
+    "cache",
+    "shmem",
+    "kernel",
+    "other",
+    "swap_used",
+    "used_pct",
+    "psi_some",
+    "psi_full",
+)
+_CPU = ("util", "perf_util", "eff_util", "load1", "load5", "load15", "psi_some", "core*.util", "core*.mhz")
+
+VOCABULARY: dict[str, str] = {
+    **{f"gpu*.{f}": "gpu" for f in _GPU},
+    "mem.gpu": "gpu",
+    **{f"mem.{f}": "memory" for f in _MEM},
+    **{f"cpu.{f}": "cpu" for f in _CPU},
+    "net": "net",
+    "disk": "storage",
+    "fs": "storage",
+    **{k: "thermal" for k in ("temp", "cpu.temp", "fan", "system.power_w")},
+    "procs": "procs",
+}
+
+
+def psi_caps(fs: RootFs, resource: str, keys: tuple[str, ...]) -> dict[str, Unsupported | None]:
+    path = f"/proc/pressure/{resource}"
+    if fs.exists(path):
+        return dict.fromkeys(keys)
+    reason = (
+        f"Pressure stall information is not exposed: {path} is missing (kernel without CONFIG_PSI, or psi=0)"
+    )
+    return {k: Unsupported(metric=k, reason=reason) for k in keys}
+
+
+def covers(metric: str, key: str) -> bool:
+    return re.fullmatch(re.escape(metric).replace(r"\*", r"\d+") + r"(\..*)?", key) is not None
+
+
+def declares(declared: str, vocab: str) -> bool:
+    return covers(vocab, declared) or covers(declared, vocab.replace("*", "0"))
 
 
 class Collector(Protocol):
