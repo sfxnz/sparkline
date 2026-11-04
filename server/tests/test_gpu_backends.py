@@ -434,3 +434,39 @@ def test_one_backend_failing_a_tick_leaves_its_gpus_empty_and_the_other_vendor_r
     assert sample.mem.gpu == 1000 + 5, "the backend that failed adds no process memory this tick"
     assert collectors.gpu is not None
     assert collectors.gpu.process_util() == ({100: 10.0} if "proc_util" in broken else {100: 20.0})
+
+
+@pytest.mark.parametrize(
+    ("error", "reason", "kind"),
+    [
+        (PermissionError(13, "Permission denied", "/dev/kfd"), "Needs access to /dev/kfd", "access"),
+        (OSError(1, "Operation not permitted"), "Not permitted (Operation not permitted)", "access"),
+        (
+            FileNotFoundError(2, "No such file or directory", "/dev/dri/renderD128"),
+            "Could not open /dev/dri/renderD128 (No such file or directory)",
+            "hardware",
+        ),
+        (RuntimeError("ioctl failed"), "Failed unexpectedly (RuntimeError: ioctl failed)", "hardware"),
+    ],
+    ids=["EACCES", "EPERM", "missing device", "other"],
+)
+def test_an_unexpected_error_from_open_reads_as_a_sentence_with_the_detail_kept(
+    error, reason, kind, monkeypatch
+):
+    monkeypatch.setitem(CHAINS, "linux", (Chain("amd", (fails("amd-x", error), AmdFake)),))
+    info, _, _ = warm(monkeypatch, gb10())
+
+    gap = next(u for u in info.unsupported if u.metric == "gpu.backend.amd-x")
+    assert (gap.reason, gap.kind) == (reason, kind)
+
+
+def test_a_path_in_an_open_error_is_named_as_on_the_machine_not_under_the_recording(monkeypatch):
+    src = gb10()
+    denied = PermissionError(13, "Permission denied", f"{src.fs.root}/dev/kfd")
+    monkeypatch.setitem(CHAINS, "linux", (Chain("amd", (fails("amd-x", denied), AmdFake)),))
+    info, _, _ = warm(monkeypatch, src)
+
+    assert (
+        next(u.reason for u in info.unsupported if u.metric == "gpu.backend.amd-x")
+        == "Needs access to /dev/kfd"
+    )
