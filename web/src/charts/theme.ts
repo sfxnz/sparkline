@@ -55,10 +55,10 @@ export function readChartTheme(): ChartTheme {
   return theme;
 }
 
-const GPU_FALLBACK = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+const GPU_FALLBACK = ['#0365fd', '#0fa974', '#c116bb', '#a47de3', '#c22d6d', '#116fa8', '#6b7f09', '#7a5fd2'];
 
-/** CSS colour of GPU `index`: its palette slot, or the neutral axis colour past the eighth GPU (never cycled, so two
- *  GPUs never share a colour). */
+/** CSS colour of GPU `index`: GPUs 0 to 7 each have their own palette slot. GPUs 8 and up all share the neutral axis
+ *  colour rather than reuse a slot, so a hue never stands for two GPUs; past the eighth, the label names the GPU. */
 export const gpuColor = (index: number) => (index >= 0 && index < GPU_FALLBACK.length ? `var(--gpu-${index})` : 'var(--chart-axis)');
 
 function computeChartTheme(): ChartTheme {

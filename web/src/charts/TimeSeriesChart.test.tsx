@@ -79,7 +79,7 @@ describe('GPU series colours', () => {
     ];
     const { container, unmount } = render(<TimeSeriesChart node="spark1" title="Utilisation" series={series} format={String} range="live" store={store} />);
     const opts = newest.plot?.opts as unknown as { series: { stroke?: string }[] };
-    expect(opts.series.slice(1).map((s) => s.stroke)).toEqual(['#199e70', '#3987e5', '#888', '#b4a4f5']);
+    expect(opts.series.slice(1).map((s) => s.stroke)).toEqual(['#c116bb', '#0365fd', '#888', '#b4a4f5']);
     const swatches = [...container.querySelectorAll<HTMLElement>('.tschart__legend-item .tschart__swatch')].map((el) => el.style.background);
     expect(swatches).toEqual(['var(--gpu-2)', 'var(--gpu-0)', 'var(--chart-axis)', '']);
     unmount();
