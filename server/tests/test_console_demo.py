@@ -213,9 +213,7 @@ def test_sample_noise_never_flips_a_workstation_gpus_power_cap_for_one_sample():
         assert blips == [], (i, blips[:5])
 
 
-def test_a_workstation_gpus_power_cap_holds_between_its_off_and_on_points_for_as_long_as_the_draw_does(
-    monkeypatch,
-):
+def test_a_workstation_gpus_power_cap_holds_between_its_off_and_on_points(monkeypatch):
     m = ws1()
     t1 = T0 + 1000
 
@@ -229,6 +227,39 @@ def test_a_workstation_gpus_power_cap_holds_between_its_off_and_on_points_for_as
 
     assert all(capped(t1 + k) for k in range(0, 400, 9))
     assert not capped(t1 + 400)
+
+
+def _cap_bit(m, t: float) -> bool:
+    return bool(next(g for g in m.sample_at(t).gpu if g.index == 0).throttle_mask & POWER_CAP_BIT)
+
+
+def test_a_workstation_gpus_power_cap_clears_once_10_s_have_passed_since_the_draw_was_last_above_on(
+    monkeypatch,
+):
+    m = ws1()
+    t1 = T0 + 1000
+    monkeypatch.setattr(m, "raw_power", lambda i, t, noise=True: 299.0 if t < t1 else 280.0)
+    last_above = t1 - 1
+    assert [_cap_bit(m, last_above + s) for s in (9, 10)] == [True, False]
+
+
+def test_a_workstation_gpus_power_cap_clears_after_10_min_between_its_points_and_looks_back_no_further(
+    monkeypatch,
+):
+    m = ws1()
+    t1 = T0 + 1000
+    calls: list[float] = []
+
+    def draw(i: int, t: float, noise: bool = True) -> float:
+        calls.append(t)
+        return 299.0 if t < t1 else 293.0
+
+    monkeypatch.setattr(m, "raw_power", draw)
+    last_above = t1 - 1
+    assert [_cap_bit(m, last_above + s) for s in (599, 600)] == [True, False]
+    calls.clear()
+    assert not m.power_capped(0, t1 + 86400)
+    assert len(calls) <= 600
 
 
 def test_a_workstation_gpu_at_full_draw_before_boot_shows_its_power_cap():
