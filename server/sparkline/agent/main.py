@@ -102,7 +102,12 @@ def main(argv: list[str] | None = None) -> int:
         cfg.interval_ms,
         cfg.data_dir,
     )
-    uvicorn.run(app, host=host, port=cfg.port, log_level=a.log_level, access_log=False, ws_ping_interval=None)
+    try:
+        uvicorn.run(
+            app, host=host, port=cfg.port, log_level=a.log_level, access_log=False, ws_ping_interval=None
+        )
+    finally:
+        collectors.close()
     return 0
 
 
