@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
-import type { NodeInfo, NodeState, Sample } from '../../../lib/types';
+import { gpuAt } from '../../../lib/gpu';
+import type { GpuSample, NodeInfo, NodeState, Sample } from '../../../lib/types';
 import { useLiveConditions } from '../../../store/attention';
 import { useCluster } from '../../../store/cluster';
 import { liveStore } from '../../../store/live';
@@ -29,7 +30,7 @@ describe('node attention on a sample without GPU 0', () => {
     const node = { node_id: 'att', status: 'online', info } as unknown as NodeState;
     useCluster.setState({ nodes: { att: node } });
     act(() => {
-      liveStore.pushSample({ ...base, node_id: 'att', ts: 1000, gpu: [{ ...base.gpu[0], index: 1, temp_c: 99, throttle_mask: 0 }] });
+      liveStore.pushSample({ ...base, node_id: 'att', ts: 1000, gpu: [{ ...(gpuAt(base.gpu, 0) as GpuSample), index: 1, temp_c: 99, throttle_mask: 0 }] });
       liveStore.flush();
     });
     const { result } = renderHook(() => useLiveConditions(['att']));

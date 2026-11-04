@@ -11,13 +11,14 @@ import { api, problemOf } from '../../lib/api';
 import { ProblemBanner } from '../alerts/parts/Banner';
 import { SettingRow } from './parts';
 import '../../app/ConnectionIndicator.css';
+import { gpuAt } from '../../lib/gpu';
 
 const COLUMNS: readonly Column<NodeState>[] = [
   { id: 'node', header: 'Node', render: (n) => <span className="t-headline">{n.node_id}</span> },
   { id: 'agent', header: 'Agent', render: (n) => n.info?.agent_version ?? <span className="t-tertiary">Not connected yet</span> },
   { id: 'driver', header: 'NVIDIA driver', render: (n) => n.info?.driver ?? DASH },
   { id: 'cuda', header: 'CUDA', render: (n) => n.info?.cuda ?? DASH },
-  { id: 'gpu', header: 'GPU', render: (n) => n.info?.gpus[0]?.name ?? DASH },
+  { id: 'gpu', header: 'GPU', render: (n) => gpuAt(n.info?.gpus, 0)?.name ?? DASH },
   { id: 'kernel', header: 'Kernel', render: (n) => (n.info ? <code className="set-code">{n.info.kernel}</code> : DASH) },
 ];
 

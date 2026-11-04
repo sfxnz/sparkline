@@ -20,6 +20,7 @@ import { historyCache } from './history';
 import { DEFAULT_CAPACITY, MAX_KEYS_PER_NODE, liveStore } from './live';
 import { usePrefs } from './prefs';
 import { dispatch } from './session';
+import { gpuAt } from '../lib/gpu';
 
 // Count live subscriptions on every zustand store (the hooks subscribe through api.subscribe).
 const zustandSubs = { n: 0 };
@@ -176,7 +177,7 @@ const wave = (t: number, period: number, phase: number) => 0.5 + 0.5 * Math.sin(
 function sample(node: string, t: number): Sample {
   const k = NODES.indexOf(node);
   const util = 100 * wave(t, 600, k);
-  const g = base.gpu[0];
+  const g = gpuAt(base.gpu, 0);
   if (!g) throw new Error('fixture has no GPU');
   return {
     ...base,

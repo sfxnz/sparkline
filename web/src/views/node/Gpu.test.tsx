@@ -1,7 +1,8 @@
 import { act, render, screen, within } from '@testing-library/react';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
-import type { GpuInfo, NodeInfo, NodeState, Sample } from '../../lib/types';
+import { gpuAt } from '../../lib/gpu';
+import type { GpuInfo, GpuSample, NodeInfo, NodeState, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
@@ -38,7 +39,7 @@ const hybrid = {
 } as unknown as NodeInfo;
 
 const base = sampleJson as unknown as Sample;
-const reading = (index: number, util: number, temp_c: number, power_w: number) => ({ ...base.gpu[0], index, util, temp_c, power_w });
+const reading = (index: number, util: number, temp_c: number, power_w: number): GpuSample => ({ ...(gpuAt(base.gpu, 0) as GpuSample), index, util, temp_c, power_w });
 
 const show = (sample: Sample) => {
   const node: NodeState = { node_id: NODE, url: 'http://x:9750', status: 'online', since: 0, last_sample_ts: TS, error: null, info: hybrid, next_retry_ts: null };

@@ -18,6 +18,13 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[computed=true][object.property.name=/^gpus?$/], CallExpression[callee.property.name='at'][callee.object.property.name=/^gpus?$/]",
+          message: 'Read a GPU by its index with gpuAt() (lib/gpu.ts): a sample lists only the GPUs that reported, so position 0 can be another vendor.',
+        },
+      ],
     },
   },
   {

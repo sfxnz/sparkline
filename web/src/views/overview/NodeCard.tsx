@@ -30,6 +30,7 @@ import { preloadSummary } from '../node/tabs';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from './hooks';
 import { memSplit, topGpuProcess, workloadName } from './model';
 import { spanPhrase } from '../shared/live';
+import { gpuAt } from '../../lib/gpu';
 
 interface CardCtx {
   id: string;
@@ -259,7 +260,7 @@ function StatBlock({ label, value, unit, format, footer, unsupported }: { label:
 function Temperature() {
   const { id, info } = useContext(Ctx);
   const temp = useLiveValue(id, 'gpu0.temp_c', 1);
-  const slowdown = info?.gpus[0]?.temp_slowdown_c ?? null;
+  const slowdown = gpuAt(info?.gpus, 0)?.temp_slowdown_c ?? null;
   const room = tempRoom(temp, slowdown);
   let footer: ReactNode = null;
   if (room) {

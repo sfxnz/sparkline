@@ -1,12 +1,13 @@
 // Stable selectors for useLatest (module scope, so subscriptions keep their identity across renders).
 import type { NodeInfo, Sample } from '../../../lib/types';
+import { gpuAt } from '../../../lib/gpu';
 
-export const gpuUtil = (s: Sample | null) => s?.gpu[0]?.util ?? null;
-export const gpuTemp = (s: Sample | null) => s?.gpu[0]?.temp_c ?? null;
-export const gpuPower = (s: Sample | null) => s?.gpu[0]?.power_w ?? null;
-export const gpuSm = (s: Sample | null) => s?.gpu[0]?.sm_mhz ?? null;
-export const gpuPstate = (s: Sample | null) => s?.gpu[0]?.pstate ?? null;
-export const gpuEnergy = (s: Sample | null) => s?.gpu[0]?.energy_j ?? null;
+export const gpuUtil = (s: Sample | null) => gpuAt(s?.gpu, 0)?.util ?? null;
+export const gpuTemp = (s: Sample | null) => gpuAt(s?.gpu, 0)?.temp_c ?? null;
+export const gpuPower = (s: Sample | null) => gpuAt(s?.gpu, 0)?.power_w ?? null;
+export const gpuSm = (s: Sample | null) => gpuAt(s?.gpu, 0)?.sm_mhz ?? null;
+export const gpuPstate = (s: Sample | null) => gpuAt(s?.gpu, 0)?.pstate ?? null;
+export const gpuEnergy = (s: Sample | null) => gpuAt(s?.gpu, 0)?.energy_j ?? null;
 export const memAvailable = (s: Sample | null) => s?.mem.available ?? null;
 export const memSwapUsed = (s: Sample | null) => s?.mem.swap_used ?? null;
 export const memPsiSome = (s: Sample | null) => s?.mem.psi_some ?? null;

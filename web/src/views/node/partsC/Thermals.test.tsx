@@ -1,11 +1,12 @@
 import { act, render, screen, within } from '@testing-library/react';
 import sampleJson from '../../../test/fixtures/sample.json';
-import type { NodeInfo, NodeState, Sample } from '../../../lib/types';
+import type { GpuInfo, NodeInfo, NodeState, Sample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useConnection } from '../../../store/connection';
 import { liveStore } from '../../../store/live';
 import { usePrefs } from '../../../store/prefs';
 import Thermals from '../Thermals';
+import { gpuAt } from '../../../lib/gpu';
 
 vi.mock('../../../charts/TimeSeriesChart', async (importActual) => ({
   ...(await importActual<typeof import('../../../charts/TimeSeriesChart')>()),
@@ -66,7 +67,7 @@ describe('Thermals tab', () => {
   });
 
   it('shows the GPU power limit whenever the GPU reports one', () => {
-    const withLimit = { ...info, gpus: [{ ...info.gpus[0], power_limit_w: 140 }], unsupported: info.unsupported.filter((u) => u.metric !== 'gpu0.power_limit_w') } as NodeInfo;
+    const withLimit = { ...info, gpus: [{ ...(gpuAt(info.gpus, 0) as GpuInfo), power_limit_w: 140 }], unsupported: info.unsupported.filter((u) => u.metric !== 'gpu0.power_limit_w') } as NodeInfo;
     useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { ...state('online'), info: withLimit } } });
     act(() => {
       liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: NODE, ts: 1_800_000_000 });
