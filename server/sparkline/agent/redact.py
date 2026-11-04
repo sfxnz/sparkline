@@ -75,11 +75,14 @@ class CaptureRefused(Exception):
         )
 
 
+IN_A_PATH = "a fixed part of a path that the agent reads"
+IN_A_READING = "a reading that the agent reports"
 RENAME = (
-    "A name of this machine is also a word in what it reads, so replacing it would change a reading. "
-    "Give the machine, account or container a name that is not a word in these readings, then capture "
-    "again. For the hostname, run sudo hostname <name> and undo it after. For a container, run docker "
-    "rename. For a user, capture from another account. Or open an issue and paste these lines."
+    "A name of this machine is also an ordinary word in what the agent reads, so replacing the name "
+    "would change a reading. Give that name another value for the run, then capture again. For the "
+    "hostname, run sudo hostname sparkline-capture and set it back after. For a Docker container, run "
+    "docker rename. For a user name, capture from another account. Before you attach, search "
+    "root/proc/self/mounts for the old name. Or open an issue and paste these lines."
 )
 
 
@@ -833,7 +836,9 @@ def _unreviewed(raw: str, node: Node) -> str | None:
 def _up_to_the_unreviewed_part(path: str, raw: str) -> str:
     parts, raw_parts = path.split("/"), raw.split("/")
     depth = next((i for i in range(2, len(raw_parts) + 1) if not leads_to("/".join(raw_parts[:i]))), None)
-    return "root" + path if depth is None else "root" + "/".join(parts[: depth - 1]) + "/..."
+    if depth is None or depth == len(parts):
+        return "root" + path
+    return "root" + "/".join(parts[:depth]) + "/..."
 
 
 def _unreviewed_readings(rec: Recording, originals: Spellings) -> list[Leak]:
@@ -860,9 +865,8 @@ def _admitting(raw: str, node: Node) -> list[str]:
 
 def name_collisions(red: Redacted) -> list[Leak]:
     patterns = {p for path, node in red.recording.tree.items() for p in _admitting(red.read_at[path], node)}
-    return [
-        Leak(f"reviewed path {p}", c) for p in sorted(patterns) for c in sorted(red.originals.names_in(p))
-    ]
+    found = {c for p in patterns for c in red.originals.names_in(p)}
+    return [Leak(IN_A_PATH, c) for c in sorted(found)]
 
 
 def leaks(red: Redacted) -> list[Leak]:

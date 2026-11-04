@@ -1,9 +1,10 @@
 """sparkline-capture: record this machine as a recorded platform that is safe to attach to a public issue.
 
 It runs the agent's collectors once (startup, NodeInfo, one tick) with every reading traced, copies what they
-read into a recorded-platform directory, replaces every identifier with a placeholder, refuses to write
-anything if one would survive, and checks that the agent replays the result as it ran live. Read only: it
-writes nothing outside its output directory.
+read into a recorded-platform directory, and replaces every identifier with a placeholder. It refuses to
+write anything when a reading is outside the reviewed read set (readset.py), when an identifier would
+survive, or when replacing a name would change a reading. It then checks that the agent replays the result
+as it ran live. Read only: it writes nothing outside its output directory.
 
 usage: sparkline-capture [OUT]     (or: python -m sparkline.agent.capture [OUT])
 """
@@ -45,6 +46,7 @@ from .config import AgentConfig
 from .info import AGENT_VERSION, Collectors
 from .readset import IDENTIFIER_FIELDS
 from .redact import (
+    IN_A_READING,
     RENAME,
     CaptureRefused,
     Dir,
@@ -73,7 +75,8 @@ THIS_PROCESS = "/proc/self"
 EAGAIN_TRIES = 10
 EAGAIN_WAIT_S = 0.02
 RECORDING = ("platform.json", "host.json", "nvml.json", "root")
-NOT_SHOWN = "  (a line that would name this machine is not shown)"
+NOT_SHOWN = "(a value that would name this machine is not shown)"
+OUTPUT_DIRECTORY = "the output directory"
 
 Need = Literal["content", "listing", "entry"]
 T = TypeVar("T")
@@ -575,17 +578,15 @@ def replay_check(info: NodeInfo, sample: Sample, out: Path, names: Spellings) ->
     wanted = Counter(_instance_masked(k) for k in flat)
     lost = {k for k, n in wanted.items() if replayed[k] < n}
     found += [(f"sample key {_family(k)}", k) for k in sorted(flat) if _instance_masked(k) in lost]
-    collided = [
-        Leak(where, c)
-        for where, live in found
-        for c in sorted(names.names_in(live if isinstance(live, str) else json.dumps(live)))
-    ]
+    collided = {
+        c for _, live in found for c in names.names_in(live if isinstance(live, str) else json.dumps(live))
+    }
     differences = list(dict.fromkeys(where for where, _ in found))
     if isinstance(src.nvml, NvmlReplay):
         differences += [
             f"NVML call {m.split('[')[0]} is not in the recording" for m in dict.fromkeys(src.nvml.misses)
         ]
-    return differences, list(dict.fromkeys(collided))
+    return differences, [Leak(IN_A_READING, c) for c in sorted(collided)]
 
 
 @dataclass(frozen=True)
@@ -650,8 +651,12 @@ def _summary(report: Report) -> str:
     def listed(counts: dict[str, int]) -> str:
         return "\n".join(f"  {name}: {n}" for name, n in counts.items()) or "  nothing"
 
+    def shown(value: str) -> str:
+        return NOT_SHOWN if (text := report.printable(value)) is None else text
+
+    out = report.printable(str(report.out)) or OUTPUT_DIRECTORY
     lines = [
-        f"Recorded this machine into {report.out}",
+        f"Recorded this machine into {out}",
         "Replaced with placeholders (counts only):",
         listed(report.counts),
         "Left out:",
@@ -666,15 +671,12 @@ def _summary(report: Report) -> str:
         lines += [
             "Replay check: the recording does not replay as this machine ran. Please paste these lines into",
             "the issue (they hold no values):",
-            *[f"  {d}" for d in report.differences],
+            *[f"  {shown(d)}" for d in report.differences],
         ]
     else:
         lines.append("Replay check: the recording replays as this machine ran.")
-    lines += [f"Attach {report.archive} to a new issue: {ISSUE_URL}"]
-    return "\n".join(
-        NOT_SHOWN if (shown := report.printable(line)) is None else shown
-        for line in "\n".join(lines).splitlines()
-    )
+    lines += [f"Attach {ARCHIVE} from {out} to a new issue: {ISSUE_URL}"]
+    return "\n".join(lines)
 
 
 def silence_logs_that_name_unredacted_paths() -> None:
