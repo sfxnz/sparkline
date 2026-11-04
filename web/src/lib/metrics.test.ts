@@ -23,11 +23,10 @@ describe('flatten', () => {
     expect(got.has('fs.data_models.used_pct')).toBe(false); // total 0
   });
 
-  it('writes no mem.* keys for a reading with total 0, the agent\'s placeholder when memory could not be read', () => {
-    const zeros = Object.fromEntries(Object.keys(s.mem).map((k) => [k, 0])) as unknown as Sample['mem'];
-    const got = [...flatten({ ...s, mem: zeros }).keys()];
-    expect(got.filter((k) => k.startsWith('mem.'))).toEqual([]);
-    expect(got).toContain('cpu.util');
+  it('writes no mem.* keys for the agent\'s placeholder reading (total 0), like the Python flatten()', () => {
+    const got = Object.fromEntries(flatten({ ...s, mem: expected.mem_placeholder.mem }));
+    expect(got).toEqual(expected.mem_placeholder.flatten);
+    expect(Object.keys(got).filter((k) => k.startsWith('mem.'))).toEqual([]);
   });
 });
 
