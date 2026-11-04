@@ -1,0 +1,664 @@
+{
+  "schema_version": 1,
+  "node_id": "ws1",
+  "hostname": "ws1",
+  "agent_version": "0.1.0",
+  "os": "Ubuntu 24.04.3 LTS",
+  "kernel": "6.14.0-35-generic",
+  "driver": "580.95.05",
+  "cuda": "13.0",
+  "nvml": "13.580.95.05",
+  "cpu_model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+  "cores": [
+    {
+      "id": 0,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 1,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 2,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 3,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 4,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 5,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 6,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 7,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 8,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 9,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 10,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 11,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 12,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 13,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 14,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 15,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 16,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 17,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 18,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 19,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 20,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 21,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 22,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 23,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 24,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 25,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 26,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 27,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 28,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 29,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 30,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 31,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 32,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 33,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 34,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 35,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 36,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 37,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 38,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 39,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 0
+    },
+    {
+      "id": 40,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 41,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 42,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 43,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 44,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 45,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 46,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 47,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 1
+    },
+    {
+      "id": 48,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 49,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 50,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 51,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 52,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 53,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 54,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 55,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 2
+    },
+    {
+      "id": 56,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 57,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 58,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 59,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 60,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 61,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 62,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    },
+    {
+      "id": 63,
+      "kind": "unknown",
+      "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
+      "max_mhz": 5300.0,
+      "cluster": 3
+    }
+  ],
+  "mem_total": 269944365056,
+  "swap_total": 8589934592,
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA RTX 6000 Ada Generation",
+      "uuid": "GPU-ed92bb4d-964f-40f0-556c-a60fe05af931",
+      "arch": "Ada",
+      "compute_capability": "8.9",
+      "cuda_cores": 18176,
+      "sm_mhz_max": 3105.0,
+      "temp_slowdown_c": 93.0,
+      "temp_shutdown_c": 96.0,
+      "temp_max_c": 89.0,
+      "power_limit_w": 300.0
+    },
+    {
+      "index": 1,
+      "name": "NVIDIA RTX 6000 Ada Generation",
+      "uuid": "GPU-610903fc-e0a8-c59c-d6d6-46cbeee75f68",
+      "arch": "Ada",
+      "compute_capability": "8.9",
+      "cuda_cores": 18176,
+      "sm_mhz_max": 3105.0,
+      "temp_slowdown_c": 93.0,
+      "temp_shutdown_c": 96.0,
+      "temp_max_c": 89.0,
+      "power_limit_w": 300.0
+    },
+    {
+      "index": 2,
+      "name": "NVIDIA RTX 6000 Ada Generation",
+      "uuid": "GPU-6613dcf0-0d70-daf9-45b2-f3652252b354",
+      "arch": "Ada",
+      "compute_capability": "8.9",
+      "cuda_cores": 18176,
+      "sm_mhz_max": 3105.0,
+      "temp_slowdown_c": 93.0,
+      "temp_shutdown_c": 96.0,
+      "temp_max_c": 89.0,
+      "power_limit_w": 300.0
+    },
+    {
+      "index": 3,
+      "name": "NVIDIA RTX 6000 Ada Generation",
+      "uuid": "GPU-e03f3e0f-0f10-4be7-dd47-f42a79b4da8c",
+      "arch": "Ada",
+      "compute_capability": "8.9",
+      "cuda_cores": 18176,
+      "sm_mhz_max": 3105.0,
+      "temp_slowdown_c": 93.0,
+      "temp_shutdown_c": 96.0,
+      "temp_max_c": 89.0,
+      "power_limit_w": 300.0
+    }
+  ],
+  "net": [
+    {
+      "name": "enp68s0f0",
+      "role": "lan",
+      "label": "LAN",
+      "mac": "02:00:00:57:00:10",
+      "ipv4": [
+        "198.51.100.20"
+      ],
+      "speed_mbps": 10000,
+      "rdma_device": null,
+      "counter_source": "netdev",
+      "peer": null
+    },
+    {
+      "name": "enp68s0f1",
+      "role": "other",
+      "label": "enp68s0f1",
+      "mac": "02:00:00:57:01:11",
+      "ipv4": [],
+      "speed_mbps": null,
+      "rdma_device": null,
+      "counter_source": "netdev",
+      "peer": null
+    },
+    {
+      "name": "docker0",
+      "role": "virtual",
+      "label": "docker0",
+      "mac": "02:00:00:57:02:12",
+      "ipv4": [],
+      "speed_mbps": null,
+      "rdma_device": null,
+      "counter_source": "netdev",
+      "peer": null
+    }
+  ],
+  "disks": [
+    {
+      "name": "nvme0n1",
+      "model": "Samsung SSD 990 PRO 2TB",
+      "size_bytes": 2000398934016,
+      "mounts": [
+        "/",
+        "/boot/efi"
+      ]
+    },
+    {
+      "name": "nvme1n1",
+      "model": "Samsung SSD 990 PRO 4TB",
+      "size_bytes": 4000787030016,
+      "mounts": [
+        "/data"
+      ]
+    }
+  ],
+  "sensors": [
+    {
+      "id": "k10temp.tctl",
+      "label": "k10temp Tctl",
+      "group": "other",
+      "crit_c": null
+    },
+    {
+      "id": "k10temp.tccd1",
+      "label": "k10temp Tccd1",
+      "group": "other",
+      "crit_c": null
+    },
+    {
+      "id": "k10temp.tccd2",
+      "label": "k10temp Tccd2",
+      "group": "other",
+      "crit_c": null
+    },
+    {
+      "id": "k10temp.tccd3",
+      "label": "k10temp Tccd3",
+      "group": "other",
+      "crit_c": null
+    },
+    {
+      "id": "k10temp.tccd4",
+      "label": "k10temp Tccd4",
+      "group": "other",
+      "crit_c": null
+    },
+    {
+      "id": "nvme.composite",
+      "label": "NVMe Composite",
+      "group": "nvme",
+      "crit_c": 84.85
+    },
+    {
+      "id": "nvme.sensor_1",
+      "label": "NVMe Sensor 1",
+      "group": "nvme",
+      "crit_c": null
+    },
+    {
+      "id": "nvme.sensor_2",
+      "label": "NVMe Sensor 2",
+      "group": "nvme",
+      "crit_c": null
+    },
+    {
+      "id": "nvme1.composite",
+      "label": "NVMe Composite",
+      "group": "nvme",
+      "crit_c": 84.85
+    },
+    {
+      "id": "nvme1.sensor_1",
+      "label": "NVMe Sensor 1",
+      "group": "nvme",
+      "crit_c": null
+    },
+    {
+      "id": "nvme1.sensor_2",
+      "label": "NVMe Sensor 2",
+      "group": "nvme",
+      "crit_c": null
+    }
+  ],
+  "unsupported": [
+    {
+      "metric": "fan",
+      "reason": "No fan sensors exposed by this hardware (hwmon)",
+      "kind": "hardware"
+    },
+    {
+      "metric": "system.power_w",
+      "reason": "Whole-system power is not exposed; only GPU board power (NVML) is",
+      "kind": "hardware"
+    }
+  ],
+  "tools": {
+    "docker": true,
+    "fio": false,
+    "perftest": false,
+    "nccl_tests": false,
+    "nvcc": true,
+    "pytorch_image": true
+  },
+  "sample_interval_ms": 1000,
+  "boot_time": 1791076420.4829264
+}

@@ -1,0 +1,310 @@
+{
+  "node_id": "spark1",
+  "ts": 1791288000.5,
+  "seq": 0,
+  "interval_ms": 1000,
+  "gpu": [
+    {
+      "index": 0,
+      "util": 62.4,
+      "sm_mhz": 2219.0,
+      "gr_mhz": 2219.0,
+      "video_mhz": 1785.0,
+      "temp_c": 64.1,
+      "power_w": 24.49,
+      "energy_j": 7268685.2,
+      "pstate": 0,
+      "throttle_mask": 0,
+      "power_capped_pct": 0.0,
+      "thermal_capped_pct": 0.0
+    }
+  ],
+  "mem": {
+    "total": 130722492416,
+    "available": 32014941872,
+    "used": 98707550544,
+    "free": 20203781808,
+    "gpu": 85978526474,
+    "anon": 5513462539,
+    "cache": 11811160064,
+    "shmem": 1503238553,
+    "kernel": 3779587695,
+    "other": 1932735283,
+    "swap_total": 17179869184,
+    "swap_used": 4437580713,
+    "psi_some": 8.36,
+    "psi_full": 2.93
+  },
+  "cpu": {
+    "util": 19.7,
+    "perf_util": 35.0,
+    "eff_util": 4.4,
+    "per_core": [
+      3.7,
+      4.8,
+      1.6,
+      2.4,
+      1.5,
+      25.1,
+      22.2,
+      92.4,
+      30.0,
+      19.6,
+      9.0,
+      6.6,
+      7.6,
+      5.6,
+      1.5,
+      24.4,
+      33.0,
+      36.6,
+      34.8,
+      32.2
+    ],
+    "freq_mhz": [
+      2106.0,
+      2106.0,
+      2106.0,
+      2106.0,
+      2106.0,
+      3807.0,
+      3862.0,
+      3818.0,
+      3826.0,
+      3804.0,
+      2757.0,
+      2106.0,
+      2106.0,
+      2106.0,
+      2106.0,
+      3783.0,
+      3766.0,
+      3831.0,
+      3822.0,
+      3890.0
+    ],
+    "load1": 3.58,
+    "load5": 3.94,
+    "load15": 4.19,
+    "psi_some": 0.0
+  },
+  "net": [
+    {
+      "name": "enp1s0f1np1",
+      "up": true,
+      "speed_mbps": 200000,
+      "rx_bps": 364642175.0,
+      "tx_bps": 375430977.0,
+      "errors": 0.0,
+      "drops": 0.0,
+      "rdma_state": "ACTIVE",
+      "rdma_rate": "200 Gb/sec (4X HDR)"
+    },
+    {
+      "name": "enP2p1s0f1np1",
+      "up": true,
+      "speed_mbps": 200000,
+      "rx_bps": 370628383.0,
+      "tx_bps": 355714445.0,
+      "errors": 0.0,
+      "drops": 0.0,
+      "rdma_state": "ACTIVE",
+      "rdma_rate": "200 Gb/sec (4X HDR)"
+    },
+    {
+      "name": "enp1s0f0np0",
+      "up": false,
+      "speed_mbps": null,
+      "rx_bps": 0.0,
+      "tx_bps": 0.0,
+      "errors": 0.0,
+      "drops": 0.0,
+      "rdma_state": "DOWN",
+      "rdma_rate": null
+    },
+    {
+      "name": "enP2p1s0f0np0",
+      "up": false,
+      "speed_mbps": null,
+      "rx_bps": 0.0,
+      "tx_bps": 0.0,
+      "errors": 0.0,
+      "drops": 0.0,
+      "rdma_state": "DOWN",
+      "rdma_rate": null
+    },
+    {
+      "name": "enP7s7",
+      "up": true,
+      "speed_mbps": 10000,
+      "rx_bps": 132483.0,
+      "tx_bps": 354141.0,
+      "errors": 0.0,
+      "drops": 0.0,
+      "rdma_state": null,
+      "rdma_rate": null
+    }
+  ],
+  "disk": [
+    {
+      "name": "nvme0n1",
+      "read_bps": 2060144.0,
+      "write_bps": 4811078.0,
+      "read_iops": 46.0,
+      "write_iops": 306.0,
+      "busy_pct": 1.4
+    }
+  ],
+  "fs": [
+    {
+      "mount": "/",
+      "key": "root",
+      "device": "/dev/nvme0n1p2",
+      "total": 3936502300672,
+      "used": 3226523043480,
+      "free": 709979257192
+    },
+    {
+      "mount": "/boot/efi",
+      "key": "boot_efi",
+      "device": "/dev/nvme0n1p1",
+      "total": 1124999168,
+      "used": 6709248,
+      "free": 1118289920
+    }
+  ],
+  "temps": [
+    {
+      "id": "acpitz.0",
+      "c": 63.8
+    },
+    {
+      "id": "acpitz.1",
+      "c": 66.0
+    },
+    {
+      "id": "acpitz.2",
+      "c": 67.4
+    },
+    {
+      "id": "acpitz.3",
+      "c": 72.0
+    },
+    {
+      "id": "acpitz.4",
+      "c": 68.0
+    },
+    {
+      "id": "acpitz.5",
+      "c": 64.9
+    },
+    {
+      "id": "acpitz.6",
+      "c": 70.9
+    },
+    {
+      "id": "nvme.composite",
+      "c": 45.4
+    },
+    {
+      "id": "nvme.sensor_1",
+      "c": 54.4
+    },
+    {
+      "id": "nvme.sensor_2",
+      "c": 43.4
+    },
+    {
+      "id": "mlx5.0",
+      "c": 62.9
+    },
+    {
+      "id": "mlx5.1",
+      "c": 62.0
+    },
+    {
+      "id": "mlx5.2",
+      "c": 61.9
+    },
+    {
+      "id": "mlx5.3",
+      "c": 62.2
+    }
+  ],
+  "procs": [
+    {
+      "pid": 48213,
+      "name": "python",
+      "cmdline": "python serve_stats.py --model /root/.cache/huggingface/hub/models--turboderp--DeepSeek-V4.1-Flash-EXL3/snapshots/3f2a9c1e --tp 2 --rank 0 --host 0.0.0.0 --port 8000 --max-batch 32",
+      "user": "root",
+      "cpu_pct": 113.6,
+      "rss": 4939212390,
+      "gpu_mem": 85978526474,
+      "gpu_util": 62.4,
+      "container": "c5-2B-r0",
+      "model": "DeepSeek-V4.1-Flash-EXL3"
+    },
+    {
+      "pid": 1873,
+      "name": "dockerd",
+      "cmdline": "/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock",
+      "user": "root",
+      "cpu_pct": 0.4,
+      "rss": 117440512,
+      "gpu_mem": null,
+      "gpu_util": null,
+      "container": null,
+      "model": null
+    },
+    {
+      "pid": 1622,
+      "name": "containerd",
+      "cmdline": "/usr/bin/containerd",
+      "user": "root",
+      "cpu_pct": 0.1,
+      "rss": 63963136,
+      "gpu_mem": null,
+      "gpu_util": null,
+      "container": null,
+      "model": null
+    },
+    {
+      "pid": 2301,
+      "name": "sparkline-agent",
+      "cmdline": "/opt/sparkline/venv/bin/python -m sparkline.agent.main",
+      "user": "spark",
+      "cpu_pct": 0.7,
+      "rss": 60817408,
+      "gpu_mem": null,
+      "gpu_util": null,
+      "container": null,
+      "model": null
+    },
+    {
+      "pid": 1544,
+      "name": "tailscaled",
+      "cmdline": "/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state",
+      "user": "root",
+      "cpu_pct": 0.4,
+      "rss": 54525952,
+      "gpu_mem": null,
+      "gpu_util": null,
+      "container": null,
+      "model": null
+    },
+    {
+      "pid": 512,
+      "name": "systemd-journald",
+      "cmdline": "/usr/lib/systemd/systemd-journald",
+      "user": "root",
+      "cpu_pct": 0.0,
+      "rss": 42991616,
+      "gpu_mem": null,
+      "gpu_util": null,
+      "container": null,
+      "model": null
+    }
+  ],
+  "procs_ts": 1791288000.5,
+  "errors": {}
+}
