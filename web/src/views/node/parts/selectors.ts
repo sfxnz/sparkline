@@ -1,13 +1,33 @@
 // Stable selectors for useLatest (module scope, so subscriptions keep their identity across renders).
+import type { GpuReading } from '../../../lib/metrics';
 import type { NodeInfo, Sample } from '../../../lib/types';
 import { gpuAt } from '../../../lib/gpu';
 
-export const gpuUtil = (s: Sample | null) => gpuAt(s?.gpu, 0)?.util ?? null;
-export const gpuTemp = (s: Sample | null) => gpuAt(s?.gpu, 0)?.temp_c ?? null;
-export const gpuPower = (s: Sample | null) => gpuAt(s?.gpu, 0)?.power_w ?? null;
-export const gpuSm = (s: Sample | null) => gpuAt(s?.gpu, 0)?.sm_mhz ?? null;
-export const gpuPstate = (s: Sample | null) => gpuAt(s?.gpu, 0)?.pstate ?? null;
-export const gpuEnergy = (s: Sample | null) => gpuAt(s?.gpu, 0)?.energy_j ?? null;
+type Select<T> = (s: Sample | null) => T;
+const readings = new Map<string, Select<number | null>>();
+const presence = new Map<number, Select<boolean | null>>();
+
+/** One reading of the GPU with this index (not array position), memoised per index and reading. */
+export function gpuSelector(index: number, reading: GpuReading): Select<number | null> {
+  const id = `${index}.${reading}`;
+  let sel = readings.get(id);
+  if (!sel) readings.set(id, (sel = (s) => gpuAt(s?.gpu, index)?.[reading] ?? null));
+  return sel;
+}
+
+/** Whether the latest sample has an entry for this GPU index; null before the first sample. */
+export function gpuPresent(index: number): Select<boolean | null> {
+  let sel = presence.get(index);
+  if (!sel) presence.set(index, (sel = (s) => (s ? gpuAt(s.gpu, index) !== undefined : null)));
+  return sel;
+}
+
+export const gpuUtil = gpuSelector(0, 'util');
+export const gpuTemp = gpuSelector(0, 'temp_c');
+export const gpuPower = gpuSelector(0, 'power_w');
+export const gpuSm = gpuSelector(0, 'sm_mhz');
+export const gpuPstate = gpuSelector(0, 'pstate');
+export const gpuEnergy = gpuSelector(0, 'energy_j');
 export const memAvailable = (s: Sample | null) => s?.mem.available ?? null;
 export const memSwapUsed = (s: Sample | null) => s?.mem.swap_used ?? null;
 export const memPsiSome = (s: Sample | null) => s?.mem.psi_some ?? null;

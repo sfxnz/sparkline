@@ -8,6 +8,7 @@ import type { NodeInfo, Sample, Severity } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
 import { andList, gpuAt, reportingGpus, silentBackends, type SilentBackend } from '../../../lib/gpu';
+import { gpuSelector } from './selectors';
 
 // ------------------------------------------------------------------ collector errors
 
@@ -104,7 +105,7 @@ export const SEVERITY_META: Record<Severity, { label: string; icon: LucideIcon; 
   critical: { label: 'Critical', icon: OctagonAlert, tone: 'tone-crit' },
 };
 
-export const selectThrottleMask = (s: Sample | null) => gpuAt(s?.gpu, 0)?.throttle_mask ?? null;
+export const selectThrottleMask = gpuSelector(0, 'throttle_mask');
 
 /** Reasons that actually limit clocks ("Idle" only means there is no work). */
 export const limiting = (reasons: readonly ThrottleReason[]) => reasons.filter((r) => r.code !== 'gpu_idle');
@@ -112,8 +113,8 @@ export const limiting = (reasons: readonly ThrottleReason[]) => reasons.filter((
 /** Where the SM clock sits against its maximum: near it ('full'), well below it with no work ('idle') or with work
  *  ('low'), or unknown (null). An idle GB10 reports mask 0x0 at about 7% of its maximum clock. */
 export type ClockLevel = 'full' | 'idle' | 'low' | null;
-export function clockLevel(s: Sample | null, maxMhz: number | null): ClockLevel {
-  const g = gpuAt(s?.gpu, 0);
+export function clockLevel(s: Sample | null, maxMhz: number | null, index = 0): ClockLevel {
+  const g = gpuAt(s?.gpu, index);
   if (g?.sm_mhz == null || !maxMhz) return null;
   if (g.sm_mhz >= 0.8 * maxMhz) return 'full';
   return g.util == null || g.util < 10 ? 'idle' : 'low';
