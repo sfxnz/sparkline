@@ -21,14 +21,24 @@ import './partsB/partsB.css';
 export default function Cpu({ nodeId }: { nodeId: string }) {
   const info = useNodeInfo(nodeId);
   const hasData = useHasData(nodeId);
-  if (!info || !hasData) return <CpuSkeleton split={info ? coreLayout(info.cores, info.cpu_model).split : true} />;
+  if (!info || !hasData) return <CpuSkeleton layout={info ? coreLayout(info.cores, info.cpu_model) : null} />;
   return <CpuView node={nodeId} info={info} />;
+}
+
+const GROUP_STATS = [
+  { kind: 'performance', label: 'Performance cores', metric: 'cpu.perf_util' },
+  { kind: 'efficiency', label: 'Efficiency cores', metric: 'cpu.eff_util' },
+] as const;
+
+function groupStats({ groups }: CoreLayout) {
+  return GROUP_STATS.flatMap((s) => {
+    const group = groups.find((g) => g.kind === s.kind);
+    return group ? [{ ...s, group }] : [];
+  });
 }
 
 function CpuView({ node, info }: { node: string; info: NodeInfo }) {
   const layout = useMemo(() => coreLayout(info.cores, info.cpu_model), [info.cores, info.cpu_model]);
-  const perf = layout.groups.find((g) => g.kind === 'performance');
-  const eff = layout.groups.find((g) => g.kind === 'efficiency');
   const n = info.cores.length;
   const stale = useNodeStale(node);
   const pct = useCallback((v: number) => `${v.toFixed(0)}%`, []);
@@ -41,24 +51,16 @@ function CpuView({ node, info }: { node: string; info: NodeInfo }) {
         <NowLabel />
         <div className="nstats">
           <LiveStat node={node} label="CPU utilisation" format={percentParts} metric="cpu.util" unsupported={notReported(info, 'cpu.util')} footer={`Average of ${n} cores`} />
-          {perf ? (
+          {groupStats(layout).map(({ label, metric, group }) => (
             <LiveStat
+              key={label}
               node={node}
-              label="Performance cores"
+              label={label}
               format={percentParts}
-              derive={(get) => get('cpu.perf_util') ?? meanUtil(perf.cores.map((c) => get(`cpu.core${c.id}.util`)))}
-              footer={groupSize(perf)}
+              derive={(get) => get(metric) ?? meanUtil(group.cores.map((c) => get(`cpu.core${c.id}.util`)))}
+              footer={groupSize(group)}
             />
-          ) : null}
-          {eff ? (
-            <LiveStat
-              node={node}
-              label="Efficiency cores"
-              format={percentParts}
-              derive={(get) => get('cpu.eff_util') ?? meanUtil(eff.cores.map((c) => get(`cpu.core${c.id}.util`)))}
-              footer={groupSize(eff)}
-            />
-          ) : null}
+          ))}
           <LiveStat node={node} label="Load average · 1 min" format={loadParts} metric="cpu.load1" unsupported={notReported(info, 'cpu.load1')} footer={<LoadFooter node={node} />} />
           <LiveStat
             node={node}
@@ -112,14 +114,14 @@ function LoadFooter({ node }: { node: string }) {
   return <span className="num">{text}</span>;
 }
 
-function CpuSkeleton({ split }: { split: boolean }) {
+function CpuSkeleton({ layout }: { layout: CoreLayout | null }) {
+  const split = layout?.split ?? true;
   return (
     <div className="view view--flush nb" aria-busy="true">
       <Panel label="CPU summary" busy>
         <div className="nstats">
           <StatSkeleton />
-          <StatSkeleton />
-          <StatSkeleton />
+          {(layout ? groupStats(layout) : GROUP_STATS).map((s) => <StatSkeleton key={s.label} />)}
           <StatSkeleton />
           <StatSkeleton />
           <StatSkeleton />
