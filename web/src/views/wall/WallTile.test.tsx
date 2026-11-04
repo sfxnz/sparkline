@@ -54,6 +54,23 @@ describe('a four-GPU workstation on the wall (ws1)', () => {
     expect(value('GPU power')).toHaveTextContent(/^GPU power1069W$/);
   });
 
+  it('marks the utilisation and temperature it reads from 3 of 4 GPUs while GPU 0 is lost, and raises the pill', () => {
+    const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+    const info = { ...(wsInfo as unknown as NodeInfo), unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    const state: NodeState = { node_id: 'ws1', url: '', status: 'online', since: now, last_sample_ts: now, error: null, info, next_retry_ts: null };
+    useConnection.setState({ status: 'live', everLive: true });
+    useCluster.setState({ clockOffset: 0, nodes: { ws1: state } });
+    act(() => {
+      liveStore.removeNode('ws1');
+      liveStore.pushSample({ ...reading, ts: now, gpu: reading.gpu.map((g) => (g.index === 0 ? ({ index: 0 } as Sample['gpu'][number]) : g)) });
+      liveStore.flush();
+    });
+    render(<WallTile id="ws1" />);
+    expect(value('GPU utilisation')).toHaveTextContent(/^GPU utilisation87%3 of 4 GPUs$/);
+    expect(value('GPU temperature')).toHaveTextContent(/^GPU temperature77°C3 of 4 GPUs$/);
+    expect(screen.getByRole('region', { name: 'Node ws1' }).querySelector('[data-status]')?.getAttribute('data-status')).toBe('warning');
+  });
+
   it('says there is no power total, naming GPU 2, while GPU 2 sends no power reading', () => {
     show({ ...reading, gpu: reading.gpu.map((g) => (g.index === 2 ? { ...g, power_w: null } : g)) });
     expect(value('GPU power')).toHaveTextContent('No total');

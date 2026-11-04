@@ -2,7 +2,7 @@ import gb10Info from '../test/fixtures/platforms/gb10/info.json';
 import wsInfo from '../test/fixtures/platforms/workstation/info.json';
 import wsSample from '../test/fixtures/platforms/workstation/sample.json';
 import { notReported } from './capabilities';
-import { gpuSetGap, nodeGpuKey, totalGap } from './gpu';
+import { gpuSetGap, nodeGpuKey, totalFrom, totalGap } from './gpu';
 import type { GpuSample, NodeInfo, Sample, Unsupported } from './types';
 
 const gb10 = gb10Info as unknown as NodeInfo;
@@ -61,6 +61,19 @@ describe('gpuSetGap', () => {
   it('names a GPU that answers when GPU 0 is lost and the others lack the field too', () => {
     const info = lostGpu0({ metric: 'gpu1.proc_mem', reason: 'Not reported by the amdgpu-sysfs backend', kind: 'agent' }, { metric: 'gpu2.proc_mem', reason: 'Not reported by the amdgpu-sysfs backend', kind: 'agent' }, { metric: 'gpu3.proc_mem', reason: 'Not reported by the amdgpu-sysfs backend', kind: 'agent' });
     expect(gpuSetGap(info, 'proc_mem', 'any')).toEqual({ kind: 'agent', label: 'Not collected yet', detail: 'GPU 1: Not reported by the amdgpu-sysfs backend' });
+  });
+});
+
+describe('totalFrom', () => {
+  it('counts the GPUs a mean or a maximum reads while one is lost or silent', () => {
+    expect(totalFrom(ws1, sample, 'util')).toBeNull();
+    expect(totalFrom(lostGpu0(), withGpu(sample, 0, { util: null, temp_c: null }), 'util')).toEqual({ from: 3, of: 4 });
+    expect(totalFrom(ws1, { ...sample, gpu: sample.gpu.filter((g) => g.index !== 2) }, 'temp_c')).toEqual({ from: 3, of: 4 });
+  });
+
+  it('is null on a one-GPU node and when no GPU has the field', () => {
+    expect(totalFrom(gb10, { ...sample, gpu: [] }, 'util')).toBeNull();
+    expect(totalFrom(ws1, { ...sample, gpu: sample.gpu.map((g) => ({ ...g, util: null })) }, 'util')).toBeNull();
   });
 });
 

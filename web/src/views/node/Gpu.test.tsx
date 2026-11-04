@@ -261,6 +261,12 @@ describe('GPU needs attention on a multi-GPU node (ws1, slowdown 93 °C)', () =>
     expect(rows().map((r) => r.textContent)).toEqual(['Critical: GPUs 0, 1, 2 and 3At slowdown']);
   });
 
+  it('lists a lost GPU as not responding', () => {
+    const info = { ...workstation.info, unsupported: [{ metric: 'gpu0', reason: 'NVML could not open GPU 0 (NVML: GPU is lost)', kind: 'hardware' }] } as NodeInfo;
+    show(workstation, { info, sample: withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, throttle_mask: null }) });
+    expect(rows().map((r) => r.textContent)).toEqual(['Warning: GPU 0Not responding']);
+  });
+
   it('says nothing once the node stops reporting, like the status pill', () => {
     show(workstation, { sample: hot([3]), status: 'stale' });
     expect(attention()).toBeNull();
@@ -423,6 +429,17 @@ describe('Summary and Thermals on a four-GPU workstation (ws1, slowdown 93 °C)'
     expect(stat('GPU temperature')).toHaveTextContent(/^GPU temperature77°C/);
     expect(stat('GPU power')).toHaveTextContent('No total');
     expect(why(stat('GPU power'))).toHaveAccessibleDescription(`GPU 0: ${LOST}`);
+  });
+
+  it.each([
+    ['Summary', Summary],
+    ['Thermals', Thermals],
+  ] as const)('says on %s that utilisation and temperature come from 3 of 4 GPUs while GPU 0 is lost', (_, View) => {
+    const info = { ...workstation.info, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    showWs1(View, withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null }), info);
+    const scope = within(screen.getByRole('region', { name: View === Summary ? 'At a glance' : 'ws1 thermals and power summary' }));
+    expect(scope.getByText('GPU temperature', { selector: '.stat__label' }).closest('.stat')).toHaveTextContent(/below slowdown \(93 °C\) · 3 of 4 GPUs$/);
+    if (View === Summary) expect(stat('GPU utilisation')).toHaveTextContent(/^GPU utilisation87%Time the GPU was busy · 3 of 4 GPUs$/);
   });
 
   it("sums every GPU's power limit and every GPU's energy counter on Thermals", async () => {

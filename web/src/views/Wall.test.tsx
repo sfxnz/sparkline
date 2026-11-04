@@ -20,7 +20,7 @@ beforeAll(() => {
 
 const state = (info: NodeInfo): NodeState => ({ node_id: info.node_id, url: '', status: 'online', since: now, last_sample_ts: now, error: null, info, next_retry_ts: null });
 
-it("names a four-GPU node beside the wall's GPU power while its GPU 0 is lost and it has no power total", () => {
+it("names a four-GPU node beside the wall's GPU power while its GPU 0 is lost, and counts the GPUs its utilisation reads", () => {
   const ws = wsInfo as unknown as NodeInfo;
   const lost = { ...ws, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
   const spark1 = gb10Info as unknown as NodeInfo;
@@ -36,4 +36,5 @@ it("names a four-GPU node beside the wall's GPU power while its GPU 0 is lost an
   });
   render(<Wall />);
   expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/ W GPU power · excl\. ws1$/);
+  expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/^GPU \d+% across 2 live nodes \(4 of 5 GPUs\)·/);
 });

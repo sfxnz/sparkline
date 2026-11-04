@@ -337,6 +337,25 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/ at 24\.5 W · excl\. ws1$/);
   });
 
+  it('marks what it reads from 3 of 4 GPUs while GPU 0 is lost, and raises the pill and the cluster sentence', () => {
+    const lost = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    withSpark1(withGpus({ 0: { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null } }), lost);
+    const card = screen.getByRole('region', { name: 'Node ws1' });
+    expect(pill(card)).toBe('warning');
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 0 not responding' })).toBeInTheDocument();
+    expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 87%, from 3 of 4 GPUs');
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/headroom to the 93 °C slowdown threshold3 of 4 GPUs$/);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU \d+% \(4 of 5 GPUs\) at 24\.5 W · excl\. ws1$/);
+    expect(tile('Cluster compute')).toHaveTextContent('Mean GPU utilisation (4 of 5 GPUs) · ');
+  });
+
+  it('marks nothing on a calm ws1 beside a GB10', () => {
+    withSpark1(reading);
+    expect(document.querySelector('.ov-hero__numbers')).not.toHaveTextContent('GPUs');
+    expect(tile('Cluster compute')).not.toHaveTextContent('GPUs');
+    expect(within(screen.getByRole('region', { name: 'Node ws1' })).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 86%');
+  });
+
   it.each([
     ['only GPU 3 is at its slowdown temperature', { 3: { temp_c: 94 } }, 'ws1 has GPU 3 at its slowdown temperature'],
     ['only GPU 3 has its clocks cut by overheating', { 3: { throttle_mask: 0x40 } }, 'ws1 has GPU 3 clocks limited by overheating'],
