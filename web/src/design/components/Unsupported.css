@@ -19,6 +19,7 @@
   border: var(--hairline) dashed var(--separator-strong);
 }
 .unsupported__label { min-width: 0; }
+.unsupported__detail { white-space: pre-line; }
 .unsupported__info {
   flex: none;
   display: inline-grid;
