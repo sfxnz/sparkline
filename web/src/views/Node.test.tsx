@@ -124,6 +124,27 @@ describe('Node page', () => {
     expect(await screen.findByText('Thermals of spark2')).toBeInTheDocument();
   });
 
+  it('replaces the GPU tab with one notice when the agent declares every GPU metric not reported', () => {
+    const reason = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+    const info = (unsupported: unknown[]) =>
+      ({ hostname: 'spark2', agent_version: '0', boot_time: 0, gpus: [], net: [], cores: [], disks: [], sensors: [], unsupported }) as unknown as NodeInfo;
+    useCluster.getState().setHello(hello([{ ...base, info: info([{ metric: 'gpu*', reason, kind: 'dependency' }, { metric: 'mem.gpu', reason, kind: 'dependency' }]) }]));
+    renderAt('/node/spark2/gpu');
+    expect(screen.getByRole('region', { name: 'GPU not reported' })).toHaveTextContent(`Helper tool missing${reason}`);
+    expect(screen.queryByText('GPU of spark2')).not.toBeInTheDocument();
+  });
+
+  it('keeps the GPU tab when the agent declares only some GPU metrics not reported', () => {
+    const info = {
+      hostname: 'spark2', agent_version: '0', boot_time: 0, net: [], cores: [], disks: [], sensors: [],
+      gpus: [{ index: 0, name: 'NVIDIA GB10' }],
+      unsupported: [{ metric: 'gpu0.power_limit_w', reason: 'Power limit not reported by NVIDIA GB10 (NVML: Not Supported)', kind: 'hardware' }],
+    } as unknown as NodeInfo;
+    useCluster.getState().setHello(hello([{ ...base, info }]));
+    renderAt('/node/spark2/gpu');
+    expect(screen.getByText('GPU of spark2')).toBeInTheDocument();
+  });
+
   it('keeps the Storage tab when only disks are not reported, so filesystem capacity still shows', () => {
     const info = {
       hostname: 'spark2', agent_version: '0', boot_time: 0, gpus: [], net: [], cores: [], disks: [], sensors: [],

@@ -186,6 +186,18 @@ describe('not-reported chart', () => {
     expect(screen.getByRole('button', { name: 'Why is this not reported?' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /data table/ })).not.toBeInTheDocument();
   });
+
+  it('marks a series the agent declares not reported in the legend, and still plots the others', () => {
+    const reason = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+    const info = { unsupported: [{ metric: 'mem.gpu', kind: 'dependency', reason }] } as unknown as NodeInfo;
+    useCluster.setState({ nodes: { nonvml: { node_id: 'nonvml', url: '', status: 'online', since: 0, last_sample_ts: null, error: null, info, next_retry_ts: null } } });
+    render(<TimeSeriesChart node="nonvml" title="Unified memory used" series={[{ key: 'mem.used', label: 'Used' }, { key: 'mem.gpu', label: 'GPU-allocated' }]} format={(n) => `${n} B`} range="live" />);
+    const [used, gpu] = within(screen.getByRole('list', { name: 'Unified memory used series' })).getAllByRole('listitem');
+    expect(gpu).toHaveTextContent('GPU-allocatedHelper tool missing');
+    expect(within(gpu as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(reason);
+    expect(used).toHaveTextContent('Used—');
+    expect(screen.getByRole('button', { name: 'Unified memory used: data table' })).toBeInTheDocument();
+  });
 });
 
 describe('sharedYMax', () => {
