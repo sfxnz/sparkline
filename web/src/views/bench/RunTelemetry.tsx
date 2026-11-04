@@ -60,8 +60,6 @@ export function telemetryCharts(category: BenchSpec['category'] | undefined): re
 
 type Data = { ts: number[]; byKey: Record<string, (number | null)[][]> } | null;
 type Infos = (node: string) => NodeInfo | undefined;
-/** The run's GPU on a node: the one it chose, or GPU 0 on a node without a choice. */
-const runGpuOf = (run: Pick<BenchRun, 'gpu_index'>, node: string) => runGpu(run, node) ?? 0;
 
 /** One value per tick for a chart from the per-key arrays of a node. */
 function aggregate(chart: TelemetryChart, keys: readonly string[], cols: Record<string, readonly (number | null)[]>, n: number): (number | null)[] {
@@ -82,7 +80,7 @@ const allKeys = (charts: readonly TelemetryChart[], info: NodeInfo | undefined, 
 
 function fromLive(run: BenchRun, charts: readonly TelemetryChart[], infos: Infos, from: number): Data {
   const per = run.nodes.map((node) => {
-    const gpu = runGpuOf(run, node);
+    const gpu = runGpu(run, node) ?? 0;
     const keys = allKeys(charts, infos(node), gpu);
     const w = liveStore.window(node, keys, from);
     return nodeSeries(node, charts, infos(node), gpu, w.ts, Object.fromEntries(keys.map((k, i) => [k, w.values[i] ?? []])));
@@ -176,7 +174,7 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
     Promise.all(
       run.nodes.map((node) => {
         const info = useCluster.getState().nodes[node]?.info ?? undefined;
-        const gpu = runGpuOf(run, node);
+        const gpu = runGpu(run, node) ?? 0;
         const keys = allKeys(charts, info, gpu);
         return api.history(node, keys, start - LEAD_S, to, 600).then(
           (r) => nodeSeries(node, charts, info, gpu, r.ts, r.series),

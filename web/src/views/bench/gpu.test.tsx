@@ -34,7 +34,6 @@ const noop = () => undefined;
 /** "GPU 2" naming one GPU of several, not a load like "GPU 62%". */
 const GPU_NUMBER = /GPU \d+(?![\d%])/;
 
-/** ws1's sample with some GPUs' utilisation replaced (by GPU index). */
 function wsWith(utils: Record<number, number>): Sample {
   const s = wsSample as unknown as Sample;
   return { ...s, gpu: s.gpu.map((g) => (g.index in utils ? { ...g, util: utils[g.index] ?? null } : g)) };

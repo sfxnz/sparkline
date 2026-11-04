@@ -282,8 +282,6 @@ function NodeLoad({ node, hint, gpu }: { node: string; hint: string; gpu: number
   return <span className="bench-node__load num">{text || 'No live data'}</span>;
 }
 
-/** Which GPU of a multi-GPU node the run gets, each listed with its live load; one that cannot run the bench is
- * listed but disabled, with why. */
 function GpuPicker({ spec, node, value, onChange }: { spec: BenchSpec; node: string; value: number | undefined; onChange: (index: number) => void }) {
   useNow(2000);
   const id = useId();

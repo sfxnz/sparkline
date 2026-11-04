@@ -323,8 +323,6 @@ export type GpuIndex = Readonly<Record<string, number>>;
 /** The GPUs a run of this bench can choose from on a node: none on a single-GPU node (every GB10). */
 export const gpuOptions = (spec: Pick<BenchSpec, 'gpu_options'>, node: string): readonly GpuOption[] => spec.gpu_options?.[node] ?? [];
 
-/** The GPU for each of these nodes that has a choice: the previous pick while it can still run the bench, else the
- * first GPU that can. */
 export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly string[], prev: GpuIndex = {}): Record<string, number> {
   const out: Record<string, number> = {};
   for (const n of nodes) {
@@ -335,20 +333,15 @@ export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly st
   return out;
 }
 
-/** The GPU a run uses on a node, when the node had a choice. */
 export const runGpu = (run: Pick<BenchRun, 'gpu_index'>, node: string): number | undefined => run.gpu_index?.[node];
 
-/** "GPU 2 · NVIDIA RTX 6000 Ada Generation", or "GPU 2" when the name is not known. */
-export const gpuText = (index: number, name?: unknown): string => (typeof name === 'string' && name ? `GPU ${index} · ${name}` : `GPU ${index}`);
-
-/** The GPUs a run was given, named from each node's run metadata: "GPU 2 · NVIDIA RTX 6000 Ada Generation" for a
- * one-node run, "ws1 GPU 2 · …, ws2 GPU 0 · …" across nodes. null when no node had a choice. */
 export function runGpuLabel(run: Pick<BenchRun, 'gpu_index' | 'nodes' | 'metadata' | 'node_states'>): string | null {
   const meta = nodeMeta(run);
   const parts = run.nodes.flatMap((n) => {
     const index = runGpu(run, n);
     if (index === undefined) return [];
-    const text = gpuText(index, meta[n]?.gpu_name);
+    const name = meta[n]?.gpu_name;
+    const text = typeof name === 'string' && name ? `GPU ${index} · ${name}` : `GPU ${index}`;
     return [run.nodes.length > 1 ? `${n} ${text}` : text];
   });
   return parts.length ? parts.join(', ') : null;
@@ -1005,8 +998,7 @@ export function competition(
   });
 }
 
-/** "Runs GPU matmul on spark1 and spark2.", "… between spark1 (source) and spark2 (target).", with the chosen GPU of
- * a node that has a choice ("on ws1 GPU 2"). */
+/** "Runs GPU matmul on spark1 and spark2 (source spark1, target spark2)." */
 export function runSentence(spec: Pick<BenchSpec, 'name' | 'min_nodes'>, nodes: readonly string[], gpuIndex: GpuIndex = {}): string {
   const where = nodes.map((n) => (gpuIndex[n] === undefined ? n : `${n} GPU ${gpuIndex[n]}`));
   if (spec.min_nodes === 2 && where.length === 2) return `Runs ${spec.name} between ${where[0] ?? ''} (source) and ${where[1] ?? ''} (target).`;
