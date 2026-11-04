@@ -39,12 +39,6 @@ export function silentBackends(info: NodeInfo | null | undefined, errors: string
   return out;
 }
 
-/** Why the agent cannot read GPU `index` at all, though its backend sees it (a lost GPU): its `gpu<i>` entry. */
-export function lostGpu(info: NodeInfo | null | undefined, index: number): NotReported | null {
-  const u = info?.unsupported.find((x) => x.metric === `gpu${String(index)}`);
-  return u ? { kind: u.kind ?? 'hardware', label: 'Not responding', detail: u.reason } : null;
-}
-
 /** Why GPU `index` has no live value in this sample although the node lists it, or null when it reported. */
 export function notResponding(info: NodeInfo | null | undefined, s: Sample | null, index: number): NotReported | null {
   if (!s || !gpuAt(info?.gpus, index) || gpuAt(s.gpu, index)) return null;
