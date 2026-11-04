@@ -14,7 +14,7 @@ import { ConfigureDialog } from './ConfigureDialog';
 import { Catalog } from './Catalog';
 import { History } from './History';
 import { runPath, startRun, useCatalog, useRunList } from './hooks';
-import { aboutDuration, eta, isActive, nodesText, type GpuIndex, type ParamValues } from './model';
+import { aboutDuration, eta, isActive, nodesText, runEstimate, type GpuIndex, type ParamValues } from './model';
 import { RunStatusPill } from './parts';
 
 export function Home() {
@@ -110,7 +110,8 @@ function ActiveRuns({ runs, specs }: { runs: BenchRun[]; specs: readonly BenchSp
     <ul className="bench-active" aria-label="Runs in progress">
       {runs.map((r) => {
         const spec = specs.find((s) => s.id === r.bench_id);
-        const left = eta(r, serverNow(), spec?.est_duration_s ?? 60);
+        const estimate = runEstimate(r, spec);
+        const left = estimate === null ? null : eta(r, serverNow(), estimate);
         return (
           <li key={r.id}>
             <Link href={runPath(r.id)} className="bench-active__item material-regular">

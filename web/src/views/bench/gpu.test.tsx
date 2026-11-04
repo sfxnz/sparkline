@@ -5,14 +5,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
 import gb10Sample from '../../test/fixtures/platforms/gb10/sample.json';
 import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
-import type { BenchCreate, NodeInfo, Sample } from '../../lib/types';
+import type { BenchCreate, BenchRun, NodeInfo, Sample } from '../../lib/types';
 import { useBench } from '../../store/bench';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { ConfigureDialog } from './ConfigureDialog';
-import { MAC_GPU, MATMUL, WS1, WS_MATMUL, run, wsGpuOptions } from './fixtures';
+import { MAC_GPU, MATMUL, SOAK, WS1, WS_MATMUL, run, wsGpuOptions } from './fixtures';
 import { Home } from './Home';
 import { Availability } from './parts';
+import type { ChartSeries } from './RunChart';
+import { RunTelemetry } from './RunTelemetry';
+import { RunView } from './RunView';
+import { SoakPanel } from './SoakPanel';
+import { nodeState } from './streams/fixtures';
+
+const charts: { title: string; series: readonly ChartSeries[] }[] = [];
+vi.mock('./RunChart', () => ({
+  RunChart: (p: { title: string; series: readonly ChartSeries[] }) => {
+    charts.push(p);
+    return null;
+  },
+}));
 
 const GB10 = gb10Info as unknown as NodeInfo;
 const GB10_SAMPLE: Sample = gb10Sample;
@@ -41,6 +54,11 @@ function cluster(nodes: { info: NodeInfo; sample?: Sample }[]) {
     liveStore.flush();
   });
 }
+
+const home = (path: string) => {
+  const loc = memoryLocation({ path });
+  return render(<Router hook={loc.hook} searchHook={loc.searchHook}><Home /></Router>);
+};
 
 const review = () => { fireEvent.click(screen.getByRole('button', { name: /Review & run/ })); };
 const MATMUL_DEFAULTS = { dtypes: ['bf16', 'fp16', 'fp8'], size: '8192', iterations: 50 };
@@ -164,10 +182,6 @@ describe('starting a run', () => {
     useBench.setState({ runs: {} });
   });
 
-  const home = (path: string) => {
-    const loc = memoryLocation({ path });
-    return render(<Router hook={loc.hook} searchHook={loc.searchHook}><Home /></Router>);
-  };
 
   it('runs again on the GPU the previous run used, and sends it to the console', async () => {
     useBench.setState({ runs: { [previous.id]: previous } });
@@ -188,5 +202,108 @@ describe('starting a run', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
     await waitFor(() => { expect(posted).toHaveLength(1); });
     expect(posted[0]).toEqual({ bench_id: 'gpu-matmul', nodes: ['spark1'], params: MATMUL_DEFAULTS, confirm: true });
+  });
+});
+
+describe('a run on a chosen GPU', () => {
+  const now = () => Date.now() / 1000;
+  const urls: string[] = [];
+  beforeEach(() => {
+    urls.length = 0;
+    charts.length = 0;
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    vi.stubGlobal('fetch', vi.fn((url: string) => { urls.push(url); return new Promise(() => undefined); }));
+    cluster([{ info: GB10, sample: GB10_SAMPLE }, { info: WS1, sample: wsWith({ 2: 3 }) }]);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useBench.setState({ runs: {} });
+  });
+
+  const show = (r: BenchRun) => {
+    useBench.setState({ runs: { [r.id]: r } });
+    return render(<RunView id={r.id} />);
+  };
+  const subLine = () => [...(document.querySelector('.bench-run__sub')?.querySelectorAll('span:not([aria-hidden])') ?? [])].map((x) => x.textContent);
+  const live = (p: Partial<BenchRun> & Pick<BenchRun, 'id'>) => run({ status: 'running', progress: 0.01, created_ts: now() - 30, started_ts: now() - 30, finished_ts: null, ...p });
+  const metaOf = (node: string, metadata: Record<string, unknown>) => ({ [node]: nodeState({ node_id: node, bench_id: 'gpu-matmul', metadata }) });
+
+  it('names the GPU in the header, from the run metadata, and lists its index with the metadata', () => {
+    show(run({ id: 'r-ws1', nodes: ['ws1'], gpu_index: { ws1: 2 }, metadata: { nodes: { ws1: { gpu_index: 2, gpu_name: RTX } } } }));
+    expect(subLine().slice(0, 3)).toEqual(['ws1', `GPU 2 · ${RTX}`, expect.stringMatching(/^Started /)]);
+    const meta = screen.getByRole('region', { name: 'Metadata' });
+    expect(within(meta).getByText('GPU index').nextElementSibling).toHaveTextContent(/^2$/);
+  });
+
+  it('names the GPU on the placeholder run before the console answers', () => {
+    show(run({ id: 'pending-x', status: 'queued', nodes: ['ws1'], gpu_index: { ws1: 3 }, started_ts: null, finished_ts: null, progress: 0 }));
+    expect(subLine().slice(0, 2)).toEqual(['ws1', 'GPU 3']);
+  });
+
+  it('adds nothing to the header of a GB10 run', () => {
+    show(run({ id: 'r-spark1', metadata: { nodes: { spark1: { gpu_name: 'NVIDIA GB10' } } } }));
+    expect(subLine().slice(0, 2)).toEqual(['spark1', expect.stringMatching(/^Started /)]);
+    expect(document.querySelector('.bench-run__sub')?.textContent).not.toMatch(GPU_NUMBER);
+  });
+
+  it('gives no time left when the agent has no estimate for this machine, and keeps it on GB10', () => {
+    const { unmount } = show(live({ id: 'r-ws1', nodes: ['ws1'], gpu_index: { ws1: 2 }, node_states: metaOf('ws1', { est_duration_s: null }) }));
+    expect(screen.getByText('Remaining').nextElementSibling).toHaveTextContent(/^—$/);
+    expect(screen.getByText('Expected total').nextElementSibling).toHaveTextContent(/^—$/);
+    unmount();
+    show(live({ id: 'r-spark1', node_states: metaOf('spark1', { est_duration_s: 120 }) }));
+    expect(screen.getByText('Remaining').nextElementSibling).toHaveTextContent(/^≈ /);
+    expect(screen.getByText('Expected total').nextElementSibling).toHaveTextContent(/^≈ /);
+  });
+
+  it('gives no time left in the list of runs in progress either', () => {
+    useBench.setState({ runs: { a: live({ id: 'a', nodes: ['ws1'], gpu_index: { ws1: 2 }, node_states: metaOf('ws1', { est_duration_s: null }) }), b: live({ id: 'b', node_states: metaOf('spark1', { est_duration_s: 120 }) }) } });
+    home('/benchmarks');
+    const items = within(screen.getByRole('list', { name: 'Runs in progress' })).getAllByRole('link');
+    const on = (node: string) => items.find((i) => i.textContent.includes(`on ${node}`));
+    expect(on('ws1')).not.toHaveTextContent('left');
+    expect(on('spark1')).toHaveTextContent(/ left/);
+  });
+
+  const utilSeries = () => charts.filter((c) => c.title === 'GPU utilisation').at(-1)?.series.map((x) => [x.label, x.values.filter((v) => v != null)]);
+
+  it("charts the chosen GPU's live telemetry, and GPU 0 on a GB10 node", () => {
+    render(<RunTelemetry run={live({ id: 'r', nodes: ['spark1', 'ws1'], gpu_index: { ws1: 2 } })} category="compute" expected={90} />);
+    expect(utilSeries()).toEqual([['spark1', [62.4]], ['ws1', [3]]]);
+  });
+
+  it("asks the history for the chosen GPU's series once the run is over", () => {
+    liveStore.removeNode('ws1');
+    const done = run({ id: 'r', nodes: ['ws1'], gpu_index: { ws1: 2 }, started_ts: now() - 600, finished_ts: now() - 500 });
+    render(<RunTelemetry run={done} category="compute" expected={100} />);
+    const asked = urls.filter((u) => u.startsWith('/api/v1/history')).map((u) => new URLSearchParams(u.split('?')[1]).get('keys'));
+    expect(asked).toEqual(['gpu2.util,gpu2.temp_c,gpu2.power_w,gpu2.sm_mhz']);
+  });
+
+  it("analyses a soak recorded on GPU 2 from its gpu2 series", () => {
+    const t = Array.from({ length: 181 }, (_, i) => i);
+    const soak = run({
+      id: 'soak',
+      bench_id: SOAK.id,
+      nodes: ['ws1'],
+      gpu_index: { ws1: 2 },
+      params: { minutes: 10 },
+      started_ts: 1_759_750_000,
+      finished_ts: 1_759_750_180,
+      series: {
+        'ws1.t': t,
+        'ws1.gpu2.sm_mhz': t.map((i) => (i % 2 ? 2400 : 2500)),
+        'ws1.gpu2.temp_c': t.map((i) => 60 + Math.min(21, i / 5)),
+        'ws1.gpu2.power_w': t.map(() => 290),
+        'ws1.gpu2.throttle_mask': t.map(() => 0),
+        'ws1.gpu2.util': t.map(() => 100),
+        'ws1.tflops': t.map(() => 300),
+      },
+    });
+    render(<SoakPanel run={soak} expected={180} />);
+    const stats = screen.getByRole('region', { name: 'ws1 soak summary' });
+    expect(within(stats).getByText('Peak temperature').nextElementSibling).toHaveTextContent(/^81\s°C$/);
+    expect(within(stats).getByText('Clock variation').nextElementSibling).toHaveTextContent(/^2\.0%$/);
+    expect(within(stats).getByText('Time throttled').nextElementSibling).toHaveTextContent(/^0(\.0)?%$/);
   });
 });

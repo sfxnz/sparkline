@@ -23,7 +23,6 @@ import {
   aboutDuration,
   cancelSentence,
   elapsed,
-  estimateDuration,
   eta,
   formatDateTime,
   headlineResults,
@@ -50,6 +49,8 @@ import {
   projectedTotal,
   resultDelta,
   resultText,
+  runEstimate,
+  runGpuLabel,
   runLog,
   stopwatch,
   valueWithUnit,
@@ -126,9 +127,9 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
   // The threshold the console flagged this run's regressions with; the setting may have changed since.
   const regressionPct = typeof run.metadata.regression_pct === 'number' ? run.metadata.regression_pct : settingPct;
   const active = isActive(run.status);
-  // The agents' own estimate for these exact parameters once they report it, else the catalog-based guess.
-  const agentEst = Math.max(0, ...Object.values(run.node_states ?? {}).map((st) => (typeof st.metadata.est_duration_s === 'number' ? st.metadata.est_duration_s : 0)));
-  const estimate = agentEst > 0 ? agentEst : spec ? estimateDuration(spec, run.params as never) : 60;
+  const estimate = runEstimate(run, spec);
+  // Without an estimate the charts' time axis follows the run as it goes.
+  const expected = estimate === null ? elapsed(run, now) : projectedTotal(run, now, estimate);
   const name = spec?.name ?? run.bench_id;
   const pending = run.id.startsWith(PENDING_PREFIX);
 
@@ -176,6 +177,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
   const statusText = `${name} ${run.status === 'succeeded' ? 'finished' : run.status}`;
   const modelled = modelledNodes(run);
+  const gpuLabel = runGpuLabel(run);
 
   return (
     <div className="view bench-run">
@@ -188,6 +190,12 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
           </div>
           <p className="bench-run__sub">
             <span>{nodesText(run.bench_id, run.nodes)}</span>
+            {gpuLabel ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{gpuLabel}</span>
+              </>
+            ) : null}
             {servedModel(run.results) ? (
               <>
                 <span aria-hidden="true">·</span>
@@ -266,11 +274,11 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
       {active || run.started_ts != null ? (
         <Panel title={active ? 'Live telemetry' : 'Telemetry during the run'} subtitle={run.nodes.length > 1 ? 'One line per node · dashed rules mark the run' : 'Dashed rules mark the run'}>
-          <RunTelemetry run={run} category={spec?.category} expected={projectedTotal(run, now, estimate)} />
+          <RunTelemetry run={run} category={spec?.category} expected={expected} />
         </Panel>
       ) : null}
 
-      {spec?.category === 'soak' || run.bench_id === 'thermal-soak' ? <SoakPanel run={run} expected={projectedTotal(run, now, estimate)} /> : null}
+      {spec?.category === 'soak' || run.bench_id === 'thermal-soak' ? <SoakPanel run={run} expected={expected} /> : null}
 
       {run.results.length ? <ResultsPanel run={run} regressionPct={regressionPct} onShare={() => { setShareOpen(true); }} /> : null}
 
@@ -306,9 +314,9 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
 // ------------------------------------------------------------------------------------------------ progress
 
-function Progress({ run, now, estimate, cancelling }: { run: BenchRun; now: number; estimate: number; cancelling: boolean }) {
+function Progress({ run, now, estimate, cancelling }: { run: BenchRun; now: number; estimate: number | null; cancelling: boolean }) {
   const pct = Math.round(Math.min(1, Math.max(0, run.progress)) * 100);
-  const left = eta(run, now, estimate);
+  const left = estimate === null ? null : eta(run, now, estimate);
   const phase = cancelling ? 'Cancelling — stopping processes and removing containers…' : run.phase || (run.status === 'queued' ? 'Queued' : 'Starting…');
   const states = Object.values(run.node_states ?? {});
   return (
@@ -339,7 +347,7 @@ function Progress({ run, now, estimate, cancelling }: { run: BenchRun; now: numb
         </div>
         <div>
           <dt>Expected total</dt>
-          <dd className="num">{aboutDuration(projectedTotal(run, now, estimate))}</dd>
+          <dd className="num">{aboutDuration(estimate === null ? null : projectedTotal(run, now, estimate))}</dd>
         </div>
       </dl>
       {states.length > 1 || run.nodes.length > 1 ? (

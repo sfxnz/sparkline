@@ -9,8 +9,9 @@ import { formatBitrate, formatFreq, formatPercent, formatTemp, formatWatts } fro
 import type { BenchRun, BenchSpec, NodeInfo } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
+import { gpuKey } from '../../lib/metrics';
 import { formatBytesRate } from '../node/partsB/storage';
-import { alignByNode, isActive, parseRunSeries, type NodeSeries, type SeriesKind } from './model';
+import { alignByNode, isActive, parseRunSeries, runGpu, type NodeSeries, type SeriesKind } from './model';
 import { RunChart, type Marker } from './RunChart';
 
 const LEAD_S = 30;
@@ -19,8 +20,8 @@ export interface TelemetryChart {
   id: string;
   title: string;
   format: (n: number) => string;
-  /** Flat metric keys on a node (summed, averaged or maxed into one line per node). */
-  keys: (info: NodeInfo | undefined) => string[];
+  /** Flat metric keys on a node (summed, averaged or maxed into one line per node); `gpu` is the run's GPU there. */
+  keys: (info: NodeInfo | undefined, gpu: number) => string[];
   agg: 'sum' | 'mean' | 'max';
   /** The kind under which the console saves this chart's series with the run (GPU telemetry only). */
   kind?: SeriesKind;
@@ -31,10 +32,10 @@ export interface TelemetryChart {
 
 const one = (key: string) => () => [key];
 const GPU: readonly TelemetryChart[] = [
-  { id: 'gpu0.util', kind: 'util', title: 'GPU utilisation', keys: one('gpu0.util'), agg: 'max', format: (n) => formatPercent(n), yMin: 0, yMax: 100 },
-  { id: 'gpu0.temp_c', kind: 'temp_c', title: 'GPU temperature', keys: one('gpu0.temp_c'), agg: 'max', format: formatTemp, ySpan: 8 },
-  { id: 'gpu0.power_w', kind: 'power_w', title: 'GPU power', keys: one('gpu0.power_w'), agg: 'max', format: formatWatts, yMin: 0 },
-  { id: 'gpu0.sm_mhz', kind: 'sm_mhz', title: 'SM clock', keys: one('gpu0.sm_mhz'), agg: 'max', format: formatFreq, yMin: 0 },
+  { id: 'gpu.util', kind: 'util', title: 'GPU utilisation', keys: (_, g) => [gpuKey(g, 'util')], agg: 'max', format: (n) => formatPercent(n), yMin: 0, yMax: 100 },
+  { id: 'gpu.temp_c', kind: 'temp_c', title: 'GPU temperature', keys: (_, g) => [gpuKey(g, 'temp_c')], agg: 'max', format: formatTemp, ySpan: 8 },
+  { id: 'gpu.power_w', kind: 'power_w', title: 'GPU power', keys: (_, g) => [gpuKey(g, 'power_w')], agg: 'max', format: formatWatts, yMin: 0 },
+  { id: 'gpu.sm_mhz', kind: 'sm_mhz', title: 'SM clock', keys: (_, g) => [gpuKey(g, 'sm_mhz')], agg: 'max', format: formatFreq, yMin: 0 },
 ];
 const CPU: readonly TelemetryChart[] = [
   { id: 'cpu.util', title: 'CPU utilisation', keys: one('cpu.util'), agg: 'max', format: (n) => formatPercent(n), yMin: 0, yMax: 100 },
@@ -59,6 +60,8 @@ export function telemetryCharts(category: BenchSpec['category'] | undefined): re
 
 type Data = { ts: number[]; byKey: Record<string, (number | null)[][]> } | null;
 type Infos = (node: string) => NodeInfo | undefined;
+/** The run's GPU on a node: the one it chose, or GPU 0 on a node without a choice. */
+const runGpuOf = (run: Pick<BenchRun, 'gpu_index'>, node: string) => runGpu(run, node) ?? 0;
 
 /** One value per tick for a chart from the per-key arrays of a node. */
 function aggregate(chart: TelemetryChart, keys: readonly string[], cols: Record<string, readonly (number | null)[]>, n: number): (number | null)[] {
@@ -71,17 +74,18 @@ function aggregate(chart: TelemetryChart, keys: readonly string[], cols: Record<
   return out;
 }
 
-function nodeSeries(node: string, charts: readonly TelemetryChart[], info: NodeInfo | undefined, ts: number[], cols: Record<string, readonly (number | null)[]>): NodeSeries {
-  return { node, ts, values: Object.fromEntries(charts.map((c) => [c.id, aggregate(c, c.keys(info), cols, ts.length)])) };
+function nodeSeries(node: string, charts: readonly TelemetryChart[], info: NodeInfo | undefined, gpu: number, ts: number[], cols: Record<string, readonly (number | null)[]>): NodeSeries {
+  return { node, ts, values: Object.fromEntries(charts.map((c) => [c.id, aggregate(c, c.keys(info, gpu), cols, ts.length)])) };
 }
 
-const allKeys = (charts: readonly TelemetryChart[], info: NodeInfo | undefined) => [...new Set(charts.flatMap((c) => c.keys(info)))];
+const allKeys = (charts: readonly TelemetryChart[], info: NodeInfo | undefined, gpu: number) => [...new Set(charts.flatMap((c) => c.keys(info, gpu)))];
 
-function fromLive(nodes: readonly string[], charts: readonly TelemetryChart[], infos: Infos, from: number): Data {
-  const per = nodes.map((node) => {
-    const keys = allKeys(charts, infos(node));
+function fromLive(run: BenchRun, charts: readonly TelemetryChart[], infos: Infos, from: number): Data {
+  const per = run.nodes.map((node) => {
+    const gpu = runGpuOf(run, node);
+    const keys = allKeys(charts, infos(node), gpu);
     const w = liveStore.window(node, keys, from);
-    return nodeSeries(node, charts, infos(node), w.ts, Object.fromEntries(keys.map((k, i) => [k, w.values[i] ?? []])));
+    return nodeSeries(node, charts, infos(node), gpu, w.ts, Object.fromEntries(keys.map((k, i) => [k, w.values[i] ?? []])));
   });
   return alignByNode(per, charts.map((c) => c.id));
 }
@@ -158,7 +162,7 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
   const tick = useLiveTick(run.nodes, active);
   const saved = useMemo(() => (active ? null : fromSaved(run, charts)), [active, run, charts]);
   // A run that finished moments ago is still in the live buffer, which is complete at 1 s where history may lag.
-  const recent = !active && !saved ? fromLive(run.nodes, charts, infos, start - LEAD_S) : null;
+  const recent = !active && !saved ? fromLive(run, charts, infos, start - LEAD_S) : null;
   const inLive = !!recent && recent.ts.length > 0 && (recent.ts[0] ?? Infinity) <= start;
   const [history, setHistory] = useState<{ id: string; data: Data }>({ id: '', data: null });
 
@@ -172,9 +176,10 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
     Promise.all(
       run.nodes.map((node) => {
         const info = useCluster.getState().nodes[node]?.info ?? undefined;
-        const keys = allKeys(charts, info);
+        const gpu = runGpuOf(run, node);
+        const keys = allKeys(charts, info, gpu);
         return api.history(node, keys, start - LEAD_S, to, 600).then(
-          (r) => nodeSeries(node, charts, info, r.ts, r.series),
+          (r) => nodeSeries(node, charts, info, gpu, r.ts, r.series),
           (): NodeSeries => ({ node, ts: [], values: {} }),
         );
       }),
@@ -186,7 +191,7 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
   }, [needHistory, span]);
 
   const now = serverNow();
-  const data: Data = active ? fromLive(run.nodes, charts, infos, start - LEAD_S) : (saved ?? (inLive ? recent : history.id === span ? history.data : null));
+  const data: Data = active ? fromLive(run, charts, infos, start - LEAD_S) : (saved ?? (inLive ? recent : history.id === span ? history.data : null));
   const loading = !active && !saved && !inLive && history.id !== span;
   const xRange = runFrame(run, now, expected, !!saved);
   const markers = runMarkers(run);
