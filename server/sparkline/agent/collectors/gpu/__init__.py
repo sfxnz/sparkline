@@ -18,6 +18,10 @@ CHAINS: dict[str, tuple[Chain, ...]] = {"linux": (Chain("nvidia", (Nvml,)),), "d
 
 _MOST_ACTIONABLE: tuple[UnsupportedKind, ...] = ("access", "dependency", "agent", "hardware")
 
+# A healthy tick reads every backend in milliseconds, so 5 s means a read is wedged (a hung driver call).
+# It is far inside systemd's 90 s stop timeout, so the agent still exits on its own instead of being killed.
+CLOSE_WAIT_S = 5.0
+
 
 @dataclass(frozen=True)
 class _Live:
@@ -85,6 +89,7 @@ class GpuCollector:
         self._live: list[_Live] = []
         self._caps: dict[str, Unsupported | None] = {}
         self._lock = threading.Lock()
+        self._reading: GpuBackend | None = None
         try:
             self._open(src)
         except BaseException:
@@ -187,6 +192,7 @@ class GpuCollector:
         reported = False
         failed: list[str] = []
         for live in self._live:
+            self._reading = live.backend
             try:
                 samples = live.backend.sample()
                 procs = live.backend.proc_mem()
@@ -194,6 +200,8 @@ class GpuCollector:
                 log.debug("%s backend failed a tick", live.backend.name, exc_info=True)
                 failed.append(f"{live.backend.name}: {type(e).__name__}: {e}")
                 continue
+            finally:
+                self._reading = None
             out += [
                 s if live.base == 0 else s.model_copy(update={"index": live.base + s.index}) for s in samples
             ]
@@ -206,20 +214,42 @@ class GpuCollector:
         return {"gpu": out, "errors": {"gpu": "; ".join(failed)}} if failed else {"gpu": out}
 
     def close(self) -> None:
-        with self._lock:
-            live, self._live = self._live, []
+        """Close every backend once a tick in progress returns. A read that hangs (a wedged GPU) delays
+        shutdown by up to CLOSE_WAIT_S; then every backend except the one still reading is closed, and that
+        one is left open, since closing a library under a call still inside it is not safe."""
+        if not self._live:
+            return
+        locked = self._lock.acquire(timeout=CLOSE_WAIT_S)
+        try:
+            stuck = None if locked else self._reading
+            live = list(self._live)
+            # In place: a tick still iterating this list stops after its stuck read, before a closed backend.
+            self._live.clear()
+        finally:
+            if locked:
+                self._lock.release()
+        if stuck is not None:
+            log.warning(
+                "the %s backend is still inside a read after %g s; closing the other backends without it",
+                stuck.name,
+                CLOSE_WAIT_S,
+            )
         for each in live:
-            _close(each.backend)
+            if each.backend is not stuck:
+                _close(each.backend)
 
     def process_util(self) -> dict[int, float]:
         acc: dict[int, list[float]] = {}
         with self._lock:
             for live in self._live:
+                self._reading = live.backend
                 try:
                     utils = live.backend.proc_util() or {}
                 except Exception as e:
                     log.debug("%s backend process utilisation failed: %s", live.backend.name, e)
                     continue
+                finally:
+                    self._reading = None
                 for pid, util in utils.items():
                     acc.setdefault(pid, []).append(util)
         return {pid: sum(v) / len(v) for pid, v in acc.items()}
