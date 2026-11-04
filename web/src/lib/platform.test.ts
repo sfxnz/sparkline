@@ -75,5 +75,9 @@ describe('platformSheet', () => {
     expect(darwin.skipped).toEqual([{ backend: null, gap: { kind: 'agent', label: 'Not collected yet', detail: 'No GPU backend reads darwin yet' } }]);
 
     expect(platformSheet(node({})).missing).toBe('No GPUs reported');
+
+    const older = platformSheet(node({ unsupported: [gap('gpu*', 'Install nvidia-ml-py to read NVIDIA GPU metrics', 'dependency')] }));
+    expect(older.missing).toBe('No GPU data');
+    expect(older.skipped).toEqual([{ backend: null, gap: { kind: 'dependency', label: 'Helper tool missing', detail: 'Install nvidia-ml-py to read NVIDIA GPU metrics' } }]);
   });
 });

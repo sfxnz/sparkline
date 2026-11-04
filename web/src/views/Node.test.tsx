@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
@@ -270,6 +270,37 @@ describe('Node page', () => {
       })));
       expect(s.getByText('apple').closest('li')).toHaveTextContent('appleHelper tool missingInstall macmon (0.9.0 or later)');
       expect(s.getByText('powermetrics').closest('li')).toHaveTextContent('powermetricsNo accessNeeds root');
+    });
+
+    it('says No GPU in the meta row when every backend found its vendor absent', async () => {
+      const sheet = await show(header({
+        unsupported: [
+          { metric: 'gpu*', reason: 'nvml: No NVIDIA driver is loaded (/proc/driver/nvidia is missing)', kind: 'hardware' },
+          { metric: 'mem.gpu', reason: 'nvml: No NVIDIA driver is loaded (/proc/driver/nvidia is missing)', kind: 'hardware' },
+          { metric: 'gpu.backend.nvml', reason: 'No NVIDIA driver is loaded (/proc/driver/nvidia is missing)', kind: 'hardware' },
+        ],
+      }));
+      expect(meta()).toBe('agent.testNo GPUAgent 9.9.9');
+      expect(within(sheet).getByText('No GPU found')).toBeInTheDocument();
+    });
+
+    it('gives an older agent with no GPU the reason from its gpu* entry', async () => {
+      const s = within(await show(header({
+        unsupported: [{ metric: 'gpu*', reason: 'Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' }],
+      })));
+      expect(s.queryByText('No GPUs reported')).not.toBeInTheDocument();
+      expect(s.getByText('Install nvidia-ml-py to read NVIDIA GPU metrics').closest('li')).toHaveTextContent('Helper tool missingInstall nvidia-ml-py');
+    });
+
+    it('closes the details when moving to another node', async () => {
+      const info = header({ gpus: [gpu('Test GPU')] });
+      useCluster.getState().setHello(hello([{ ...base, info }, { ...base, node_id: 'spark1', info: { ...info, hostname: 'spark1' } }]));
+      const loc = renderAt('/node/spark2');
+      await userEvent.click(screen.getByRole('button', { name: 'Details' }));
+      expect(screen.getByRole('button', { name: 'Details' })).toHaveAttribute('aria-expanded', 'true');
+      act(() => { loc.navigate('/node/spark1'); });
+      expect(screen.getByRole('heading', { name: 'spark1' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Details' })).toHaveAttribute('aria-expanded', 'false');
     });
 
     it('offers no details while the node has not reported its info', () => {
