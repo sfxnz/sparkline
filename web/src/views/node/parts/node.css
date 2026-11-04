@@ -392,7 +392,7 @@
 @media (max-width: 1180px) {
   .ngpu__sections { grid-template-columns: minmax(0, 1fr); }
 }
-.ngpu-section { scroll-margin-top: calc(var(--toolbar-height) + var(--space-4)); }
+.ngpu-section { scroll-margin-top: calc(var(--toolbar-offset, var(--toolbar-height)) + var(--space-4)); }
 .ngpu-attn__row { width: 100%; min-height: 44px; align-items: center; text-align: left; }
 .ngpu-attn__row:hover { background: color-mix(in srgb, var(--tone) 16%, var(--tone-bg)); }
 .ngpu-attn__row .nnote__icon { margin-top: 0; }
