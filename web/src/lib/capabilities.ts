@@ -39,8 +39,8 @@ export function notReported(info: NodeInfo | null | undefined, key: string): Not
   let best: Unsupported | undefined;
   for (const u of info?.unsupported ?? []) if (covers(u.metric, key) && (!best || moreSpecific(u, best))) best = u;
   if (!best) return null;
-  const gpu = /^gpu(\d+)(?:\.|$)/.exec(key);
-  const lost = gpu ? lostGpu(info, Number(gpu[1])) : null;
+  const gpuKey = /^gpu(\d+)(?:\.|$)/.exec(key);
+  const lost = gpuKey ? lostGpu(info, Number(gpuKey[1])) : null;
   return lost?.detail === best.reason ? lost : describeGap(best);
 }
 
