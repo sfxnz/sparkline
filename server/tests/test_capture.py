@@ -919,3 +919,86 @@ def test_a_refusal_shows_no_interface_name(tmp_path, monkeypatch):
     message = refusal_of(copy, tmp_path / "out")
     assert "root/sys/devices/virtual/net/*/tun_flags: not in the reviewed read set" in message
     assert "tailscale" not in message
+
+
+def raising_on_the_replay(monkeypatch: pytest.MonkeyPatch, error: BaseException) -> None:
+    import sparkline.agent.capture as cli
+
+    exercise = cli.exercise
+    runs: list[str] = []
+
+    def replay_fails(src: Sources) -> Any:
+        runs.append("run")
+        if len(runs) == 2:
+            raise error
+        return exercise(src)
+
+    monkeypatch.setattr(cli, "exercise", replay_fails)
+
+
+@pytest.mark.parametrize("made_before", [False, True], ids=["new directory", "empty directory"])
+def test_a_replay_that_fails_refuses_and_leaves_nothing_written(made_before, tmp_path, monkeypatch):
+    raising_on_the_replay(monkeypatch, RuntimeError(f"replay broke at {HOME}"))
+    out = tmp_path / "out"
+    if made_before:
+        out.mkdir()
+    with pytest.raises(CaptureRefused) as refused:
+        capture(recorded(GB10), out, Facts())
+    assert (list(out.iterdir()) if made_before else out.exists()) in ([], False), "nothing written is left"
+    assert "the replay of the recording: failed with RuntimeError" in str(refused.value)
+    assert USER not in str(refused.value)
+
+
+def main_of(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> int:
+    import sparkline.agent.capture as cli
+
+    monkeypatch.setattr(cli, "live", lambda: recorded(GB10))
+    monkeypatch.setattr(cli.logging, "disable", lambda _level: None)
+    return cli.main(list(args))
+
+
+def test_ctrl_c_during_the_replay_prints_no_traceback_and_keeps_nothing(tmp_path, monkeypatch, capsys):
+    raising_on_the_replay(monkeypatch, KeyboardInterrupt())
+    out = tmp_path / "out"
+    assert main_of(tmp_path, monkeypatch, str(out)) == 130
+    printed = capsys.readouterr()
+    assert "Traceback" not in printed.err and ".py" not in printed.err
+    assert "stopped" in printed.err
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt(), MemoryError(), OSError(13, "denied", HOME)])
+def test_a_failure_before_the_capture_starts_prints_no_traceback(error, tmp_path, monkeypatch, capsys):
+    import sparkline.agent.capture as cli
+
+    def fail() -> Sources:
+        raise error
+
+    monkeypatch.setattr(cli, "live", fail)
+    monkeypatch.setattr(cli.logging, "disable", lambda _level: None)
+    code = cli.main([str(tmp_path / "out")])
+    assert code == (130 if isinstance(error, KeyboardInterrupt) else 4)
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and USER not in err
+
+
+def test_a_memory_error_while_writing_the_archive_keeps_nothing(tmp_path, monkeypatch, capsys):
+    import sparkline.agent.capture as cli
+
+    def no_memory(_out: Path) -> Path:
+        raise MemoryError
+
+    monkeypatch.setattr(cli, "write_archive", no_memory)
+    out = tmp_path / "out"
+    assert main_of(tmp_path, monkeypatch, str(out)) == 4
+    assert "failed with MemoryError" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_a_command_line_with_more_than_one_argument_is_not_echoed(tmp_path, monkeypatch, capsys):
+    with pytest.raises(SystemExit) as stopped:
+        main_of(tmp_path, monkeypatch, str(tmp_path / "out"), f"{HOME}/extra")
+    assert stopped.value.code == 3
+    err = capsys.readouterr().err
+    assert "usage: sparkline-capture" in err
+    assert USER not in err
