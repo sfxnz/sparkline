@@ -1,4 +1,5 @@
 import { describeGap, notReported, type NotReported } from './capabilities';
+import { gpuAt, lostGpu } from './gpu';
 import { GPU_VENDORS, type GpuVendor, type NodeInfo } from './types';
 
 const PLATFORM_LABEL = new Map([['linux', 'Linux'], ['darwin', 'macOS']]);
@@ -7,7 +8,10 @@ const VENDOR_LABEL: Record<GpuVendor, string> = { nvidia: 'NVIDIA', amd: 'AMD', 
 export interface BackendInUse {
   vendor: string;
   backend: string;
+  /** Names of the GPUs it reads. */
   gpus: string[];
+  /** GPUs it sees but cannot read. */
+  notResponding: { index: number; reason: string }[];
 }
 
 export interface SkippedBackend {
@@ -48,9 +52,11 @@ export function platformSheet(info: NodeInfo): PlatformSheet {
   for (const g of info.gpus) {
     const vendor = vendorLabel(g.vendor ?? 'nvidia');
     const backend = g.backend ?? 'nvml';
-    const row = backends.find((b) => b.vendor === vendor && b.backend === backend);
-    if (row) row.gpus.push(g.name);
-    else backends.push({ vendor, backend, gpus: [g.name] });
+    const row = backends.find((b) => b.vendor === vendor && b.backend === backend) ?? { vendor, backend, gpus: [], notResponding: [] };
+    if (!backends.includes(row)) backends.push(row);
+    const lost = lostGpu(info, g.index);
+    if (lost) row.notResponding.push({ index: g.index, reason: lost.detail });
+    else row.gpus.push(g.name);
   }
 
   const groups = new Map<string, VersionGroup>();
@@ -81,4 +87,12 @@ export function noGpuLabel(info: NodeInfo): string | null {
   if (info.gpus.length) return null;
   const { missing } = whyNoBackend(info, false);
   return missing === 'No GPU backend opened' ? 'No GPU backend' : missing === 'No GPU found' ? 'No GPU' : null;
+}
+
+/** The node's headline GPU: GPU 0's name, "GPU not responding" when its backend sees it but cannot read it, or why
+ *  the node has no GPU. */
+export function gpuHeadline(info: NodeInfo): string | null {
+  const g = gpuAt(info.gpus, 0);
+  if (!g) return noGpuLabel(info);
+  return lostGpu(info, 0) ? 'GPU not responding' : g.name;
 }

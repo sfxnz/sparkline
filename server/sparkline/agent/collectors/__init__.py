@@ -76,7 +76,8 @@ def covers(metric: str, key: str) -> bool:
 
 
 def declares(declared: str, vocab: str) -> bool:
-    return covers(vocab, declared) or covers(declared, vocab.replace("*", "0"))
+    indexes = re.findall(r"\d+", declared) or ["0"]
+    return covers(vocab, declared) or any(covers(declared, vocab.replace("*", i)) for i in indexes)
 
 
 class Collector(Protocol):
