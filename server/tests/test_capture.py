@@ -868,3 +868,54 @@ def test_a_refusal_names_an_unreviewed_path_up_to_its_first_unreviewed_part(tmp_
     assert "root/proc/self/net/if_inet6: not in the reviewed read set" in message
     assert "root/dev/...: not in the reviewed read set" in message
     assert "ZORBSERIAL9" not in message and "by-id" not in message
+
+
+HWMON4 = "root/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.0/hwmon/hwmon4"
+
+
+def test_a_directory_under_sys_devices_that_leads_to_no_reviewed_file_is_refused(tmp_path, monkeypatch):
+    copy = gb10_copy(tmp_path)
+    (copy / "root/sys/devices/platform/zorbdev/zorbserial42").mkdir(parents=True)
+    a_collector_also_reads(monkeypatch, lambda fs: fs.exists("/sys/devices/platform/zorbdev/zorbserial42"))
+    message = refusal_of(copy, tmp_path / "out")
+    assert "root/sys/devices/platform/zorbdev/...: not in the reviewed read set" in message
+    assert "zorbserial42" not in message
+
+
+def test_a_hwmon_device_link_that_points_off_the_reviewed_paths_is_refused(tmp_path):
+    copy = gb10_copy(tmp_path)
+    (copy / "root/sys/devices/platform/zorbboard").mkdir(parents=True)
+    device = copy / HWMON4 / "device"
+    device.unlink()
+    device.symlink_to("../../../../../platform/zorbboard")
+    message = refusal_of(copy, tmp_path / "out")
+    assert "root/sys/devices/platform/zorbboard: not in the reviewed read set" in message
+    assert "hwmon4/device: not in the reviewed read set" in message
+
+
+@pytest.mark.parametrize(
+    ("listed", "node"),
+    [
+        (HWMON4 + "/of_node", "../../../../../../firmware/devicetree/base/zorbboard"),
+        ("root/proc/zorbmodule", None),
+    ],
+    ids=["hwmon link the agent never opens", "a /proc name the agent never opens"],
+)
+def test_a_listed_name_that_no_reviewed_path_names_is_not_written(listed, node, tmp_path):
+    copy = gb10_copy(tmp_path)
+    if node is None:
+        (copy / listed).write_text("")
+    else:
+        (copy / listed).symlink_to(node)
+    out = tmp_path / "out"
+    capture_of(copy, out)
+    assert [name for name, data in surfaces(out) if b"zorb" in data] == []
+
+
+def test_a_refusal_shows_no_interface_name(tmp_path, monkeypatch):
+    copy = gb10_copy(tmp_path)
+    (copy / "root/sys/devices/virtual/net/tailscale0/tun_flags").write_text("0x1002\n")
+    a_collector_also_reads(monkeypatch, lambda fs: fs.read("/sys/class/net/tailscale0/tun_flags"))
+    message = refusal_of(copy, tmp_path / "out")
+    assert "root/sys/devices/virtual/net/*/tun_flags: not in the reviewed read set" in message
+    assert "tailscale" not in message
