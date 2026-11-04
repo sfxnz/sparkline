@@ -1,10 +1,63 @@
-import { lostGpu, type NotReported } from './capabilities';
+import { lostGpu, notReported, type NotReported } from './capabilities';
+import { gpuKey, gpuTotals, type GpuField, type NodeTotal } from './metrics';
 import type { GpuInfo, NodeInfo, Sample } from './types';
 
 /** The GPU with this `index`. A sample holds only the GPUs that reported this tick, so when one vendor's backend
  *  fails, position 0 is another vendor's card: never read a GPU by its position. */
 export function gpuAt<T extends { index: number }>(gpus: readonly T[] | null | undefined, index: number): T | undefined {
   return gpus?.find((g) => g.index === index);
+}
+
+/** The GPU indexes a node lists, or [0] when it lists none, so a node without GPUs keeps its gpu0 gaps. */
+export function gpuIndexes(info: NodeInfo | null | undefined): number[] {
+  return info?.gpus.length ? info.gpus.map((g) => g.index) : [0];
+}
+
+/** The key that holds the node's GPU `field`: the GPU's own key on a node with at most one GPU (the same value, and
+ *  its history predates the totals), the node total on a node with several. */
+export function nodeGpuKey(info: NodeInfo | null | undefined, field: NodeTotal): string {
+  const [only = 0, ...more] = gpuIndexes(info);
+  return more.length ? `gpu.${field}` : gpuKey(only, field);
+}
+
+/** "GPU 2", "GPUs 1 and 2". */
+export const gpuList = (indexes: readonly number[]) => `${indexes.length === 1 ? 'GPU' : 'GPUs'} ${andList(indexes)}`;
+
+/** Why the node's GPUs, taken together, have no `field`. 'any': only when no listed GPU reports it (per-process
+ *  memory). 'every': when any listed GPU lacks it (power limit, energy: a partial sum would understate). On a node
+ *  that lists one GPU or none, the answer for that GPU (gpu0 when none). */
+export function gpuSetGap(info: NodeInfo | null | undefined, field: GpuField, mode: 'any' | 'every'): NotReported | null {
+  const indexes = gpuIndexes(info);
+  const gaps = indexes.flatMap((i) => {
+    const gap = notReported(info, gpuKey(i, field));
+    return gap ? [{ index: i, gap }] : [];
+  });
+  const [first] = gaps;
+  if (!first || (mode === 'any' && gaps.length < indexes.length)) return null;
+  // With no GPU reporting, a lost GPU is not why the others say nothing: name one that answers but lacks the field.
+  const named = mode === 'any' ? (gaps.find((g) => !lostGpu(info, g.index)) ?? first) : first;
+  return indexes.length > 1 ? { ...named.gap, detail: `GPU ${named.index}: ${named.gap.detail}` } : named.gap;
+}
+
+const READING: Record<NodeTotal, string> = { util: 'utilisation', temp_c: 'temperature', power_w: 'power' };
+
+/** Why the node's total of `field` is missing from this sample although the node is reporting. Null when it is
+ *  present, when the node lists at most one GPU, or when a declared gap already explains it. */
+export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
+  if (!s || !info || info.gpus.length < 2 || notReported(info, `gpu.${field}`) || gpuTotals(s)[field] !== null) return null;
+  const reporting = s.gpu.map((g) => g.index);
+  const empty = info.gpus.filter((g) => reporting.includes(g.index) && gpuAt(s.gpu, g.index)?.[field] == null).map((g) => g.index);
+  const clauses = empty.length ? [`${gpuList(empty)} sent no ${READING[field]} reading this tick`] : [];
+  for (const b of silentBackends(info, s.errors.gpu, reporting)) {
+    const who = gpuList(b.gpus.map((g) => g.index));
+    clauses.push(b.message ? `${who} not responding (${b.message})` : `${who} sent no reading this tick`);
+  }
+  if (!clauses.length) {
+    if (!s.errors.gpu) return null;
+    clauses.push(`A GPU backend failed this tick (${s.errors.gpu})`);
+  }
+  const why = field === 'power_w' ? ', so a sum would understate' : '';
+  return { kind: 'hardware', label: 'No total', detail: `${clauses.join('; ')}${why}.` };
 }
 
 export interface SilentBackend {

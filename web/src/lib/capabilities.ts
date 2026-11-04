@@ -35,10 +35,16 @@ export function lostGpu(info: NodeInfo | null | undefined, index: number): NotRe
   return u ? { ...describeGap(u), label: 'Not responding' } : null;
 }
 
+const NODE_TOTAL = /^gpu\.(util|temp_c|power_w)$/;
+
 export function notReported(info: NodeInfo | null | undefined, key: string): NotReported | null {
   let best: Unsupported | undefined;
   for (const u of info?.unsupported ?? []) if (covers(u.metric, key) && (!best || moreSpecific(u, best))) best = u;
   if (!best) return null;
+  const total = NODE_TOTAL.exec(key)?.[1];
+  if (total && info && info.gpus.length > 1 && info.gpus.some((g) => !notReported(info, `gpu${g.index}.${total}`))) {
+    return { ...describeGap(best), label: 'No total' };
+  }
   const gpuKey = /^gpu(\d+)(?:\.|$)/.exec(key);
   const lost = gpuKey ? lostGpu(info, Number(gpuKey[1])) : null;
   return lost?.detail === best.reason ? lost : describeGap(best);

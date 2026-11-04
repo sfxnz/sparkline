@@ -105,3 +105,20 @@ describe('notReported for a lost GPU', () => {
     expect(notReported(info, 'gpu0.util')).toBeNull();
   });
 });
+
+describe('notReported for a node GPU total', () => {
+  const lost = 'NVML could not open GPU 2 (NVML: GPU is lost)';
+  const gpus = [0, 1, 2, 3].map((index) => ({ index }));
+
+  it('reads No total, with the reason the agent gave, when the other GPUs still report the field', () => {
+    const info = { gpus, unsupported: [{ metric: 'gpu2', reason: lost, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 2: ${lost}`, kind: 'hardware' }] } as unknown as NodeInfo;
+    expect(notReported(info, 'gpu.power_w')).toEqual({ kind: 'hardware', label: 'No total', detail: `GPU 2: ${lost}` });
+    expect(notReported(info, 'gpu.util')).toBeNull();
+  });
+
+  it('reads as declared when no GPU reports the field', () => {
+    const reason = 'GPU 0: Not reported by this board';
+    const info = { gpus, unsupported: [{ metric: 'gpu*.power_w', reason: 'Not reported by this board', kind: 'hardware' }, { metric: 'gpu.power_w', reason, kind: 'hardware' }] } as unknown as NodeInfo;
+    expect(notReported(info, 'gpu.power_w')).toEqual({ kind: 'hardware', label: HARDWARE, detail: reason });
+  });
+});

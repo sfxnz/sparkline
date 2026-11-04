@@ -3,7 +3,7 @@
 import type { GpuSample, Sample } from './types';
 
 export type GpuReading = Exclude<keyof GpuSample, 'index'>;
-export type GpuField = GpuReading | 'power_limit_w';
+export type GpuField = GpuReading | 'power_limit_w' | 'proc_mem';
 export const gpuKey = (index: number, field: GpuField) => `gpu${index}.${field}`;
 
 export type NodeTotal = 'util' | 'temp_c' | 'power_w';
