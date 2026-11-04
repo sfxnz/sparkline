@@ -22,10 +22,10 @@ except ImportError:  # pragma: no cover - dependency is declared, but stay alive
 
 class RootFs:
     def __init__(self, root: str | Path = "/") -> None:
-        self.root = "" if str(root) == "/" else str(root).rstrip("/")
+        self.root = "" if str(root) == "/" else os.path.realpath(root)
         self._fds: dict[str, int] = {}
 
-    def path(self, p: str) -> str:
+    def host_path(self, p: str) -> str:
         return self.root + p
 
     def read(self, p: str) -> str:
@@ -65,7 +65,7 @@ class RootFs:
         return os.listdir(self.root + p)
 
     def glob(self, pattern: str) -> list[str]:
-        return [self._strip(p) for p in glob.glob(self.root + pattern)]
+        return [self._strip(p) for p in glob.glob(glob.escape(self.root) + pattern)]
 
     def realpath(self, p: str) -> str:
         return self._strip(os.path.realpath(self.root + p))
@@ -178,6 +178,9 @@ def recorded(directory: str | Path) -> Sources:
         rec = host["ethtool"].get(ifname, {"error": f"{ifname}: not in the recording"})
         if "error" in rec:
             raise OSError(rec["error"])
+        missing = [w for w in wanted if w not in rec["stats"]]
+        if missing:
+            raise OSError(f"{ifname}: ethtool stats missing {', '.join(missing)}")
         return _RecordedEthtool({k: rec["stats"][k] for k in wanted})
 
     def docker(path: str) -> Any:
