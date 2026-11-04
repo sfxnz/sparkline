@@ -1,5 +1,11 @@
 {
+  "note": "Old agents send no rail. The console takes their letters from the label, so that case is tested only in Python (test_old_agent_labels_give_the_rail_letters).",
   "cases": [
+    {
+      "case": "No interfaces reported",
+      "net": [],
+      "rails": {}
+    },
     {
       "case": "GB10 with both rails up at agent start",
       "net": [

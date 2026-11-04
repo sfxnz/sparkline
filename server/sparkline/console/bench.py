@@ -748,7 +748,8 @@ class BenchManager:
             Problem(
                 message=f"{node} has no address on rail {rail}",
                 cause=f"Its NodeInfo has no interconnect interface with an IPv4 address for rail {rail}",
-                fix=f"Check the interconnect link on {node} (`ip -br addr`), or pick the other rail",
+                fix=f"Check the interconnect link on {node} (`ip -br addr`) and restart its agent "
+                "after fixing it, or pick the other rail",
             ),
         )
 
