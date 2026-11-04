@@ -17,7 +17,7 @@ import errno
 import hashlib
 import math
 import time
-from typing import Literal
+from typing import Literal, Protocol
 
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX, flatten
 from ..common.schema import (
@@ -141,6 +141,20 @@ def _episode(p: float, ramp: float, hold: float, fall: float) -> float:
     if p < ramp + hold + fall:
         return 1.0 - (p - ramp - hold) / fall
     return 0.0
+
+
+class DemoNode(Protocol):
+    """What the demo console reads from a simulated node: DemoSource, demo_history and demo_bench."""
+
+    node_id: str
+    lan_ip: str
+    info: NodeInfo
+    bench_windows: list[list[float]]  # [start, end, intensity 0..1] of demo GPU benchmark load
+    disk_windows: list[list[float]]  # [start, end, read B/s, write B/s] of demo storage benchmark load
+
+    def link_state(self, t: float) -> str: ...
+
+    def sample_at(self, t: float, seq: int = 0, procs: bool = False) -> Sample: ...
 
 
 class DemoModel:
@@ -646,12 +660,11 @@ class DemoModel:
 class DemoSource(NodeSource):
     """A simulated agent connection; failures are raised/withheld exactly where a real link would fail."""
 
-    def __init__(self, node_id: str, listener: Listener, t0: float, speed: float = 1.0):
-        lan_ip = NODES[node_id][0]
-        super().__init__(node_id, f"http://{lan_ip}:9750", listener)
-        self.model = DemoModel(node_id, t0, speed)
+    def __init__(self, model: DemoNode, listener: Listener):
+        super().__init__(model.node_id, f"http://{model.lan_ip}:9750", listener)
+        self.model = model
         self.seq = 0
-        self.energy: float | None = None
+        self.energy: dict[int, float] = {}  # GPU index -> live energy counter (J)
         self.procs_ts: float | None = None
         self.interval = 1.0
 
@@ -676,12 +689,11 @@ class DemoSource(NodeSource):
             if state == "stall":
                 continue
             s = self.model.sample_at(now, self.seq, procs=self.seq % 5 == 0)
-            g = s.gpu[0]
-            # energy counter integrates the live power
-            self.energy = (
-                (g.energy_j or 0.0) if self.energy is None else self.energy + (g.power_w or 0) * self.interval
-            )
-            g.energy_j = round(self.energy, 1)
+            for g in s.gpu:  # each energy counter integrates its GPU's live power
+                prev = self.energy.get(g.index)
+                e = (g.energy_j or 0.0) if prev is None else prev + (g.power_w or 0) * self.interval
+                self.energy[g.index] = e
+                g.energy_j = round(e, 1)
             if s.procs is not None:
                 self.procs_ts = now
             s.procs_ts = self.procs_ts
@@ -690,7 +702,7 @@ class DemoSource(NodeSource):
 
 
 def demo_history(
-    model: DemoModel,
+    model: DemoNode,
     keys: list[str] | None,
     t_from: float,
     t_to: float,

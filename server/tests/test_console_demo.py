@@ -96,7 +96,8 @@ async def test_demo_failure_schedule_drives_stale_and_offline(tmp_path):
     The stall must exceed the 1 Hz agent's interval floor (2 * 1 s + 1 s) to count as stale."""
     store = Store(tmp_path / "c.sqlite")
     cluster = Cluster(store, Hub(), ConsoleSettings(stale_after_s=0.5, offline_after_s=30), demo=True)
-    src = DemoSource("spark3", cluster, time.time() - 130 / 5, speed=5)  # 20 scenario-s before the stall
+    model = DemoModel("spark3", time.time() - 130 / 5, speed=5)  # 20 scenario-s before the stall
+    src = DemoSource(model, cluster)
     cluster.add_source(src)
     await cluster.start()
     seen: list[str] = []

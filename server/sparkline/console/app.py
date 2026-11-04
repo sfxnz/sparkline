@@ -42,9 +42,9 @@ from .bench_routes import bench_router
 from .bench_store import BenchStore
 from .cluster import VERSION, Cluster
 from .config import ConsoleConfig
-from .demo import NODES as DEMO_NODES
 from .demo import DemoSource, demo_history
 from .demo_bench import DemoBench, seed_history
+from .demo_fleets import FLEETS
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
 from .store import SESSION_TTL_S, Store
@@ -142,6 +142,7 @@ def create_app(
     demo: bool = False,
     demo_speed: float = 1.0,
     demo_empty_bench: bool = False,
+    fleet: str = "dgx",
 ) -> FastAPI:
     data_dir.mkdir(parents=True, exist_ok=True)
     store = Store(data_dir / "console.sqlite")
@@ -151,8 +152,8 @@ def create_app(
     cluster = Cluster(store, hub, cfg.settings, demo=demo)
     if demo:
         t0 = time.time()
-        for node_id in DEMO_NODES:
-            cluster.add_source(DemoSource(node_id, cluster, t0, demo_speed))
+        for make in FLEETS[fleet].values():
+            cluster.add_source(DemoSource(make(t0, demo_speed), cluster))
     else:
         for n in cfg.nodes:
             cluster.add_source(AgentClient(n.id, n.url, cluster, cfg.agent_token))

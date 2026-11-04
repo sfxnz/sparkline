@@ -6,7 +6,7 @@ metric names and units. Runs are time-compressed (the agent's estimate / 10; the
 LLM inference plays its requests at double speed, 4-60 s per level, the LLM showcase its streams likewise),
 which the catalog says, and report
 plausible GB10 numbers with small run-to-run noise. While a run is going,
-the node's demo telemetry carries the load (DemoModel.bench_windows for the GPU, disk_windows for the storage
+the node's demo telemetry carries the load (DemoNode.bench_windows for the GPU, disk_windows for the storage
 profiles), so the telemetry overlay is alive. fio is "not
 installed" on the demo nodes (built-in runner, noted), and spark3 has no ConnectX-7 peer, so 2-node
 benchmarks are unavailable there.
@@ -60,7 +60,7 @@ from .bench import (
 )
 from .bench_store import BenchStore
 from .cluster import Cluster
-from .demo import DemoModel, DemoSource
+from .demo import DemoNode, DemoSource
 
 log = logging.getLogger("sparkline.console.demo_bench")
 SUITE_GIT = "demo"  # the real agent reports the suite's git hash
@@ -428,7 +428,7 @@ def make_results(
     return [], {}
 
 
-def soak_point(model: DemoModel, t: float, rng: random.Random) -> dict[str, float]:
+def soak_point(model: DemoNode, t: float, rng: random.Random) -> dict[str, float]:
     g = model.sample_at(t).gpu[0]
     vals = [g.sm_mhz, g.temp_c, g.power_w, g.throttle_mask, g.util]
     pt = {k: float(v or 0.0) for k, v in zip(SOAK_KEYS, vals, strict=True)}
@@ -474,7 +474,7 @@ def soak_results(s: dict[str, list[float]]) -> list[BenchResult]:
     ]
 
 
-def node_metadata(info: NodeInfo | None, model: DemoModel, t0: float, t1: float, extra: dict) -> dict:
+def node_metadata(info: NodeInfo | None, model: DemoNode, t0: float, t1: float, extra: dict) -> dict:
     """The keys the real agent records (agent/bench/metadata.py), with telemetry snapshots at start/end."""
     g = info.gpus[0] if info and info.gpus else None
 
@@ -1894,7 +1894,7 @@ class DemoBench:
             self.finished.setdefault(sim.node, deque(maxlen=FINISHED_KEEP)).append(sim)
             self._emit(sim)
 
-    async def _timeline(self, sim: _Sim, model: DemoModel, rng: random.Random, t0: float) -> None:
+    async def _timeline(self, sim: _Sim, model: DemoNode, rng: random.Random, t0: float) -> None:
         if sim.req.bench_id == "llm-inference":
             await self._llm_timeline(sim, rng, t0)
             return
@@ -2014,7 +2014,7 @@ _SEED: list[tuple[str, list[str], dict, float, str, bool]] = [
 
 def seed_history(
     store: BenchStore,
-    models: dict[str, DemoModel],
+    models: dict[str, DemoNode],
     settings_pct: float,
     add_event: Callable[[Event], Event],
     now: float | None = None,
@@ -2142,7 +2142,7 @@ def seed_history(
             store.set_baseline(bench, run.params_key, run.id, ts=run.finished_ts)
 
 
-def _telemetry(run: BenchRun, node: str, m: DemoModel, t0: float, t1: float) -> None:
+def _telemetry(run: BenchRun, node: str, m: DemoNode, t0: float, t1: float) -> None:
     """The overlay a real run would have recorded: 1 s points (<= 1800 by stepping)."""
     step = max(1.0, (t1 - t0) / 1800)
     pre = f"telemetry.{node}."
@@ -2161,7 +2161,7 @@ def _telemetry(run: BenchRun, node: str, m: DemoModel, t0: float, t1: float) -> 
         t += step
 
 
-def _register_windows(store: BenchStore, models: dict[str, DemoModel]) -> None:
+def _register_windows(store: BenchStore, models: dict[str, DemoNode]) -> None:
     """After a demo restart, put the stored runs' load back into the demo telemetry model."""
     for run in store.run_list(limit=60):
         if not run.started_ts or not run.finished_ts:
