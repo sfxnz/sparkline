@@ -284,8 +284,8 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
   const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
   const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
   const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
-  const withSpark1 = (sample: Sample) => {
-    useCluster.getState().setHello(cluster([node('spark1', { info: gb10Info as unknown as NodeInfo }), node('ws1', { info: ws1 })]));
+  const withSpark1 = (sample: Sample, info: NodeInfo = ws1) => {
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10Info as unknown as NodeInfo }), node('ws1', { info })]));
     act(() => {
       for (const s of [{ ...(gb10Sample as unknown as Sample), ts: now }, { ...sample, ts: now }]) {
         liveStore.removeNode(s.node_id);
@@ -329,6 +329,12 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     expect(stat(card, 'GPU power')).toHaveTextContent('No total');
     expect(why(stat(card, 'GPU power'))).toHaveAccessibleDescription(`GPU 0: ${LOST}`);
     expect(tile('Active GPU processes')).toHaveTextContent(/^Active GPU processes4In 1 container$/);
+  });
+
+  it("names ws1 beside the hero's GPU power while GPU 0 is lost and ws1 has no power total", () => {
+    const lost = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    withSpark1(withGpus({ 0: { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null } }), lost);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/ at 24\.5 W · excl\. ws1$/);
   });
 
   it.each([

@@ -1,0 +1,39 @@
+import { act, render } from '@testing-library/react';
+import type { NodeInfo, NodeState, Sample } from '../lib/types';
+import { useCluster } from '../store/cluster';
+import { useConnection } from '../store/connection';
+import { useEvents } from '../store/events';
+import { liveStore } from '../store/live';
+import gb10Info from '../test/fixtures/platforms/gb10/info.json';
+import gb10Sample from '../test/fixtures/platforms/gb10/sample.json';
+import wsInfo from '../test/fixtures/platforms/workstation/info.json';
+import wsSample from '../test/fixtures/platforms/workstation/sample.json';
+import Wall from './Wall';
+
+const now = Date.now() / 1000;
+const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+
+beforeAll(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  HTMLCanvasElement.prototype.getContext = () => null;
+});
+
+const state = (info: NodeInfo): NodeState => ({ node_id: info.node_id, url: '', status: 'online', since: now, last_sample_ts: now, error: null, info, next_retry_ts: null });
+
+it("names a four-GPU node beside the wall's GPU power while its GPU 0 is lost and it has no power total", () => {
+  const ws = wsInfo as unknown as NodeInfo;
+  const lost = { ...ws, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+  const spark1 = gb10Info as unknown as NodeInfo;
+  useConnection.setState({ status: 'live', everLive: true });
+  useEvents.setState({ events: [] });
+  useCluster.setState({ clockOffset: 0, order: ['spark1', 'ws1'], nodes: { spark1: state(spark1), ws1: state(lost) } });
+  const reading = wsSample as unknown as Sample;
+  act(() => {
+    for (const id of ['spark1', 'ws1']) liveStore.removeNode(id);
+    liveStore.pushSample({ ...(gb10Sample as unknown as Sample), node_id: 'spark1', ts: now });
+    liveStore.pushSample({ ...reading, ts: now, gpu: reading.gpu.map((g) => (g.index === 0 ? { index: 0 } : g)) } as Sample);
+    liveStore.flush();
+  });
+  render(<Wall />);
+  expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/ W GPU power · excl\. ws1$/);
+});
