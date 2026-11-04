@@ -20,7 +20,7 @@ export function Unsupported({ gap, block }: { gap: NotReported; block?: boolean 
   return (
     <span className={`unsupported${block ? ' unsupported--block' : ''}`}>
       <span className="unsupported__label">{gap.label}</span>
-      <Tooltip content={gap.detail}>
+      <Tooltip content={<span className="unsupported__detail">{gap.detail}</span>}>
         <button type="button" className="unsupported__info" aria-label="Why is this not reported?">
           <Info aria-hidden="true" />
         </button>

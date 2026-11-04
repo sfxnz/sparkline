@@ -2,7 +2,7 @@
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
-import { notReported, type NotReported } from '../../lib/capabilities';
+import { gapAcross, notReported, type NotReported } from '../../lib/capabilities';
 import { formatBytes, formatPercent, percentParts, wattsParts, type Formatter } from '../../lib/format';
 import type { NodeState } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
@@ -17,8 +17,11 @@ const formatHm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { ho
 const countParts: Formatter = (n) => ({ value: n.toFixed(0), unit: '' });
 
 function leftOut(ids: readonly string[], nodes: Record<string, NodeState>, key: string): { excl: string[]; gap: NotReported | null } {
-  const excl = ids.filter((id) => notReported(nodes[id]?.info, key));
-  return { excl, gap: excl.length && excl.length === ids.length ? notReported(nodes[excl[0] ?? '']?.info, key) : null };
+  const gaps = ids.flatMap((id) => {
+    const gap = notReported(nodes[id]?.info, key);
+    return gap ? [[id, gap] as const] : [];
+  });
+  return { excl: gaps.map(([id]) => id), gap: gaps.length && gaps.length === ids.length ? gapAcross(gaps) : null };
 }
 const exclText = (excl: readonly string[]) => (excl.length ? ` · excl. ${listNodes(excl)}` : '');
 
