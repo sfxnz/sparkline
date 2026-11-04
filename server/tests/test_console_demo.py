@@ -191,6 +191,15 @@ def test_workstation_samples_stay_plausible_over_a_long_span():
     assert max(hot[:3], key=lambda g: g.temp_c).index == 2
 
 
+def test_an_unlimited_workstation_gpu_runs_clear_of_the_full_speed_cut():
+    m = ws1()
+    top = m.info.gpus[0].sm_mhz_max or 0.0
+    samples = [m.sample_at(T0 + i) for i in range(0, 3600, 3)]
+    clocks = [g.sm_mhz or 0.0 for s in samples for g in s.gpu if g.throttle_mask == 0]
+    # The GPU tab calls a clock at or above 80 % of the maximum "full speed"; stay well clear of that cut.
+    assert top > 0 and clocks and min(clocks) >= 0.85 * top
+
+
 def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
     m = ws1()
     keys = flatten(m.sample_at(T0, procs=True))
