@@ -530,10 +530,10 @@ function ModelledMark({ result }: { result: BenchResult }) {
   const on = modelledOn(result.extras);
   if (!on) return null;
   return (
-    <>
-      <span className="bench-modelled" aria-hidden="true"><span>{MODELLED_MARK}</span></span>
+    <span className="bench-modelled">
+      <span className="bench-modelled__mark" aria-hidden="true">{MODELLED_MARK}</span>
       <span className="visually-hidden">, modelled on {on}</span>
-    </>
+    </span>
   );
 }
 

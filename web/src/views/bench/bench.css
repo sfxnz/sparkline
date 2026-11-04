@@ -254,7 +254,9 @@
 .bench-res__problem { padding: 0 var(--space-5) var(--space-3); }
 .bench-res__note { padding: 0 var(--space-5) var(--space-2); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); text-wrap: pretty; }
 .bench-modelled { position: relative; }
-.bench-modelled > span { position: absolute; top: 0; left: 1px; line-height: 1; color: var(--text-2); font-weight: 400; }
+.bench-modelled__mark { position: absolute; inset-block-start: 0; inset-inline-start: 1px; line-height: 1; color: var(--text-2); font-weight: 400; }
+/* A mark that ends its label hangs, so it never wraps a row; text after it (a headline's node name) starts after it. */
+.bench-modelled:not(:last-child) > .bench-modelled__mark { position: static; margin-inline-start: 1px; vertical-align: top; }
 .bench-baseline-note { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-text); font-weight: 520; }
 .bench-baseline-note svg { width: 13px; height: 13px; }
 .bench-baseline-note svg.is-filled { fill: currentColor; }
