@@ -223,9 +223,20 @@ MISSING_PSI = (
 
 def test_a_key_no_collector_speaks_for_is_declared_not_collected(monkeypatch):
     monkeypatch.setitem(VOCABULARY, "gpu*.vram_used", "gpu")
-    info = Collectors(AgentConfig(node_id="n"), gb10()).node_info(AgentConfig(node_id="n"))
+    info, sample, _ = warm(monkeypatch, gb10())
     (gap,) = [u for u in info.unsupported if u.metric == "gpu*.vram_used"]
     assert (gap.kind, gap.reason) == ("agent", "Not reported by the gpu collector")
+    with pytest.raises(AssertionError, match="left part of its vocabulary to the catch-all"):
+        assert_every_metric_is_reported_or_declared(info, sample)
+
+
+def test_the_catch_all_check_reads_the_entry_not_its_wording(monkeypatch):
+    info, sample, _ = warm(monkeypatch, gb10())
+    own = [
+        u.model_copy(update={"reason": "Not reported by the BMC"}) if u.metric == "fan" else u
+        for u in info.unsupported
+    ]
+    assert_every_metric_is_reported_or_declared(info.model_copy(update={"unsupported": own}), sample)
 
 
 def gb10_nvml(**answers: object) -> Sources:
