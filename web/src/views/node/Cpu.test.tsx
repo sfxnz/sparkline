@@ -45,14 +45,18 @@ function intelHybrid(): Platform {
   };
 }
 
-function show(p: Platform, View: ComponentType<{ nodeId: string }> = Cpu, { status = 'online', sample = p.sample }: { status?: NodeState['status']; sample?: Sample } = {}) {
+function land(p: Platform, sample: Sample = p.sample) {
+  act(() => {
+    liveStore.pushSample({ ...sample, node_id: p.info.node_id, ts: Date.now() / 1000 - 5 });
+    liveStore.flush();
+  });
+}
+
+function show(p: Platform, View: ComponentType<{ nodeId: string }> = Cpu, { status = 'online', sample = p.sample }: { status?: NodeState['status']; sample?: Sample | null } = {}) {
   const id = p.info.node_id;
   liveStore.removeNode(id);
   useCluster.setState({ clockOffset: 0, nodes: { [id]: { node_id: id, url: '', status, since: 0, last_sample_ts: null, error: null, info: p.info, next_retry_ts: null } } });
-  act(() => {
-    liveStore.pushSample({ ...sample, node_id: id, ts: Date.now() / 1000 - 5 });
-    liveStore.flush();
-  });
+  if (sample) land(p, sample);
   return render(
     <Router hook={memoryLocation({ path: '/' }).hook}>
       <View nodeId={id} />
@@ -99,6 +103,17 @@ describe('Summary CPU chart', () => {
     expect(series).toEqual([{ key: 'cpu.perf_util', label: 'Performance' }, { key: 'cpu.eff_util', label: 'Efficiency' }]);
     for (const s of series ?? []) expect(liveStore.latestValue(gb10.info.node_id, s.key), s.key).not.toBeNull();
   });
+});
+
+describe('CPU tab before its first sample lands', () => {
+  for (const [name, p, tiles] of [['the workstation', workstation, 4], ['GB10', gb10, 6]] as const) {
+    it(`holds a place for each of the ${tiles} stats it shows on ${name}`, () => {
+      show(p, Cpu, { sample: null });
+      expect(region('CPU summary').querySelectorAll('.ph-stat')).toHaveLength(tiles);
+      land(p);
+      expect(region('CPU summary').querySelectorAll('.stat')).toHaveLength(tiles);
+    });
+  }
 });
 
 describe('CPU tab on the workstation (x86, no core split)', () => {
