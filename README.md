@@ -414,8 +414,8 @@ Benchmarks run only when you confirm them in the console. One job runs per node 
 | Benchmark | What it measures | Default duration | Impact | Needs |
 |---|---|---|---|---|
 | GPU matmul (`gpu-matmul`) | Dense GEMM TFLOPS for BF16, FP16, FP8 and FP4 (NVFP4 on GB10; reported as unsupported elsewhere) | about 20 s | High: saturates the GPU | Docker + PyTorch image |
-| Unified memory bandwidth (`mem-bandwidth`) | Copy/triad GB/s from the GPU and from the CPU (all, performance and efficiency cores) | about 10 s | Medium: slows running inference | Docker + PyTorch image |
-| CPU throughput (`cpu-throughput`) | Single- and multi-core MB/s, per core type | about 25 s | Medium CPU, GPU barely affected | nothing extra |
+| Unified memory bandwidth (`mem-bandwidth`) | Copy/triad GB/s from the GPU and from the CPU (all, performance and efficiency cores; all cores only on a CPU without a performance/efficiency split) | about 10 s | Medium: slows running inference | Docker + PyTorch image |
+| CPU throughput (`cpu-throughput`) | Single- and multi-core MB/s, per core type (all cores only on a CPU without a performance/efficiency split) | about 25 s | Medium CPU, GPU barely affected | nothing extra |
 | NCCL all-reduce (`nccl-allreduce`) | All-reduce bus bandwidth between the two nodes over the CX7 rails | about 10 s | Medium: stalls a TP=2 job | Docker + PyTorch image, 2 nodes |
 | RDMA bandwidth and latency (`rdma-bw-lat`) | `ib_write_bw` / `ib_write_lat` over one CX7 rail | about 10 s | Low: saturates that rail | `perftest`, 2 nodes |
 | NVMe storage (`storage-fio`) | Sequential 1 MiB and random 4 KiB read/write: MB/s, IOPS, p99 latency | about 35 s | Low, but heavy disk I/O | `fio` (optional) |
