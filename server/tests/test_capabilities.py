@@ -109,10 +109,13 @@ EMMC = (
     LOOPS
     + " 179       0 mmcblk0 1000 0 8000 100 500 0 4000 50 0 120 150 0 0 0 0 0 0\n"
     + " 179       1 mmcblk0p1 900 0 7000 90 450 0 3600 45 0 110 135 0 0 0 0 0 0\n"
+    + " 179       8 mmcblk0boot0 30 0 240 3 0 0 0 0 0 4 3 0 0 0 0 0 0\n"
+    + " 179      16 mmcblk0boot1 30 0 240 3 0 0 0 0 0 4 3 0 0 0 0 0 0\n"
 )
+MMC = "../devices/platform/soc/mmc0/mmc_host/mmc0/mmc0:0001/block"
 EMMC_BLOCK = {
     "loop0": "../devices/virtual/block/loop0",
-    "mmcblk0": "../devices/platform/soc/mmc0/mmc_host/mmc0/mmc0:0001/block/mmcblk0",
+    **{name: f"{MMC}/{name}" for name in ("mmcblk0", "mmcblk0boot0", "mmcblk0boot1")},
 }
 
 ZERO_INSTANCES = {
