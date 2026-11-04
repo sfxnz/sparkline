@@ -5,6 +5,7 @@ import io
 import json
 import os
 import pwd
+import re
 import shutil
 import sys
 import tarfile
@@ -149,7 +150,7 @@ def planted(tmp: Path) -> Path:
     (root / "sys/class/infiniband/rocep1s0f0/sys_image_guid").write_text(SYS_IMAGE_GUID + "\n")
     (root / "sys/class/net/enp1s0f0np0/phys_switch_id").write_text(SWITCH_ID + "\n")
     _append(root / "proc/cpuinfo", f"Serial\t\t: {CPU_SERIAL}\n")
-    with_free_text(copy, f"{USER} {MACHINE_ID} {DMI_SERIAL} {PRODUCT_UUID}")
+    with_free_text(copy, f"{MACHINE_ID} {PRODUCT_UUID}")
     gpu = root / "proc" / str(GPU_PID)
     gpu.mkdir()
     (gpu / "stat").write_text(_stat(GPU_PID, "python3"))
@@ -385,15 +386,18 @@ def test_a_replay_difference_prints_its_field_path_and_no_value(tmp_path, monkey
     assert report.differences == ["node_info.os"]
 
 
+@pytest.mark.parametrize("made_before", [False, True], ids=["new directory", "empty directory"])
 def test_a_replay_difference_that_holds_a_name_of_this_machine_refuses_and_removes_the_output(
-    tmp_path, monkeypatch
+    made_before, tmp_path, monkeypatch
 ):
     with_a_live_os_name(monkeypatch, "Ubuntu zorbsecret")
     out = tmp_path / "out"
+    if made_before:
+        out.mkdir()
     with pytest.raises(CaptureRefused) as refused:
         capture(recorded(GB10), out, Facts(hostnames=("zorbsecret",)))
-    assert not out.exists(), "the written recording is removed"
-    assert "a reading that the agent reports: hostname" in str(refused.value)
+    assert (list(out.iterdir()) if made_before else out.exists()) in ([], False), "nothing written is left"
+    assert "a word in what the agent reads: hostname" in str(refused.value)
     assert "zorbsecret" not in str(refused.value)
     assert "node_info.os" not in str(refused.value), "naming the reading would narrow the name to its words"
     assert "sudo hostname" in str(refused.value), "it says what to do"
@@ -420,9 +424,138 @@ def test_a_name_that_is_a_word_of_a_reviewed_path_refuses_before_writing(tmp_pat
     copy = gb10_copy(tmp_path)
     (copy / "root/proc/sys/kernel/hostname").write_text("cpu\n")
     message = refusal_of(copy, tmp_path / "out")
-    assert "a fixed part of a path that the agent reads: hostname" in message
+    assert "a word in what the agent reads: hostname" in message
     assert "cpufreq" not in message, "naming the path would narrow the name to its words"
     assert "sudo hostname" in message, "it says what to do"
+
+
+def named(kind: str, name: str) -> Callable[[Path], None]:
+    def plant(copy: Path) -> None:
+        if kind == "hostname":
+            (copy / "root/proc/sys/kernel/hostname").write_text(name + "\n")
+        else:
+            home = hidden_from_guard("/", "", "home", name)
+            (copy / "root/etc/passwd").write_text(f"{name}:x:1000:1000::{home}:/bin/bash\n")
+
+    return plant
+
+
+def in_a_container(name: str, comm: str, cmdline: bytes) -> Callable[[Path], None]:
+    def plant(copy: Path) -> None:
+        with_gpu_process(copy, cmdline, f"0::/system.slice/docker-{CONTAINER_ID}.scope\n".encode())
+        (copy / "root/proc" / str(GPU_PID) / "stat").write_text(_stat(GPU_PID, comm))
+        host = json.loads((copy / "host.json").read_text())
+        host["docker"]["/containers/json"] = {"result": [{"Id": CONTAINER_ID, "Names": ["/" + name]}]}
+        (copy / "host.json").write_text(json.dumps(host))
+
+    return plant
+
+
+def with_pretty_name(text: str) -> Callable[[Path], None]:
+    def plant(copy: Path) -> None:
+        release = copy / "root/usr/lib/os-release"
+        release.write_text(f'PRETTY_NAME="{text}"\n' + release.read_text().split("\n", 1)[1])
+
+    return plant
+
+
+def placeholders_outside_their_place(out: Path) -> list[str]:
+    found = []
+    for name, data in surfaces(out):
+        if name.startswith("archive"):
+            continue
+        text = data.decode(errors="replace")
+        if name == "host.json":
+            doc = json.loads(text)
+            for c in (doc["docker"].get("/containers/json") or {}).get("result") or []:
+                c.pop("Names")
+            text = json.dumps(doc)
+        if name != "root/proc/sys/kernel/hostname" and re.search(r"\bhost\d+\b", text):
+            found.append(f"{name}: host")
+        found += [
+            f"{name}: {kind}" for kind in ("user", "container") if re.search(rf"(?<!<)\b{kind}\d+\b", text)
+        ]
+    return found
+
+
+NAMES_THAT_ARE_WORDS = {
+    "hostname noble, the os-release codename": [named("hostname", "noble")],
+    "hostname numbat, a word of the os-release version": [named("hostname", "numbat")],
+    "user noble, the os-release codename": [named("user", "noble")],
+    "hostname atomics, a cpuinfo flag": [named("hostname", "atomics")],
+    "hostname relatime, a mount option": [named("hostname", "relatime")],
+    "hostname 2000, the BogoMIPS": [named("hostname", "2000")],
+    "hostname dev, a word of every mount source": [named("hostname", "dev")],
+    "hostname power, a hwmon directory": [named("hostname", "power")],
+    "hostname bookworm, the codename in a Debian PRETTY_NAME": [
+        named("hostname", "bookworm"),
+        with_pretty_name("Debian GNU/Linux 12 (bookworm)"),
+    ],
+    "container pytorch, a word of the image tag": [
+        in_a_container("pytorch", "python3", b"python3\0train.py\0")
+    ],
+    "container vllm, the program of its command line": [
+        in_a_container("vllm", "python3", b"/usr/local/bin/vllm\0serve\0")
+    ],
+    "container vllm, the process name": [in_a_container("vllm", "vllm", b"/usr/local/bin/vllm\0serve\0")],
+}
+
+
+@pytest.mark.parametrize("plants", NAMES_THAT_ARE_WORDS.values(), ids=NAMES_THAT_ARE_WORDS)
+def test_a_name_that_is_also_a_word_shows_its_placeholder_only_where_the_name_lives(plants, tmp_path):
+    copy = gb10_copy(tmp_path)
+    for plant in plants:
+        plant(copy)
+    out = tmp_path / "out"
+    try:
+        capture_of(copy, out)
+    except CaptureRefused as refused:
+        assert not out.exists(), "nothing is written"
+        assert {leak.surface for leak in refused.value.leaks} == {"a word in what the agent reads"}
+        assert "sudo hostname" in str(refused.value) and "docker rename" in str(refused.value)
+        return
+    assert placeholders_outside_their_place(out) == []
+
+
+@pytest.mark.parametrize(
+    "plants",
+    [
+        NAMES_THAT_ARE_WORDS["hostname atomics, a cpuinfo flag"],
+        NAMES_THAT_ARE_WORDS["hostname 2000, the BogoMIPS"],
+        NAMES_THAT_ARE_WORDS["hostname bookworm, the codename in a Debian PRETTY_NAME"],
+        NAMES_THAT_ARE_WORDS["container pytorch, a word of the image tag"],
+        NAMES_THAT_ARE_WORDS["container vllm, the program of its command line"],
+    ],
+    ids=["atomics", "2000", "bookworm", "pytorch", "vllm"],
+)
+def test_a_name_that_is_a_word_of_a_kept_reading_refuses(plants, tmp_path):
+    copy = gb10_copy(tmp_path)
+    for plant in plants:
+        plant(copy)
+    assert "a word in what the agent reads" in refusal_of(copy, tmp_path / "out")
+
+
+def test_a_name_that_is_a_word_of_the_captures_own_text_leaves_that_text_alone(tmp_path):
+    copy = gb10_copy(tmp_path)
+    named("hostname", "other")(copy)
+    capture_of(copy, tmp_path / "out")
+    left_out = json.loads((tmp_path / "out/platform.json").read_text())["left_out"]
+    assert "mount lines of other filesystems" in left_out
+
+
+def test_the_hostname_the_rename_advice_suggests_is_kept(tmp_path):
+    copy = gb10_copy(tmp_path)
+    named("hostname", "sparkline-capture")(copy)
+    report = capture_of(copy, tmp_path / "out")
+    assert report.differences == []
+    assert (tmp_path / "out/root/proc/sys/kernel/hostname").read_text() == "sparkline-capture\n"
+
+
+def test_a_hostname_shorter_than_three_letters_is_replaced(tmp_path):
+    copy = gb10_copy(tmp_path)
+    named("hostname", "jo")(copy)
+    capture_of(copy, tmp_path / "out")
+    assert (tmp_path / "out/root/proc/sys/kernel/hostname").read_text() == "host1\n"
 
 
 def test_one_identifier_keeps_one_placeholder_across_files_and_encodings(tmp_path):
