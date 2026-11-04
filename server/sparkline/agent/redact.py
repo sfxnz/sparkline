@@ -87,7 +87,8 @@ RENAME = (
 )
 
 
-PUBLIC_IMAGES = ("nvcr.io/nvidia/",)
+NGC_PYTORCH = "nvcr.io/nvidia/pytorch:"
+NGC_TAG = re.compile(r"\d{2}\.\d{2}-py3(?:-igpu)?")
 SERIAL_FILES = {
     "serial",
     "serial_number",
@@ -112,6 +113,7 @@ GENERIC_NAMES = {
     "localdomain",
     "lan",
     "home.arpa",
+    "home",
     "sparkline-capture",
 }
 OS_RELEASE = ("/etc/os-release", "/usr/lib/os-release")
@@ -330,8 +332,14 @@ VOLUME_ID = Detector(
     re.compile(r"(?<![\w-])(?:([0-9A-F]{4})-[0-9A-F]{4}|([0-9a-f]{4})-[0-9a-f]{4})(?![\w-])"),
     lambda m: (m[1] or m[2]) == "0000",
 )
-GATE_FOR_ROUTE_TABLES = [
-    *CAPTURE,
+ROUTE_TABLES = ("/proc/net/route", "/proc/self/net/route")
+ROUTE_ADDRESS_COLUMNS = (1, 2, 7)
+_HEX_IPV4 = next(d for d in CAPTURE if d.category == "IPv4 address (hex)")
+DECIMAL_IS_A_COUNTER = Detector(
+    _HEX_IPV4.category, _HEX_IPV4.pattern, lambda m: m[0].isdigit() or _HEX_IPV4.ok(m)
+)
+GATE = [
+    *(DECIMAL_IS_A_COUNTER if d is _HEX_IPV4 else d for d in CAPTURE),
     HEX32,
     HEX64,
     HOME_UNDER_DOMAIN,
@@ -344,12 +352,11 @@ GATE_FOR_ROUTE_TABLES = [
     VETH,
     VOLUME_ID,
 ]
-ROUTE_TABLES = ("/proc/net/route", "/proc/self/net/route")
-_HEX_IPV4 = next(d for d in CAPTURE if d.category == "IPv4 address (hex)")
-DECIMAL_IS_A_COUNTER = Detector(
-    _HEX_IPV4.category, _HEX_IPV4.pattern, lambda m: m[0].isdigit() or _HEX_IPV4.ok(m)
-)
-GATE = [DECIMAL_IS_A_COUNTER if d is _HEX_IPV4 else d for d in GATE_FOR_ROUTE_TABLES]
+
+
+def _route_addresses(text: str) -> str:
+    rows = [line.split() for line in text.splitlines()[1:]]
+    return "\n".join(" ".join(row[i] for i in ROUTE_ADDRESS_COLUMNS if i < len(row)) for row in rows)
 
 
 class Placeholders:
@@ -557,9 +564,9 @@ def _minimize(rec: Recording) -> tuple[Recording, Counter[str]]:
             images = [
                 {"RepoTags": tags}
                 for img in result
-                if (tags := [t for t in img.get("RepoTags") or [] if t.startswith(PUBLIC_IMAGES)])
+                if (tags := [_ngc_pytorch(t) for t in img.get("RepoTags") or [] if t.startswith(NGC_PYTORCH)])
             ]
-            left["Docker images not from " + ", ".join(PUBLIC_IMAGES)] += len(result) - len(images)
+            left["Docker images other than NGC PyTorch"] += len(result) - len(images)
             docker[api] = {"result": images}
         elif api == "/containers/json" and isinstance(result, list):
             kept_containers = [
@@ -577,6 +584,10 @@ def _minimize(rec: Recording) -> tuple[Recording, Counter[str]]:
         left["directories of tools found outside the system directories"] += which[name] != found
     host = {**rec.host, "docker": docker, "which": which}
     return Recording(rec.platform, dict(rec.meta), tree, rec.nvml, host), +left
+
+
+def _ngc_pytorch(tag: str) -> str:
+    return tag if NGC_TAG.fullmatch(tag.removeprefix(NGC_PYTORCH)) else f"{NGC_PYTORCH}<tag>"
 
 
 def _strings(doc: Any) -> Iterable[str]:
@@ -659,7 +670,9 @@ class _Harvest:
         if category == "hostname" and "." in value:
             value, _, domain = value.partition(".")
             self.name("domain name", domain)
-        if not value or value.lower() in GENERIC_NAMES or (category == "serial number" and len(value) < 3):
+        if not value or value.lower() in GENERIC_NAMES:
+            return
+        if category == "serial number" and (len(value) < 3 or len(set(value)) == 1):
             return
         placeholder = self.ph.name(category, value)
         form: Form = "name"
@@ -763,7 +776,7 @@ CPUINFO = "/proc/cpuinfo"
 CONTAINER_NAMES = ("docker", "/containers/json", "result", "Names")
 READING_META = ("device", "unreadable")
 _HOME_SLOT = re.compile(
-    r"(?<![\w.])/(?:home|Users|media|run/media)/((?:[\w-]+\.)+[\w-]+/[\w.-]+|[\w.-]+(?:@[\w.-]+)?)"
+    r"(?<![\w.])/(?:home/((?:[\w-]+\.)+[\w-]+/[\w.-]+)|(?:home|Users|media|run/media)/([\w.-]+(?:@[\w.-]+)?))"
 )
 _SERIAL_LINE = re.compile(r"^Serial\s*:\s*(\S.*)$", re.MULTILINE)
 
@@ -771,7 +784,7 @@ _SERIAL_LINE = re.compile(r"^Serial\s*:\s*(\S.*)$", re.MULTILINE)
 def _where_names_live(path: str, text: str) -> list[tuple[int, int]]:
     if path == HOSTNAME:
         return [(0, len(text))]
-    slots = [m.span(1) for m in _HOME_SLOT.finditer(text)]
+    slots = [m.span(1 if m[1] else 2) for m in _HOME_SLOT.finditer(text)]
     if path == CPUINFO:
         slots += [m.span(1) for m in _SERIAL_LINE.finditer(text)]
     return slots
@@ -798,7 +811,8 @@ def _collisions(rec: Recording, names: Spellings) -> list[Leak]:
         elif isinstance(node, File):
             text = text_of(node.data)[0]
             found |= names.outside(text, _where_names_live(path, text))
-    for doc in (rec.nvml, rec.host):
+    readings = {k: rec.meta[k] for k in READING_META if k in rec.meta}
+    for doc in (rec.nvml, rec.host, readings):
         for where, text in _strings_at(doc):
             slots = [(0, len(text))] if where == CONTAINER_NAMES else _where_names_live("", text)
             found |= names.outside(text, slots)
@@ -920,8 +934,8 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
     )
 
 
-def _categories(text: str, binary: bool, originals: Spellings, gate: list[Detector] = GATE) -> set[str]:
-    found = {category for _, category in scan(text, gate, binary)}
+def _categories(text: str, binary: bool, originals: Spellings) -> set[str]:
+    found = {category for _, category in scan(text, GATE, binary)}
     if any(not m[0].lower().startswith(_UUID_PLACEHOLDER) for m in _UUID.finditer(text)):
         found.add("UUID")
     return found | originals.categories_in(text)
@@ -1036,8 +1050,9 @@ def leaks(red: Redacted) -> list[Leak]:
             ]
         elif isinstance(node, File):
             text, binary = text_of(node.data)
-            gate = GATE_FOR_ROUTE_TABLES if red.read_at[path] in ROUTE_TABLES else GATE
-            found = _categories(text, binary, originals, gate)
+            found = _categories(text, binary, originals)
+            if red.read_at[path] in ROUTE_TABLES:
+                found |= {category for _, category in scan(_route_addresses(text), [_HEX_IPV4])}
             if binary:
                 found |= originals.categories_in_bytes(node.data)
             out += [Leak(where, c) for c in sorted(found)]
