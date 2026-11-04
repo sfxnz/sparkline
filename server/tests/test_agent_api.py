@@ -248,10 +248,11 @@ async def test_run_discards_warmup_tick():
     """The first tick only primes delta collectors (their 'no previous reading' 0.0 is not data)."""
     gpu = FakeGpu()
     s = Sampler("n1", [gpu, FakeMem(), FakeCpu()], interval_ms=250)
+    q = s.subscribe()
     s.start()
     await asyncio.sleep(0.4)
     await s.stop()
-    first = Sample.model_validate_json(s.ring[0][1])
+    first = Sample.model_validate(json.loads(q.get_nowait())["sample"])
     assert first.seq == 1 and first.gpu[0].util == 2.0  # call 1 was the warm-up
 
 
@@ -303,6 +304,20 @@ async def test_history_after_agent_restart_keeps_older_sqlite_rows(tmp_path):
     assert h.resolution_s == 10
     assert min(h.ts) < now - 88 - 5  # rollups from before the restart are in the response
     assert max(h.ts) > now - 10  # and the newest seconds come from the ring
+
+
+async def test_a_ring_that_falls_behind_keeps_its_last_samples(tmp_path):
+    s = make(tmp_path, ring_seconds=10)
+    gap, ticks, held = 2.0, 30, 10
+    now = float(int(time.time()))
+    stamps = [now - gap * (ticks - 1 - i) for i in range(ticks)]
+    for ts in stamps:
+        smp = s.tick()
+        smp.ts = ts
+        s._record(smp)
+    h = await s.history(["gpu0.util"], now - gap * held, now, points=600)
+    assert h.resolution_s == 1.0 and h.ts == stamps[-held:]
+    assert h.series["gpu0.util"] == [float(n) for n in range(ticks - held + 1, ticks + 1)]
 
 
 async def test_young_agent_serves_recent_ranges_from_the_ring(tmp_path):
