@@ -68,7 +68,7 @@ class Sampler:
         self.subscribers: set[asyncio.Queue] = set()
         self.store = store
         self.retention = {10: retention_10s_days * 86400, 60: retention_60s_days * 86400}
-        self.rollups = [Rollup(10), Rollup(60)]
+        self.rollups = [Rollup(10, interval_ms / 1000), Rollup(60, interval_ms / 1000)]
         self._db = ThreadPoolExecutor(1, thread_name_prefix="store")
         self._last_good: dict[str, object] = {}
         self._procs_ts: float | None = None
@@ -228,21 +228,28 @@ class Sampler:
         res = choose_resolution(t_from, t_to, now, ring_oldest, interval, self.retention[10], points)
         loop = asyncio.get_running_loop()
         weights: list[float] | None = None
+        mixed = False
         if res == interval or self.store is None:
             rows = await asyncio.to_thread(_ring_rows, ring, t_from, t_to, keys)
         else:
-            rows = await loop.run_in_executor(self._db, self.store.query, int(res), t_from, t_to, keys)
+            rows, covered = await loop.run_in_executor(
+                self._db, self.store.query, int(res), t_from, t_to, keys
+            )
+            weights = covered
             if ring_oldest is not None and t_to > ring_oldest:
                 # Whole buckets older than the ring; the newest part (incl. the open bucket, not in SQLite
                 # yet) comes from the ring. With nothing older (a young agent): the ring alone, at full rate.
-                older = [r for r in rows if r[0] + res / 2 <= ring_oldest]
+                older = sum(1 for ts, _ in rows if ts + res / 2 <= ring_oldest)
                 recent = await asyncio.to_thread(_ring_rows, ring, max(t_from, ring_oldest), t_to, keys)
                 if older:
-                    rows, weights = older + recent, [res] * len(older) + [interval] * len(recent)
+                    rows, weights = rows[:older] + recent, covered[:older] + [interval] * len(recent)
+                    mixed = True
                 else:
-                    rows, res = recent, interval
-        bucketed = weights is not None or len(rows) > points
-        rows = await asyncio.to_thread(downsample, rows, t_from, t_to, points, keys, res, weights)
+                    rows, res, weights = recent, interval, None
+        bucketed = mixed or len(rows) > points
+        rows = await asyncio.to_thread(
+            downsample, rows, t_from, t_to, points, keys, res, weights if bucketed else None
+        )
         all_keys = keys if keys is not None else sorted({k for _, d in rows for k in d})
         out = HistoryResponse(
             node_id=self.node_id,

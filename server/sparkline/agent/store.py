@@ -15,6 +15,9 @@ import sqlite3
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX
 
 TABLES = {10: "r10", 60: "r60"}
+# The seconds each row's samples cover, in tables of their own rather than a column: an older agent's
+# two-value INSERT keeps working after a rollback
+COVERED = {res: f"{t}_covered" for res, t in TABLES.items()}
 EXTRACT_MAX_KEYS = 20
 
 
@@ -71,12 +74,14 @@ class Acc:
 class Rollup:
     """Feeds raw flattened samples into fixed-width buckets; returns each bucket when it closes."""
 
-    def __init__(self, width: int) -> None:
+    def __init__(self, width: int, interval_s: float) -> None:
         self.width = width
+        self.interval_s = interval_s
         self.bucket: int | None = None
         self.acc = Acc()
+        self.samples = 0
 
-    def add(self, ts: float, flat: dict[str, float]) -> tuple[int, dict] | None:
+    def add(self, ts: float, flat: dict[str, float]) -> tuple[int, dict, float] | None:
         b = int(ts // self.width * self.width)
         done = None
         if self.bucket is not None and b != self.bucket:
@@ -85,14 +90,14 @@ class Rollup:
             self.bucket = b
         for k, v in flat.items():
             self.acc.add(k, v, v, v)
+        self.samples += 1
         return done
 
-    def flush(self) -> tuple[int, dict] | None:
-        if self.bucket is None or not self.acc.d:
-            self.bucket = None
-            return None
-        out = (self.bucket, self.acc.result())
-        self.bucket, self.acc = None, Acc()
+    def flush(self) -> tuple[int, dict, float] | None:
+        out = None
+        if self.bucket is not None and self.acc.d:
+            out = (self.bucket, self.acc.result(), self.samples * self.interval_s)
+        self.bucket, self.acc, self.samples = None, Acc(), 0
         return out
 
 
@@ -177,51 +182,59 @@ class Store:
                 self.db.execute(
                     f"CREATE TABLE IF NOT EXISTS {t} (ts INTEGER PRIMARY KEY, data TEXT NOT NULL)"
                 )
+            for t in COVERED.values():
+                self.db.execute(
+                    f"CREATE TABLE IF NOT EXISTS {t} (ts INTEGER PRIMARY KEY, covered_s REAL NOT NULL)"
+                )
         return self.db
 
-    def write(self, res: int, ts: int, data: dict) -> None:
+    def write(self, res: int, ts: int, data: dict, covered_s: float) -> None:
         db = self._conn()
-        db.execute(
-            f"INSERT OR REPLACE INTO {TABLES[res]} VALUES (?, ?)",
-            (ts, _dumps(data)),
-        )
+        db.execute(f"INSERT OR REPLACE INTO {TABLES[res]} VALUES (?, ?)", (ts, _dumps(data)))
+        db.execute(f"INSERT OR REPLACE INTO {COVERED[res]} VALUES (?, ?)", (ts, covered_s))
         db.commit()
 
     def query(
         self, res: int, t0: float, t1: float, keys: list[str] | None = None
-    ) -> list[tuple[float, dict]]:
-        """Rows are keyed by bucket start; they are served stamped at the bucket centre."""
+    ) -> tuple[list[tuple[float, dict]], list[float]]:
+        """Rows are keyed by bucket start; they are served stamped at the bucket centre. Beside them, the
+        seconds each row's samples cover: the full width for a row an older agent wrote."""
+        frm = (
+            f"FROM {TABLES[res]} r LEFT JOIN {COVERED[res]} c ON c.ts = r.ts"
+            " WHERE r.ts >= ? AND r.ts <= ? ORDER BY r.ts"
+        )
         span = (int(t0), int(t1))
+        rows: list[tuple[float, dict]] = []
+        weights: list[float] = []
         # A JSON path label ends at the first '"', escaped or not
         if keys is None or len(keys) > EXTRACT_MAX_KEYS or any('"' in k for k in keys):
-            cur = self._conn().execute(
-                f"SELECT ts, data FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts", span
-            )
-            rows = ((ts + res / 2, json.loads(d)) for ts, d in cur)
-            if keys is None:
-                return list(rows)
-            return [(ts, {k: d[k] for k in keys if k in d}) for ts, d in rows]
-        cols = ", ".join(["json_extract(data, ?)"] * len(keys))
+            for ts, covered, d in self._conn().execute(f"SELECT r.ts, c.covered_s, r.data {frm}", span):
+                data = json.loads(d)
+                rows.append((ts + res / 2, data if keys is None else {k: data[k] for k in keys if k in data}))
+                weights.append(res if covered is None else covered)
+            return rows, weights
+        cols = ", ".join(["json_extract(r.data, ?)"] * len(keys))
         cur = self._conn().execute(
-            f"SELECT ts, {cols} FROM {TABLES[res]} WHERE ts >= ? AND ts <= ? ORDER BY ts",
+            f"SELECT r.ts, c.covered_s, {cols} {frm}",
             # Spelled as write() stored it, a label matches on SQLite 3.40 (raw compare) and 3.45 (unescaped)
             [*("$." + _dumps(k) for k in keys), *span],
         )
-        out = []
-        for ts, *vals in cur:
+        for ts, covered, *vals in cur:
             row = json.loads("[" + ",".join(v or "null" for v in vals) + "]")
-            out.append((ts + res / 2, {k: v for k, v in zip(keys, row, strict=True) if v is not None}))
-        return out
+            rows.append((ts + res / 2, {k: v for k, v in zip(keys, row, strict=True) if v is not None}))
+            weights.append(res if covered is None else covered)
+        return rows, weights
 
     def prune(self, now: float, retention: dict[int, float]) -> None:
         db = self._conn()
         for res, keep_s in retention.items():
-            db.execute(f"DELETE FROM {TABLES[res]} WHERE ts < ?", (int(now - keep_s),))
+            for t in (TABLES[res], COVERED[res]):
+                db.execute(f"DELETE FROM {t} WHERE ts < ?", (int(now - keep_s),))
         db.commit()
 
     def clear(self) -> None:
         db = self._conn()
-        for t in TABLES.values():
+        for t in (*TABLES.values(), *COVERED.values()):
             db.execute(f"DELETE FROM {t}")
         db.commit()
         db.execute("VACUUM")
