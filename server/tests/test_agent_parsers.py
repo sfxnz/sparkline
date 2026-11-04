@@ -271,7 +271,7 @@ def test_roles_and_labels_from_sysfs_fixture():
 def _net_as_agent_lists_it(raw: list[tuple[str, str, bool, str]]) -> list[NetIfInfo]:
     labels, letters = assign_labels(raw), rail_letters(raw)
     ordered = sorted(raw, key=lambda r: display_order(r[1], letters.get(r[0]), r[0]))
-    return [NetIfInfo(name=n, role=role, label=labels[n]) for n, role, _up, _ in ordered]
+    return [NetIfInfo(name=n, role=role, label=labels[n], rail=letters.get(n)) for n, role, _up, _ in ordered]
 
 
 @pytest.mark.parametrize(
@@ -289,13 +289,12 @@ def _net_as_agent_lists_it(raw: list[tuple[str, str, bool, str]]) -> list[NetIfI
         ),
     ],
 )
-def test_rail_letters_read_back_from_net_order_match_agent_labels(raw):
+def test_rails_read_back_are_the_ports_the_agent_lettered(raw):
     net = _net_as_agent_lists_it(raw)
     by_letter = {letter: n.name for letter, n in rails(NodeInfo.model_construct(net=net)).items()}
     lettered = {m[1]: n.name for n in net if (m := re.fullmatch(r"Interconnect ([A-Z])", n.label))}
-    assert lettered and all(by_letter[letter] == name for letter, name in lettered.items())
-    spare = [n.name for n in net if n.label == "Interconnect port (no cable)"]
-    assert list(by_letter.values())[len(lettered) :] == spare
+    assert lettered and by_letter == lettered
+    assert [n.name for n in net if n.role == "interconnect"][: len(lettered)] == list(lettered.values())
 
 
 def test_nic_model_from_pci_ids():

@@ -518,11 +518,11 @@ describe('competition', () => {
     expect(on(RDMA, sample({ net: [] }))).toBe('spark1 is not reporting; it was serving DeepSeek-V4.1-Flash-EXL3 when it last reported, so its current ConnectX-7 traffic is unknown.');
     expect(on(RDMA, sample({ net: [], procs: [] }))).toBe('spark1 is not reporting; its link was quiet when it last reported, so its current ConnectX-7 traffic is unknown.');
   });
-  const rail = (name: string, label: string, nic_model?: string | null) => ({ name, role: 'interconnect', label, nic_model }) as NetIfInfo;
-  const gb10 = () => [rail('enp1s0f1np1', 'Interconnect A', 'ConnectX-7'), rail('enP2p1s0f1np1', 'Interconnect B', 'ConnectX-7')];
-  const oldAgent = () => [rail('enp1s0f1np1', 'ConnectX-7 rail A'), rail('enP2p1s0f1np1', 'ConnectX-7 rail B')];
+  const rail = (name: string, letter: string | null, label: string, nic_model?: string | null) => ({ name, role: 'interconnect', label, nic_model, rail: letter }) as NetIfInfo;
+  const gb10 = () => [rail('enp1s0f1np1', 'A', 'Interconnect A', 'ConnectX-7'), rail('enP2p1s0f1np1', 'B', 'Interconnect B', 'ConnectX-7')];
+  const oldAgent = () => [rail('enp1s0f1np1', 'A', 'ConnectX-7 rail A'), rail('enP2p1s0f1np1', 'B', 'ConnectX-7 rail B')];
 
-  it('looks at the interconnect link for interconnect benches, naming rails by position', () => {
+  it('looks at the interconnect link for interconnect benches, naming rails by their letter', () => {
     expect(competition(RDMA, ['spark1'], () => sample(), gb10)[0]?.text).toBe(
       'spark1 ConnectX-7 traffic (serving DeepSeek-V4.1-Flash-EXL3): rail A 16.0 Gb/s in / 8.0 Gb/s out; results will be lower and the workload will slow down.',
     );
@@ -546,10 +546,17 @@ describe('competition', () => {
     );
     expect(competition(RDMA, ['spark1'], () => idleGpu, gb10)[0]).toMatchObject({ busy: false, text: 'spark1 ConnectX-7 link is quiet.' });
   });
+  it('names a spare port carrying traffic by its interface, not a rail letter', () => {
+    const spare = () => [...gb10(), rail('enp1s0f0np0', null, 'Interconnect port (no cable)', 'ConnectX-7')];
+    const busy = sample({ procs: [], net: [{ name: 'enp1s0f0np0', rx_bps: 1e9, tx_bps: 0 }] as Sample['net'] });
+    expect(competition(RDMA, ['spark1'], () => busy, spare)[0]?.text).toBe(
+      'spark1 ConnectX-7 traffic: enp1s0f0np0 8.0 Gb/s in / 0.0 Gb/s out; results will be lower and the workload will slow down.',
+    );
+  });
   it('names a non-ConnectX link by its own model, and an unknown one generically', () => {
     const idleGpu = sample({ procs: [], net: [] as Sample['net'] });
-    const e810 = () => [rail('ens1f0', 'Interconnect A', 'Intel E810-C')];
-    const unknown = () => [rail('ens1f0', 'Interconnect A', null)];
+    const e810 = () => [rail('ens1f0', 'A', 'Interconnect A', 'Intel E810-C')];
+    const unknown = () => [rail('ens1f0', 'A', 'Interconnect A', null)];
     expect(competition(RDMA, ['spark1'], () => idleGpu, e810)[0]?.text).toBe('spark1 Intel E810-C link is quiet.');
     expect(competition(RDMA, ['spark1'], () => idleGpu, unknown)[0]?.text).toBe('spark1 interconnect link is quiet.');
   });

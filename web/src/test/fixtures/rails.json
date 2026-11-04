@@ -1,0 +1,437 @@
+{
+  "cases": [
+    {
+      "case": "GB10 with both rails up at agent start",
+      "net": [
+        {
+          "name": "enp1s0f1np1",
+          "role": "interconnect",
+          "label": "Interconnect A",
+          "mac": null,
+          "ipv4": [
+            "203.0.113.1"
+          ],
+          "speed_mbps": 200000,
+          "rdma_device": "rocep1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": "spark2",
+          "nic_model": "ConnectX-7",
+          "rail": "A"
+        },
+        {
+          "name": "enP2p1s0f1np1",
+          "role": "interconnect",
+          "label": "Interconnect B",
+          "mac": null,
+          "ipv4": [
+            "192.0.2.1"
+          ],
+          "speed_mbps": 200000,
+          "rdma_device": "roceP2p1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": "spark2",
+          "nic_model": "ConnectX-7",
+          "rail": "B"
+        },
+        {
+          "name": "enP2p1s0f0np0",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": "roceP2p1s0f0",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enp1s0f0np0",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": "rocep1s0f0",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enP7s7",
+          "role": "lan",
+          "label": "LAN",
+          "mac": null,
+          "ipv4": [
+            "198.51.100.48"
+          ],
+          "speed_mbps": null,
+          "rdma_device": null,
+          "counter_source": "netdev",
+          "peer": null,
+          "nic_model": null,
+          "rail": null
+        }
+      ],
+      "rails": {
+        "A": "enp1s0f1np1",
+        "B": "enP2p1s0f1np1"
+      }
+    },
+    {
+      "case": "Rail A up but its address not applied yet",
+      "net": [
+        {
+          "name": "enp1s0f1np1",
+          "role": "interconnect",
+          "label": "Interconnect A",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": 200000,
+          "rdma_device": "rocep1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": "A"
+        },
+        {
+          "name": "enP2p1s0f1np1",
+          "role": "interconnect",
+          "label": "Interconnect B",
+          "mac": null,
+          "ipv4": [
+            "192.0.2.2"
+          ],
+          "speed_mbps": 200000,
+          "rdma_device": "roceP2p1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": "spark1",
+          "nic_model": "ConnectX-7",
+          "rail": "B"
+        },
+        {
+          "name": "enP2p1s0f0np0",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": "roceP2p1s0f0",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enp1s0f0np0",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": "rocep1s0f0",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enP7s7",
+          "role": "lan",
+          "label": "LAN",
+          "mac": null,
+          "ipv4": [
+            "198.51.100.48"
+          ],
+          "speed_mbps": null,
+          "rdma_device": null,
+          "counter_source": "netdev",
+          "peer": null,
+          "nic_model": null,
+          "rail": null
+        }
+      ],
+      "rails": {
+        "A": "enp1s0f1np1",
+        "B": "enP2p1s0f1np1"
+      }
+    },
+    {
+      "case": "Only the second port up at agent start; the first has an address and a peer",
+      "net": [
+        {
+          "name": "enP2p1s0f1np1",
+          "role": "interconnect",
+          "label": "Interconnect A",
+          "mac": null,
+          "ipv4": [
+            "192.0.2.1"
+          ],
+          "speed_mbps": 200000,
+          "rdma_device": "roceP2p1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": "spark2",
+          "nic_model": "ConnectX-7",
+          "rail": "A"
+        },
+        {
+          "name": "enP2p1s0f0np0",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": "roceP2p1s0f0",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enp1s0f0np0",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": "rocep1s0f0",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enp1s0f1np1",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [
+            "203.0.113.1"
+          ],
+          "speed_mbps": null,
+          "rdma_device": "rocep1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": "spark2",
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enP7s7",
+          "role": "lan",
+          "label": "LAN",
+          "mac": null,
+          "ipv4": [
+            "198.51.100.48"
+          ],
+          "speed_mbps": null,
+          "rdma_device": null,
+          "counter_source": "netdev",
+          "peer": null,
+          "nic_model": null,
+          "rail": null
+        }
+      ],
+      "rails": {
+        "A": "enP2p1s0f1np1"
+      }
+    },
+    {
+      "case": "No port up at agent start",
+      "net": [
+        {
+          "name": "enP2p1s0f0np0",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": "roceP2p1s0f0",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enP2p1s0f1np1",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [
+            "192.0.2.1"
+          ],
+          "speed_mbps": null,
+          "rdma_device": "roceP2p1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": "spark2",
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enp1s0f0np0",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": "rocep1s0f0",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enp1s0f1np1",
+          "role": "interconnect",
+          "label": "Interconnect port (no cable)",
+          "mac": null,
+          "ipv4": [
+            "203.0.113.1"
+          ],
+          "speed_mbps": null,
+          "rdma_device": "rocep1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": "spark2",
+          "nic_model": "ConnectX-7",
+          "rail": null
+        },
+        {
+          "name": "enP7s7",
+          "role": "lan",
+          "label": "LAN",
+          "mac": null,
+          "ipv4": [
+            "198.51.100.48"
+          ],
+          "speed_mbps": null,
+          "rdma_device": null,
+          "counter_source": "netdev",
+          "peer": null,
+          "nic_model": null,
+          "rail": null
+        }
+      ],
+      "rails": {}
+    },
+    {
+      "case": "Relabelled interfaces keep their rails",
+      "net": [
+        {
+          "name": "enP7s7",
+          "role": "lan",
+          "label": "LAN",
+          "mac": null,
+          "ipv4": [
+            "198.51.100.48"
+          ],
+          "speed_mbps": null,
+          "rdma_device": null,
+          "counter_source": "netdev",
+          "peer": null,
+          "nic_model": null,
+          "rail": null
+        },
+        {
+          "name": "enp1s0f1np1",
+          "role": "interconnect",
+          "label": "Interconnect B",
+          "mac": null,
+          "ipv4": [
+            "203.0.113.1"
+          ],
+          "speed_mbps": null,
+          "rdma_device": "rocep1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": "A"
+        },
+        {
+          "name": "enP2p1s0f1np1",
+          "role": "interconnect",
+          "label": "fast link",
+          "mac": null,
+          "ipv4": [
+            "192.0.2.1"
+          ],
+          "speed_mbps": null,
+          "rdma_device": "roceP2p1s0f1",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": "B"
+        },
+        {
+          "name": "enp1s0f0np0",
+          "role": "interconnect",
+          "label": "Interconnect C",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": "rocep1s0f0",
+          "counter_source": "netdev_rdma",
+          "peer": null,
+          "nic_model": "ConnectX-7",
+          "rail": null
+        }
+      ],
+      "rails": {
+        "A": "enp1s0f1np1",
+        "B": "enP2p1s0f1np1"
+      }
+    },
+    {
+      "case": "A NIC that is not a ConnectX",
+      "net": [
+        {
+          "name": "ens1f0",
+          "role": "interconnect",
+          "label": "Interconnect A",
+          "mac": null,
+          "ipv4": [
+            "203.0.113.1"
+          ],
+          "speed_mbps": null,
+          "rdma_device": "irdma0",
+          "counter_source": "netdev_rdma",
+          "peer": "node2",
+          "nic_model": "Intel E810-C",
+          "rail": "A"
+        },
+        {
+          "name": "ens1f1",
+          "role": "interconnect",
+          "label": "Interconnect B",
+          "mac": null,
+          "ipv4": [
+            "192.0.2.1"
+          ],
+          "speed_mbps": null,
+          "rdma_device": "irdma1",
+          "counter_source": "netdev_rdma",
+          "peer": "node2",
+          "nic_model": "Intel E810-C",
+          "rail": "B"
+        },
+        {
+          "name": "eno1",
+          "role": "lan",
+          "label": "LAN",
+          "mac": null,
+          "ipv4": [],
+          "speed_mbps": null,
+          "rdma_device": null,
+          "counter_source": "netdev",
+          "peer": null,
+          "nic_model": null,
+          "rail": null
+        }
+      ],
+      "rails": {
+        "A": "ens1f0",
+        "B": "ens1f1"
+      }
+    }
+  ]
+}

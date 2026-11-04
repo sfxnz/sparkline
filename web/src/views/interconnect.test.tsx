@@ -29,9 +29,9 @@ const OLD_LABELS: Labels = ['ConnectX-7 rail A', 'ConnectX-7 rail B', 'ConnectX-
 
 function net(peer: string, labels: Labels, nic_model?: string | null): NetIfInfo[] {
   return [
-    nif('enp1s0f1np1', labels[0], { peer, nic_model }),
-    nif('enP2p1s0f1np1', labels[1], { peer, nic_model }),
-    nif('enp1s0f0np0', labels[2], { speed_mbps: null, nic_model }),
+    nif('enp1s0f1np1', labels[0], { peer, nic_model, rail: 'A' }),
+    nif('enP2p1s0f1np1', labels[1], { peer, nic_model, rail: 'B' }),
+    nif('enp1s0f0np0', labels[2], { speed_mbps: null, nic_model, rail: null }),
     nif('enP7s7', 'LAN', { role: 'lan', counter_source: 'netdev' }),
   ];
 }
@@ -127,12 +127,19 @@ describe('interconnect wording', () => {
     expect(container).not.toHaveTextContent(/ConnectX|CX7/);
   });
 
-  it('letters rails by position when the interfaces are relabelled', () => {
+  it('keeps rail letters when the interfaces are relabelled', () => {
     cluster((id) => net(peerOf(id), ['Interconnect B', 'fabric', 'spare'], 'ConnectX-7'));
     renderAll();
     expect(screen.getByText('Rail A')).toBeInTheDocument();
     expect(screen.getByText('Rail B')).toBeInTheDocument();
     expect(screen.getByRole('figure', { name: 'ConnectX-7 throughput' })).toHaveTextContent('Rail A in, Rail A out, Rail B in, Rail B out');
+  });
+
+  it('never calls a spare port that reaches a peer a rail', () => {
+    cluster((id) => net(peerOf(id), NEW_LABELS, 'ConnectX-7').map((n) => (n.role === 'interconnect' ? { ...n, peer: peerOf(id) } : n)));
+    const { container } = renderAll();
+    expect(screen.getByRole('figure', { name: 'ConnectX-7 throughput' })).toHaveTextContent('Rail A in, Rail A out, Rail B in, Rail B out, enp1s0f0np0 in, enp1s0f0np0 out');
+    expect(container).not.toHaveTextContent('Rail C');
   });
 
   it('says why a node with no cabled rail has no figures, in its own NIC’s words', () => {
