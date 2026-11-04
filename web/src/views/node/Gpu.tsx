@@ -31,6 +31,7 @@ import { gpuPresent, gpuSelector } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
 import { gpuAt, reportingGpus, sentence, stillReport } from '../../lib/gpu';
 import { useGpuGap } from './parts/useGpuGap';
+import { GpuAttention, gpuSectionId } from './parts/GpuAttention';
 
 const pct = (n: number) => formatPercent(n);
 const pct1 = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
@@ -243,6 +244,7 @@ function MultiGpu({ nodeId, info, gpus, currency, rate }: MultiProps) {
   return (
     <div className="view">
       <CollectorErrors nodeId={nodeId} only={['gpu']} />
+      <GpuAttention nodeId={nodeId} info={info} />
       <NowLabel />
       <div className="ngpu__sections">
         {gpus.map((g) => (
@@ -296,6 +298,7 @@ function GpuSection({ c }: { c: GpuCtx }) {
   const name = `GPU ${index}`;
   return (
     <Panel
+      id={gpuSectionId(nodeId, index)}
       className="ngpu-section"
       label={name}
       title={

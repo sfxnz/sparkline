@@ -1,4 +1,5 @@
 import { act, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
@@ -225,6 +226,44 @@ describe('GPU tab on a multi-GPU node', () => {
     const differs = { ...first, temp_slowdown_c: (first.temp_slowdown_c ?? 80) - 5 };
     show(workstation, { info: { ...workstation.info, gpus: workstation.info.gpus.map((g) => (g.index === first.index ? differs : g)) } });
     expect(temps()).toEqual([]);
+  });
+});
+
+describe('GPU needs attention on a multi-GPU node (ws1, slowdown 93 °C)', () => {
+  const attention = () => screen.queryByRole('list', { name: 'GPU needs attention' });
+  const rows = () => within(attention() as HTMLElement).getAllByRole('button');
+  const hot = (indexes: readonly number[], over: Partial<GpuSample> = { temp_c: 94 }) => indexes.reduce((s, i) => withGpu(s, i, over), workstation.sample);
+
+  it('says nothing while every GPU is fine', () => {
+    show(workstation);
+    expect(sections()).toHaveLength(4);
+    expect(attention()).toBeNull();
+  });
+
+  it("lists GPU 3 at slowdown with its reading, and jumps to GPU 3's section and its heading", async () => {
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this); };
+    show(workstation, { sample: hot([3]) });
+    expect(rows().map((r) => r.textContent)).toEqual(['Critical: GPU 3At slowdown, 94\u00a0°C (slows at 93\u00a0°C)']);
+    await userEvent.click(rows()[0] as HTMLElement);
+    expect(scrolled).toEqual([section(3)]);
+    expect(document.activeElement).toBe(within(section(3)).getByRole('heading', { name: 'GPU 3' }));
+    Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
+  });
+
+  it('lists a clock limit by what it does, critical rows first', () => {
+    show(workstation, { sample: withGpu(hot([3], { throttle_mask: 0x40 }), 1, { throttle_mask: 0x20 }) });
+    expect(rows().map((r) => r.textContent)).toEqual(['Critical: GPU 3Clocks limited by overheating', 'Warning: GPU 1Clocks limited by thermal limit']);
+  });
+
+  it('gives GPUs that share a condition one row once more than three need attention', () => {
+    show(workstation, { sample: hot([0, 1, 2, 3]) });
+    expect(rows().map((r) => r.textContent)).toEqual(['Critical: GPUs 0, 1, 2 and 3At slowdown']);
+  });
+
+  it('says nothing once the node stops reporting, like the status pill', () => {
+    show(workstation, { sample: hot([3]), status: 'stale' });
+    expect(attention()).toBeNull();
   });
 });
 
