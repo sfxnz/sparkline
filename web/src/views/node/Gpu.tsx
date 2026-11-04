@@ -4,9 +4,9 @@ import { TimeSeriesChart, type SeriesSpec, type Threshold } from '../../charts/T
 import { Panel } from '../../design/components/Panel';
 import { Stat } from '../../design/components/Stat';
 import { Skeleton } from '../../design/components/Skeleton';
+import { notReported, notReportedByHardware } from '../../lib/capabilities';
 import { energyParts, formatFreq, formatPercent, formatTemp, formatWatts, percentParts, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { decodeThrottle } from '../../lib/throttle';
-import { unsupportedReason } from '../../lib/unsupported';
 import { useCluster } from '../../store/cluster';
 import { useLatest } from '../../store/live';
 import { formatEnergyAuto, formatEnergyCost, historyEnergy } from '../shared/energy';
@@ -62,7 +62,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
     if (shutdown != null) t.push({ value: shutdown, label: `Shutdown ${formatTemp(shutdown)}`, tone: 'crit' });
     return t;
   }, [slowdown, shutdown]);
-  const limitReason = unsupportedReason(info, 'gpu0.power_limit_w');
+  const limitReason = notReported(info, 'gpu0.power_limit_w');
 
   return (
     <div className="view">
@@ -90,7 +90,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
             label="GPU power"
             select={gpuPower} metric="gpu0.power_w"
             format={wattsParts}
-            unsupported={unsupportedReason(info, 'gpu0.power_w')}
+            unsupported={notReported(info, 'gpu0.power_w')}
             footer={() => <PowerPeak nodeId={nodeId} />}
           />
           {gpu?.power_limit_w != null ? (
@@ -100,7 +100,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
               label="Power limit"
               value={null}
               format={wattsParts}
-              unsupported={limitReason ?? 'The driver does not report a power limit for this GPU.'}
+              unsupported={limitReason ?? notReportedByHardware('The driver does not report a power limit for this GPU.')}
               footer={<PowerTypical nodeId={nodeId} />}
             />
           )}

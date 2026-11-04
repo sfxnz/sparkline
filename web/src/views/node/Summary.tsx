@@ -4,8 +4,8 @@ import { BYTE_INCRS } from '../../charts/theme';
 import { TimeSeriesChart, type SeriesSpec } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { bitrateParts, bytesParts, formatBitrate, formatBytes, formatPercent, formatWatts, percentParts, tempParts, wattsParts } from '../../lib/format';
+import { notReported } from '../../lib/capabilities';
 import type { Sample } from '../../lib/types';
-import { unsupportedReason } from '../../lib/unsupported';
 import { useCluster } from '../../store/cluster';
 import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
@@ -48,7 +48,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
     ]),
     [rails],
   );
-  const powerUnsupported = unsupportedReason(info, 'gpu0.power_w');
+  const powerUnsupported = notReported(info, 'gpu0.power_w');
 
   return (
     <div className="view nsum">
@@ -85,8 +85,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
               metric={dir === 'in' ? rxKeys : txKeys}
               format={bitrateParts}
               href={paths.node(nodeId, 'network')}
-              unsupported={info && !rails.length ? NO_LINK_REASON : null}
-              unsupportedLabel="No direct link"
+              unsupported={info && !rails.length ? { label: 'No direct link', detail: NO_LINK_REASON } : null}
               footer={() => (rails.length ? `${rails.length} cabled ${rails.length === 1 ? 'rail' : 'rails'}` : null)}
             />
           ))}

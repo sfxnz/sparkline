@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+import { notReported, notReportedByHardware } from '../../lib/capabilities';
 import { bytesParts, tempParts } from '../../lib/format';
+import type { NodeInfo, Unsupported as UnsupportedEntry } from '../../lib/types';
 import { AnimatedNumber } from './AnimatedNumber';
 import { Button, IconButton } from './Button';
 import { ConfirmDialog } from './Dialog';
@@ -150,10 +152,30 @@ describe('Stat / AnimatedNumber', () => {
     expect(screen.getByText(/Updated 12\ss ago/)).toBeInTheDocument();
   });
 
+  const powerLimit = (entry: Omit<UnsupportedEntry, 'metric'>) => {
+    const info = { unsupported: [{ metric: 'gpu*.power_limit_w', ...entry }] } as unknown as NodeInfo;
+    render(<Stat label="Power limit" value={null} format={tempParts} unsupported={notReported(info, 'gpu0.power_limit_w')} />);
+    return screen.getByRole('button', { name: 'Why is this not reported?' });
+  };
+
   it('shows Unsupported instead of a number', () => {
-    render(<Stat label="Power limit" value={null} format={tempParts} unsupported="Not reported by GB10 (NVML: Not Supported)" />);
+    const why = powerLimit({ reason: 'Not reported by GB10 (NVML: Not Supported)', kind: 'hardware' });
     expect(screen.getByText('Not reported by this hardware')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription('Not reported by GB10 (NVML: Not Supported)');
+    expect(why).toHaveAccessibleDescription('Not reported by GB10 (NVML: Not Supported)');
+  });
+
+  it('says which privilege a metric needs when the agent may not read it', () => {
+    const why = powerLimit({ reason: 'Needs root (NVML: Insufficient Permissions)', kind: 'access' });
+    expect(screen.getByText('Needs root (NVML: Insufficient Permissions)')).toBeInTheDocument();
+    expect(screen.queryByText('Not reported by this hardware')).toBeNull();
+    expect(why).toHaveAccessibleDescription(/lacks the privilege/);
+  });
+
+  it('says what to install when a helper tool is missing', () => {
+    const why = powerLimit({ reason: 'Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' });
+    expect(screen.getByText('Install nvidia-ml-py to read NVIDIA GPU metrics')).toBeInTheDocument();
+    expect(screen.queryByText('Not reported by this hardware')).toBeNull();
+    expect(why).toHaveAccessibleDescription(/installing it unlocks/);
   });
 
   it('writes the final value immediately under reduced motion', () => {
@@ -219,7 +241,7 @@ describe('Unsupported / RingGauge / Buttons', () => {
   it('have accessible names', () => {
     render(
       <>
-        <Unsupported reason="No fan sensors exposed" />
+        <Unsupported gap={notReportedByHardware('No fan sensors exposed')} />
         <RingGauge value={0.79} label="Memory: 79% used" />
         <IconButton aria-label="Close" icon={<svg />} />
         <Button variant="primary">Run</Button>

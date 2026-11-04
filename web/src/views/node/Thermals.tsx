@@ -6,8 +6,8 @@ import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
+import { notReported, notReportedByHardware, type NotReported } from '../../lib/capabilities';
 import { tempParts, wattsParts, type Formatter } from '../../lib/format';
-import { unsupportedReason } from '../../lib/unsupported';
 import { useCluster } from '../../store/cluster';
 import type { LiveStore } from '../../store/live';
 import { usePrefs } from '../../store/prefs';
@@ -45,7 +45,7 @@ export default function Thermals({ nodeId }: { nodeId: string }) {
 
   return (
     <div className="view tp">
-      <ThermalHeader nodeId={nodeId} groups={groups} stale={stale} updatedAt={updatedAt} fanReason={unsupportedReason(info, 'fan')} />
+      <ThermalHeader nodeId={nodeId} groups={groups} stale={stale} updatedAt={updatedAt} fanReason={notReported(info, 'fan')} />
       <div className="tp-groups">
         {groups.map((g) => (
           <SensorGroupPanel key={g.id} nodeId={nodeId} group={g} info={info} range={range} history={history} stale={stale} />
@@ -63,7 +63,7 @@ const sameHot = (a: { label: string; c: number } | null, b: { label: string; c: 
   a === b || (a !== null && b !== null && a.label === b.label && Math.round(a.c) === Math.round(b.c));
 
 /** The one-glance answer: what is hottest, how close the GPU is to slowing down, what it draws, what today cost. */
-function ThermalHeader({ nodeId, groups, stale, updatedAt, fanReason }: { nodeId: string; groups: SensorGroup[]; stale: boolean; updatedAt: number | null; fanReason: string | null }) {
+function ThermalHeader({ nodeId, groups, stale, updatedAt, fanReason }: { nodeId: string; groups: SensorGroup[]; stale: boolean; updatedAt: number | null; fanReason: NotReported | null }) {
   const hot = useLiveDerived(nodeId, useCallback((st: LiveStore) => hottest(groups, (k) => st.latestValue(nodeId, k)), [groups, nodeId]), sameHot);
   const gpuTemp = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.temp_c'), [nodeId]), Object.is);
   const gpuPower = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.power_w'), [nodeId]), Object.is);
@@ -85,7 +85,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, fanReason }: { nodeId
         />
         <Stat label="GPU power" value={gpuPower} format={wattsParts} stale={stale} updatedAt={updatedAt} footer="GPU rail only" />
         <EnergyToday nodeId={nodeId} />
-        <Stat label="Fans" value={null} format={wattsParts} unsupported={fanReason ?? 'No fan sensors are exposed by this hardware.'} />
+        <Stat label="Fans" value={null} format={wattsParts} unsupported={fanReason ?? notReportedByHardware('No fan sensors are exposed by this hardware.')} />
       </div>
     </Panel>
   );

@@ -10,7 +10,7 @@ import { tempRoom, type TempRoom } from '../../../lib/condition';
 import { DASH, formatTemp } from '../../../lib/format';
 import type { TimeRange } from '../../../lib/prefs';
 import type { HistoryResponse, NodeInfo } from '../../../lib/types';
-import { unsupportedReason } from '../../../lib/unsupported';
+import { notReported, type NotReported } from '../../../lib/capabilities';
 import { serverNow } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
 import type { Loadable } from '../../shared/live';
@@ -91,7 +91,7 @@ export function SensorGroupPanel({ nodeId, group, info, range, history, stale, s
             </thead>
             <tbody>
               {group.sensors.map((s) => (
-                <SensorRow key={s.key} nodeId={nodeId} sensor={s} range={range} history={history} reason={unsupportedReason(info, s.key)} store={store} showRoom={hasLimits} />
+                <SensorRow key={s.key} nodeId={nodeId} sensor={s} range={range} history={history} reason={notReported(info, s.key)} store={store} showRoom={hasLimits} />
               ))}
             </tbody>
           </table>
@@ -111,7 +111,7 @@ export function SensorGroupPanel({ nodeId, group, info, range, history, stale, s
   );
 }
 
-function SensorRow({ nodeId, sensor, range, history, reason, store, showRoom }: { nodeId: string; sensor: Sensor; range: TimeRange; history: Loadable<HistoryResponse>; reason: string | null; store: LiveStore; showRoom: boolean }) {
+function SensorRow({ nodeId, sensor, range, history, reason, store, showRoom }: { nodeId: string; sensor: Sensor; range: TimeRange; history: Loadable<HistoryResponse>; reason: NotReported | null; store: LiveStore; showRoom: boolean }) {
   // From the ring buffer rather than the last Sample, so readings seeded from history show while a node is offline.
   const now = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, sensor.key), [nodeId, sensor.key]), Object.is, store);
   const live = range === 'live';
@@ -135,7 +135,7 @@ function SensorRow({ nodeId, sensor, range, history, reason, store, showRoom }: 
     return (
       <tr>
         <th scope="row" className="tp-sensors__label">{sensor.label}</th>
-        <td colSpan={showRoom ? 5 : 4}><Unsupported reason={reason} /></td>
+        <td colSpan={showRoom ? 5 : 4}><Unsupported gap={reason} /></td>
       </tr>
     );
   }

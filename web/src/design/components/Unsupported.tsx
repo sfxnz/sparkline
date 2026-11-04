@@ -1,13 +1,13 @@
 import { Info } from 'lucide-react';
+import type { NotReported } from '../../lib/capabilities';
 import { Tooltip } from './Tooltip';
 import './Unsupported.css';
 
-/** A metric this hardware does not report. Never rendered as 0 or as an empty chart. */
-export function Unsupported({ reason, label = 'Not reported by this hardware', block }: { reason: string; label?: string; block?: boolean }) {
+export function Unsupported({ gap, block }: { gap: NotReported; block?: boolean }) {
   return (
     <span className={`unsupported${block ? ' unsupported--block' : ''}`}>
-      <span className="unsupported__label">{label}</span>
-      <Tooltip content={reason}>
+      <span className="unsupported__label">{gap.label}</span>
+      <Tooltip content={gap.detail}>
         <button type="button" className="unsupported__info" aria-label="Why is this not reported?">
           <Info aria-hidden="true" />
         </button>

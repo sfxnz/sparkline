@@ -13,9 +13,9 @@ import { NoDataInRange } from './NoDataInRange';
 import { Skeleton } from '../design/components/Skeleton';
 import { Unsupported } from '../design/components/Unsupported';
 import { useNow } from '../design/useNow';
+import { notReported, type NotReported } from '../lib/capabilities';
 import { formatAgo } from '../lib/format';
 import type { TimeRange } from '../lib/prefs';
-import { unsupportedReason } from '../lib/unsupported';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { joinHistoryRefresh, historyCache, RANGE_SECONDS } from '../store/history';
@@ -63,8 +63,8 @@ interface BaseProps {
   /** Charts with the same group share one y ceiling (the highest visible value among them), so small multiples
    *  compare by eye: equal heights mean equal values. */
   yGroup?: string;
-  /** Force the unsupported state with this reason (otherwise derived from NodeInfo.unsupported). */
-  unsupported?: string;
+  /** Force the unsupported state (otherwise derived from NodeInfo.unsupported). */
+  unsupported?: NotReported | null;
   /** 'hover': in Live mode the legend shows values only under the cursor, for panels whose stats already show the
    *  current values right above the chart (the same number twice, a frame apart, reads as two numbers). */
   legendValues?: 'always' | 'hover';
@@ -207,7 +207,8 @@ export function TimeSeriesChart({
   const thresholdsId = JSON.stringify(thresholds ?? []);
   const layersId = stack ? JSON.stringify(series) : '';
   const unsupported =
-    unsupportedProp ?? (keys.length && keys.every((k) => unsupportedReason(info, k)) ? unsupportedReason(info, keys[0] ?? '') : null);
+    unsupportedProp ?? (keys.length && keys.every((k) => notReported(info, k)) ? notReported(info, keys[0] ?? '') : null);
+  const isUnsupported = unsupported !== null;
 
   useEffect(() => {
     formatRef.current = format;
@@ -275,7 +276,7 @@ export function TimeSeriesChart({
   // Create / destroy the uPlot instance.
   useEffect(() => {
     const el = plotRef.current;
-    if (!el || unsupported) return;
+    if (!el || isUnsupported) return;
     const theme = readChartTheme();
     const lineColor = (i: number) => theme.series[i % theme.series.length] ?? theme.axis;
     const k = theme.fontPx / 11; // axis room grows with the user's font size
@@ -570,13 +571,13 @@ export function TimeSeriesChart({
       uRef.current = null;
       if (yGroup) yGroups.get(yGroup)?.delete(yToken);
     };
-  }, [node, keys, labels, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, unsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
+  }, [node, keys, labels, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
 
   if (unsupported) {
     return (
       <figure className="tschart" aria-label={title}>
         <div className="tschart__plot tschart__plot--empty" style={{ height }}>
-          <Unsupported reason={unsupported} block />
+          <Unsupported gap={unsupported} block />
         </div>
       </figure>
     );
