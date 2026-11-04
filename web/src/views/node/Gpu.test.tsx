@@ -169,6 +169,8 @@ describe('GPU tab on a multi-GPU node', () => {
     const empty = section(gone.index);
     expect(within(empty).getByText(`GPU ${gone.index} not responding`)).toBeInTheDocument();
     expect(within(empty).queryByText('Utilisation')).not.toBeInTheDocument();
+    const others = workstation.info.gpus.filter((g) => g.index !== gone.index).map((g) => g.index);
+    expect(empty).toHaveTextContent(`GPUs ${others.slice(0, -1).join(', ')} and ${String(others.at(-1))} still report.`);
     for (const g of workstation.info.gpus.filter((x) => x.index !== gone.index)) {
       expect(within(section(g.index)).queryByText(/not responding/)).not.toBeInTheDocument();
       expect(stat(section(g.index), 'Utilisation')).not.toHaveTextContent('—');
@@ -247,7 +249,7 @@ describe('GPU tab on a node with two vendors', () => {
     expect(within(gpu0).queryByText('61')).not.toBeInTheDocument();
     expect(within(gpu0).queryByText('140')).not.toBeInTheDocument();
     expect(within(gpu0).getByText('GPU 0 not responding')).toBeInTheDocument();
-    expect(gpu0).toHaveTextContent(NV_ERROR);
+    expect(gpu0).toHaveTextContent(`${NV_ERROR}. GPUs 1 and 2 still report.`);
     expect(within(section(1)).getByText('37')).toBeInTheDocument();
   });
 
@@ -284,6 +286,19 @@ describe('GPU tab on a node with two vendors', () => {
       const stat = within(now).getByText(label).closest('.stat');
       expect(stat).toHaveTextContent('Not responding');
       expect(stat).not.toHaveTextContent('No data');
+    }
+  });
+
+  it('gives a lost GPU and GPUs whose backend missed a tick the same notice, and never says the others still report when none do', () => {
+    const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+    showHybrid({ ...base, gpu: [{ index: 0 } as GpuSample], errors: { gpu: 'amdgpu-sysfs: RuntimeError: boom' } }, { ...hybrid, unsupported: [{ metric: 'gpu0', reason: lost, kind: 'hardware' }] });
+
+    for (const [index, reason] of [[0, `${lost}.`], [1, 'RuntimeError: boom.'], [2, 'RuntimeError: boom.']] as const) {
+      const gpu = section(index);
+      expect(within(gpu).getByText(`GPU ${String(index)} not responding`)).toBeInTheDocument();
+      expect(gpu).toHaveTextContent(reason);
+      expect(within(gpu).queryByText('Utilisation')).not.toBeInTheDocument();
+      expect(gpu).not.toHaveTextContent(/still report|unaffected/);
     }
   });
 
