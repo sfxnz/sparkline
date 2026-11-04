@@ -188,6 +188,9 @@ describe('Stat / AnimatedNumber', () => {
     rerender(<Stat label="GPU utilisation" value={null} format={tempParts} reporting footer="Time the GPU was busy" />);
     expect(screen.getByText('No data')).toBeInTheDocument();
     expect(screen.queryByText('Time the GPU was busy')).not.toBeInTheDocument();
+    rerender(<Stat label="Power limit" value={null} format={tempParts} unsupported={gap} reporting footer="Limit set by the driver" gapFooter="Typical 40 W · last 5 min" />);
+    expect(screen.getByText('Typical 40 W · last 5 min')).toBeInTheDocument();
+    expect(screen.queryByText('Limit set by the driver')).not.toBeInTheDocument();
   });
 
   it('writes the final value immediately under reduced motion', () => {

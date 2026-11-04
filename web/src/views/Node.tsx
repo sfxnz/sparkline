@@ -26,9 +26,9 @@ import { ChartPanelSkeleton, StatSkeleton } from './placeholders';
 import './node/parts/node.css';
 import './views.css';
 
-// The metric prefix each tab's data comes from. When the agent declares one unsupported (its collector could not
-// start), the tab says why instead of drawing the agent's placeholder zeros.
-const TAB_METRIC: Partial<Record<NodeTab, string>> = { memory: 'mem', cpu: 'cpu', network: 'net', storage: 'disk', processes: 'procs' };
+// The metric prefixes each tab's data comes from. When the agent declares all of them unsupported (its collector
+// could not start), the tab says why instead of drawing the agent's placeholder zeros.
+const TAB_METRICS: Partial<Record<NodeTab, readonly string[]>> = { memory: ['mem'], cpu: ['cpu'], network: ['net'], storage: ['disk', 'fs'], processes: ['procs'] };
 
 export default function Node() {
   const params = useParams<{ id: string; tab?: string }>();
@@ -39,8 +39,8 @@ export default function Node() {
   const known = useCluster((s) => s.cluster !== null);
   const exists = useCluster((s) => id in s.nodes);
   const info = useCluster((s) => s.nodes[id]?.info);
-  const tabMetric = TAB_METRIC[tab];
-  const gap = tabMetric ? notReported(info, tabMetric) : null;
+  const gaps = (TAB_METRICS[tab] ?? []).map((m) => notReported(info, m));
+  const gap = gaps.length && gaps.every(Boolean) ? gaps[0] : null;
 
   if (known && !exists) return <NodeNotFound id={id} />;
 

@@ -101,7 +101,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
           {gpu?.power_limit_w != null ? (
             <Stat label="Power limit" value={gpu.power_limit_w} format={wattsParts} />
           ) : (
-            <Stat label="Power limit" value={null} format={wattsParts} unsupported={limitReason} reporting footer={<PowerTypical nodeId={nodeId} />} />
+            <Stat label="Power limit" value={null} format={wattsParts} unsupported={limitReason} reporting gapFooter={<PowerTypical nodeId={nodeId} />} />
           )}
           <LiveStat nodeId={nodeId} label="Performance state" select={gpuPstate} format={pstateParts} unsupported={notReported(info, 'gpu0')} footer={(v) => (v === 0 ? 'Maximum performance' : v != null ? 'Reduced performance state' : null)} />
           <LiveStat
@@ -110,7 +110,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
             select={gpuEnergy} metric="gpu0.energy_j"
             format={energyParts}
             unsupported={energyGap}
-            footer={() => (energyGap ? null : <RangeEnergy nodeId={nodeId} currency={currency} rate={rate} />)}
+            footer={() => <RangeEnergy nodeId={nodeId} currency={currency} rate={rate} />}
           />
         </div>
       </Panel>
@@ -233,16 +233,15 @@ function CappedShare({ nodeId, info }: { nodeId: string; info: NodeInfo | null |
     <div className="ncapped">
       {(['power', 'thermal'] as const).map((cap) => {
         const key = `gpu0.${cap}_capped_pct`;
-        const gap = notReported(info, key);
         return (
           <Stat
             key={cap}
             label={`Time ${cap}-capped`}
             value={data ? mean(data.series[key]) : null}
             format={percentParts}
-            unsupported={gap}
+            unsupported={notReported(info, key)}
             reporting={data !== null}
-            footer={gap ? undefined : `Average over the ${phrase}`}
+            footer={`Average over the ${phrase}`}
           />
         );
       })}

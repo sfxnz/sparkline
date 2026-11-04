@@ -37,6 +37,7 @@ export default function Memory({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const total = info?.mem_total;
   const swapTotal = info?.swap_total ?? null;
+  const psiGap = PSI.every((s) => notReported(info, s.key));
 
   return (
     <div className="view">
@@ -51,7 +52,7 @@ export default function Memory({ nodeId }: NodeTabProps) {
         </Panel>
         <div className="nmem__side">
           <Panel title="Memory pressure" subtitle="Share of time processes waited for memory">
-            <PressureNow nodeId={nodeId} />
+            {psiGap ? null : <PressureNow nodeId={nodeId} />}
             <TimeSeriesChart node={nodeId} title="Memory pressure" series={PSI} format={pct1} yMin={0} yMax={5} height={120} />
           </Panel>
           <Panel title="Swap" subtitle="Memory paged out to disk">
@@ -59,7 +60,7 @@ export default function Memory({ nodeId }: NodeTabProps) {
               <p className="nmuted">No swap is configured on {nodeId}.</p>
             ) : (
               <div className="nswap">
-                <LiveStat nodeId={nodeId} label="Swap used" select={memSwapUsed} metric="mem.swap_used" format={bytesParts} footer={() => (swapTotal ? `of ${formatBytes(swapTotal)}` : null)} />
+                <LiveStat nodeId={nodeId} label="Swap used" select={memSwapUsed} metric="mem.swap_used" format={bytesParts} unsupported={notReported(info, 'mem.swap_used')} footer={() => (swapTotal ? `of ${formatBytes(swapTotal)}` : null)} />
                 <SwapBar nodeId={nodeId} total={swapTotal} />
               </div>
             )}
