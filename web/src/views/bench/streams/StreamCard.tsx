@@ -2,7 +2,7 @@
 // answer, newest line at the bottom), and tokens against the output limit. A card is a button: it opens the stream
 // large in a dialog that stays live. Text types itself (typewriter.ts); everything else re-renders with the snapshot.
 import { CircleX } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { AnimatedNumber } from '../../../design/components/AnimatedNumber';
 import { Dialog } from '../../../design/components/Dialog';
 import { Skeleton } from '../../../design/components/Skeleton';
@@ -212,11 +212,13 @@ interface DialogProps extends TextProps {
   context: string;
   /** An llm-showcase stream: described by its prompt instead of its request number. */
   showcase?: boolean;
+  /** Above its numbers: the node's modelled-figures note, which the page shows behind the dialog. */
+  note?: ReactNode;
   onClose: () => void;
 }
 
 /** One stream large: its numbers, and everything this page has seen it write (still typing while live). */
-export function StreamDialog({ stream: s, text, state, live, requests, context, showcase = false, onClose }: DialogProps) {
+export function StreamDialog({ stream: s, text, state, live, requests, context, showcase = false, note, onClose }: DialogProps) {
   const rate = s.tok_s;
   const facts: [string, string][] = [
     [state === 'done' ? 'Decode speed' : live ? 'Speed now' : 'Last speed', rate == null ? '—' : `${formatTokS(rate)} tok/s`],
@@ -234,6 +236,7 @@ export function StreamDialog({ stream: s, text, state, live, requests, context, 
       size="lg"
       className="strm-dialog"
     >
+      {note}
       <div className="strm-dialog__top">
         <StatePill state={state} />
         <dl className="strm-dialog__facts">

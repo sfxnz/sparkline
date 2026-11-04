@@ -4,7 +4,7 @@
 // filter finds the flaky and never-passed ones. Model-produced text (summaries, notes, tool calls, traces) is always
 // plain text.
 import { CircleCheck, CircleX, Search, ShieldAlert } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Dialog } from '../../../design/components/Dialog';
 import { Panel } from '../../../design/components/Panel';
 import { Table, type Column } from '../../../design/components/Table';
@@ -151,7 +151,8 @@ export function ScenariosPanel({ records, total, incomplete, trials = 1, flaky =
 
 // ------------------------------------------------------------------------------------------------ dialog
 
-export function ScenarioDialog({ record, onClose }: { record: ScenarioRecord | null; onClose: () => void }) {
+/** `note` heads the body: the node's modelled-figures note, which the page shows behind the dialog. */
+export function ScenarioDialog({ record, note, onClose }: { record: ScenarioRecord | null; note?: ReactNode; onClose: () => void }) {
   return (
     <Dialog
       open={record !== null}
@@ -161,7 +162,7 @@ export function ScenarioDialog({ record, onClose }: { record: ScenarioRecord | n
       className="te-dialog"
       description={record ? <DialogMeta r={record} /> : undefined}
     >
-      {record ? <DialogBody r={record} /> : null}
+      {record ? <DialogBody r={record} note={note} /> : null}
     </Dialog>
   );
 }
@@ -181,11 +182,12 @@ function DialogMeta({ r }: { r: ScenarioRecord }) {
   );
 }
 
-function DialogBody({ r }: { r: ScenarioRecord }) {
+function DialogBody({ r, note }: { r: ScenarioRecord; note: ReactNode }) {
   const tokens = r.promptTokens === null && r.completionTokens === null ? null : (r.promptTokens ?? 0) + (r.completionTokens ?? 0);
   const calls = toolCallList(r.toolCalls);
   return (
     <div className="te-dlg">
+      {note}
       {r.safetyViolation ? (
         <div className="ops-banner tone-crit">
           <ShieldAlert aria-hidden="true" />

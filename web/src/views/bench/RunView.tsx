@@ -16,7 +16,7 @@ import { benchApi, problemOf } from '../../lib/api';
 import type { BenchResult, BenchRun, BenchSpec, Problem } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useBench } from '../../store/bench';
-import { Banner, ProblemBanner } from '../alerts/parts/Banner';
+import { ProblemBanner } from '../alerts/parts/Banner';
 import { listNodes } from '../overview/model';
 import { PENDING_PREFIX, runPath, useCatalog, useRun, useRunList } from './hooks';
 import {
@@ -33,12 +33,12 @@ import {
   baselineCoverage,
   metaLabel,
   metaText,
+  MODELLED_FIGURES,
   MODELLED_MARK,
   modelledNodes,
   modelledNote,
   modelledOn,
   modelledResults,
-  type Modelled,
   nodeMeta,
   nodesText,
   servedModel,
@@ -54,7 +54,7 @@ import {
   stopwatch,
   valueWithUnit,
 } from './model';
-import { BetterHint, DeltaBadge, RunStatusPill } from './parts';
+import { BetterHint, DeltaBadge, ModelledNote, RunStatusPill } from './parts';
 import { RunTelemetry } from './RunTelemetry';
 import { ShareCardDialog } from './ShareCard';
 import { SoakPanel } from './SoakPanel';
@@ -253,13 +253,13 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
       {/* Per-benchmark views lead the page for these benchmarks, so they come before the telemetry. */}
       {run.bench_id === 'llm-inference' || run.bench_id === 'llm-showcase' ? (
         <>
-          <ModelledNote modelled={modelled} figures="token rates and timings" />
+          <ModelledNote modelled={modelled} figures={MODELLED_FIGURES.streams} />
           <StreamsSection run={run} spec={spec} />
         </>
       ) : null}
       {run.bench_id === 'tool-eval' ? (
         <>
-          <ModelledNote modelled={modelled} figures="timings and the Responsiveness and Deployability scores" />
+          <ModelledNote modelled={modelled} figures={MODELLED_FIGURES.toolEval} />
           <ToolEvalSection run={run} spec={spec} />
         </>
       ) : null}
@@ -523,10 +523,6 @@ function ResultsPanel({ run, regressionPct, onShare }: { run: BenchRun; regressi
 }
 
 // ------------------------------------------------------------------------------------------------ modelled figures
-
-function ModelledNote({ modelled, figures }: { modelled: Modelled | null; figures: string }) {
-  return modelled ? <Banner tone="stale" title="Modelled figures" text={modelledNote(modelled, figures)} /> : null;
-}
 
 function ModelledMark({ result, footnote }: { result: BenchResult; footnote: string }) {
   const on = modelledOn(result.extras);

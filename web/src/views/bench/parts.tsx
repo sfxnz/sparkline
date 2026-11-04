@@ -21,7 +21,8 @@ import { InlineCode } from '../../design/components/InlineCode';
 import { StatusPill } from '../../design/components/StatusPill';
 import { Tooltip } from '../../design/components/Tooltip';
 import type { BenchImpact, NodeStatus, Problem, RunStatus } from '../../lib/types';
-import { IMPACT_LABEL, STATUS_LOOK, type Category, type DeltaLook } from './model';
+import { Banner } from '../alerts/parts/Banner';
+import { IMPACT_LABEL, modelledNote, STATUS_LOOK, type Category, type DeltaLook, type Modelled } from './model';
 
 export const CATEGORY_ICON: Record<Category, LucideIcon> = {
   compute: Microchip,
@@ -126,6 +127,11 @@ export function DeltaBadge({ delta, better, showHint }: { delta: DeltaLook | nul
       {showHint && better ? <span className="bench-delta__hint">{better === 'higher' ? 'higher is better' : 'lower is better'}</span> : null}
     </span>
   );
+}
+
+/** Says which figures follow other hardware's model instead of a measurement; nothing for measured ones. */
+export function ModelledNote({ modelled, figures }: { modelled: Modelled | null; figures: string }) {
+  return modelled ? <Banner tone="stale" title="Modelled figures" text={modelledNote(modelled, figures)} /> : null;
 }
 
 /** "Higher is better" with a small arrow, for result rows. */

@@ -45,7 +45,8 @@ const SIZES = [
 ] as const;
 
 /** `requests`: the run's request count, which every later level of a sweep runs (at least one per stream). */
-export function LivePanel({ snap, requests, actions }: { snap: LiveSnapshot; requests: number; actions?: ReactNode }) {
+/** `note` heads an opened stream's dialog: the node's modelled-figures note, which the page shows behind it. */
+export function LivePanel({ snap, requests, actions, note }: { snap: LiveSnapshot; requests: number; actions?: ReactNode; note?: ReactNode }) {
   const [choice, setChoice] = useState<DensityChoice>('auto');
   const [open, setOpen] = useState<number | null>(null);
   // The text each card has seen, folded in once per snapshot (derived state: no extra render pass per update).
@@ -96,6 +97,7 @@ export function LivePanel({ snap, requests, actions }: { snap: LiveSnapshot; req
           requests={snap.requests}
           showcase={snap.showcase}
           context={sweeping ? `${levelText} · ${plural(snap.level, 'stream', 'streams')}` : plural(snap.level, 'stream', 'streams')}
+          note={note}
           onClose={() => { setOpen(null); }}
         />
       ) : null}

@@ -527,6 +527,13 @@ export const modelledNodes = (run: Pick<BenchRun, 'nodes' | 'node_states'>) => m
 /** "For ws1, token rates and timings are modelled on GB10, not measured." */
 export const modelledNote = (m: Modelled, figures: string) => `For ${listNodes(m.nodes)}, ${figures} are modelled on ${m.on}, not measured.`;
 
+/** The figures each view's note names: its streams, its tool-calling evaluation, and one scenario's dialog. */
+export const MODELLED_FIGURES = {
+  streams: 'token rates and timings',
+  toolEval: 'timings and the Responsiveness and Deployability scores',
+  scenario: 'timings',
+} as const;
+
 /** Which nodes' results had a baseline to compare with, and which had none ("cluster" for cluster-wide results). */
 export function baselineCoverage(results: readonly BenchResult[]): { with: string[]; without: string[] } {
   const by = new Map<string, boolean>();
