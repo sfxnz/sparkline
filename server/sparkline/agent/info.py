@@ -68,6 +68,10 @@ def probe_tools(src: Sources) -> dict[str, bool]:
     }
 
 
+def catch_all(key: str) -> Unsupported:
+    return Unsupported(metric=key, reason=f"Not reported by the {VOCABULARY[key]} collector", kind="agent")
+
+
 def startup_gaps(name: str, prefixes: list[str], e: Exception, root: str) -> list[Unsupported]:
     if isinstance(e, OSError) and e.filename:
         path = str(e.filename).removeprefix(root)
@@ -122,11 +126,7 @@ class Collectors:
     def unsupported(self) -> list[Unsupported]:
         caps = [(key, gap) for c in self.ordered() for key, gap in c.caps().items()]
         declared = [key for key, _ in caps] + [u.metric for u in self.failed]
-        silent = [
-            Unsupported(metric=key, reason=f"Not reported by the {owner} collector", kind="agent")
-            for key, owner in VOCABULARY.items()
-            if not any(declares(d, key) for d in declared)
-        ]
+        silent = [catch_all(key) for key in VOCABULARY if not any(declares(d, key) for d in declared)]
         return [gap for _, gap in caps if gap] + self.failed + silent
 
     def node_info(self, cfg: AgentConfig) -> NodeInfo:

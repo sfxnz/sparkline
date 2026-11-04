@@ -14,7 +14,7 @@ from platforms import GB10, gb10, gb10_without
 from sparkline.agent.collectors import VOCABULARY, covers, declares
 from sparkline.agent.collectors.gpu import VIOLATION_EVERY_S
 from sparkline.agent.config import AgentConfig
-from sparkline.agent.info import Collectors
+from sparkline.agent.info import Collectors, catch_all
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.sources import NvmlReplay, Sources, recorded
 from sparkline.common.metrics import flatten
@@ -63,7 +63,7 @@ def assert_every_metric_is_reported_or_declared(info: NodeInfo, sample: Sample) 
         if reported(k, info, sample, flat) is False and not any(covers(u.metric, k) for u in gaps)
     ]
     assert silent == [], "neither reported nor declared unsupported"
-    assert [u.metric for u in gaps if u.reason.startswith("Not reported by the")] == [], (
+    assert [u.metric for u in gaps if u.metric in VOCABULARY and u == catch_all(u.metric)] == [], (
         "a collector that started left part of its vocabulary to the catch-all"
     )
     assert {"fan", "system.power_w"} <= {u.metric for u in gaps}
