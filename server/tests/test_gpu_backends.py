@@ -8,7 +8,7 @@ from typing import ClassVar, get_args
 
 import pytest
 from platforms import GB10, gb10, gb10_without
-from test_capabilities import assert_every_metric_is_reported_or_declared, warm
+from test_capabilities import NOT_SUPPORTED, assert_every_metric_is_reported_or_declared, gb10_nvml, warm
 
 from sparkline.agent.collectors import GpuField, gpu
 from sparkline.agent.collectors.gpu import CHAINS, GpuCollector
@@ -111,6 +111,7 @@ def test_two_vendor_chains_concatenate_their_gpus_under_node_wide_indexes(monkey
     ]
     assert [s.index for s in sample.gpu] == [0, 1, 2]
     assert {k for k in flatten(sample) if k.endswith(".util") and k.startswith("gpu")} == {
+        "gpu.util",
         "gpu0.util",
         "gpu1.util",
         "gpu2.util",
@@ -255,12 +256,68 @@ def test_with_no_gpu_opened_the_gpu_gaps_agree_and_every_backend_tried_is_listed
 
     gaps = {u.metric: (u.reason, u.kind) for u in info.unsupported}
     assert gaps["gpu*"] == gaps["mem.gpu"] == (reason, kind)
+    assert gaps["gpu.util"] == gaps["gpu.temp_c"] == gaps["gpu.power_w"] == (reason, kind)
     assert gaps.get("gpu.backend") == ((reason, kind) if backend_gap else None), (
         "gpu.backend says no backend is in use only when a GPU may be here"
     )
     listed = [(u.metric, u.reason, u.kind) for u in info.unsupported if u.metric.startswith("gpu.backend.")]
     assert listed == entries
     assert info.gpus == [] and sample.gpu == [] and info.versions == {}
+    assert_every_metric_is_reported_or_declared(info, sample)
+
+
+class AmdBWithoutPower(AmdFake):
+    name = "amd-no-power"
+
+    def caps(self) -> dict[int, dict[GpuField, Gap | None]]:
+        caps = super().caps()
+        caps[1]["power_w"] = Gap("Power draw not exposed for AMD B")
+        return caps
+
+    def sample(self) -> list[GpuSample]:
+        return [g.model_copy(update={"power_w": None}) if g.index == 1 else g for g in super().sample()]
+
+
+@pytest.mark.parametrize(
+    ("chains", "src", "reason"),
+    [
+        (
+            None,
+            lambda: gb10_nvml(nvmlDeviceGetPowerUsage=NOT_SUPPORTED),
+            "Power draw not reported by NVIDIA GB10 (NVML: Not Supported)",
+        ),
+        (
+            (Chain("nvidia", (NvidiaFake,)), Chain("amd", (AmdBWithoutPower,))),
+            gb10,
+            "GPU 2: Power draw not exposed for AMD B",
+        ),
+    ],
+    ids=["nvml with one GPU", "nvidia and amd with GPU 2 unpowered"],
+)
+def test_a_gpu_without_power_leaves_the_node_without_a_power_total_and_the_gap_names_it(
+    chains, src, reason, monkeypatch
+):
+    if chains is not None:
+        monkeypatch.setitem(CHAINS, "linux", chains)
+    info, sample, _ = warm(monkeypatch, src())
+
+    assert {u.metric: u.reason for u in info.unsupported if u.metric.startswith("gpu.")} == {
+        "gpu.power_w": reason
+    }
+    flat = flatten(sample)
+    assert "gpu.power_w" not in flat and {"gpu.util", "gpu.temp_c"} <= set(flat)
+    assert_every_metric_is_reported_or_declared(info, sample)
+
+
+def test_a_gpu_collector_that_cannot_start_declares_the_node_gpu_totals_with_its_reason(monkeypatch):
+    bad_caps = type("bad-caps", (Opens,), {"name": "bad-caps", "caps": lambda _: {0: {"util": "not a Gap"}}})
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (bad_caps,)),))
+    info, sample, _ = warm(monkeypatch, gb10())
+
+    gaps = {u.metric: u.reason for u in info.unsupported if u.metric.startswith(("gpu", "mem.gpu"))}
+    assert set(gaps) == {"gpu*", "gpu.backend", "mem.gpu", "gpu.util", "gpu.temp_c", "gpu.power_w"}
+    (reason,) = set(gaps.values())
+    assert reason.startswith("The gpu collector could not start: AttributeError")
     assert_every_metric_is_reported_or_declared(info, sample)
 
 

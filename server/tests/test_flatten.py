@@ -16,6 +16,7 @@ from sparkline.common.schema import (
 )
 
 WEB_FIXTURES = Path(__file__).parents[2] / "web" / "src" / "test" / "fixtures"
+TOTAL_CASES = json.loads((WEB_FIXTURES / "flatten.expected.json").read_text())["gpu_totals"]
 
 
 def make_sample() -> Sample:
@@ -92,3 +93,18 @@ def test_flatten_matches_the_fixture_the_web_flatten_is_tested_against():
     assert got == pytest.approx(placeholder["flatten"])
     assert [k for k in got if k.startswith("mem.")] == []
     assert {path: mount_key(path) for path in expected["mount_key"]} == expected["mount_key"]
+
+
+@pytest.mark.parametrize("case", TOTAL_CASES, ids=[c["case"] for c in TOTAL_CASES])
+def test_node_gpu_totals_match_the_fixture_the_web_flatten_is_tested_against(case):
+    sample = make_sample().model_copy(
+        update={"gpu": [GpuSample.model_validate(g) for g in case["gpu"]], "errors": case["errors"]}
+    )
+    assert {k: v for k, v in flatten(sample).items() if k.startswith("gpu")} == case["flatten"]
+
+
+def test_node_gpu_totals_add_in_sample_order_without_compensation_as_the_web_flatten_does():
+    gpus = [GpuSample(index=i, util=v, temp_c=60.0, power_w=v) for i, v in enumerate((0.1, 0.2, 0.3))]
+    f = flatten(make_sample().model_copy(update={"gpu": gpus}))
+    assert f["gpu.power_w"] == 0.1 + 0.2 + 0.3 == 0.6000000000000001
+    assert f["gpu.util"] == (0.1 + 0.2 + 0.3) / 3

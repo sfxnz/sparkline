@@ -18,12 +18,13 @@ from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors, catch_all
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.sources import NvmlReplay, Sources, recorded
-from sparkline.common.metrics import flatten
+from sparkline.common.metrics import GPU_TOTALS, flatten
 from sparkline.common.schema import NodeInfo, Sample, UnsupportedKind
 from sparkline.console.demo import UNSUPPORTED
 from sparkline.console.demo_fleets import FLEETS
 
 WEB = Path(__file__).resolve().parents[2] / "web" / "src"
+T0 = 1_791_280_000.0
 PROBED_ONLY = ("mem_mhz", "fan_pct", "fb_memory", "ecc", "pcie_bps", "cpu.temp")
 
 
@@ -169,6 +170,32 @@ def test_every_metric_on_a_demo_node_is_reported_or_declared_unsupported(node):
     assert_every_metric_is_reported_or_declared(model._info(), model.sample_at(time.time(), procs=True))
 
 
+def assert_the_node_totals_match_the_per_gpu_values(sample: Sample) -> None:
+    flat = flatten(sample)
+
+    def readings(field: str) -> list[float]:
+        return [flat[k] for g in sample.gpu if (k := f"gpu{g.index}.{field}") in flat]
+
+    util, temp, power = readings("util"), readings("temp_c"), readings("power_w")
+    every_power = bool(sample.gpu) and len(power) == len(sample.gpu) and "gpu" not in sample.errors
+    assert flat.get("gpu.util") == (pytest.approx(sum(util) / len(util)) if util else None)
+    assert flat.get("gpu.temp_c") == (max(temp) if temp else None)
+    assert flat.get("gpu.power_w") == (pytest.approx(sum(power)) if every_power else None)
+
+
+@pytest.mark.parametrize("platform", RECORDED)
+def test_the_node_gpu_totals_on_a_recorded_platform_match_its_per_gpu_values(platform, monkeypatch, tmp_path):
+    _, sample, _ = warm(monkeypatch, RECORDED[platform](tmp_path))
+    assert_the_node_totals_match_the_per_gpu_values(sample)
+
+
+@pytest.mark.parametrize("node", list(FLEETS["mixed"]))
+def test_the_node_gpu_totals_on_a_demo_node_match_its_per_gpu_values(node):
+    model = FLEETS["mixed"][node](T0, 1.0)
+    for t in range(0, 360, 5):
+        assert_the_node_totals_match_the_per_gpu_values(model.sample_at(T0 + t))
+
+
 def test_the_demo_declares_what_the_gb10_recording_declares():
     golden = json.loads((GB10 / "golden.json").read_text())["node_info"]["unsupported"]
     assert [u.model_dump(mode="json") for u in UNSUPPORTED] == golden
@@ -293,3 +320,11 @@ def test_every_key_the_web_asks_about_is_one_the_agent_declares():
     }
     assert asked, "no notReported(info, '<key>') lookups found under web/src"
     assert sorted((f, k) for f, k in asked if not any(declares(k, v) for v in VOCABULARY)) == []
+
+
+def test_the_node_totals_the_web_reads_are_the_ones_the_agent_declares():
+    web = re.search(r"export type NodeTotal = ([^;]+);", (WEB / "lib" / "metrics.ts").read_text())
+    assert web, "NodeTotal not found in web/src/lib/metrics.ts"
+    fields = set(re.findall(r"'([^']+)'", web[1]))
+    assert fields == set(GPU_TOTALS)
+    assert {f"gpu.{f}" for f in fields} <= set(VOCABULARY)

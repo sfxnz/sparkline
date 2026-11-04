@@ -6,6 +6,27 @@ export type GpuReading = Exclude<keyof GpuSample, 'index'>;
 export type GpuField = GpuReading | 'power_limit_w';
 export const gpuKey = (index: number, field: GpuField) => `gpu${index}.${field}`;
 
+export type NodeTotal = 'util' | 'temp_c' | 'power_w';
+
+/** The node's GPU totals over the GPUs in a sample: mean utilisation, hottest temperature, and summed power only
+ *  when every GPU in it reported power and no backend failed this tick (its GPUs dropped out of the sample, so the
+ *  sum would understate). */
+export function gpuTotals(s: Pick<Sample, 'gpu' | 'errors'>): Record<NodeTotal, number | null> {
+  let utilSum = 0;
+  let utilN = 0;
+  let temp: number | null = null;
+  let power: number | null = s.gpu.length && s.errors.gpu === undefined ? 0 : null;
+  for (const g of s.gpu) {
+    if (g.util != null) {
+      utilSum += g.util;
+      utilN++;
+    }
+    if (g.temp_c != null && (temp === null || g.temp_c > temp)) temp = g.temp_c;
+    power = power === null || g.power_w == null ? null : power + g.power_w;
+  }
+  return { util: utilN ? utilSum / utilN : null, temp_c: temp, power_w: power };
+}
+
 export function mountKey(mount: string): string {
   const stripped = mount.replace(/^\/+|\/+$/g, '');
   return stripped ? stripped.replaceAll('/', '_') : 'root';
@@ -30,6 +51,10 @@ export function flatten(s: Sample): Map<string, number> {
     put(p + 'power_capped_pct', g.power_capped_pct);
     put(p + 'thermal_capped_pct', g.thermal_capped_pct);
   }
+  const totals = gpuTotals(s);
+  put('gpu.util', totals.util);
+  put('gpu.temp_c', totals.temp_c);
+  put('gpu.power_w', totals.power_w);
 
   const m = s.mem;
   if (m.total) {
