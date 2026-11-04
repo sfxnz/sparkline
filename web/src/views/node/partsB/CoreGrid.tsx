@@ -1,6 +1,6 @@
 // "Cores now": one compact cell per core (utilisation + current clock), grouped like the heatmap. Each cell
 // subscribes to its own core, so a tick re-renders only cells whose numbers changed. One tab stop; arrow keys move.
-import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Tooltip } from '../../../design/components/Tooltip';
 import { formatFreq } from '../../../lib/format';
 import type { CoreInfo } from '../../../lib/types';
@@ -11,9 +11,22 @@ import { groupDetail } from './cores';
 export function CoreGrid({ node, layout }: { node: string; layout: CoreLayout }) {
   const { groups } = layout;
   const flat = groups.flatMap((g) => g.cores);
-  const widestIdDigits = String(Math.max(0, ...flat.map((c) => c.id))).length;
+  const ids = flat.map((c) => c.id).join(' ');
   const [active, setActive] = useState(0);
   const refs = useRef<(HTMLSpanElement | null)[]>([]);
+  const root = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const reserveWidestId = () => {
+      el.style.removeProperty('--widest-core-id');
+      const widths = Array.from(el.querySelectorAll('.nb-core__id'), (id) => id.getBoundingClientRect().width);
+      el.style.setProperty('--widest-core-id', `${Math.max(0, ...widths)}px`);
+    };
+    reserveWidestId();
+    void document.fonts.ready.then(reserveWidestId);
+  }, [ids]);
 
   const onKeyDown = (e: KeyboardEvent) => {
     const last = flat.length - 1;
@@ -31,7 +44,7 @@ export function CoreGrid({ node, layout }: { node: string; layout: CoreLayout })
 
   let index = 0;
   return (
-    <div className="nb-cores" style={{ '--widest-core-id-digits': widestIdDigits } as CSSProperties}>
+    <div className="nb-cores" ref={root}>
       {groups.map((g) => (
         <section key={g.kind} className="nb-cores__group" aria-label={g.label}>
           <h3 className="nb-cores__head">
