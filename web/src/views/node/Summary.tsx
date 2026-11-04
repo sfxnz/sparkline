@@ -85,7 +85,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
               metric={dir === 'in' ? rxKeys : txKeys}
               format={bitrateParts}
               href={paths.node(nodeId, 'network')}
-              unsupported={info && !rails.length ? { label: 'No direct link', detail: NO_LINK_REASON } : null}
+              unsupported={info && !rails.length ? { kind: 'hardware', label: 'No direct link', detail: NO_LINK_REASON } : null}
               footer={() => (rails.length ? `${rails.length} cabled ${rails.length === 1 ? 'rail' : 'rails'}` : null)}
             />
           ))}
