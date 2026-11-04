@@ -92,6 +92,31 @@ for (const width of [375, 1440]) {
   });
 }
 
+const WIDEST_FIGURES = { 'nb-core__util': '100%', 'nb-core__ghz': '5.30', 'nb-core__id': '127' };
+
+for (const width of [375, 1440]) {
+  test(`every figure in Cores now fits its cell at ${width} px, up to 100% at 5.30 GHz on core 127`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${MIXED}/node/ws1/cpu`);
+    const cells = page.locator('.nb-core__cell');
+    await expect(cells).toHaveCount(64, { timeout: 15_000 });
+    await expect(cells.first().locator('.nb-core__util')).toHaveText(/^\d+%$/, { timeout: 15_000 });
+    const clipped = (widest: Record<string, string> | null) => cells.evaluateAll((els, widest) => els.flatMap((cell, i) => {
+      const figures = [...cell.querySelectorAll<HTMLElement>('.nb-core__util, .nb-core__ghz, .nb-core__id')];
+      for (const f of widest ? figures : []) {
+        const text = Object.entries(widest ?? {}).find(([cls]) => f.classList.contains(cls))?.[1];
+        if (f.firstChild && text) f.firstChild.nodeValue = text;
+      }
+      const shown = figures.map((f) => f.textContent).join(' · ');
+      return [cell, ...figures].filter((el) => el.scrollWidth > el.clientWidth).map((el) => `cell ${i} (${shown}): ${el.classList[0] ?? ''} needs ${el.scrollWidth} px, has ${el.clientWidth}`);
+    }), widest);
+    for (const widest of [null, WIDEST_FIGURES]) {
+      const clips = await clipped(widest);
+      expect(clips.length, clips.slice(0, 3).join('; ')).toBe(0);
+    }
+  });
+}
+
 interface RunJson {
   id: string;
   status: string;
