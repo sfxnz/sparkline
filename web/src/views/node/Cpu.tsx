@@ -5,7 +5,7 @@ import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { percentParts } from '../../lib/format';
 import type { NodeInfo } from '../../lib/types';
-import { unsupportedReason } from '../../lib/unsupported';
+import { notReported } from '../../lib/capabilities';
 import { ChartPanelSkeleton, StatSkeleton } from '../placeholders';
 import { CoreGrid } from './partsB/CoreGrid';
 import { groupCores, loadFormatter, meanUtil } from './partsB/cores';
@@ -32,8 +32,8 @@ function CpuView({ node, info }: { node: string; info: NodeInfo }) {
   const stale = useNodeStale(node);
   const pct = useCallback((v: number) => `${v.toFixed(0)}%`, []);
   const loadParts = useMemo(() => loadFormatter(n), [n]);
-  const psiUnsupported = unsupportedReason(info, 'cpu.psi_some');
-  const cpuTempUnsupported = unsupportedReason(info, 'cpu.temp');
+  const psiUnsupported = notReported(info, 'cpu.psi_some');
+  const cpuTempUnsupported = notReported(info, 'cpu.temp');
 
   const typeSeries = [
     ...(perf ? [{ key: 'cpu.perf_util', label: perf.model ? `Performance (${perf.model})` : 'Performance' }] : []),

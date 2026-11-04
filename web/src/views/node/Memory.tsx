@@ -3,6 +3,7 @@ import { TimeSeriesChart, type SeriesSpec, type StackLayer } from '../../charts/
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Unsupported } from '../../design/components/Unsupported';
+import { notReported, notReportedByHardware } from '../../lib/capabilities';
 import { bytesParts, formatBytes, formatPercent } from '../../lib/format';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
@@ -77,6 +78,7 @@ export default function Memory({ nodeId }: NodeTabProps) {
 const selectPsi = (s: Sample | null) => (s ? `${s.mem.psi_some ?? 'x'}|${s.mem.psi_full ?? 'x'}` : null);
 
 function PressureNow({ nodeId }: { nodeId: string }) {
+  const info = useCluster((s) => s.nodes[nodeId]?.info);
   const live = useLatest(nodeId, selectPsi);
   const { waiting, stale } = useFreshness(nodeId);
   useBufferTs(nodeId, live === null && stale);
@@ -91,7 +93,7 @@ function PressureNow({ nodeId }: { nodeId: string }) {
   }
   const [some, full] = key.split('|').map((x) => (x === 'x' ? null : Number(x)));
   const p = memoryPressure(some ?? null, full ?? null);
-  if (!p) return <div className="npsi"><Unsupported reason={PSI_UNSUPPORTED} /></div>;
+  if (!p) return <div className="npsi"><Unsupported gap={notReported(info, 'mem.psi') ?? notReportedByHardware(PSI_UNSUPPORTED)} /></div>;
   const tone = p.level === 'none' ? 'tone-ok' : p.level === 'some' ? 'tone-warn' : 'tone-crit';
   const Icon = p.level === 'none' ? CircleCheck : p.level === 'some' ? Hourglass : TriangleAlert;
   return (

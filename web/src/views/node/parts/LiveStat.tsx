@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'wouter';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { Stat } from '../../../design/components/Stat';
+import type { NotReported } from '../../../lib/capabilities';
 import type { Formatter } from '../../../lib/format';
 import type { Sample } from '../../../lib/types';
 import { liveStore, useLatest } from '../../../store/live';
@@ -18,8 +19,7 @@ interface Props {
   /** Flattened metric key(s) (summed) to fall back on when no full sample has arrived since the page loaded
    *  but the ring buffer holds recent history, e.g. opening an offline node: its last known value, dimmed. */
   metric?: string | readonly string[];
-  unsupported?: string | null;
-  unsupportedLabel?: string;
+  unsupported?: NotReported | null;
   /** Makes the whole stat a link to the tab with the detail. */
   href?: string;
   /** Secondary line under the value; receives the current value. */
@@ -29,7 +29,7 @@ interface Props {
 
 /** A Stat bound to one value of the node's latest sample: only this leaf re-renders when that value changes.
  *  Skeleton until the first sample; when the node goes quiet it keeps the last value, dimmed, with its age. */
-export function LiveStat({ nodeId, label, select, format, metric, unsupported, unsupportedLabel, href, footer, size }: Props) {
+export function LiveStat({ nodeId, label, select, format, metric, unsupported, href, footer, size }: Props) {
   const live = useLatest(nodeId, select);
   const { stale, waiting } = useFreshness(nodeId);
   const fallback = live === null && stale && metric !== undefined;
@@ -53,8 +53,7 @@ export function LiveStat({ nodeId, label, select, format, metric, unsupported, u
       format={format}
       stale={stale}
       updatedAt={stale ? liveStore.lastTs(nodeId) : null}
-      unsupported={unsupported ?? undefined}
-      unsupportedLabel={unsupportedLabel}
+      unsupported={unsupported}
       footer={footer?.(value)}
       size={size}
     />
