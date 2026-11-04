@@ -134,6 +134,18 @@ describe('Node page', () => {
     expect(screen.queryByText('GPU of spark2')).not.toBeInTheDocument();
   });
 
+  it('ends the notice for a lone GPU the agent lost with a full stop', () => {
+    const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+    const info = {
+      hostname: 'spark2', agent_version: '0', boot_time: 0, net: [], cores: [], disks: [], sensors: [],
+      gpus: [{ index: 0, name: 'GPU 0' }],
+      unsupported: [{ metric: 'gpu0', reason: lost, kind: 'hardware' }],
+    } as unknown as NodeInfo;
+    useCluster.getState().setHello(hello([{ ...base, info }]));
+    renderAt('/node/spark2/gpu');
+    expect(screen.getByRole('region', { name: 'GPU not reported' })).toHaveTextContent(`Not responding${lost}.`);
+  });
+
   it('keeps the GPU tab when the agent declares only some GPU metrics not reported', () => {
     const info = {
       hostname: 'spark2', agent_version: '0', boot_time: 0, net: [], cores: [], disks: [], sensors: [],
