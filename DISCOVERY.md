@@ -73,7 +73,9 @@ The brief says Grace. GB10's CPU is actually **10× Cortex-X925 (performance) + 
 - Per-core `scaling_cur_freq` is readable but reports the *requested* clock (always 3900 / 2808 MHz, even idle).
   The real average clock is `cpufreq/cpuinfo_avg_freq` (user-readable; EAGAIN on an idle core). Per-core
   utilisation comes from `/proc/stat`. Load average is available.
-- The core type is classified at runtime from `cpuinfo_max_freq` (with `CPU part` as a cross-check), not hard-coded.
+- The agent classifies the core type at runtime, not from a hard-coded list. It groups the cores by `CPU part` and
+  calls the design with the higher `cpu_capacity` performance. `cpu_capacity` alone can't classify a core, because it
+  varies inside one design. The X925 cores read 997, 1017 or 1024, and the A725 cores read 718 or 731.
 
 ## Network
 

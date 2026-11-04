@@ -604,8 +604,10 @@ One Python package (`server/`, package `sparkline`) provides both commands, `spa
 - `install.sh` targets systemd-based Linux (DGX OS / Ubuntu 24.04) and needs PyPI access at install time.
 - Sparkline is built and tested on DGX Spark (GB10, aarch64). The agent also runs on other Linux machines, with or
   without an NVIDIA GPU, but some views assume GB10. The memory view assumes CPU and GPU share memory, so
-  discrete-GPU memory is not shown correctly. On x86, core names read "Arm core", and the split into performance
-  and efficiency cores relies on per-core maximum frequency. Interconnect views label any RDMA link as ConnectX-7.
+  discrete-GPU memory is not shown correctly. On x86, only Intel hybrid CPUs split into performance and
+  efficiency cores, from the CPU lists of the kernel's `cpu_core`, `cpu_atom` and `cpu_lowpower` perf PMUs. Other
+  x86 CPUs, including AMD parts that mix Zen 5 and Zen 5c cores, show all cores as one group. The CPU views count
+  each SMT thread as a core. Interconnect views label any RDMA link as ConnectX-7.
 
 ## License
 

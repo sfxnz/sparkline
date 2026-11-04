@@ -246,7 +246,9 @@ class Sample(BaseModel):
     disk: list[DiskSample]
     fs: list[FsSample]
     temps: list[TempSample]
-    cpu_temp_c: float | None = None  # hottest CPU die reading (k10temp, coretemp)
+    # Highest coretemp or k10temp reading, °C. k10temp's Tctl counts when the chip has no Tdie, and Tctl is a
+    # fan-control value on an arbitrary scale, not a measured die temperature.
+    cpu_temp_c: float | None = None
     procs: list[ProcSample] | None = None  # only on ticks where processes were refreshed
     procs_ts: float | None = None  # when the process list was last refreshed (on every tick)
     errors: dict[str, str] = Field(default_factory=dict)  # collector name -> error; others still report
