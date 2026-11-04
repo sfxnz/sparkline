@@ -168,7 +168,11 @@ def detectors(allowed: Mapping[str, str]) -> list[Detector]:
             _lone(rf"{_H}{{4}}(?::{_H}{{4}}){{3}}"),
             lambda m: _eui64_ok(bytes.fromhex(m[0].replace(":", ""))),
         ),
-        Detector("InfiniBand GUID", _lone(rf"(?:0x)?({_H}{{16}})"), lambda m: _bare_hex_ok(m[1])),
+        Detector(
+            "InfiniBand GUID",
+            re.compile(rf"(?<![\w:-])(?:0x)?({_H}{{16}})(?![\w:-]|\.\w)"),
+            lambda m: _bare_hex_ok(m[1]),
+        ),
         # NCCL's topology dump drops a GUID's leading zeros; the bare check above takes the 16-digit ones.
         Detector(
             "InfiniBand GUID",

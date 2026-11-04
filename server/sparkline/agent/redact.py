@@ -5,6 +5,7 @@ import posixpath
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from ipaddress import IPv4Address, IPv6Address, IPv6Network
 from typing import Any, Literal
@@ -294,8 +295,20 @@ HOME_WITH_DOMAIN = Detector(
     "home directory", re.compile(r"(?<![\w.])/(home|Users)/(<?[\w.-]+>?)@[\w.-]+"), lambda m: False
 )
 MEDIA = Detector("home directory", re.compile(r"(?<![\w.])(/(?:run/)?media)/([\w.-]+)"), lambda m: False)
+HOME_UNDER_DOMAIN = Detector(
+    "home directory",
+    re.compile(r"(?<![\w.])/home/((?:[\w-]+\.)+[\w-]+|domain\d+)/(<?[\w.-]+>?)"),
+    lambda m: False,
+)
 HF_MODEL = Detector(
-    "Hugging Face cache path", re.compile(r"models--([\w.-]+?)--([\w.-]+)"), lambda m: m[1] in PUBLIC_HF_ORGS
+    "Hugging Face cache path",
+    re.compile(r"(models|datasets|spaces)--([\w.-]+?)--([\w.-]+)"),
+    lambda m: m[2] in PUBLIC_HF_ORGS,
+)
+HF_REPO = Detector(
+    "Hugging Face repo",
+    re.compile(r"(?<![\w.-])(?:huggingface\.co|hf\.co)/((?:datasets/|spaces/)?)([\w.-]+)/([\w.-]+)"),
+    lambda m: m[2] in PUBLIC_HF_ORGS,
 )
 DOTTED_MAC = Detector(
     "MAC address",
@@ -313,15 +326,19 @@ VETH = Detector(
     lambda m: m[1].startswith("000"),
 )
 VOLUME_ID = Detector(
-    "volume id", re.compile(r"(?<![\w-])([0-9A-F]{4})-[0-9A-F]{4}(?![\w-])"), lambda m: m[1] == "0000"
+    "volume id",
+    re.compile(r"(?<![\w-])(?:([0-9A-F]{4})-[0-9A-F]{4}|([0-9a-f]{4})-[0-9a-f]{4})(?![\w-])"),
+    lambda m: (m[1] or m[2]) == "0000",
 )
 GATE_FOR_ROUTE_TABLES = [
     *CAPTURE,
     HEX32,
     HEX64,
+    HOME_UNDER_DOMAIN,
     HOME_WITH_DOMAIN,
     MEDIA,
     HF_MODEL,
+    HF_REPO,
     DOTTED_MAC,
     BRIDGE,
     VETH,
@@ -638,7 +655,7 @@ class _Harvest:
                 return
 
     def name(self, category: str, value: str) -> None:
-        value = value.strip()
+        value = value.strip().rstrip(".") if category == "hostname" else value.strip()
         if category == "hostname" and "." in value:
             value, _, domain = value.partition(".")
             self.name("domain name", domain)
@@ -651,6 +668,9 @@ class _Harvest:
         elif category == "serial number" and len(value) >= SERIAL_ANYWHERE:
             form = "anywhere"
         self._pairs(form, [value], [placeholder], category)
+        if not value.isascii():
+            with suppress(UnicodeError):
+                self._pairs(form, [value.encode("idna").decode()], [placeholder], category)
         if category == "hostname" and "-" in value:
             self._pairs(form, [value.replace("-", "--")], [placeholder.replace("-", "--")], category)
 
@@ -814,7 +834,16 @@ def _rewriters(ph: Placeholders) -> list[tuple[Detector, Callable[[re.Match[str]
         return same_case(".".join(h[i : i + 4] for i in range(0, 12, 4)), m[0])
 
     def hf_model(m: re.Match[str]) -> str:
-        return f"models--{ph.name('Hugging Face org', m[1])}--{ph.name('Hugging Face model', m[2])}"
+        return f"{m[1]}--{ph.name('Hugging Face org', m[2])}--{ph.name('Hugging Face model', m[3])}"
+
+    def hf_repo(m: re.Match[str]) -> str:
+        return (
+            f"huggingface.co/{m[1]}{ph.name('Hugging Face org', m[2])}/{ph.name('Hugging Face model', m[3])}"
+        )
+
+    def volume_id(m: re.Match[str]) -> str:
+        p = ph.volume_id(m[0].upper())
+        return p if m[1] else p.lower()
 
     by_category = {
         "IPv4 address": lambda m: str(ph.ipv4(IPv4Address(m[0]))),
@@ -825,16 +854,18 @@ def _rewriters(ph: Placeholders) -> list[tuple[Detector, Callable[[re.Match[str]
         "home directory": home,
     }
     return [
+        (HOME_UNDER_DOMAIN, lambda m: f"/home/<{ph.name('user', m[2].strip('<>'))}>"),
         (HOME_WITH_DOMAIN, lambda m: f"/{m[1]}/<{ph.name('user', m[2].strip('<>'))}>"),
         (MEDIA, lambda m: f"{m[1]}/<{ph.name('user', m[2])}>"),
         (HF_MODEL, hf_model),
+        (HF_REPO, hf_repo),
         *((d, by_category[d.category]) for d in CAPTURE if d.category in by_category),
         (HEX32, lambda m: same_case(ph.ipv6(IPv6Address(bytes.fromhex(m[0]))).packed.hex(), m[0])),
         (HEX64, lambda m: same_case(ph.container_id(m[0].lower()), m[0])),
         (DOTTED_MAC, dotted_mac),
         (BRIDGE, lambda m: ph.virtual_interface(m[0])),
         (VETH, lambda m: ph.virtual_interface(m[0])),
-        (VOLUME_ID, lambda m: ph.volume_id(m[0])),
+        (VOLUME_ID, volume_id),
     ]
 
 
