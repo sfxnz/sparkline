@@ -2,8 +2,9 @@
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
-import { notReported } from '../../lib/capabilities';
+import { notReported, type NotReported } from '../../lib/capabilities';
 import { formatBytes, formatPercent, percentParts, wattsParts, type Formatter } from '../../lib/format';
+import type { NodeState } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { formatEnergyCost, formatKwh } from '../shared/energy';
@@ -14,6 +15,12 @@ import { clusterTotals, gpuProcesses, listNodes } from './model';
 const formatHm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
 const countParts: Formatter = (n) => ({ value: n.toFixed(0), unit: '' });
+
+function leftOut(ids: readonly string[], nodes: Record<string, NodeState>, key: string): { excl: string[]; gap: NotReported | null } {
+  const excl = ids.filter((id) => notReported(nodes[id]?.info, key));
+  return { excl, gap: excl.length && excl.length === ids.length ? notReported(nodes[excl[0] ?? '']?.info, key) : null };
+}
+const exclText = (excl: readonly string[]) => (excl.length ? ` · excl. ${listNodes(excl)}` : '');
 
 export function Totals() {
   const online = useOnlineIds();
@@ -34,10 +41,11 @@ export function Totals() {
           psi: liveStore.latestValue(id, 'mem.psi_some'),
         })),
       );
-      const procs = ids.flatMap((id) => gpuProcesses(liveStore.latest(id)?.procs).map((p) => ({ id, p })));
+      const counted = ids.filter((id) => !notReported(infos[id]?.info, 'gpu0.proc_mem'));
+      const procs = counted.flatMap((id) => gpuProcesses(liveStore.latest(id)?.procs).map((p) => ({ id, p })));
       // A container is per node: the same name on two nodes (a TP=2 job) is two containers.
       const containers = new Set(procs.filter(({ p }) => p.container).map(({ id, p }) => `${id}/${p.container ?? ''}`)).size;
-      const known = ids.some((id) => liveStore.latest(id)?.procs);
+      const known = counted.some((id) => liveStore.latest(id)?.procs);
       const lastTs = Math.max(0, ...ids.map((id) => liveStore.lastTs(id) ?? 0));
       const r = (v: number | null, q: number) => (v === null ? null : Math.round(v / q) * q);
       const memMissing = ids.filter((id) => liveStore.latestValue(id, 'mem.used') === null || !infos[id]?.info?.mem_total);
@@ -64,26 +72,31 @@ export function Totals() {
   const of = stale ? 'No node is reporting live data' : `${online.length === order.length ? 'All' : `${online.length} of`} ${order.length} ${order.length === 1 ? 'node' : 'nodes'} reporting`;
   const memMissing = totals.memMissing ? totals.memMissing.split('\n') : [];
   const memGap = !stale && ids.length === 1 && memMissing.length === 1 ? notReported(infos[ids[0] ?? '']?.info, 'mem') : null;
+  const util = leftOut(ids, infos, 'gpu0.util');
+  const power = leftOut(ids, infos, 'gpu0.power_w');
+  const gpuProcs = leftOut(ids, infos, 'gpu0.proc_mem');
+  const energyExcl = [...new Set([...power.excl, ...energy.missing])];
 
   return (
     <Panel label="Cluster totals" className="ov-totals">
       <div className="ov-totals__row">
-        <Stat label="Cluster compute" size="lg" value={totals.util} format={percentParts} footer={`Mean GPU utilisation · ${of}`} {...staleProps} />
+        <Stat label="Cluster compute" size="lg" value={totals.util} format={percentParts} unsupported={util.gap} footer={`Mean GPU utilisation${exclText(util.excl)} · ${of}`} {...staleProps} />
         <Stat
           label="GPU power"
           size="lg"
           value={totals.power}
           format={wattsParts}
           {...staleProps}
+          unsupported={power.gap}
           footer={
             energy.loading ? (
               <Skeleton width={150} height={12} />
             ) : energy.joules === null ? (
-              'Energy today unavailable'
+              `Energy today unavailable${exclText(power.excl)}`
             ) : (
               <span className="num">
                 Today {formatKwh(energy.joules)}
-                {energy.missing.length ? ` · excl. ${listNodes(energy.missing)}` : ''}
+                {exclText(energyExcl)}
                 {rate ? ` · ${formatEnergyCost(energy.joules, rate.energy_rate_per_kwh, rate.currency)}` : ''}
                 {Object.entries(energy.until).map(([id, ts]) => ` · ${id} until ${formatHm(ts)}`).join('')}
               </span>
@@ -117,7 +130,8 @@ export function Totals() {
           value={totals.procs}
           format={countParts}
           {...staleProps}
-          footer={totals.procs === null ? of : totals.containers ? `In ${totals.containers} ${totals.containers === 1 ? 'container' : 'containers'}` : 'No containers'}
+          unsupported={gpuProcs.gap}
+          footer={`${totals.procs === null ? of : totals.containers ? `In ${totals.containers} ${totals.containers === 1 ? 'container' : 'containers'}` : 'No containers'}${exclText(gpuProcs.excl)}`}
         />
       </div>
     </Panel>
