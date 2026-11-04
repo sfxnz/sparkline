@@ -268,6 +268,47 @@ def test_a_capture_of_the_gb10_recording_loads_with_no_nvml_misses_and_the_same_
     assert sorted(flatten(sample)) == sorted(flatten(original_sample))
 
 
+CGNAT_IN_HEX = ("64451234", "12344064")
+
+
+def with_counters(copy: Path, first: str, second: str) -> Path:
+    root = copy / "root"
+    stat = root / "proc/stat"
+    head, *rest = stat.read_text().splitlines(keepends=True)
+    stat.write_text(" ".join(["cpu ", first, second, *head.split()[3:]]) + "\n" + "".join(rest))
+    dev = root / "proc/self/net/dev"
+    dev.write_text(dev.read_text().replace("240869647387 204811693", f"240869647387 {first}"))
+    host = json.loads((copy / "host.json").read_text())
+    host["statvfs"]["/"][3] = int(second)
+    (copy / "host.json").write_text(json.dumps(host))
+    nvml = json.loads((copy / "nvml.json").read_text())
+    nvml["nvmlDeviceGetTotalEnergyConsumption"]['["gpu0"]'] = int(first)
+    (copy / "nvml.json").write_text(json.dumps(nvml))
+    return copy
+
+
+def test_a_counter_that_reads_as_a_cgnat_address_in_hex_is_kept(tmp_path):
+    out = tmp_path / "out"
+    report = capture_of(with_counters(gb10_copy(tmp_path), *CGNAT_IN_HEX), out)
+    assert report.differences == []
+    assert f"cpu  {CGNAT_IN_HEX[0]} {CGNAT_IN_HEX[1]} " in (out / "root/proc/stat").read_text()
+    assert f" {CGNAT_IN_HEX[0]} " in (out / "root/proc/self/net/dev").read_text()
+    assert json.loads((out / "host.json").read_text())["statvfs"]["/"][3] == int(CGNAT_IN_HEX[1])
+    energy = json.loads((out / "nvml.json").read_text())["nvmlDeviceGetTotalEnergyConsumption"]
+    assert energy == {'["gpu0"]': int(CGNAT_IN_HEX[0])}
+
+
+def test_a_route_table_still_refuses_an_address_in_decimal_looking_hex(tmp_path):
+    copy = gb10_copy(tmp_path)
+    _append(
+        copy / "root/proc/self/net/route",
+        f"enP7s7\t00000000\t00000000\t0001\t0\t0\t0\t{CGNAT_IN_HEX[1]}\t0\t0\t0\n",
+    )
+    with pytest.raises(CaptureRefused) as refused:
+        capture_of(copy, tmp_path / "out")
+    assert Leak("root/proc/self/net/route", "IPv4 address (hex)") in refused.value.leaks
+
+
 def test_no_planted_identifier_survives_a_capture(tmp_path):
     report = capture_of(planted(tmp_path), tmp_path / "out")
     assert report.differences == []
