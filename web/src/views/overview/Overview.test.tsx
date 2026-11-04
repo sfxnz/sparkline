@@ -349,6 +349,12 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     expect(tile('Cluster compute')).toHaveTextContent('Mean GPU utilisation (4 of 5 GPUs) · ');
   });
 
+  it('still counts the GPUs under the temperature of a node whose GPUs declare no slowdown', () => {
+    const lost = { ...ws1, gpus: ws1.gpus.map((g) => ({ ...g, temp_slowdown_c: null })), unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
+    const card = show(withGpus({ 0: { util: null, temp_c: null, power_w: null, throttle_mask: null } }), lost);
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C3 of 4 GPUs$/);
+  });
+
   it('marks nothing on a calm ws1 beside a GB10', () => {
     withSpark1(reading);
     expect(document.querySelector('.ov-hero__numbers')).not.toHaveTextContent('GPUs');

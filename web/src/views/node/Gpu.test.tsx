@@ -442,6 +442,12 @@ describe('Summary and Thermals on a four-GPU workstation (ws1, slowdown 93 °C)'
     if (View === Summary) expect(stat('GPU utilisation')).toHaveTextContent(/^GPU utilisation87%Time the GPU was busy · 3 of 4 GPUs$/);
   });
 
+  it('gives the GPU count alone under the temperature when the GPUs declare no slowdown', () => {
+    const info = { ...workstation.info, gpus: workstation.info.gpus.map((g) => ({ ...g, temp_slowdown_c: null, temp_shutdown_c: null })), unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
+    showWs1(Summary, withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, throttle_mask: null }), info);
+    expect(stat('GPU temperature')).toHaveTextContent(/^GPU temperature77°C3 of 4 GPUs$/);
+  });
+
   it("sums every GPU's power limit and every GPU's energy counter on Thermals", async () => {
     const series = Object.fromEntries(workstation.sample.gpu.map((g) => [`gpu${g.index}.energy_j`, [(g.energy_j ?? 0) - 360_000, g.energy_j]]));
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json({ node_id: 'ws1', resolution_s: 60, ts: [TS - 120, TS - 60], series, min: {}, max: {} }))));
