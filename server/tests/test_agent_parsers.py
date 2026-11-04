@@ -201,7 +201,8 @@ def test_peer_and_rdma_state():
 
 def test_phy_counters_owned_by_first_function_of_each_port():
     # GB10: rails A/B are two PCI functions of physical port p1; the no-cable functions share p0
-    sw = "72817e000347bb4c"
+    guid = "0200:0000:0000:00c1"
+    sw = bytes.fromhex(guid.replace(":", ""))[::-1].hex()  # sysfs and NCCL print it little-endian
     funcs = [
         ("/sys/devices/pci0002:00/0002:00:00.0/0002:01:00.1", f"{sw}/p1", "enP2p1s0f1np1"),
         ("/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.1", f"{sw}/p1", "enp1s0f1np1"),

@@ -38,8 +38,8 @@ spark1:1:1 [0] NCCL INFO NET/RMA_IB_PROXY : GPU Direct RDMA Disabled for HCA 0 '
 spark1:1:1 [0] NCCL INFO NET/RMA_IB_PROXY : GPU Direct RDMA Disabled for HCA 1 'roceP2p1s0f1'
 spark1:1:1 [0] NCCL INFO NET/IB : GPU Direct RDMA Disabled for HCA 0 'rocep1s0f1'
 spark1:1:1 [0] NCCL INFO NET/IB : GPU Direct RDMA Disabled for HCA 1 'roceP2p1s0f1'
-spark1:1:1 [0] NCCL INFO               + NET[25.0] - NET/0-0 (0/72817e000347bb4c/1/25.000000)
-spark1:1:1 [0] NCCL INFO               + NET[25.0] - NET/0-1 (0/72817e000347bb4c/1/25.000000)
+spark1:1:1 [0] NCCL INFO               + NET[25.0] - NET/0-0 (0/c100000000000002/1/25.000000)
+spark1:1:1 [0] NCCL INFO               + NET[25.0] - NET/0-1 (0/c100000000000002/1/25.000000)
 spark1:1:1 [0] NCCL INFO GPU/0-f01000 :GPU/0-f01000 (0/5000.0/LOC) CPU/0-ffffffffffffff (2/345.0/C2C) NET/0-0 (4/12.0/P2C) NET/0-1 (4/12.0/P2C) GIN/0-0 (4/12.0/PHB) GIN/0-1 (4/12.0/PHB) RMA/0-0 (4/12.0/PHB) RMA/0-1 (4/12.0/PHB) DEV/0-f01000 (1/5000.0/LOC) 
 spark1:1:1 [0] NCCL INFO NET/0-0 :GPU/0-f01000 (4/12.0/P2C) CPU/0-ffffffffffffff (2/12.0/PHB) NET/0-0 (0/5000.0/LOC) NET/0-1 (4/12.0/PHB) GIN/0-0 (2/25.0/LOC) GIN/0-1 (4/12.0/PHB) RMA/0-0 (2/25.0/LOC) RMA/0-1 (4/12.0/PHB) DEV/0-f01000 (3/12.0/PHB) 
 spark1:1:1 [0] NCCL INFO NET/0-1 :GPU/0-f01000 (4/12.0/P2C) CPU/0-ffffffffffffff (2/12.0/PHB) NET/0-0 (4/12.0/PHB) NET/0-1 (0/5000.0/LOC) GIN/0-0 (4/12.0/PHB) GIN/0-1 (2/25.0/LOC) RMA/0-0 (4/12.0/PHB) RMA/0-1 (2/25.0/LOC) DEV/0-f01000 (3/12.0/PHB) 
