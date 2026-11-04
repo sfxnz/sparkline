@@ -108,6 +108,7 @@ class Collectors:
             return make()
         except Exception as e:
             log.warning("collector %s could not start: %s", name, e)
+            log.debug("collector %s could not start", name, exc_info=True)
             self.failed += startup_gaps(name, prefixes, e, self.fs.root)
             return None
 

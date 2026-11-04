@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import socket
@@ -150,3 +151,13 @@ def test_a_collector_without_read_permission_is_declared_unsupported_for_access(
     ]
     assert info.disks == [] and sample.disk == [] and sample.fs == []
     assert collectors.gpu is not None and sample.gpu
+
+
+def test_a_collector_that_cannot_start_logs_its_traceback_at_debug(offline, tmp_path, caplog):
+    caplog.set_level(logging.DEBUG, logger="sparkline.agent.info")
+    cfg = AgentConfig(node_id="gb10", data_dir=str(tmp_path / "data"))
+    Collectors(cfg, gb10_without(tmp_path, "/sys/class/net"))
+
+    net = [r for r in caplog.records if r.getMessage().startswith("collector net could not start")]
+    assert [(r.levelno, r.exc_info is None) for r in net] == [(logging.WARNING, True), (logging.DEBUG, False)]
+    assert net[1].exc_info and isinstance(net[1].exc_info[1], FileNotFoundError)
