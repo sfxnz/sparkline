@@ -3,7 +3,8 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 
-const sample = JSON.parse(readFileSync(new URL('../src/test/fixtures/sample.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+const fixture = (path: string) => JSON.parse(readFileSync(new URL(`../src/test/fixtures/${path}`, import.meta.url), 'utf8')) as Record<string, unknown>;
+const sample = fixture('sample.json');
 
 /**
  * A stubbed two-node console where spark2 reports no memory (mem_total 0) and its energy history fails to load, so
@@ -78,3 +79,63 @@ for (const linked of [false, true]) {
     }
   });
 }
+
+interface GpuReading { index: number; temp_c?: number | null }
+
+/** A stubbed console with one node, ws1 (four RTX 6000 Ada, slowdown 93 °C), whose GPUs read as `gpus` makes them. */
+async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading) {
+  const now = Date.now() / 1000;
+  const info = { ...fixture('platforms/workstation/info.json'), node_id: 'ws1' };
+  const reading = fixture('platforms/workstation/sample.json');
+  await page.route('**/api/**', (route) => route.fulfill({ status: 502, body: '' }));
+  await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { ok: true } }));
+  await page.route('**/api/v1/live**', (route) => route.fulfill({ status: 404, body: '' }));
+  await page.routeWebSocket('**/api/v1/stream', (ws) => {
+    ws.send(JSON.stringify({
+      type: 'hello',
+      cluster: {
+        nodes: [{ node_id: 'ws1', url: '', status: 'online', since: now, last_sample_ts: now, error: null, info, next_retry_ts: null }],
+        settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 },
+        demo: true,
+        version: 'test',
+        server_time: now,
+      },
+    }));
+    ws.send(JSON.stringify({ type: 'sample', node_id: 'ws1', sample: { ...reading, node_id: 'ws1', ts: now, gpu: (reading.gpu as GpuReading[]).map(gpus) } }));
+  });
+}
+
+/** Whether `el` paints `text` in full: a visible copy lies inside every box above it that clips (overflow, line clamp). */
+const paintsInFull = (el: Element, text: string) => {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const at = n.textContent?.indexOf(text) ?? -1;
+    if (at < 0 || !n.parentElement?.checkVisibility()) continue;
+    const range = document.createRange();
+    range.setStart(n, at);
+    range.setEnd(n, at + text.length);
+    const r = range.getBoundingClientRect();
+    let inside = true;
+    for (let box = n.parentElement as Element | null; box && box !== el.parentElement; box = box.parentElement) {
+      const style = getComputedStyle(box);
+      if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+      const b = box.getBoundingClientRect();
+      inside &&= r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5;
+    }
+    if (inside) return true;
+  }
+  return false;
+};
+
+test('the ws1 card shows GPU 3 at slowdown in full on a phone and a laptop', async ({ page }) => {
+  await workstation(page, (g) => (g.index === 3 ? { ...g, temp_c: 94 } : g));
+  await page.goto('/');
+  const card = page.getByRole('region', { name: 'Node ws1' });
+  await expect(card).toContainText('At slowdown');
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const text of ['At slowdown', 'GPU 3']) {
+      await expect.poll(() => card.evaluate(paintsInFull, text), { message: `ws1 card shows "${text}" in full at ${String(width)} px` }).toBe(true);
+    }
+  }
+});
