@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import json
 import re
+import shutil
 import time
 import typing
 from pathlib import Path
@@ -15,7 +16,7 @@ from sparkline.agent.collectors.gpu import VIOLATION_EVERY_S
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors
 from sparkline.agent.sampler import Sampler
-from sparkline.agent.sources import NvmlReplay, Sources
+from sparkline.agent.sources import NvmlReplay, Sources, recorded
 from sparkline.common.metrics import flatten
 from sparkline.common.schema import NodeInfo, Sample, UnsupportedKind
 from sparkline.console.demo import UNSUPPORTED, DemoModel
@@ -62,6 +63,9 @@ def assert_every_metric_is_reported_or_declared(info: NodeInfo, sample: Sample) 
         if reported(k, info, sample, flat) is False and not any(covers(u.metric, k) for u in gaps)
     ]
     assert silent == [], "neither reported nor declared unsupported"
+    assert [u.metric for u in gaps if u.reason.startswith("Not reported by the")] == [], (
+        "a collector that started left part of its vocabulary to the catch-all"
+    )
     assert {"fan", "system.power_w"} <= {u.metric for u in gaps}
 
 
@@ -75,13 +79,57 @@ def warm(monkeypatch: pytest.MonkeyPatch, src: Sources) -> tuple[NodeInfo, Sampl
     return collectors.node_info(cfg), sampler.tick(), collectors
 
 
+def gb10_with(
+    tmp: Path,
+    *,
+    diskstats: str | None = None,
+    block: dict[str, str] | None = None,
+    nics: tuple[str, ...] | None = None,
+) -> Sources:
+    copy = tmp / "gb10"
+    shutil.copytree(GB10, copy, symlinks=True)
+    root = copy / "root"
+    if diskstats is not None:
+        (root / "proc/diskstats").write_text(diskstats)
+    if block is not None:
+        shutil.rmtree(root / "sys/block")
+        (root / "sys/block").mkdir()
+        for name, target in block.items():
+            (root / "sys/block" / target).mkdir(parents=True)
+            (root / "sys/block" / name).symlink_to(target)
+    if nics is not None:
+        for link in (root / "sys/class/net").iterdir():
+            if link.name not in (*nics, "lo"):
+                link.unlink()
+    return recorded(copy)
+
+
+LOOPS = "   7       0 loop0 14 0 34 9 0 0 0 0 0 5 9 0 0 0 0 0 0\n"
+EMMC = (
+    LOOPS
+    + " 179       0 mmcblk0 1000 0 8000 100 500 0 4000 50 0 120 150 0 0 0 0 0 0\n"
+    + " 179       1 mmcblk0p1 900 0 7000 90 450 0 3600 45 0 110 135 0 0 0 0 0 0\n"
+)
+EMMC_BLOCK = {
+    "loop0": "../devices/virtual/block/loop0",
+    "mmcblk0": "../devices/platform/soc/mmc0/mmc_host/mmc0/mmc0:0001/block/mmcblk0",
+}
+
+ZERO_INSTANCES = {
+    "no hwmon": lambda tmp: gb10_without(tmp, "/sys/class/hwmon"),
+    "eMMC only": lambda tmp: gb10_with(tmp, diskstats=EMMC, block=EMMC_BLOCK),
+    "no physical disks": lambda tmp: gb10_with(tmp, diskstats=LOOPS, block={"loop0": EMMC_BLOCK["loop0"]}),
+    "Wi-Fi and virtual interfaces only": lambda tmp: gb10_with(tmp, nics=("wlP9s9", "docker0")),
+    "loopback only": lambda tmp: gb10_with(tmp, nics=()),
+}
+
 RECORDED = {
     "gb10": lambda tmp: gb10(),
+    **ZERO_INSTANCES,
     "degraded box without pressure or network files": lambda tmp: gb10_without(
         tmp, "/proc/pressure", "/sys/class/net", "/proc/self/net/dev"
     ),
     "no nvidia-ml-py": lambda tmp: gb10(nvml=None),
-    "no hwmon": lambda tmp: gb10_without(tmp, "/sys/class/hwmon"),
     "no meminfo": lambda tmp: gb10_without(tmp, "/proc/meminfo"),
 }
 
@@ -122,6 +170,46 @@ def test_a_box_without_pressure_files_declares_psi_unsupported(tmp_path):
         "mem.psi_full": ("hardware", MISSING_PSI.format("memory")),
         "cpu.psi_some": ("hardware", MISSING_PSI.format("cpu")),
     }
+
+
+NO_SENSORS = "No temperature sensors exposed (hwmon)"
+
+
+@pytest.mark.parametrize(
+    ("platform", "expected"),
+    [
+        ("no hwmon", {"temp": ("hardware", NO_SENSORS), "cpu.temp": ("hardware", NO_SENSORS)}),
+        (
+            "eMMC only",
+            {
+                "disk": (
+                    "agent",
+                    "Disk I/O is not collected yet for mmcblk0 "
+                    "(Sparkline reads NVMe, SATA/SAS and virtio disks)",
+                )
+            },
+        ),
+        ("no physical disks", {"disk": ("hardware", "No physical disks exposed in /proc/diskstats")}),
+        (
+            "Wi-Fi and virtual interfaces only",
+            {
+                "net": (
+                    "agent",
+                    "Only Wi-Fi or virtual interfaces (docker0, wlP9s9), which Sparkline skips "
+                    "unless include_virtual = true",
+                )
+            },
+        ),
+        ("loopback only", {"net": ("hardware", "No network interfaces exposed besides loopback")}),
+    ],
+)
+def test_a_collector_that_finds_nothing_declares_its_prefix_with_the_true_reason(
+    platform, expected, monkeypatch, tmp_path
+):
+    info, sample, _ = warm(monkeypatch, ZERO_INSTANCES[platform](tmp_path))
+    gaps = {u.metric: (u.kind, u.reason) for u in info.unsupported if u.metric in expected}
+    assert gaps == expected
+    assert [k for k in flatten(sample) if k.startswith("fs.")], "filesystem capacity is still reported"
 
 
 MISSING_PSI = (
