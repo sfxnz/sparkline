@@ -25,15 +25,16 @@ import posixpath
 import pwd
 import re
 import shutil
+import signal
 import socket
 import stat
 import sys
 import tarfile
-import threading
 import time
 import traceback
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, NoReturn, TypeVar
@@ -42,6 +43,7 @@ import psutil
 
 from ..common.metrics import flatten
 from ..common.schema import NodeInfo, Sample
+from .capture_entry import STOPPED, STOPPED_LINE, print_no_traceback_from_python
 from .collectors.gpu import GpuCollector
 from .config import AgentConfig
 from .info import AGENT_VERSION, Collectors
@@ -76,9 +78,7 @@ EAGAIN_TRIES = 10
 EAGAIN_WAIT_S = 0.02
 RECORDING = ("platform.json", "host.json", "nvml.json", "root")
 NOT_SHOWN = "(a value that would name this machine is not shown)"
-OUTPUT_DIRECTORY = "the output directory"
 NOT_USABLE = 3
-STOPPED = 130
 
 Need = Literal["content", "listing", "entry"]
 T = TypeVar("T")
@@ -412,10 +412,8 @@ def _node_at(inner: RootFs, path: str) -> Node | None:
     except OSError:
         return None
     if stat.S_ISLNK(st.st_mode):
-        target = os.readlink(host)
-        if posixpath.isabs(target):
-            target = posixpath.relpath(target, posixpath.dirname(path))
-        return Link(target)
+        parent = posixpath.dirname(path)
+        return Link(posixpath.relpath(posixpath.normpath(posixpath.join(parent, os.readlink(host))), parent))
     return Dir() if stat.S_ISDIR(st.st_mode) else File(b"")
 
 
@@ -622,6 +620,15 @@ class Report:
     printable: Callable[[str], str | None] = field(repr=False)
 
 
+@contextmanager
+def _ctrl_c_held() -> Iterator[None]:
+    previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
 def _remove(out: Path, created: bool) -> None:
     if created:
         shutil.rmtree(out, ignore_errors=True)
@@ -655,7 +662,8 @@ def capture(src: Sources, out: Path, facts: Facts) -> Report:
             raise CaptureRefused(collided, RENAME)
         archive = write_archive(out)
     except BaseException:
-        _remove(out, created)
+        with _ctrl_c_held():
+            _remove(out, created)
         raise
     return Report(
         out,
@@ -668,16 +676,15 @@ def capture(src: Sources, out: Path, facts: Facts) -> Report:
     )
 
 
-def _summary(report: Report) -> str:
+def _summary(report: Report, default_name: str | None) -> str:
     def listed(counts: dict[str, int]) -> str:
         return "\n".join(f"  {name}: {n}" for name, n in counts.items()) or "  nothing"
 
     def shown(value: str) -> str:
         return NOT_SHOWN if (text := report.printable(value)) is None else text
 
-    out = report.printable(str(report.out)) or OUTPUT_DIRECTORY
     lines = [
-        f"Recorded this machine into {out}",
+        f"Recorded this machine into {default_name or 'the output directory you gave'}.",
         "Replaced with placeholders (counts only):",
         listed(report.counts),
         "Left out:",
@@ -696,21 +703,12 @@ def _summary(report: Report) -> str:
         ]
     else:
         lines.append("Replay check: the recording replays as this machine ran.")
-    lines += [f"Attach {ARCHIVE} from {out} to a new issue: {ISSUE_URL}"]
+    lines += [f"Attach {ARCHIVE} from {default_name or 'that directory'} to a new issue: {ISSUE_URL}"]
     return "\n".join(lines)
 
 
 def silence_logs_that_name_unredacted_paths() -> None:
     logging.disable(logging.CRITICAL)
-
-
-def print_no_traceback_from_python() -> None:
-    def failed(kind: type[BaseException]) -> None:
-        print(f"sparkline-capture failed with {kind.__name__} (message not shown).", file=sys.stderr)
-
-    sys.excepthook = lambda kind, _value, _traceback: failed(kind)
-    threading.excepthook = lambda args: failed(args.exc_type)
-    sys.unraisablehook = lambda _ignored: None
 
 
 def where_it_failed_without_the_message(e: BaseException) -> list[str]:
@@ -731,7 +729,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _run(argv)
     except KeyboardInterrupt:
-        print("sparkline-capture stopped. It keeps no partial recording.", file=sys.stderr)
+        print(STOPPED_LINE, file=sys.stderr)
         return STOPPED
 
 
@@ -740,10 +738,11 @@ def _run(argv: list[str] | None) -> int:
         prog="sparkline-capture",
         description="Record this machine as a redacted recorded platform to attach to a Sparkline issue.",
     )
+    default = f"sparkline-{sys.platform}-{platform.machine()}"
     parser.add_argument(
         "out",
         nargs="?",
-        default=f"sparkline-{sys.platform}-{platform.machine()}",
+        default=default,
         help="output directory, which must not exist or be empty (default: %(default)s)",
     )
     args = parser.parse_args(argv)
@@ -751,7 +750,7 @@ def _run(argv: list[str] | None) -> int:
     try:
         src = live()
         report = capture(src, Path(os.path.expanduser(args.out)), _session_facts(facts_of(src)))
-        print(_summary(report))
+        print(_summary(report, default if args.out == default else None))
     except OutputNotEmpty:
         print(
             "The output directory already exists and is not empty. Choose another directory.", file=sys.stderr
