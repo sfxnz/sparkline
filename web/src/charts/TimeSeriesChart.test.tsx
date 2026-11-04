@@ -84,6 +84,15 @@ describe('GPU series colours', () => {
     expect(swatches).toEqual(['var(--gpu-2)', 'var(--gpu-0)', 'var(--chart-axis)', '']);
     unmount();
   });
+
+  it('fills no GPU series, so no GPU looks primary on a comparison chart', () => {
+    const store = new LiveStore(16, () => undefined);
+    const gpus = [0, 1].map((i) => ({ key: `gpu${i}.util`, label: `GPU ${i}`, gpu: i }));
+    const { unmount } = render(<TimeSeriesChart node="spark1" title="Utilisation" series={gpus} format={String} range="live" store={store} />);
+    const opts = newest.plot?.opts as unknown as { series: { fill?: unknown }[] };
+    expect(opts.series.slice(1).map((s) => s.fill)).toEqual([undefined, undefined]);
+    unmount();
+  });
 });
 
 describe('live chart, as lines or as stacked layers', () => {

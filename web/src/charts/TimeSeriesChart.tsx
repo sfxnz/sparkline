@@ -348,7 +348,7 @@ export function TimeSeriesChart({
             points: { show: false },
             spanGaps: false,
             fill:
-              i === 0
+              i === 0 && gpus[0] == null
                 ? (u) => {
                     const g = u.ctx.createLinearGradient(0, u.bbox.top, 0, u.bbox.top + u.bbox.height);
                     g.addColorStop(0, withAlpha(color, 0.2));
