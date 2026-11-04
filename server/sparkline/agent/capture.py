@@ -351,22 +351,22 @@ def materialize(tape: Tape, inner: RootFs, gpu_pids: set[int]) -> tuple[dict[str
 
     def resolve(path: str, depth: int = 0) -> tuple[str, list[tuple[str, Node]]] | None:
         cur = "/"
-        on_the_way: list[tuple[str, Node]] = []
+        nodes: list[tuple[str, Node]] = []
         for part in [p for p in path.split("/") if p]:
             nxt = posixpath.join(cur, part)
             node = node_at(nxt) if kept(nxt) and depth < 40 else None
             if node is None:
                 return None
-            on_the_way.append((nxt, node))
+            nodes.append((nxt, node))
             if isinstance(node, Link):
-                inner_path = resolve(posixpath.normpath(posixpath.join(cur, node.target)), depth + 1)
-                if inner_path is None:
+                target = resolve(posixpath.normpath(posixpath.join(cur, node.target)), depth + 1)
+                if target is None:
                     return None
-                cur, more = inner_path
-                on_the_way += more
+                cur, more = target
+                nodes += more
             else:
                 cur = nxt
-        return cur, on_the_way
+        return cur, nodes
 
     def record(path: str) -> str | None:
         found = resolve(posixpath.normpath(path))
@@ -376,15 +376,14 @@ def materialize(tape: Tape, inner: RootFs, gpu_pids: set[int]) -> tuple[dict[str
             tree.setdefault(p, node)
         return found[0]
 
-    for path in tape.needs:
-        record(path)
+    at = {path: record(path) for path in tape.needs}
     for path, data in tape.data.items():
-        r = record(path)
+        r = at[path]
         if r is not None and isinstance(tree.get(r), File):
             tree[r] = File(data)
     listed: set[str] = set()
     for path, needs in tape.needs.items():
-        r = record(path)
+        r = at[path]
         if r is None or "listing" not in needs or not isinstance(tree.get(r), Dir):
             continue
         listed.add(r)
