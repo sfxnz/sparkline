@@ -68,6 +68,24 @@ describe('TimeSeriesChart', () => {
   });
 });
 
+describe('GPU series colours', () => {
+  it('draws a GPU series line and legend swatch in its index colour, past the eighth GPU in the neutral axis colour; other series keep their position colour', () => {
+    const store = new LiveStore(16, () => undefined);
+    const series = [
+      { key: 'gpu2.util', label: 'GPU 2', gpu: 2 },
+      { key: 'gpu0.util', label: 'GPU 0', gpu: 0 },
+      { key: 'gpu9.util', label: 'GPU 9', gpu: 9 },
+      { key: 'cpu.util', label: 'CPU' },
+    ];
+    const { container, unmount } = render(<TimeSeriesChart node="spark1" title="Utilisation" series={series} format={String} range="live" store={store} />);
+    const opts = newest.plot?.opts as unknown as { series: { stroke?: string }[] };
+    expect(opts.series.slice(1).map((s) => s.stroke)).toEqual(['#199e70', '#3987e5', '#888', '#b4a4f5']);
+    const swatches = [...container.querySelectorAll<HTMLElement>('.tschart__legend-item .tschart__swatch')].map((el) => el.style.background);
+    expect(swatches).toEqual(['var(--gpu-2)', 'var(--gpu-0)', 'var(--chart-axis)', '']);
+    unmount();
+  });
+});
+
 describe('live chart, as lines or as stacked layers', () => {
   const NODE = 'mtest';
   const LAYERS = [

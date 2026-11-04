@@ -24,7 +24,7 @@ import { usePrefs } from '../store/prefs';
 import { ChartDataTable } from './ChartDataTable';
 import { insertGaps } from './gaps';
 import { runningTotals, stackedSeries } from './stack';
-import { axisLabels, readChartTheme, summarize, useThemeVersion, withAlpha } from './theme';
+import { axisLabels, gpuColor, readChartTheme, summarize, useThemeVersion, withAlpha } from './theme';
 import './chart.css';
 
 const anyValue = (columns: readonly (readonly (number | null)[])[]) => columns.some((c) => c.some((v) => v !== null && !Number.isNaN(v)));
@@ -32,6 +32,8 @@ const anyValue = (columns: readonly (readonly (number | null)[])[]) => columns.s
 export interface SeriesSpec {
   key: string;
   label: string;
+  /** Draw in this GPU index's palette colour, the same on every chart. */
+  gpu?: number;
 }
 
 export interface StackLayer extends SeriesSpec {
@@ -206,6 +208,8 @@ export function TimeSeriesChart({
   const load = loadTagged.id === dataId ? loadTagged.state : 'loading';
   const labelsId = JSON.stringify(series.map((s) => s.label));
   const labels = useMemo(() => JSON.parse(labelsId) as string[], [labelsId]);
+  const gpusId = JSON.stringify(series.map((s) => s.gpu ?? null));
+  const gpus = useMemo(() => JSON.parse(gpusId) as (number | null)[], [gpusId]);
   const thresholdsId = JSON.stringify(thresholds ?? []);
   const layersId = stack ? JSON.stringify(series) : '';
   const unsupported =
@@ -281,7 +285,10 @@ export function TimeSeriesChart({
     const el = plotRef.current;
     if (!el || isUnsupported) return;
     const theme = readChartTheme();
-    const lineColor = (i: number) => theme.series[i % theme.series.length] ?? theme.axis;
+    const lineColor = (i: number) => {
+      const gpu = gpus[i];
+      return (gpu == null ? theme.series[i % theme.series.length] : theme.gpu[gpu]) ?? theme.axis;
+    };
     const k = theme.fontPx / 11; // axis room grows with the user's font size
     // Same tag and state => same object, so React skips the render: only transitions re-render, not every sample.
     const setLoad = (state: LoadState) => { setLoadTagged((prev) => (prev.id === dataId && prev.state === state ? prev : { id: dataId, state })); };
@@ -574,7 +581,7 @@ export function TimeSeriesChart({
       uRef.current = null;
       if (yGroup) yGroups.get(yGroup)?.delete(yToken);
     };
-  }, [node, keys, labels, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
+  }, [node, keys, labels, gpus, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
 
   const swatches = stack
     ? series.map((s) => `tschart__swatch--area ${s.className}${s.hatched ? ' tschart__swatch--hatched' : ''}`)
@@ -583,7 +590,7 @@ export function TimeSeriesChart({
     <ul className="tschart__legend" aria-label={`${title} series`}>
       {series.map((s, i) => (
         <li key={s.key} className="tschart__legend-item">
-          <span className={`tschart__swatch ${swatches[i] ?? ''}`} aria-hidden="true" />
+          <span className={`tschart__swatch ${swatches[i] ?? ''}`} style={s.gpu === undefined ? undefined : { background: gpuColor(s.gpu) }} aria-hidden="true" />
           <span className="tschart__legend-label">{s.label}</span>
           {seriesGaps[i] ? (
             <Unsupported gap={seriesGaps[i]} />

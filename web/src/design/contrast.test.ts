@@ -56,6 +56,7 @@ const TEXT = ['text-1', 'text-2', 'text-3', 'accent-text', 'ok-text', 'warn-text
 const NON_TEXT = ['accent', 'focus-ring', 'ok', 'warn', 'crit', 'stale', 'chart-1', 'chart-2', 'chart-3', 'heat-1', 'heat-2', 'heat-3', 'heat-4'];
 const HEAT = ['heat-0', 'heat-1', 'heat-2', 'heat-3', 'heat-4'];
 const STATUS = ['ok', 'warn', 'crit', 'stale'];
+const GPU = Array.from({ length: 8 }, (_, i) => `gpu-${i}`);
 
 describe.each(Object.entries(themes))('%s theme contrast', (_name, t) => {
   const c = (name: string): RGBA => parse(t[name] ?? `missing --${name}`);
@@ -67,6 +68,11 @@ describe.each(Object.entries(themes))('%s theme contrast', (_name, t) => {
   });
 
   it.each(SURFACES.flatMap((s) => NON_TEXT.map((x) => [x, s])))('non-text %s on %s >= 3', (fg, bg) => {
+    const base = solid(bg, c('bg'));
+    expect(contrast(solid(fg, base), base)).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(SURFACES.flatMap((s) => GPU.map((x) => [x, s])))('GPU series %s on %s >= 3', (fg, bg) => {
     const base = solid(bg, c('bg'));
     expect(contrast(solid(fg, base), base)).toBeGreaterThanOrEqual(3);
   });
