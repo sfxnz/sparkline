@@ -887,10 +887,10 @@ def test_a_user_named_like_a_word_of_the_printed_text_leaves_that_text_alone(tmp
 def test_the_summary_names_no_directory_that_the_tester_chose(tmp_path, monkeypatch, capsys):
     cli, home = as_user("zorbuser", tmp_path, monkeypatch)
     (home / "AcmeCorp-merger-eval").mkdir()
-    assert cli.main([str(home / "AcmeCorp-merger-eval" / "rec")]) == 0
+    assert cli.main([str(home / "AcmeCorp-merger-eval" / "zorbrec")]) == 0
     assert cli.main([]) == 0
     printed = capsys.readouterr().out
-    assert "AcmeCorp" not in printed and "rec" not in printed.replace("recording", "").replace("Recorded", "")
+    assert "AcmeCorp" not in printed and "zorbrec" not in printed
     default = f"sparkline-{sys.platform}-{platform.machine()}"
     assert f"Attach recording.tgz from {default} to a new issue" in printed
 
