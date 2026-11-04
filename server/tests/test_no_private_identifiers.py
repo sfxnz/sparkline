@@ -39,6 +39,7 @@ ADDRESSES_ALLOWED = {
     "192.168.0.0/32": _RANGE_START,
     "169.254.0.0/32": _RANGE_START,
     "100.64.0.0/32": _RANGE_START,
+    "100.64.0.113/32": "GB10 recording placeholder, PR #67",
     "172.32.0.1/32": "public address just past 172.16.0.0/12, in boundary tests",
     "100.128.0.1/32": "public address just past 100.64.0.0/10, in boundary tests",
     "10.0.0.1/32": _TEST,
@@ -122,11 +123,16 @@ def _eui64_ok(b: bytes) -> bool:
     return ":".join(b[i : i + 2].hex() for i in range(0, 8, 2)).startswith(tuple(GUIDS_ALLOWED))
 
 
-def _bare_hex_ok(h: str) -> bool:
-    b = bytes.fromhex(h)
-    if h.isdigit() or not (_vendor_unicast(b) or _is_modified_eui64(b)):
+def _hex_bytes_ok(b: bytes) -> bool:
+    if not (_vendor_unicast(b) or _is_modified_eui64(b)):
         return True
     return _mac_ok(b) if len(b) == 6 else _eui64_ok(b)
+
+
+def _bare_hex_ok(h: str) -> bool:
+    # NCCL and sysfs phys_switch_id print a GUID as %lx of a little-endian integer, so check both byte orders.
+    b = bytes.fromhex(h)
+    return h.isdigit() or (_hex_bytes_ok(b) and _hex_bytes_ok(b[::-1]))
 
 
 def _hex_ipv4_ok(h: str) -> bool:
@@ -179,6 +185,12 @@ DETECTORS: list[tuple[str, re.Pattern[str], Callable[[re.Match[str]], bool]]] = 
         lambda m: _eui64_ok(bytes.fromhex(m[0].replace(":", ""))),
     ),
     ("InfiniBand GUID", _lone(rf"(?:0x)?({_H}{{16}})"), lambda m: _bare_hex_ok(m[1])),
+    # NCCL's topology dump drops a GUID's leading zeros; the bare check above takes the 16-digit ones.
+    (
+        "InfiniBand GUID",
+        re.compile(rf"NET/\d+-\d+ \(\d+/({_H}{{1,15}})/"),
+        lambda m: _bare_hex_ok(m[1].zfill(16)),
+    ),
     (
         "GPU UUID",
         re.compile(rf"\b(?:GPU|MIG)-{_H}{{8}}(?:-{_H}{{4}}){{3}}-{_H}{{12}}\b"),
@@ -199,6 +211,14 @@ def findings(path: str, text: str) -> list[str]:
     return out
 
 
+def text_of(data: bytes) -> str | None:
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return text.replace("\0", "\n")  # /proc/<pid>/cmdline and environ dumps separate with NUL
+
+
 def tracked_text_files() -> dict[str, str]:
     listed = subprocess.run(
         ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True
@@ -208,13 +228,9 @@ def tracked_text_files() -> dict[str, str]:
         p = ROOT / rel
         if rel in NOT_SCANNED or p.is_symlink() or not p.is_file():
             continue
-        data = p.read_bytes()
-        if b"\0" in data:
-            continue
-        try:
-            files[rel] = data.decode("utf-8")
-        except UnicodeDecodeError:
-            continue
+        text = text_of(p.read_bytes())
+        if text is not None:
+            files[rel] = text
     return files
 
 
@@ -227,6 +243,7 @@ def test_scope_is_every_tracked_text_file():
         "server/sparkline/console/demo.py",
         "server/tests/test_agent_bind.py",
         "server/tests/fixtures/agent/net_sysfs.json",
+        "server/tests/fixtures/agent/cmdline_exl3",
         "web/src/test/fixtures/sample.json",
         "web/package-lock.json",
     ):
@@ -260,6 +277,10 @@ REAL_LOOKING = {
     "docker 172.17.0.5": "IPv4 address",
     "guid 1234:5678:9abc:def0": "InfiniBand GUID",
     "guid 0x4caabb0300ccddee": "InfiniBand GUID",
+    "nccl NET/0-0 (0/5634120003bbaa4c/1/25.000000)": "InfiniBand GUID",
+    'phys_switch_id "5734120003bbaa4c/p1"': "InfiniBand GUID",
+    "nccl NET/0-1 (0/34120003bbaa4c/1/25.000000)": "InfiniBand GUID",
+    "mac reversed eeddccbbaa4c": "MAC address",
     "uuid GPU-6a1b2c3d-1234-5678-9abc-def012345678": "GPU UUID",
     "home /home/alice/x": "home directory",
     "home /home/alice": "home directory",
@@ -275,12 +296,19 @@ PLACEHOLDER_LINES = (
     "enP7s7\\t006433C6\\t026433C6\\t0001\\t00FFFFFF GPU-00000000-0000-0000-0000-000000000001",
     "models--turboderp--DeepSeek-V4.1-Flash-EXL3 driver 13.580.173.02 0000:01:00.0 12:34:56 a::before",
     "counter 146032115322 hash 91e83f4571bb 12add3861cfd 0123456789abcdef x[::2] /home/<name>/ $HOME",
+    "NET/0-0 (0/c100000000000002/1/25.000000) NET/0-1 (0/100000000000002/1/25.000000)",
 )
 
 
 def test_each_real_looking_form_is_flagged_by_category_only():
     for line, category in REAL_LOOKING.items():
         assert findings("f", line) == [f"f:1: {category}"], line
+
+
+def test_nul_separated_text_is_scanned_by_line_and_binary_is_skipped():
+    cmdline = text_of(b"python3\0-m\0server\0--host\x0010.1.2.3\0")
+    assert cmdline is not None and findings("f", cmdline) == ["f:5: IPv4 address"]
+    assert text_of(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\xff") is None
 
 
 def test_placeholders_and_lookalikes_pass():
