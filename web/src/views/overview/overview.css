@@ -139,6 +139,7 @@
 .ov-ring__value { display: inline-flex; align-items: baseline; font-size: var(--fs-title2); line-height: var(--lh-title2); font-weight: 650; letter-spacing: -0.02em; color: var(--text-1); }
 .ov-ring__unit { font-size: var(--fs-footnote); font-weight: 560; color: var(--text-2); margin-left: 1px; }
 .ov-ring__label { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 600; letter-spacing: 0.06em; color: var(--text-3); }
+.ov-ring__gap { max-width: 72px; text-align: center; font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 600; color: var(--text-2); }
 
 .ov-stat { display: grid; gap: 2px; min-width: 0; }
 .ov-stat__label { font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 500; color: var(--text-2); overflow-wrap: anywhere; }

@@ -2,12 +2,12 @@ import { ChevronRight, Info, OctagonAlert, TriangleAlert, type LucideIcon } from
 import type { ReactNode } from 'react';
 import { Link } from 'wouter';
 import { paths, type NodeTab } from '../../../app/routes';
-import { notReported } from '../../../lib/capabilities';
+import { lostGpu, notReported } from '../../../lib/capabilities';
 import { decodeThrottle, worstSeverity, type ThrottleReason } from '../../../lib/throttle';
-import type { Sample, Severity } from '../../../lib/types';
+import type { NodeInfo, Sample, Severity } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
-import { andList, gpuAt, silentBackends, type SilentBackend } from '../../../lib/gpu';
+import { andList, gpuAt, reportingGpus, silentBackends, type SilentBackend } from '../../../lib/gpu';
 
 // ------------------------------------------------------------------ collector errors
 
@@ -32,6 +32,12 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
 
 const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
 
+/** A lost GPU 0 declares `gpu0` too, but the GPU collector still runs and reads the other GPUs. */
+const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
+  notReported(info, COLLECTORS[name]?.metric ?? name) !== null && !(name === 'gpu' && lostGpu(info, 0));
+
+const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
+
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
  *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. While
  *  some GPUs still report, a GPU failure is one note per backend that went silent, naming its GPUs. */
@@ -39,9 +45,9 @@ export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?:
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const errors = useLatest(nodeId, selectErrors, sameErrors);
   const reportingKey = useLatest(nodeId, selectReporting);
-  const entries = Object.entries(errors).filter(([k]) => (!only || only.includes(k)) && !notReported(info, COLLECTORS[k]?.metric ?? k));
+  const entries = Object.entries(errors).filter(([k]) => (!only || only.includes(k)) && !collectorDown(info, k));
   if (!entries.length) return null;
-  const reporting = reportingKey ? reportingKey.split(',').map(Number) : [];
+  const reporting = reportingKey ? reportingGpus(info, reportingKey.split(',').map(Number)) : [];
   const silent = reporting.length ? silentBackends(info, errors.gpu, reporting) : [];
   return (
     <ul className="nnotes" aria-label="Metrics unavailable">
@@ -59,7 +65,7 @@ export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?:
           <li key={name} className="nnote tone-warn">
             <TriangleAlert className="nnote__icon" aria-hidden="true" />
             <p className="nnote__text">
-              <strong>{collectorLabel(name)} unavailable:</strong> <span className="nnote__msg">{msg}</span>
+              <strong>{collectorLabel(name)} unavailable:</strong> <span className="nnote__msg">{sentence(msg)}</span>
               <span className="nnote__aside"> Other panels are unaffected.</span>
             </p>
             {details}
@@ -79,7 +85,7 @@ function SilentNote({ item, reporting, details }: { item: SilentBackend; reporti
       <TriangleAlert className="nnote__icon" aria-hidden="true" />
       <p className="nnote__text">
         <strong>{indexes.length === 1 ? 'GPU' : 'GPUs'} {andList(indexes)} ({names}) not responding:</strong>{' '}
-        <span className="nnote__msg">{item.message ?? 'no reading this tick'}</span>
+        <span className="nnote__msg">{sentence(item.message ?? 'no reading this tick')}</span>
         <span className="nnote__aside">
           {' '}The <code>{item.backend}</code> backend sent no reading this tick. {others.length === 1 ? 'GPU' : 'GPUs'} {andList(others)} still{' '}
           {others.length === 1 ? 'reports' : 'report'}.

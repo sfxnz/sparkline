@@ -1,4 +1,4 @@
-import type { NotReported } from './capabilities';
+import { lostGpu, type NotReported } from './capabilities';
 import type { GpuInfo, NodeInfo, Sample } from './types';
 
 /** The GPU with this `index`. A sample holds only the GPUs that reported this tick, so when one vendor's backend
@@ -17,8 +17,14 @@ export interface SilentBackend {
 const backendOf = (g: GpuInfo) => g.backend ?? 'nvml';
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Backends whose GPUs the node lists but sent no reading in this sample, with each one's error. The agent writes
- *  `errors.gpu` as "<backend>: <error>", one per failing backend, joined with "; ". */
+/** Of the GPUs in a sample, those that really report: a lost GPU sends an empty reading every tick. */
+export function reportingGpus(info: NodeInfo | null | undefined, indexes: readonly number[]): number[] {
+  return indexes.filter((i) => !lostGpu(info, i));
+}
+
+/** Backends whose GPUs the node lists but sent no reading in this sample, with each one's error. A lost GPU is left
+ *  out: the agent declares it, so its panels already say so. The agent writes `errors.gpu` as "<backend>: <error>",
+ *  one per failing backend, joined with "; ". */
 export function silentBackends(info: NodeInfo | null | undefined, errors: string | undefined, reporting: readonly number[]): SilentBackend[] {
   const gpus = info?.gpus ?? [];
   const names = [...new Set(gpus.map(backendOf))];
@@ -26,7 +32,7 @@ export function silentBackends(info: NodeInfo | null | undefined, errors: string
   const parts = errors && split ? errors.split(split) : [];
   const out: SilentBackend[] = [];
   for (const g of gpus) {
-    if (reporting.includes(g.index)) continue;
+    if (reporting.includes(g.index) || lostGpu(info, g.index)) continue;
     const backend = backendOf(g);
     const row = out.find((b) => b.backend === backend);
     if (row) {
