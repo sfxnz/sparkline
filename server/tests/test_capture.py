@@ -199,6 +199,15 @@ def planted(tmp: Path) -> Path:
     return copy
 
 
+def with_gpu_process(copy: Path, cmdline: bytes, cgroup: bytes = b"0::/\n") -> Path:
+    proc = copy / "root/proc" / str(GPU_PID)
+    proc.mkdir()
+    (proc / "stat").write_text(_stat(GPU_PID, "python3"))
+    (proc / "cmdline").write_bytes(cmdline)
+    (proc / "cgroup").write_bytes(cgroup)
+    return copy
+
+
 def capture_of(src_dir: Path, out: Path) -> Any:
     src = recorded(src_dir)
     return capture(src, out, facts_of(src))
@@ -266,6 +275,43 @@ def test_no_planted_identifier_survives_a_capture(tmp_path):
     sample = Sampler("t", Collectors(cfg, recorded(tmp_path / "out")).ordered()).tick()
     assert sample.procs is not None
     assert [(p.name, p.cmdline) for p in sample.procs if p.pid == GPU_PID] == [("python3", "python3")]
+
+
+SECRET = "zorbsecretvalue42"
+
+
+def recorded_cmdline(out: Path) -> bytes:
+    return (out / "root/proc" / str(GPU_PID) / "cmdline").read_bytes()
+
+
+def test_a_command_line_that_is_not_utf8_records_only_the_program_name(tmp_path):
+    argv = b"python3\0/data/caf\xe9.txt\0--api-key\0" + SECRET.encode() + b"\0"
+    capture_of(with_gpu_process(gb10_copy(tmp_path), argv), tmp_path / "out")
+    assert recorded_cmdline(tmp_path / "out") == b"python3\0"
+    assert [name for name, data in surfaces(tmp_path / "out") if SECRET.encode() in data] == []
+
+
+def test_a_cgroup_file_that_is_not_utf8_is_rewritten_like_a_utf8_one(tmp_path):
+    line = f"0::/system.slice/docker-{CONTAINER_ID}.scope".encode()
+    recorded_cgroup = {}
+    for name, tail in (("utf8", b""), ("latin1", b"\xe9")):
+        copy = with_gpu_process(gb10_copy(tmp_path / name), b"python3\0", line + tail + b"\n")
+        capture_of(copy, tmp_path / name / "out")
+        recorded_cgroup[name] = (tmp_path / name / "out/root/proc" / str(GPU_PID) / "cgroup").read_bytes()
+    assert recorded_cgroup["latin1"] == recorded_cgroup["utf8"]
+    assert CONTAINER_ID.encode() not in recorded_cgroup["latin1"]
+
+
+@pytest.mark.parametrize(
+    ("title", "program"),
+    [
+        ("vllm: serve --served-model-name team/zorbrun", b"vllm:"),
+        (f"python3 {hidden_from_guard('/', '', 'home', 'u', 'train.py')}", b"python3"),
+    ],
+)
+def test_a_command_line_in_one_argument_records_only_its_first_word(title, program, tmp_path):
+    capture_of(with_gpu_process(gb10_copy(tmp_path), title.encode() + b"\0"), tmp_path / "out")
+    assert recorded_cmdline(tmp_path / "out") == program + b"\0"
 
 
 def test_one_identifier_keeps_one_placeholder_across_files_and_encodings(tmp_path):
