@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, get_args
@@ -83,6 +84,14 @@ class GpuCollector:
         self.proc_mem_total: int | None = None
         self._live: list[_Live] = []
         self._caps: dict[str, Unsupported | None] = {}
+        self._lock = threading.Lock()
+        try:
+            self._open(src)
+        except BaseException:
+            self.close()
+            raise
+
+    def _open(self, src: Sources) -> None:
         failures: list[_Failure] = []
         for chain in CHAINS.get(src.platform, ()):
             for make in chain.backends:
@@ -135,6 +144,7 @@ class GpuCollector:
         caps: Mapping[int, Mapping[GpuField, Gap | None]],
     ) -> None:
         base = len(self.info)
+        self._live.append(_Live(backend, base))
         missing = Gap(f"Not reported by the {backend.name} backend", "agent")
         for g in gpus:
             index = base + g.index
@@ -143,7 +153,6 @@ class GpuCollector:
             for field, gap in {**gaps, **{f: missing for f in get_args(GpuField) if f not in gaps}}.items():
                 key = f"gpu{index}.{field}"
                 self._caps[key] = Unsupported(metric=key, reason=gap.reason, kind=gap.kind) if gap else None
-        self._live.append(_Live(backend, base))
 
     @property
     def driver(self) -> str | None:
@@ -161,6 +170,10 @@ class GpuCollector:
         return self._caps
 
     def collect(self) -> dict[str, Any]:
+        with self._lock:
+            return self._collect()
+
+    def _collect(self) -> dict[str, Any]:
         out: list[GpuSample] = []
         proc_mem: dict[int, int] = {}
         reported = False
@@ -185,18 +198,20 @@ class GpuCollector:
         return {"gpu": out, "errors": {"gpu": "; ".join(failed)}} if failed else {"gpu": out}
 
     def close(self) -> None:
-        live, self._live = self._live, []
+        with self._lock:
+            live, self._live = self._live, []
         for each in live:
             _close(each.backend)
 
     def process_util(self) -> dict[int, float]:
         acc: dict[int, list[float]] = {}
-        for live in self._live:
-            try:
-                utils = live.backend.proc_util() or {}
-            except Exception as e:
-                log.debug("%s backend process utilisation failed: %s", live.backend.name, e)
-                continue
-            for pid, util in utils.items():
-                acc.setdefault(pid, []).append(util)
+        with self._lock:
+            for live in self._live:
+                try:
+                    utils = live.backend.proc_util() or {}
+                except Exception as e:
+                    log.debug("%s backend process utilisation failed: %s", live.backend.name, e)
+                    continue
+                for pid, util in utils.items():
+                    acc.setdefault(pid, []).append(util)
         return {pid: sum(v) / len(v) for pid, v in acc.items()}
