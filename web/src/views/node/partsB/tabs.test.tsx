@@ -242,6 +242,18 @@ describe('GPU tab', () => {
     expect(util).toHaveTextContent('No data');
     expect(util?.querySelector('.skeleton')).toBeNull();
   });
+
+  it('says per-process GPU memory is not reported, not that no process uses the GPU, when the agent declares it', () => {
+    const gap = { metric: 'gpu0.proc_mem', reason: 'Per-process GPU memory not reported by NVIDIA GB10 (NVML: Not Supported)', kind: 'hardware' as const };
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: gpuInfo(gap) } } });
+    const proc = { pid: 41, name: 'python3', user: 'u', cmdline: 'python3 serve.py', state: 'S', cpu_pct: 3, rss: 2e9, gpu_mem: null, gpu_util: null, container: null, model: null };
+    push({ ...gpuSample(0), procs: [proc] });
+    render(<Gpu nodeId={NODE} />);
+    const procs = screen.getByRole('region', { name: 'GPU processes' });
+    expect(procs).toHaveTextContent('Not reported by this hardware');
+    expect(within(procs).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(gap.reason);
+    expect(procs).not.toHaveTextContent('No processes are using the GPU');
+  });
 });
 
 describe('Summary tab', () => {
