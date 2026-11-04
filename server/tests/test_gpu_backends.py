@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import replace
 from typing import ClassVar, get_args
 
@@ -397,6 +398,46 @@ def test_closing_the_agent_closes_every_backend_in_use_once(monkeypatch):
     collectors.close()
     collectors.close()
     assert Closes.closed == ["closes", "other"]
+
+
+def test_a_backend_that_breaks_the_collector_after_others_opened_leaves_none_of_them_open(monkeypatch):
+    Closes.closed.clear()
+    bad_caps = type("bad-caps", (Closes,), {"name": "bad-caps", "caps": lambda _: {0: {"util": "not a Gap"}}})
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (Closes,)), Chain("amd", (bad_caps,))))
+
+    with pytest.raises(AttributeError):
+        GpuCollector(gb10())
+    assert Closes.closed == ["closes", "bad-caps"]
+
+
+class Blocks(Closes):
+    name = "blocks"
+    entered = threading.Event()
+    release = threading.Event()
+
+    def sample(self) -> list[GpuSample]:
+        self.entered.set()
+        self.release.wait(5)
+        return super().sample()
+
+
+def test_close_waits_for_a_tick_still_reading_the_backend(monkeypatch):
+    Closes.closed.clear()
+    Blocks.entered.clear()
+    Blocks.release.clear()
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (Blocks,)),))
+    g = GpuCollector(gb10())
+    tick = threading.Thread(target=g.collect)
+    tick.start()
+    assert Blocks.entered.wait(5)
+    closing = threading.Thread(target=g.close)
+    closing.start()
+    closing.join(0.3)
+    assert Closes.closed == [], "close() ran while sample() was still reading"
+    Blocks.release.set()
+    tick.join(5)
+    closing.join(5)
+    assert Closes.closed == ["blocks"]
 
 
 class Flaky(AmdFake):
