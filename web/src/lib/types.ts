@@ -6,7 +6,7 @@ export const SCHEMA_VERSION = 1;
 
 // --- Static node description -------------------------------------------------------------------
 
-export const UNSUPPORTED_KINDS = ['hardware', 'access', 'dependency'] as const;
+export const UNSUPPORTED_KINDS = ['hardware', 'access', 'dependency', 'agent'] as const;
 export type UnsupportedKind = (typeof UNSUPPORTED_KINDS)[number];
 
 export interface Unsupported {

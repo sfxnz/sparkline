@@ -22,11 +22,11 @@ SCHEMA_VERSION = 1
 # ---------------------------------------------------------------------------
 
 
-UnsupportedKind = Literal["hardware", "access", "dependency"]
+UnsupportedKind = Literal["hardware", "access", "dependency", "agent"]
 
 
 class Unsupported(BaseModel):
-    metric: str  # flattened key or prefix, e.g. "gpu0.power_limit_w", "fan"; "*" is a GPU index: "gpu*"
+    metric: str  # flattened key or prefix, e.g. "gpu0.power_limit_w", "fan"; "*" is an index: "gpu*.util"
     reason: str  # human readable, e.g. "Not reported by GB10 (NVML: Not Supported)"
     kind: UnsupportedKind = "hardware"
 

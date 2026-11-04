@@ -54,6 +54,11 @@ describe('notReported', () => {
     expect(notReported(info, 'gpu1.util')).toEqual({ kind: 'dependency', label: 'Helper tool missing', detail: 'Install nvidia-ml-py to read NVIDIA GPU metrics' });
   });
 
+  it('says a metric the agent does not read yet is not collected, not missing from the hardware', () => {
+    const info = node({ metric: 'fan', reason: 'Fan speed is not collected yet (hwmon exposes 2 fan sensors)', kind: 'agent' });
+    expect(notReported(info, 'fan')).toEqual({ kind: 'agent', label: 'Not collected yet', detail: 'Fan speed is not collected yet (hwmon exposes 2 fan sensors)' });
+  });
+
   it('answers null without node info', () => {
     expect(notReported(null, 'gpu0.util')).toBeNull();
     expect(notReported(undefined, 'gpu0.util')).toBeNull();
