@@ -254,6 +254,46 @@ def test_csv_export_one_row_per_result():
     assert rows[2][2] == "spark2" and rows[2][8:10] == ["", "false"] and rows[2][12:] == ["", "", ""]
 
 
+def test_a_row_modelled_on_other_hardware_says_so_wherever_it_is_read_alone(tmp_path):
+    shown = "Decode tokens/s per request · modelled on GB10"
+    modelled = BenchResult(
+        metric="decode_tok_s",
+        label="Decode tokens/s per request",
+        value=41.0,
+        unit="tok/s",
+        node_id="ws1",
+        baseline=46.2,
+        extras={"modelled_on": "GB10"},
+    )
+    stored = BenchResult(
+        metric="ttft_p50_ms", label=shown, value=180.0, unit="ms", better="lower", node_id="ws1"
+    )
+    measured = modelled.model_copy(update={"node_id": "spark1", "extras": {}})
+    run = BenchRun(
+        id="ws1run",
+        bench_id="llm-inference",
+        params={},
+        nodes=["ws1"],
+        status="succeeded",
+        created_ts=1_791_280_000.0,
+        results=[modelled, stored, measured],
+    )
+    rows = list(csv.reader(io.StringIO(runs_csv([run]))))
+    assert [r[4] for r in rows[1:]] == [shown, shown, "Decode tokens/s per request"]
+    assert regression_title("ws1", modelled, -11.3) == (
+        f"Benchmark regression on ws1: {shown} 41.0 tok/s vs baseline 46.2 (−11.3%)"
+    )
+    assert regression_title("ws1", stored, 5.0).startswith(f"Benchmark regression on ws1: {shown} 180 ms")
+    mgr, _ = _manager(tmp_path)
+    mgr.store.save(run)
+    labels = {(m["metric"], m["node_id"]): m["label"] for m in mgr.compare(["ws1run"])["metrics"]}
+    assert labels == {
+        ("decode_tok_s", "ws1"): shown,
+        ("ttft_p50_ms", "ws1"): shown,
+        ("decode_tok_s", "spark1"): "Decode tokens/s per request",
+    }
+
+
 class _NullBackend:
     def bind(self, on_state):
         pass

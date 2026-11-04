@@ -407,7 +407,9 @@ def test_ws1_llm_results_describe_ws1_and_say_which_figures_are_modelled_on_gb10
         p.gpu_mem for p in FLEETS["mixed"]["ws1"](T0, 1.0).sample_at(time.time(), procs=True).procs or []
     ]
     assert serving.value == pytest.approx(sum(m for m in workers if m) / 2**30, rel=0.01)
-    assert res and all(x.label.endswith(" · modelled on GB10") for x in res.values())
+    assert res and all(x.extras["modelled_on"] == "GB10" and "GB10" not in x.label for x in res.values())
+    assert "modelled_on" not in growth.extras and "modelled_on" not in serving.extras
+    assert st.metadata["modelled_on"] == run.metadata["nodes"]["ws1"]["modelled_on"] == "GB10"
 
 
 @pytest.mark.parametrize(
@@ -419,15 +421,45 @@ def test_ws1_marks_every_speed_figure_of_a_demo_llm_benchmark_as_modelled_on_gb1
     assert r.status_code == 201, r.json()
     run = BenchRun.model_validate(_wait(mixed, r.json()["id"]))
     assert run.status == "succeeded", run.error
-    marked = {x.metric for x in run.results if x.label.endswith(" · modelled on GB10")}
+    marked = {x.metric for x in run.results if x.extras.get("modelled_on") == "GB10"}
     assert marked == (timed or {x.metric for x in run.results})
+    assert not any("GB10" in x.label for x in run.results)
+    assert run.node_states["ws1"].metadata["modelled_on"] == "GB10"
+    assert run.metadata["nodes"]["ws1"]["modelled_on"] == "GB10"
+
+
+@pytest.mark.parametrize("bench", ["llm-inference", "llm-showcase", "tool-eval"])
+def test_ws1_says_its_speeds_are_modelled_from_its_first_state_through_a_cancelled_run(mixed, bench):
+    r = mixed.post("/api/v1/bench/runs", json={"bench_id": bench, "nodes": ["ws1"], "confirm": True})
+    assert r.status_code == 201, r.json()
+    rid, first, deadline = r.json()["id"], None, time.time() + 15
+    while first is None and time.time() < deadline:
+        first = mixed.get(f"/api/v1/bench/runs/{rid}").json()["node_states"].get("ws1")
+        time.sleep(0.02)
+    assert first and first["status"] == "running" and first["metadata"]["modelled_on"] == "GB10"
+    mixed.post(f"/api/v1/bench/runs/{rid}/cancel")
+    run = BenchRun.model_validate(_wait(mixed, rid))
+    assert run.status == "cancelled" and run.results == []
+    assert run.node_states["ws1"].metadata["modelled_on"] == "GB10"
+    assert run.metadata["nodes"]["ws1"]["modelled_on"] == "GB10"
+
+
+def test_ws1_thermal_soak_is_its_own_telemetry_so_nothing_is_marked_modelled(mixed):
+    body = {"bench_id": "thermal-soak", "nodes": ["ws1"], "confirm": True}
+    r = mixed.post("/api/v1/bench/runs", json=body)
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(_wait(mixed, r.json()["id"]))
+    assert run.status == "succeeded" and run.results, run.error
+    assert "modelled_on" not in run.model_dump_json()
 
 
 def test_spark1_llm_results_keep_their_gb10_labels_and_serving_process(mixed):
-    res = {x.metric: x for x in _llm_run(mixed, "spark1", False).results}
+    run = _llm_run(mixed, "spark1", False)
+    res = {x.metric: x for x in run.results}
     assert res["mem_used_delta_gib"].label == "Unified memory growth during run"
     assert res["serving_gpu_mem_gib"].extras["source"] == "pid 4242 and its children"
     assert not any("GB10" in x.label for x in res.values())
+    assert "modelled_on" not in run.model_dump_json()
 
 
 def test_demo_history_holds_a_finished_sweep(demo):
