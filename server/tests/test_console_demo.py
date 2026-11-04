@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from sparkline.common.metrics import flatten
 from sparkline.common.schema import ConsoleSettings, NodeInfo, Sample
+from sparkline.common.throttle import POWER_CAP_BIT
 from sparkline.console.app import create_app
 from sparkline.console.cluster import Cluster
 from sparkline.console.config import ConsoleConfig
@@ -209,6 +210,24 @@ def test_sample_noise_never_flips_a_workstation_gpus_power_cap_for_one_sample():
         assert any(bits) and not all(bits), i
         blips = [k for k in range(1, len(bits) - 1) if bits[k - 1] == bits[k + 1] != bits[k]]
         assert blips == [], (i, blips[:5])
+
+
+def test_a_workstation_gpus_power_cap_holds_between_its_off_and_on_points_for_as_long_as_the_draw_does(
+    monkeypatch,
+):
+    m = ws1()
+    t1 = T0 + 1000
+
+    def draw(i: int, t: float, noise: bool = True) -> float:
+        return 300.0 if t < t1 else 293.0 if t < t1 + 400 else 285.0
+
+    monkeypatch.setattr(m, "raw_power", draw)
+
+    def capped(t: float) -> bool:
+        return bool(next(g for g in m.sample_at(t).gpu if g.index == 0).throttle_mask & POWER_CAP_BIT)
+
+    assert all(capped(t1 + k) for k in range(0, 400, 9))
+    assert not capped(t1 + 400)
 
 
 def test_the_workstation_carries_only_documentation_addresses_and_local_macs():
