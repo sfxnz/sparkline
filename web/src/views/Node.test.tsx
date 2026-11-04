@@ -110,7 +110,7 @@ describe('Node page', () => {
     useCluster.getState().setHello(hello([{ ...base, info }]));
     const loc = renderAt('/node/spark2/memory');
     expect(screen.getByRole('region', { name: 'Memory not reported' })).toHaveTextContent('Not reported by this hardware');
-    expect(screen.getByText('The memory collector could not start: /proc/meminfo: No such file or directory')).toBeInTheDocument();
+    expect(screen.getByText('The memory collector could not start: /proc/meminfo: No such file or directory.')).toBeInTheDocument();
     expect(screen.queryByText('Memory of spark2')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Storage' }));

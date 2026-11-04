@@ -304,7 +304,7 @@ function GpuSection({ c }: { c: GpuCtx }) {
           {name}
         </>
       }
-      subtitle={gpu?.name}
+      subtitle={gpu?.name === name ? undefined : gpu?.name}
       actions={down ? null : <GpuStatus nodeId={nodeId} index={index} />}
       busy={waiting}
     >
