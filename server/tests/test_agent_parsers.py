@@ -7,6 +7,7 @@ import struct
 from pathlib import Path
 
 import pytest
+from platforms import gb10
 
 import sparkline.agent.collectors.net as net_mod
 from sparkline.agent.collectors import counter_delta, parse_psi
@@ -43,6 +44,7 @@ from sparkline.agent.collectors.procs import (
 from sparkline.agent.collectors.storage import disk_rates, parse_diskstats, parse_mounts
 from sparkline.agent.collectors.thermal import Chip, build_sensors
 from sparkline.agent.ethtool import parse_gstrings
+from sparkline.agent.sources import RootFs
 from sparkline.common.netutil import default_route_iface
 from sparkline.common.schema import NetIfInfo
 
@@ -116,9 +118,9 @@ def test_loadavg():
     assert parse_loadavg(fx("loadavg")) == (2.59, 2.44, 2.63)
 
 
-def test_core_clock_is_the_measured_one(tmp_path, monkeypatch):
+def test_core_clock_is_the_measured_one(tmp_path):
     def core(i: int, **files: str) -> Path:
-        d = tmp_path / f"cpu{i}" / "cpufreq"
+        d = tmp_path / "sys/devices/system/cpu" / f"cpu{i}" / "cpufreq"
         d.mkdir(parents=True)
         for name, text in files.items():
             (d / name).write_text(text)
@@ -128,9 +130,11 @@ def test_core_clock_is_the_measured_one(tmp_path, monkeypatch):
     core(1, scaling_cur_freq="3900000\n")
     read_fails = core(2, scaling_cur_freq="3900000\n") / "cpuinfo_avg_freq"
     read_fails.mkdir()
-    monkeypatch.setattr(cpu_mod, "SYS_CPU", str(tmp_path))
+    (tmp_path / "proc").mkdir()
+    (tmp_path / "proc/stat").write_text(fx("stat_1"))
+    (tmp_path / "proc/loadavg").write_text(fx("loadavg"))
 
-    c = cpu_mod.CpuCollector()
+    c = cpu_mod.CpuCollector(gb10(fs=RootFs(tmp_path)))
     assert c.collect()["cpu"].freq_mhz == [2506.0, 3900.0, None]
     (measured / "cpuinfo_avg_freq").write_text("1356000\n")
     assert c.collect()["cpu"].freq_mhz == [1356.0, 3900.0, None]
@@ -215,11 +219,18 @@ def test_phy_counters_owned_by_first_function_of_each_port():
 
 def test_net_one_unreadable_iface_keeps_the_others():
     nc = NetCollector.__new__(NetCollector)
+    nc.fs = RootFs()
     ok = _If(NetIfInfo(name="lo", role="other", label="lo"))
     gone = _If(NetIfInfo(name="lo", role="interconnect", label="x", rdma_device="rocep1s0f0_gone"))
     nc.ifaces = [gone, ok]
     out = nc.collect()["net"]
     assert [(n.name, n.up) for n in out] == [("lo", False), ("lo", False)]  # both present, nothing raised
+
+
+class DictFs(RootFs):
+    def __init__(self, read) -> None:
+        super().__init__()
+        self.read = read
 
 
 def test_rdma_state_is_read_when_the_link_disagrees_with_it_or_every_slow_interval(monkeypatch):
@@ -239,10 +250,10 @@ def test_rdma_state_is_read_when_the_link_disagrees_with_it_or_every_slow_interv
             now[0] += 0.005  # a firmware query
         return files[path]
 
-    monkeypatch.setattr(net_mod, "read", read)
     now = [100.0]
     monkeypatch.setattr(net_mod.time, "monotonic", lambda: now[0])
     nc = NetCollector.__new__(NetCollector)
+    nc.fs = DictFs(read)
     nc.ifaces = [_If(NetIfInfo(name="rail0", role="interconnect", label="x", rdma_device="roce0"))]
 
     paths = {"link": "/sys/class/net/rail0/operstate", "state": port + "state", "rate": port + "rate"}

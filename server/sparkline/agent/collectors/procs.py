@@ -12,7 +12,8 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ...common.schema import ProcSample
-from . import Caps, read_once
+from ..sources import RootFs, Sources
+from . import Caps
 
 if TYPE_CHECKING:
     from .gpu import GpuCollector
@@ -129,13 +130,13 @@ def parse_pid_stat(data: bytes) -> tuple[str, int, int, int]:
     return data[lp + 1 : rp].decode(errors="replace"), int(f[11]) + int(f[12]), int(f[21]), int(f[19])
 
 
-def scan_procs() -> dict[int, tuple[str, int, int, int]]:
+def scan_procs(fs: RootFs) -> dict[int, tuple[str, int, int, int]]:
     """All processes from /proc/<pid>/stat (one read per process; far cheaper than psutil per pid)."""
     out = {}
-    for d in os.listdir("/proc"):
+    for d in fs.listdir("/proc"):
         if d.isdigit():
             try:
-                fd = os.open(f"/proc/{d}/stat", os.O_RDONLY)  # ~35% cheaper than open() per file
+                fd = os.open(fs.path(f"/proc/{d}/stat"), os.O_RDONLY)  # ~35% cheaper than open() per file
                 try:
                     out[int(d)] = parse_pid_stat(os.read(fd, 4096))
                 finally:
@@ -148,7 +149,9 @@ def scan_procs() -> dict[int, tuple[str, int, int, int]]:
 class ProcsCollector:
     name = "procs"
 
-    def __init__(self, gpu: GpuCollector | None = None, interval_s: float = 5.0) -> None:
+    def __init__(self, src: Sources, gpu: GpuCollector | None = None, interval_s: float = 5.0) -> None:
+        self.fs = src.fs
+        self._docker = src.docker
         self.gpu = gpu  # GpuCollector or None
         self.interval_s = interval_s
         self._last: float | None = None
@@ -163,7 +166,7 @@ class ProcsCollector:
     def _container(self, pid: int, start: int) -> str | None:
         key = (pid, start)
         if key not in self._cid:
-            self._cid[key] = container_id(read_once(f"/proc/{pid}/cgroup") or "")
+            self._cid[key] = container_id(self.fs.read_once(f"/proc/{pid}/cgroup") or "")
         cid = self._cid[key]
         if cid is None:
             return None
@@ -171,14 +174,14 @@ class ProcsCollector:
         if cid not in self._names and now - self._names_t > DOCKER_TTL_S:
             self._names_t = now
             try:
-                self._names = container_names(docker_get("/containers/json"))
+                self._names = container_names(self._docker("/containers/json"))
             except (OSError, ValueError) as e:
                 log.debug("docker name lookup failed: %s", e)
         return self._names.get(cid, cid[:12])
 
     def _user(self, pid: int) -> str | None:
         try:
-            uid = os.stat(f"/proc/{pid}").st_uid
+            uid = os.stat(self.fs.path(f"/proc/{pid}")).st_uid
         except OSError:
             return None
         if uid not in self._users:
@@ -201,7 +204,7 @@ class ProcsCollector:
         gpu_util = self.gpu.process_util() if self.gpu else {}
         rows: dict[int, dict] = {}
         prev, self._prev = self._prev, {}
-        for pid, (comm, ticks, rss, start) in scan_procs().items():
+        for pid, (comm, ticks, rss, start) in scan_procs(self.fs).items():
             self._prev[pid] = (start, ticks)
             p = prev.get(pid)
             cpu = None  # first sighting (or pid reuse): no interval to measure yet, so no reading (not 0 %)
@@ -218,7 +221,7 @@ class ProcsCollector:
         out = []
         for pid in select_top(rows):
             r = rows[pid]
-            argv = [a for a in (read_once(f"/proc/{pid}/cmdline") or "").split("\0") if a]
+            argv = [a for a in (self.fs.read_once(f"/proc/{pid}/cmdline") or "").split("\0") if a]
             if len(argv) == 1:  # a process that rewrote its title into one string ("vllm: serve --api-key X")
                 argv = argv[0].split()
             raw = " ".join(redact_argv(argv)).strip()

@@ -1,22 +1,23 @@
-"""Collectors. Each module keeps pure parsing functions (unit-tested on fixtures) separate from IO."""
+"""Collectors. Each module keeps pure parsing functions (unit-tested on fixtures) separate from IO.
+
+A collector implements ``Collector``: ``collect()`` returns a dict whose keys are ``Sample`` field names, and
+``caps()`` maps flattened metric keys to None (supported) or the reason they are not.
+"""
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from typing import Any, Protocol
 
 from ...common.schema import Unsupported
 
-Caps = Mapping[str, Unsupported | None]  # flattened metric key -> None when supported, else why not
+Caps = Mapping[str, Unsupported | None]
 
 
 class Collector(Protocol):
     name: str
 
-    def collect(self) -> dict[str, Any]:
-        """Sample fields, keyed by ``Sample`` field name."""
-        ...
+    def collect(self) -> dict[str, Any]: ...
 
     def caps(self) -> Caps: ...
 
@@ -28,40 +29,6 @@ def slow_due(last: float, now: float) -> bool:
     """Whether a read done every SLOW_EVERY_S, last at ``last``, is due. A collector runs a different few
     ms into each tick, so at 1 Hz the tenth tick can land just under SLOW_EVERY_S after the last read."""
     return now - last >= SLOW_EVERY_S - 0.5
-
-
-_fds: dict[str, int] = {}
-
-
-def read(path: str) -> str:
-    """Read a /proc or /sys file, keeping its fd open between calls (pread at offset 0 re-generates it)."""
-    fd = _fds.get(path)
-    if fd is None:
-        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
-        _fds[path] = fd
-    try:
-        chunks = []
-        off = 0
-        while True:
-            b = os.pread(fd, 65536, off)
-            chunks.append(b)
-            if len(b) < 65536:
-                break
-            off += len(b)
-        return b"".join(chunks).decode(errors="replace")
-    except OSError:
-        os.close(fd)
-        del _fds[path]
-        raise
-
-
-def read_once(path: str) -> str | None:
-    """Plain read for static files; None if missing/unreadable."""
-    try:
-        with open(path) as f:
-            return f.read().strip()
-    except OSError:
-        return None
 
 
 def counter_delta(prev: float | None, cur: float) -> float:
