@@ -51,6 +51,7 @@ from ..common.schema import (
 from ..common.throttle import LIMITING_MASK, POWER_CAP_BIT
 from .bench import (
     CLUSTER_RESULTS,
+    MODELLED_KEY,
     BenchError,
     StateCallback,
     apply_baseline,
@@ -142,20 +143,25 @@ def _not_gb10(node: str, info: NodeInfo | None) -> Problem | None:
     )
 
 
-GB10_RATES = " · modelled on GB10"
+MODELLED_ON = "GB10"
+GB10_SPEEDS = ("llm-inference", "llm-showcase", "tool-eval")
 # tool-eval rows that follow the demo's GB10 turn latency; its scores describe the model, not the node
 TE_SPEED = {"median_turn_ms", "responsiveness", "deployability"}
+
+
+def _modelled(bench: str, info: NodeInfo | None) -> dict[str, str]:
+    return {MODELLED_KEY: MODELLED_ON} if bench in GB10_SPEEDS and not _gb10(info) else {}
 
 
 def _gb10_modelled(
     info: NodeInfo | None, rows: list[BenchResult], metrics: set[str] | None = None
 ) -> list[BenchResult]:
-    """The demo's LLM speeds are GB10's; on other hardware each such row (every row, or those in `metrics`)
-    says so."""
     if _gb10(info):
         return rows
     return [
-        r.model_copy(update={"label": r.label + GB10_RATES}) if metrics is None or r.metric in metrics else r
+        r.model_copy(update={"extras": {**r.extras, MODELLED_KEY: MODELLED_ON}})
+        if metrics is None or r.metric in metrics
+        else r
         for r in rows
     ]
 
@@ -1900,6 +1906,7 @@ class DemoBench:
             status="running",
             phase="Starting",
             started_ts=time.time(),
+            metadata=_modelled(req.bench_id, self.cluster.sources[node].state.info),
         )
         sim = _Sim(
             node=node,
@@ -1992,7 +1999,12 @@ class DemoBench:
                 sim.window[1] = min(sim.window[1], time.time())
             for w in sim.disk:  # a cancelled run stops loading the disk
                 w[1] = min(w[1], time.time())
-            extra = {"role": req.role, "params": p, **_extra(req.bench_id, info)}
+            extra = {
+                "role": req.role,
+                "params": p,
+                **_extra(req.bench_id, info),
+                **_modelled(req.bench_id, info),
+            }
             st.metadata = node_metadata(info, model, t0, time.time(), extra)
             if self.current.get(sim.node) is sim:
                 del self.current[sim.node]

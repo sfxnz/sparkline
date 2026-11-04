@@ -229,12 +229,20 @@ def fmt_num(v: float) -> str:
     return f"{v:.2f}"
 
 
+MODELLED_KEY = "modelled_on"
+
+
+def shown_label(r: BenchResult) -> str:
+    on = r.extras.get(MODELLED_KEY)
+    return f"{r.label} · modelled on {on}" if isinstance(on, str) else r.label
+
+
 def regression_title(node: str | None, r: BenchResult, change: float) -> str:
     sign = "−" if change < 0 else "+"
     unit = "%" if r.unit == "%" else f" {r.unit}" if r.unit else ""
     delta = f"{sign}{abs(change):.1f} points" if r.unit == "%" else f"{sign}{abs(change):.1f}%"
     return (
-        f"Benchmark regression on {node or 'cluster'}: {r.label} {fmt_num(r.value)}{unit} "
+        f"Benchmark regression on {node or 'cluster'}: {shown_label(r)} {fmt_num(r.value)}{unit} "
         f"vs baseline {fmt_num(r.baseline or 0)}{unit if r.unit == '%' else ''} ({delta})"
     )
 
@@ -281,7 +289,7 @@ def runs_csv(runs: list[BenchRun]) -> str:
                     run.bench_id,
                     r.node_id or "",
                     r.metric,
-                    r.label,
+                    shown_label(r),
                     r.value,
                     r.unit,
                     r.better,
@@ -1277,7 +1285,7 @@ class BenchManager:
                     (r.metric, r.node_id),
                     {
                         "metric": r.metric,
-                        "label": r.label,
+                        "label": shown_label(r),
                         "unit": r.unit,
                         "better": r.better,
                         "node_id": r.node_id,
