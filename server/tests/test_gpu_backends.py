@@ -14,7 +14,7 @@ from sparkline.agent.collectors.gpu.backend import CannotOpen, Chain, Gap, NoDev
 from sparkline.agent.collectors.gpu.nvml import Nvml
 from sparkline.agent.sources import NvmlReplay, Sources
 from sparkline.common.metrics import flatten
-from sparkline.common.schema import GpuInfo, GpuSample, Unsupported
+from sparkline.common.schema import GpuInfo, GpuSample, NodeInfo, Unsupported
 
 
 class Opens:
@@ -128,12 +128,12 @@ def test_a_backend_that_cannot_open_is_named_in_gpu_backend_and_hides_no_gpu_tha
     info, sample, _ = warm(monkeypatch, nvml_init_fails("Driver/library version mismatch"))
 
     gaps = {u.metric: u for u in info.unsupported}
-    assert gaps["gpu.backend"] == Unsupported(
-        metric="gpu.backend",
-        reason="nvml: NVML unavailable (NVML: Driver/library version mismatch)",
+    assert gaps["gpu.backend.nvml"] == Unsupported(
+        metric="gpu.backend.nvml",
+        reason="NVML unavailable (NVML: Driver/library version mismatch)",
         kind="hardware",
     )
-    assert "gpu*" not in gaps and "mem.gpu" not in gaps
+    assert "gpu*" not in gaps and "mem.gpu" not in gaps and "gpu.backend" not in gaps
     assert [(g.index, g.vendor) for g in info.gpus] == [(0, "amd"), (1, "amd")]
     assert {"gpu0.util", "gpu0.power_w", "gpu0.temp_c"} <= set(flatten(sample))
     assert info.versions == {"amd.Driver": "1.2.3"} and info.driver is None
@@ -141,44 +141,52 @@ def test_a_backend_that_cannot_open_is_named_in_gpu_backend_and_hides_no_gpu_tha
 
 
 HW = fails("amd-hw", RuntimeError("ioctl failed"))
-AGENT = fails("amd-agent", CannotOpen("Reads GFX9+ only", "agent"))
+AGENT = fails("amd-agent", CannotOpen("Reads GFX9+ only; GFX8 is a follow-up", "agent"))
 DEP = fails("amd-dep", CannotOpen("Install amdsmi", "dependency"))
 
 
-@pytest.mark.parametrize(
-    ("before", "reason", "kind"),
-    [
-        ((HW, AGENT), "amd-hw: RuntimeError: ioctl failed; amd-agent: Reads GFX9+ only", "agent"),
-        (
-            (HW, AGENT, DEP),
-            "amd-hw: RuntimeError: ioctl failed; amd-agent: Reads GFX9+ only; amd-dep: Install amdsmi",
-            "dependency",
-        ),
-        (
-            (DEP, KfdDenied, HW),
-            "amd-dep: Install amdsmi; kfd: PermissionError: [Errno 13] Permission denied: '/dev/kfd'; "
-            "amd-hw: RuntimeError: ioctl failed",
-            "access",
-        ),
-    ],
-    ids=["agent over hardware", "dependency over agent", "access over all"],
-)
-def test_gpu_backend_lists_every_fallback_and_takes_the_most_actionable_kind(
-    before, reason, kind, monkeypatch
-):
+def skipped(info: NodeInfo) -> list[tuple[str, str]]:
+    return [(u.metric, u.kind) for u in info.unsupported if u.metric.startswith("gpu.backend")]
+
+
+def test_each_skipped_backend_gets_its_own_entry_with_its_own_kind_and_reason_kept_whole(monkeypatch):
     monkeypatch.setitem(
         CHAINS,
         "linux",
         (
             Chain("nvidia", (fails("nvidia-absent", NoDevice("No NVIDIA GPU here")),)),
-            Chain("amd", (*before, AmdFake)),
+            Chain("amd", (HW, AGENT, DEP, KfdDenied, AmdFake)),
         ),
     )
     info, sample, _ = warm(monkeypatch, gb10())
 
-    (gap,) = [u for u in info.unsupported if u.metric.startswith("gpu.")]
-    assert gap == Unsupported(metric="gpu.backend", reason=reason, kind=kind)
+    assert skipped(info) == [
+        ("gpu.backend.amd-hw", "hardware"),
+        ("gpu.backend.amd-agent", "agent"),
+        ("gpu.backend.amd-dep", "dependency"),
+        ("gpu.backend.kfd", "access"),
+    ]
+    gaps = {u.metric: u.reason for u in info.unsupported}
+    assert gaps["gpu.backend.amd-agent"] == "Reads GFX9+ only; GFX8 is a follow-up"
+    assert gaps["gpu.backend.amd-dep"] == "Install amdsmi"
     assert [g.backend for g in info.gpus] == ["amd-fake", "amd-fake"]
+    assert_every_metric_is_reported_or_declared(info, sample)
+
+
+def test_a_default_mac_names_the_helper_to_install_and_the_root_need_on_separate_rows(monkeypatch):
+    macmon = fails("apple", CannotOpen("Install macmon (0.9.0 or later) for power and clocks", "dependency"))
+    root = fails("powermetrics", CannotOpen("Needs root", "access"))
+
+    class Ioreg(Opens):
+        name = "ioreg"
+        gpus = ("Test Apple GPU",)
+        mem = {0: {100: 1}}
+
+    monkeypatch.setitem(CHAINS, "darwin", (Chain("apple", (macmon, root, Ioreg)),))
+    info, sample, _ = warm(monkeypatch, replace(gb10(), platform="darwin"))
+
+    assert [(g.vendor, g.backend) for g in info.gpus] == [("apple", "ioreg")]
+    assert skipped(info) == [("gpu.backend.apple", "dependency"), ("gpu.backend.powermetrics", "access")]
     assert_every_metric_is_reported_or_declared(info, sample)
 
 
@@ -192,45 +200,61 @@ def test_a_vendor_that_is_absent_leaves_no_gpu_backend_entry_once_a_gpu_opened(m
     ]
 
 
-NO_GPU = ("gpu*", "mem.gpu", "gpu.backend")
-NO_DRIVER = "nvml: No NVIDIA driver is loaded (/proc/driver/nvidia is missing)"
+NO_DRIVER = "No NVIDIA driver is loaded (/proc/driver/nvidia is missing)"
 
 
 @pytest.mark.parametrize(
-    ("src", "chains", "reason", "kind"),
+    ("src", "chains", "reason", "kind", "backend_gap", "entries"),
     [
         (
             lambda tmp: gb10(nvml=None),
             None,
             "nvml: Install nvidia-ml-py to read NVIDIA GPU metrics",
             "dependency",
+            True,
+            [("gpu.backend.nvml", "Install nvidia-ml-py to read NVIDIA GPU metrics", "dependency")],
         ),
         (
             lambda tmp: replace(gb10_without(tmp, "/proc/driver/nvidia"), nvml=None),
             None,
-            NO_DRIVER,
+            f"nvml: {NO_DRIVER}",
             "hardware",
+            False,
+            [("gpu.backend.nvml", NO_DRIVER, "hardware")],
         ),
         (
             lambda tmp: replace(gb10_without(tmp, "/proc/driver/nvidia"), nvml=None),
             (Chain("nvidia", (Nvml,)), Chain("amd", (fails("amdgpu", NoDevice("No AMD GPU")),))),
-            f"{NO_DRIVER}; amdgpu: No AMD GPU",
+            f"nvml: {NO_DRIVER}; amdgpu: No AMD GPU",
             "hardware",
+            False,
+            [("gpu.backend.nvml", NO_DRIVER, "hardware"), ("gpu.backend.amdgpu", "No AMD GPU", "hardware")],
         ),
-        (lambda tmp: replace(gb10(), platform="darwin"), None, "No GPU backend reads darwin yet", "agent"),
+        (
+            lambda tmp: replace(gb10(), platform="darwin"),
+            None,
+            "No GPU backend reads darwin yet",
+            "agent",
+            True,
+            [],
+        ),
     ],
     ids=["nvidia-ml-py missing", "no NVIDIA driver", "neither vendor present", "darwin"],
 )
-def test_with_no_gpu_opened_every_gpu_gap_gives_the_same_reason(
-    src, chains, reason, kind, monkeypatch, tmp_path
+def test_with_no_gpu_opened_the_gpu_gaps_agree_and_every_backend_tried_is_listed(
+    src, chains, reason, kind, backend_gap, entries, monkeypatch, tmp_path
 ):
     if chains is not None:
         monkeypatch.setitem(CHAINS, "linux", chains)
     info, sample, _ = warm(monkeypatch, src(tmp_path))
 
-    assert {u.metric: (u.reason, u.kind) for u in info.unsupported if u.metric in NO_GPU} == dict.fromkeys(
-        NO_GPU, (reason, kind)
+    gaps = {u.metric: (u.reason, u.kind) for u in info.unsupported}
+    assert gaps["gpu*"] == gaps["mem.gpu"] == (reason, kind)
+    assert gaps.get("gpu.backend") == ((reason, kind) if backend_gap else None), (
+        "gpu.backend says no backend is in use only when a GPU may be here"
     )
+    listed = [(u.metric, u.reason, u.kind) for u in info.unsupported if u.metric.startswith("gpu.backend.")]
+    assert listed == entries
     assert info.gpus == [] and sample.gpu == [] and info.versions == {}
     assert_every_metric_is_reported_or_declared(info, sample)
 

@@ -72,8 +72,8 @@ def assert_every_metric_is_reported_or_declared(info: NodeInfo, sample: Sample) 
     if info.gpus:
         assert "gpu*" not in by_metric, "a gpu* gap would hide the GPUs that opened"
     else:
-        no_gpu = [by_metric.get(m) for m in ("gpu*", "mem.gpu", "gpu.backend")]
-        assert no_gpu[0] is not None and no_gpu.count(no_gpu[0]) == 3, "one reason for having no GPU"
+        assert by_metric["gpu*"] == by_metric["mem.gpu"], "one reason for having no GPU"
+        assert by_metric.get("gpu.backend") in (None, by_metric["gpu*"])
 
 
 def warm(monkeypatch: pytest.MonkeyPatch, src: Sources) -> tuple[NodeInfo, Sample, Collectors]:

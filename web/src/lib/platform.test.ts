@@ -10,7 +10,7 @@ describe('platformSheet', () => {
     expect(sheet.platform).toBe('Linux');
     expect(sheet.backends).toEqual([{ vendor: 'NVIDIA', backend: 'nvml', gpus: ['Test GPU'] }]);
     expect(sheet.versions).toEqual([]);
-    expect(sheet.backendGap).toBeNull();
+    expect(sheet.missing).toBeNull();
     expect(sheet.skipped).toEqual([]);
   });
 
@@ -45,14 +45,35 @@ describe('platformSheet', () => {
     ]);
   });
 
-  it('splits the gpu.backend reason into one skipped backend per failure, keeping a reason it cannot parse whole', () => {
-    const entry = (reason: string): Unsupported => ({ metric: 'gpu.backend', reason, kind: 'access' });
-    const several = platformSheet(node({ unsupported: [entry('nvml: NVML unavailable (NVML: Driver/library version mismatch); amdgpu-sysfs: Permission denied: /dev/kfd')] }));
-    expect(several.backendGap).toEqual({ kind: 'access', label: 'No access', detail: 'nvml: NVML unavailable (NVML: Driver/library version mismatch); amdgpu-sysfs: Permission denied: /dev/kfd' });
-    expect(several.skipped).toEqual([
-      { backend: 'nvml', reason: 'NVML unavailable (NVML: Driver/library version mismatch)' },
-      { backend: 'amdgpu-sysfs', reason: 'Permission denied: /dev/kfd' },
+  it('lists each skipped backend with its own kind, reading each reason whole', () => {
+    const sheet = platformSheet(node({
+      platform: 'darwin',
+      gpus: [gpu('Test Apple GPU', { vendor: 'apple', backend: 'ioreg' })],
+      unsupported: [
+        { metric: 'gpu.backend.apple', reason: 'Install macmon (0.9.0 or later); it reads power and clocks', kind: 'dependency' },
+        { metric: 'gpu.backend.powermetrics', reason: 'Needs root', kind: 'access' },
+      ],
+    }));
+    expect(sheet.missing).toBeNull();
+    expect(sheet.skipped).toEqual([
+      { backend: 'apple', gap: { kind: 'dependency', label: 'Helper tool missing', detail: 'Install macmon (0.9.0 or later); it reads power and clocks' } },
+      { backend: 'powermetrics', gap: { kind: 'access', label: 'No access', detail: 'Needs root' } },
     ]);
-    expect(platformSheet(node({ unsupported: [entry('No GPU backend reads darwin yet')] })).skipped).toEqual([{ backend: null, reason: 'No GPU backend reads darwin yet' }]);
+  });
+
+  it('says why no backend is in use: none opened, no GPU found, or nothing reported', () => {
+    const gap = (metric: string, reason: string, kind: Unsupported['kind'] = 'hardware'): Unsupported => ({ metric, reason, kind });
+    const failed = platformSheet(node({ unsupported: [gap('gpu.backend', 'nvml: NVML sees 1 GPU but could not open it'), gap('gpu.backend.nvml', 'NVML sees 1 GPU but could not open it')] }));
+    expect(failed.missing).toBe('No GPU backend opened');
+    expect(failed.skipped.map((s) => s.backend)).toEqual(['nvml']);
+
+    const absent = platformSheet(node({ unsupported: [gap('gpu*', 'nvml: No NVIDIA driver is loaded'), gap('gpu.backend.nvml', 'No NVIDIA driver is loaded')] }));
+    expect(absent.missing).toBe('No GPU found');
+
+    const darwin = platformSheet(node({ unsupported: [gap('gpu.backend', 'No GPU backend reads darwin yet', 'agent')] }));
+    expect(darwin.missing).toBe('No GPU backend opened');
+    expect(darwin.skipped).toEqual([{ backend: null, gap: { kind: 'agent', label: 'Not collected yet', detail: 'No GPU backend reads darwin yet' } }]);
+
+    expect(platformSheet(node({})).missing).toBe('No GPUs reported');
   });
 });
