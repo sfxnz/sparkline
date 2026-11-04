@@ -118,7 +118,30 @@ describe('Thermals tab', () => {
     for (const name of ['GPU power', 'GPU energy']) expect(screen.getByRole('region', { name })).toBeInTheDocument();
 
     expect(screen.getByRole('region', { name: 'Board sensors' })).toHaveTextContent(reason);
-    expect(screen.getByText('Hottest sensor').closest('.stat')).toHaveTextContent('Not reported by this hardware');
+    expect(screen.getByText('Hottest sensor').closest('.stat')).toHaveTextContent(/71\s?°C\s*NVIDIA GB10/);
+    expect(screen.getByText('Hottest sensor').closest('.stat')).not.toHaveTextContent('Not reported');
     expect(screen.queryByRole('region', { name: 'SoC · ACPI zones' })).not.toBeInTheDocument();
+  });
+
+  it('says the hottest sensor is not reported when neither hwmon nor NVML reads a temperature', () => {
+    const reason = 'No temperature sensors exposed (hwmon)';
+    const nothing = {
+      ...info,
+      gpus: [],
+      sensors: [],
+      unsupported: [
+        { metric: 'gpu*', reason: 'NVIDIA driver library (NVML) not found', kind: 'dependency' },
+        ...['temp', 'cpu.temp'].map((metric) => ({ metric, reason, kind: 'hardware' })),
+      ],
+    } as unknown as NodeInfo;
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { ...state('online'), info: nothing } } });
+    act(() => {
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: NODE, ts: 1_800_000_000, gpu: [], temps: [] });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={NODE} />);
+    const hot = screen.getByText('Hottest sensor').closest('.stat');
+    expect(hot).toHaveTextContent('Not reported by this hardware');
+    expect(within(hot as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toBeInTheDocument();
   });
 });
