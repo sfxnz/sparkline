@@ -2,6 +2,7 @@
 
 Probed 2026-10-06 on **spark1** (local) and **spark2** (via `ssh spark2`). Both nodes are identical.
 Everything below was observed directly. Metrics not listed here are not shown as data in the UI.
+Addresses, MACs and GUIDs are documentation placeholders (RFC 5737, `02:00:00:…`), not the probed values.
 
 ## Cluster
 
