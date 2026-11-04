@@ -68,7 +68,7 @@ interface GpuCtx {
 }
 
 type GpuStatSpec =
-  | { label: string; reading: GpuReading; format: Formatter; footer?: (value: number | null) => ReactNode }
+  | { label: string; reading: GpuReading; format: Formatter; footer?: (value: number | null) => ReactNode; unflattened?: true }
   | { label: string; field: GpuField; value: number | null; format: Formatter; missingFooter?: ReactNode };
 
 function gpuStats(c: GpuCtx, smFormat: Formatter): GpuStatSpec[] {
@@ -97,7 +97,7 @@ function gpuStats(c: GpuCtx, smFormat: Formatter): GpuStatSpec[] {
       format: wattsParts,
       missingFooter: <PowerTypical nodeId={nodeId} index={index} />,
     },
-    { label: 'Performance state', reading: 'pstate', format: pstateParts, footer: (v) => (v === 0 ? 'Maximum performance' : v != null ? 'Reduced performance state' : null) },
+    { label: 'Performance state', reading: 'pstate', unflattened: true, format: pstateParts, footer: (v) => (v === 0 ? 'Maximum performance' : v != null ? 'Reduced performance state' : null) },
     { label: 'Energy since driver load', reading: 'energy_j', format: energyParts, footer: () => <RangeEnergy nodeId={nodeId} index={index} currency={c.currency} rate={c.rate} glue={c.multi} /> },
   ];
 }
@@ -117,7 +117,7 @@ function GpuStats({ c }: { c: GpuCtx }) {
               nodeId={c.nodeId}
               label={spec.label}
               select={gpuSelector(c.index, spec.reading)}
-              metric={key}
+              metric={spec.unflattened ? undefined : key}
               format={spec.format}
               unsupported={gap(key)}
               footer={spec.footer}
