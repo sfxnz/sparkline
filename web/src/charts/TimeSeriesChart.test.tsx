@@ -282,6 +282,18 @@ describe('history chart whose refresh fails', () => {
     expect(screen.queryByRole('button', { name: /Couldn’t refresh/ })).toBeNull();
   });
 
+  it('keeps the history when the plot is rebuilt and the refetch fails', async () => {
+    vi.spyOn(api, 'history').mockResolvedValueOnce(resp(40)).mockRejectedValueOnce(new Error('timed out'));
+    const { rerender } = chart();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    historyCache.clear();
+    rerender(<TimeSeriesChart node={NODE} title="Utilisation" series={[{ key: KEY, label: 'Utilisation' }]} format={fmt} range="24h" height={300} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(plotted()).toEqual([40, 40]);
+    expect(screen.getByRole('img', { name: /Utilisation latest 40%/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Couldn’t refresh/ })).toBeInTheDocument();
+  });
+
   it('still offers Retry when the first load fails, with nothing to show', async () => {
     vi.spyOn(api, 'history').mockRejectedValue(new Error('timed out'));
     const { container } = chart();
