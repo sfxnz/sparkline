@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BenchCompare, BenchParam, BenchSpec, NodeStatus, Sample } from '../../lib/types';
+import type { BenchCompare, BenchParam, BenchSpec, NetIfInfo, NodeStatus, Sample } from '../../lib/types';
 import { boundRuns, mergeRun } from '../../store/bench';
 import { CATALOG, LLM, MATMUL, RDMA, SOAK, WS_MATMUL, WS_MEMBW, result, run, wsGpuOptions } from './fixtures';
 import { LIVE_4, llmRun, nodeState } from './streams/fixtures';
@@ -502,7 +502,7 @@ describe('competition', () => {
   it('never judges a node that is not reporting idle or busy, and says what it last saw', () => {
     const CPU_BENCH = { ...MATMUL, category: 'cpu' as const };
     const STORAGE = { ...MATMUL, category: 'storage' as const };
-    const railsInfo = () => [{ name: 'enp1s0f1np1', label: 'ConnectX-7 rail A' }] as never;
+    const railsInfo = () => [{ name: 'enp1s0f1np1', role: 'interconnect', label: 'Interconnect A', nic_model: 'ConnectX-7' }] as never;
     const on = (spec: Pick<BenchSpec, 'category' | 'impact'>, s: Sample, status: NodeStatus = 'stale') => competition(spec, ['spark1'], () => s, railsInfo, undefined, undefined, () => status)[0]?.text;
     for (const status of ['stale', 'offline', 'error', 'connecting'] as const) {
       for (const spec of [MATMUL, CPU_BENCH, STORAGE, RDMA]) expect(competition(spec, ['spark1'], () => sample(), railsInfo, undefined, undefined, () => status)[0]).toMatchObject({ busy: false, stale: true });
@@ -518,17 +518,22 @@ describe('competition', () => {
     expect(on(RDMA, sample({ net: [] }))).toBe('spark1 is not reporting; it was serving DeepSeek-V4.1-Flash-EXL3 when it last reported, so its current ConnectX-7 traffic is unknown.');
     expect(on(RDMA, sample({ net: [], procs: [] }))).toBe('spark1 is not reporting; its link was quiet when it last reported, so its current ConnectX-7 traffic is unknown.');
   });
-  it('looks at the CX7 link for interconnect benches', () => {
-    const rails = () => [{ name: 'enp1s0f1np1' }] as never;
-    expect(competition(RDMA, ['spark1'], () => sample(), rails)[0]?.text).toBe(
-      'spark1 ConnectX-7 traffic (serving DeepSeek-V4.1-Flash-EXL3): enp1s0f1np1 16.0 Gb/s in / 8.0 Gb/s out; results will be lower and the workload will slow down.',
+  const rail = (name: string, label: string, nic_model?: string | null) => ({ name, role: 'interconnect', label, nic_model }) as NetIfInfo;
+  const gb10 = () => [rail('enp1s0f1np1', 'Interconnect A', 'ConnectX-7'), rail('enP2p1s0f1np1', 'Interconnect B', 'ConnectX-7')];
+  const oldAgent = () => [rail('enp1s0f1np1', 'ConnectX-7 rail A'), rail('enP2p1s0f1np1', 'ConnectX-7 rail B')];
+
+  it('looks at the interconnect link for interconnect benches, naming rails by position', () => {
+    expect(competition(RDMA, ['spark1'], () => sample(), gb10)[0]?.text).toBe(
+      'spark1 ConnectX-7 traffic (serving DeepSeek-V4.1-Flash-EXL3): rail A 16.0 Gb/s in / 8.0 Gb/s out; results will be lower and the workload will slow down.',
+    );
+    expect(competition(RDMA, ['spark1'], () => sample(), oldAgent)[0]?.text).toBe(
+      'spark1 interconnect traffic (serving DeepSeek-V4.1-Flash-EXL3): rail A 16.0 Gb/s in / 8.0 Gb/s out; results will be lower and the workload will slow down.',
     );
   });
   it('stays busy for a GPU workload on a quiet link, and reports each rail from the recent window', () => {
-    const railsInfo = () => [{ name: 'enp1s0f1np1', label: 'ConnectX-7 rail A' }, { name: 'enP2p1s0f1np1', label: 'ConnectX-7 rail B' }] as never;
     const quiet = sample({ net: [{ name: 'enp1s0f1np1', rx_bps: 0, tx_bps: 0 }] as Sample['net'] });
     // Between bursts of a TP=2 model: the instantaneous sample is quiet, the workload is still there.
-    const between = competition(RDMA, ['spark1'], () => quiet, railsInfo)[0];
+    const between = competition(RDMA, ['spark1'], () => quiet, gb10)[0];
     expect(between?.busy).toBe(true);
     expect(between?.text).toMatch(/serving DeepSeek.*ConnectX-7 link/);
     const window = () => [
@@ -536,10 +541,17 @@ describe('competition', () => {
       { name: 'enP2p1s0f1np1', label: 'rail B', rx: 0, tx: 0 },
     ];
     const idleGpu = sample({ procs: [], net: [] as Sample['net'] });
-    expect(competition(RDMA, ['spark1'], () => idleGpu, railsInfo, window)[0]?.text).toBe(
+    expect(competition(RDMA, ['spark1'], () => idleGpu, gb10, window)[0]?.text).toBe(
       'spark1 ConnectX-7 traffic: rail A 76.8 Gb/s in / 76.0 Gb/s out; results will be lower and the workload will slow down.',
     );
-    expect(competition(RDMA, ['spark1'], () => idleGpu, railsInfo)[0]).toMatchObject({ busy: false, text: 'spark1 ConnectX-7 link is quiet.' });
+    expect(competition(RDMA, ['spark1'], () => idleGpu, gb10)[0]).toMatchObject({ busy: false, text: 'spark1 ConnectX-7 link is quiet.' });
+  });
+  it('names a non-ConnectX link by its own model, and an unknown one generically', () => {
+    const idleGpu = sample({ procs: [], net: [] as Sample['net'] });
+    const e810 = () => [rail('ens1f0', 'Interconnect A', 'Intel E810-C')];
+    const unknown = () => [rail('ens1f0', 'Interconnect A', null)];
+    expect(competition(RDMA, ['spark1'], () => idleGpu, e810)[0]?.text).toBe('spark1 Intel E810-C link is quiet.');
+    expect(competition(RDMA, ['spark1'], () => idleGpu, unknown)[0]?.text).toBe('spark1 interconnect link is quiet.');
   });
 });
 

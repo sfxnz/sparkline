@@ -12,7 +12,6 @@ import {
   memSplit,
   openAlertCounts,
   recentIncidents,
-  railLabel,
   topGpuProcess,
   workloadSentence,
 } from './model';
@@ -274,9 +273,13 @@ describe('interconnect', () => {
     expect(links[0]?.rails[0]?.peerName).toBeNull();
   });
 
-  it('shortens rail labels', () => {
-    expect(railLabel('ConnectX-7 rail A', 0)).toBe('Rail A');
-    expect(railLabel('ConnectX-7', 1)).toBe('Rail B');
+  it('names rails by position, whatever the interfaces are labelled', () => {
+    const relabelled = (peer: string) => [
+      nif({ name: 'ens1f0', label: 'Interconnect A', nic_model: 'ConnectX-7', peer }),
+      nif({ name: 'ens1f1', label: 'storage fabric', nic_model: 'Intel E810-C', peer }),
+    ];
+    const links = interconnectLinks(['n1', 'n2'], { n1: info(relabelled('n2')), n2: info(relabelled('n1')) });
+    expect(links[0]?.rails.map((r) => r.label)).toEqual(['Rail A', 'Rail B']);
   });
 
   it('computes load and quantises flow speed', () => {

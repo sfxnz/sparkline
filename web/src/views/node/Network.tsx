@@ -1,4 +1,4 @@
-// Network tab: the ConnectX-7 interconnect first (one card per rail), then the LAN; virtual and wireless interfaces
+// Network tab: the interconnect first (one card per rail), then the LAN; virtual and wireless interfaces
 // stay behind a disclosure.
 import { Cable, ChevronRight, CircleCheck, Info, Network as NetworkIcon, TriangleAlert } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
@@ -8,6 +8,7 @@ import { Panel } from '../../design/components/Panel';
 import { StatusPill } from '../../design/components/StatusPill';
 import { Tooltip } from '../../design/components/Tooltip';
 import { bitrateParts, formatBitrate, type Formatter } from '../../lib/format';
+import { ifaceLabel, nicModel, nicNoun, rdmaCounting } from '../../lib/interconnect';
 import type { NetIfInfo, NetSample, NodeInfo, Sample } from '../../lib/types';
 import { useLatest } from '../../store/live';
 import { usePrefs } from '../../store/prefs';
@@ -34,18 +35,15 @@ function NetworkView({ node, info }: { node: string; info: NodeInfo }) {
   const upKey = useDerived(node, (get) => info.net.filter((n) => get(`net.${n.name}.up`) === 1).map((n) => n.name).join('|'));
   const up = new Set(upKey.split('|'));
   const groups = classifyInterfaces(info.net, (name) => up.has(name));
+  const noun = nicNoun(nicModel(info.net));
+  const ports = groups.notConnected.length;
 
   return (
     <div className="view view--flush nb">
       <section className="nb-section" aria-labelledby="nb-ic-title">
         <header className="nb-section__head">
           <h2 id="nb-ic-title" className="nb-section__title">Interconnect</h2>
-          <span className="nb-section__note">Includes RDMA traffic</span>
-          <Tooltip content="RDMA traffic (NCCL, RoCE) bypasses the kernel, so the operating system's interface counters miss almost all of it. Sparkline adds each ConnectX-7 function's RDMA port counters, so these numbers include it.">
-            <button type="button" className="nb-info" aria-label="About interconnect counters">
-              <Info aria-hidden="true" />
-            </button>
-          </Tooltip>
+          <RdmaNote ifaces={groups.links.length ? groups.links : groups.notConnected} noun={noun} />
         </header>
         {groups.links.length ? (
           <div className="grid nb-grid-rails">
@@ -54,9 +52,9 @@ function NetworkView({ node, info }: { node: string; info: NodeInfo }) {
         ) : (
           <Panel label="No interconnect links">
             <EmptyState icon={Cable} title="No interconnect links" compact>
-              {groups.notConnected.length
-                ? `This node has ${groups.notConnected.length} ConnectX-7 ${groups.notConnected.length === 1 ? 'port' : 'ports'}, but none has a link. Connect a cable to a peer node to use the direct interconnect.`
-                : 'No ConnectX-7 ports were found on this node.'}
+              {ports
+                ? `This node has ${ports} ${noun} ${ports === 1 ? 'port' : 'ports'}, but none has a link. Connect a cable to a peer node to use the direct interconnect.`
+                : `No ${noun} ports were found on this node.`}
             </EmptyState>
           </Panel>
         )}
@@ -78,6 +76,28 @@ function NetworkView({ node, info }: { node: string; info: NodeInfo }) {
     </div>
   );
 }
+
+const RDMA_BYPASS = "RDMA traffic (NCCL, RoCE) bypasses the kernel, so the operating system's interface counters miss almost all of it.";
+
+function RdmaNote({ ifaces, noun }: { ifaces: readonly NetIfInfo[]; noun: string }) {
+  const c = rdmaCounting(ifaces);
+  if (c.kind === 'none') return null;
+  const [note, tip] = c.kind === 'included'
+    ? ['Includes RDMA traffic', `${RDMA_BYPASS} Sparkline adds each ${noun} function's RDMA port counters, so these numbers include it.`]
+    : ['RDMA traffic not counted', `${RDMA_BYPASS} Sparkline has no RDMA counters for ${listNames(c.ifaces.map((n) => n.name))}, so their numbers leave it out.`];
+  return (
+    <>
+      <span className="nb-section__note">{note}</span>
+      <Tooltip content={tip}>
+        <button type="button" className="nb-info" aria-label="About interconnect counters">
+          <Info aria-hidden="true" />
+        </button>
+      </Tooltip>
+    </>
+  );
+}
+
+const listNames = (names: readonly string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1) ?? ''}`);
 
 function useIfSample<T>(node: string, name: string, pick: (n: NetSample) => T, fallback: T): T {
   return useLatest(node, (s) => {
@@ -112,16 +132,17 @@ function IfaceCard({ node, iface }: { node: string; iface: NetIfInfo }) {
   const range = usePrefs((s) => s.timeRange);
   const bits = useCallback((v: number) => formatBitrate(v), []);
   const speed = useIfSample(node, iface.name, (n) => n.speed_mbps, null) ?? iface.speed_mbps;
+  const label = ifaceLabel(iface);
   const title = (
     <span className="nb-card__title">
-      <span>{iface.label}</span>
+      <span>{label}</span>
       {iface.peer ? <span className="nb-card__peer">to {iface.peer}</span> : null}
     </span>
   );
   return (
     <Panel
       title={title}
-      label={`${iface.label}${iface.peer ? ` to ${iface.peer}` : ''}`}
+      label={`${label}${iface.peer ? ` to ${iface.peer}` : ''}`}
       subtitle={<IfaceMeta iface={iface} />}
     >
       <div className="nb-card">
@@ -143,7 +164,7 @@ function IfaceCard({ node, iface }: { node: string; iface: NetIfInfo }) {
         </div>
         <TimeSeriesChart
           node={node}
-          title={`${iface.label} throughput`}
+          title={`${label} throughput`}
           series={[
             { key: `net.${iface.name}.rx_bps`, label: 'Receive' },
             { key: `net.${iface.name}.tx_bps`, label: 'Transmit' },
@@ -187,7 +208,7 @@ function NotConnected({ ifaces }: { ifaces: NetIfInfo[] }) {
           <li key={n.name} className="nb-notconn__item">
             <Cable aria-hidden="true" />
             <span className="nb-notconn__name num">{n.name}</span>
-            <span className="nb-notconn__desc">{n.label}</span>
+            <span className="nb-notconn__desc">{ifaceLabel(n)}</span>
           </li>
         ))}
       </ul>

@@ -94,6 +94,7 @@ describe('Network tab', () => {
     push(sample());
     render(<Network nodeId={NODE} />);
     const rail = screen.getByRole('region', { name: 'ConnectX-7 rail A to spark2' });
+    expect(screen.getByText('Includes RDMA traffic')).toBeInTheDocument();
     expect(within(rail).getByText('Link up')).toBeInTheDocument();
     expect(within(rail).getByText('RDMA active')).toBeInTheDocument();
     expect(within(rail).getByText('200 Gb/s (4X HDR)')).toBeInTheDocument();
@@ -122,6 +123,83 @@ describe('Network tab', () => {
     const rail = screen.getByRole('region', { name: 'ConnectX-7 rail A to spark2' });
     expect(within(rail).getByText('Link down')).toBeInTheDocument();
     expect(within(rail).getByText('RDMA down')).toBeInTheDocument();
+  });
+
+  const withNet = (net: NetIfInfo[]) => {
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: { ...info, net } } } });
+  };
+  const rails = (nic_model: string | null | undefined, extra: Partial<NetIfInfo> = {}) => [
+    nif('railA', 'interconnect', 'Interconnect A', { peer: 'spark2', speed_mbps: 200_000, rdma_device: 'rocep1s0f1', counter_source: 'netdev_rdma', nic_model, ...extra }),
+    nif('spare0', 'interconnect', 'Interconnect port (no cable)', { rdma_device: 'rocep1s0f0', nic_model }),
+    nif('lan0', 'lan', 'LAN', { speed_mbps: 10_000 }),
+  ];
+  const counterNote = () => screen.getByRole('button', { name: 'About interconnect counters' });
+
+  it('names a GB10 rail from a new agent exactly as the old label read', () => {
+    withNet(rails('ConnectX-7'));
+    push(sample());
+    render(<Network nodeId={NODE} />);
+    expect(screen.getByRole('region', { name: 'ConnectX-7 rail A to spark2' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Ports without a link' })).toHaveTextContent('ConnectX-7 port (no cable)');
+    expect(screen.getByText('Includes RDMA traffic')).toBeInTheDocument();
+    expect(counterNote()).toHaveAccessibleDescription(
+      "RDMA traffic (NCCL, RoCE) bypasses the kernel, so the operating system's interface counters miss almost all of it. Sparkline adds each ConnectX-7 function's RDMA port counters, so these numbers include it.",
+    );
+  });
+
+  it('names a non-ConnectX rail by its own model and never says ConnectX-7', () => {
+    withNet(rails('Intel E810-C'));
+    push(sample());
+    const { container } = render(<Network nodeId={NODE} />);
+    expect(screen.getByRole('region', { name: 'Intel E810-C rail A to spark2' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Ports without a link' })).toHaveTextContent('Intel E810-C port (no cable)');
+    expect(counterNote()).toHaveAccessibleDescription(/each Intel E810-C function's RDMA port counters/);
+    expect(container).not.toHaveTextContent(/ConnectX/);
+  });
+
+  it('names a rail whose NIC is not known by its role', () => {
+    withNet(rails(null));
+    push(sample());
+    const { container } = render(<Network nodeId={NODE} />);
+    expect(screen.getByRole('region', { name: 'Interconnect A to spark2' })).toBeInTheDocument();
+    expect(counterNote()).toHaveAccessibleDescription(/each interconnect function's RDMA port counters/);
+    expect(container).not.toHaveTextContent(/ConnectX/);
+  });
+
+  it('words the empty state with the model of the ports that have no link', () => {
+    withNet(rails('Intel E810-C', { peer: null }));
+    push(sample({ net: sample().net.map((n) => (n.name === 'railA' ? { ...n, up: false } : n)) }));
+    render(<Network nodeId={NODE} />);
+    expect(screen.getByText(/This node has 2 Intel E810-C ports, but none has a link/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['netdev_rdma', 'rocep1s0f1'],
+    ['ethtool_phy', null],
+  ] as const)('says the rail counters include RDMA traffic when they come from %s', (counter_source, rdma_device) => {
+    withNet(rails('ConnectX-7', { counter_source, rdma_device }));
+    push(sample());
+    render(<Network nodeId={NODE} />);
+    expect(screen.getByText('Includes RDMA traffic')).toBeInTheDocument();
+    expect(screen.queryByText('RDMA traffic not counted')).not.toBeInTheDocument();
+  });
+
+  it('warns that RDMA traffic is not counted for an RDMA-capable rail with plain netdev counters', () => {
+    withNet(rails('Intel E810-C', { counter_source: 'netdev', rdma_device: 'irdma0' }));
+    push(sample());
+    render(<Network nodeId={NODE} />);
+    expect(screen.getByText('RDMA traffic not counted')).toBeInTheDocument();
+    expect(screen.queryByText('Includes RDMA traffic')).not.toBeInTheDocument();
+    expect(counterNote()).toHaveAccessibleDescription(/Sparkline has no RDMA counters for railA, so their numbers leave it out\./);
+  });
+
+  it('has no RDMA note for a rail without an RDMA device', () => {
+    withNet(rails('Intel E810-C', { counter_source: 'netdev', rdma_device: null }));
+    push(sample());
+    render(<Network nodeId={NODE} />);
+    expect(screen.queryByText('Includes RDMA traffic')).not.toBeInTheDocument();
+    expect(screen.queryByText('RDMA traffic not counted')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'About interconnect counters' })).not.toBeInTheDocument();
   });
 });
 
@@ -269,8 +347,8 @@ describe('Summary tab', () => {
     const memory = screen.getByText('Memory available', { selector: '.stat__label' }).closest('.stat');
     expect(memory).toHaveTextContent('Not reported by this hardware');
     expect(memory).not.toHaveTextContent('0 B');
-    expect(screen.getByText('ConnectX-7 in', { selector: '.stat__label' }).closest('.stat')).toHaveTextContent('Not reported by this hardware');
-    expect(screen.queryByText(/No ConnectX-7 link is cabled/)).not.toBeInTheDocument();
+    expect(screen.getByText('Interconnect in', { selector: '.stat__label' }).closest('.stat')).toHaveTextContent('Not reported by this hardware');
+    expect(screen.queryByText(/No interconnect link is cabled/)).not.toBeInTheDocument();
     expect(screen.getByText('CPU utilisation', { selector: '.stat__label' }).closest('.stat')).toHaveTextContent('40%');
     const notes = screen.getByRole('list', { name: 'Metrics unavailable' });
     expect(notes).toHaveTextContent('Temperature sensors unavailable: OSError: hwmon vanished');
@@ -299,12 +377,12 @@ describe('Summary tab', () => {
     push(sample({ net: [] }));
     render(<Summary nodeId={NODE} />);
     for (const dir of ['in', 'out']) {
-      const tile = screen.getByText(`ConnectX-7 ${dir}`, { selector: '.stat__label' }).closest('.stat');
+      const tile = screen.getByText(`Interconnect ${dir}`, { selector: '.stat__label' }).closest('.stat');
       expect(tile).toHaveTextContent('No direct link');
-      expect(within(tile as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription('No ConnectX-7 rail on this node is cabled to another node.');
+      expect(within(tile as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription('No interconnect rail on this node is cabled to another node.');
     }
-    const panel = screen.getByRole('region', { name: 'ConnectX-7 throughput' });
-    expect(panel).toHaveTextContent('No ConnectX-7 link is cabled on btest.');
+    const panel = screen.getByRole('region', { name: 'Interconnect throughput' });
+    expect(panel).toHaveTextContent('No interconnect link is cabled on btest.');
     expect(panel).not.toHaveTextContent('Not collected yet');
   });
 });

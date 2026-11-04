@@ -16,6 +16,7 @@ import { useNow } from '../design/useNow';
 import { api } from '../lib/api';
 import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
+import { nicHeading, nicModel } from '../lib/interconnect';
 import { memoryLayout } from '../lib/memoryLayout';
 import { sentence } from '../lib/gpu';
 import { gpuHeadline } from '../lib/platform';
@@ -79,7 +80,7 @@ export default function Node() {
 }
 
 function TabSkeleton({ label, tab, info }: { label: string; tab: NodeTab; info: NodeInfo | null | undefined }) {
-  if (tab === 'summary') return <SummarySkeleton memory={memoryLayout(info).name} />;
+  if (tab === 'summary') return <SummarySkeleton memory={memoryLayout(info).name} nic={nicHeading(nicModel(info?.net))} />;
   return (
     <div className="view" aria-busy="true">
       <Panel label={`${label} summary`} busy>

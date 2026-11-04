@@ -5,23 +5,23 @@ import { Skeleton } from '../../../design/components/Skeleton';
 import type { MemoryLayout } from '../../../lib/memoryLayout';
 import { ChartSkeleton } from '../../placeholders';
 
-export const SUMMARY_STAT_LABELS = ['GPU utilisation', 'GPU temperature', 'GPU power', 'Memory available', 'CPU utilisation', 'ConnectX-7 in', 'ConnectX-7 out', 'Root disk used'] as const;
-const charts = (memory: MemoryLayout['name']): readonly { title: string; wide?: boolean }[] => [
+const statLabels = (nic: string) => ['GPU utilisation', 'GPU temperature', 'GPU power', 'Memory available', 'CPU utilisation', `${nic} in`, `${nic} out`, 'Root disk used'];
+const charts = (memory: MemoryLayout['name'], nic: string): readonly { title: string; wide?: boolean }[] => [
   { title: 'GPU utilisation' },
   { title: 'GPU power' },
   { title: memory },
   { title: 'CPU utilisation' },
-  { title: 'ConnectX-7 throughput', wide: true },
+  { title: `${nic} throughput`, wide: true },
 ];
 /** TimeSeriesChart at height 168: legend row (26) + gap (8) + plot. */
 const CHART_H = 168 + 34;
 
-export function SummarySkeleton({ memory }: { memory: MemoryLayout['name'] }) {
+export function SummarySkeleton({ memory, nic }: { memory: MemoryLayout['name']; nic: string }) {
   return (
     <div className="view nsum" aria-busy="true">
       <Panel label="At a glance" busy>
         <div className="nstats nstats--8">
-          {SUMMARY_STAT_LABELS.map((label) => (
+          {statLabels(nic).map((label) => (
             <div key={label} className="stat stat--md nstat--loading">
               <div className="stat__label">{label}</div>
               <Skeleton width={84} height={24} radius={8} />
@@ -31,7 +31,7 @@ export function SummarySkeleton({ memory }: { memory: MemoryLayout['name'] }) {
         </div>
       </Panel>
       <div className="nsum__charts">
-        {charts(memory).map((c) => (
+        {charts(memory, nic).map((c) => (
           <Panel key={c.title} title={c.title} className={c.wide ? 'nsum__wide' : undefined} busy>
             <ChartSkeleton height={CHART_H} />
           </Panel>

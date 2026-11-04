@@ -2,6 +2,7 @@
 // confirmation: what runs where, for how long, its thermal/power impact and, from live data, what it will compete
 // with. Only "Run benchmark" there starts it (the API also refuses a create without confirm: true).
 import { ArrowLeft, CircleCheck, Clock, ClockFading, Play, TriangleAlert } from 'lucide-react';
+import { railIfaces } from '../../lib/interconnect';
 import type { NetIfInfo } from '../../lib/types';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '../../design/components/Button';
@@ -328,10 +329,11 @@ const TRAFFIC_WINDOW_S = 60;
 function recentTraffic(node: string, rails: readonly NetIfInfo[]): LinkTraffic[] {
   const last = liveStore.lastTs(node);
   if (last === null) return [];
-  const keys = rails.flatMap((r) => [`net.${r.name}.rx_bps`, `net.${r.name}.tx_bps`]);
+  const lettered = railIfaces(rails);
+  const keys = lettered.flatMap((r) => [`net.${r.iface.name}.rx_bps`, `net.${r.iface.name}.tx_bps`]);
   const w = liveStore.window(node, keys, last - TRAFFIC_WINDOW_S);
   const peak = (i: number) => Math.max(0, ...(w.values[i] ?? []).filter((v): v is number => v != null));
-  return rails.map((r, i) => ({ name: r.name, label: railLabel(r), rx: peak(2 * i), tx: peak(2 * i + 1) }));
+  return lettered.map((r, i) => ({ name: r.iface.name, label: railLabel(r), rx: peak(2 * i), tx: peak(2 * i + 1) }));
 }
 
 function Review({ spec, nodes, gpuIndex, gpuOn, values, estimate, unknownOn, statusOf }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; gpuOn: boolean; values: ParamValues; estimate: number | null; unknownOn: readonly string[]; statusOf: (n: string) => NodeStatus | undefined }) {

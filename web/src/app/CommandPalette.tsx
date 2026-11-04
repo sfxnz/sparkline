@@ -5,6 +5,7 @@ import { Dialog } from '../design/components/Dialog';
 import { Kbd } from '../design/components/Kbd';
 import { benchApi } from '../lib/api';
 import { fuzzyFilter } from '../lib/fuzzy';
+import { nicAbbr, nicHeading, nicModel } from '../lib/interconnect';
 import { memoryLayout, type MemoryLayout } from '../lib/memoryLayout';
 import { nextTheme, resolveTheme } from '../lib/prefs';
 import type { BenchSpec } from '../lib/types';
@@ -26,7 +27,7 @@ export interface Command {
 }
 
 /** Metrics people look for by name, and the node tab that shows each. Listed per node, only once the user types. */
-const metrics = (layout: MemoryLayout): readonly { label: string; tab: NodeTab; keywords: string }[] => [
+const metrics = (layout: MemoryLayout, nic: string | null): readonly { label: string; tab: NodeTab; keywords: string }[] => [
   { label: 'GPU utilisation', tab: 'gpu', keywords: 'usage load busy sm' },
   { label: 'GPU temperature', tab: 'gpu', keywords: 'temp thermal heat slowdown shutdown' },
   { label: 'GPU power', tab: 'gpu', keywords: 'watts rail' },
@@ -39,8 +40,8 @@ const metrics = (layout: MemoryLayout): readonly { label: string; tab: NodeTab; 
   { label: 'Memory pressure', tab: 'memory', keywords: 'psi stall waiting' },
   { label: 'CPU utilisation', tab: 'cpu', keywords: 'cores load performance efficiency' },
   { label: 'Per-core heatmap', tab: 'cpu', keywords: 'cores' },
-  { label: 'ConnectX-7 throughput', tab: 'network', keywords: 'cx7 rdma interconnect rail bandwidth traffic' },
-  { label: 'ConnectX-7 errors', tab: 'network', keywords: 'cx7 rdma interconnect drops counters link' },
+  { label: `${nicHeading(nic)} throughput`, tab: 'network', keywords: `${nicAbbr(nic)?.toLowerCase() ?? ''} rdma interconnect rail bandwidth traffic` },
+  { label: `${nicHeading(nic)} errors`, tab: 'network', keywords: `${nicAbbr(nic)?.toLowerCase() ?? ''} rdma interconnect drops counters link` },
   { label: 'Disk throughput', tab: 'storage', keywords: 'nvme read write iops busy io' },
   { label: 'Disk capacity', tab: 'storage', keywords: 'space filesystems free used' },
   { label: 'NVMe temperature', tab: 'storage', keywords: 'temp disk ssd' },
@@ -93,7 +94,8 @@ function useCommands(close: () => void, query: string): Command[] {
     // Metrics and individual benchmarks would bury the short list; they appear once the user types.
     if (typing) {
       for (const id of order) {
-        for (const m of metrics(memoryLayout(nodes[id]?.info))) {
+        const info = nodes[id]?.info;
+        for (const m of metrics(memoryLayout(info), nicModel(info?.net))) {
           cmds.push({ id: `metric-${id}-${m.label}`, group: 'Metrics', label: `${id} › ${m.label}`, keywords: m.keywords, icon: Activity, run: go(paths.node(id, m.tab)) });
         }
       }

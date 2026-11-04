@@ -72,10 +72,10 @@ describe('Summary memory', () => {
   });
 
   it('titles the loading memory panel by the same layout', () => {
-    const { unmount } = render(<SummarySkeleton memory={memoryLayout(ws1()).name} />);
+    const { unmount } = render(<SummarySkeleton memory={memoryLayout(ws1()).name} nic="Interconnect" />);
     expect(screen.getByRole('region', { name: 'System memory' })).toHaveAttribute('aria-busy', 'true');
     unmount();
-    render(<SummarySkeleton memory={memoryLayout(gb10()).name} />);
+    render(<SummarySkeleton memory={memoryLayout(gb10()).name} nic="ConnectX-7" />);
     expect(screen.getByRole('region', { name: 'Unified memory' })).toHaveAttribute('aria-busy', 'true');
   });
 });

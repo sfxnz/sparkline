@@ -27,7 +27,7 @@ it('says a Wi-Fi-only node has no direct link, not that ConnectX-7 is not collec
     liveStore.flush();
   });
   render(<WallTile id="wifi1" />);
-  const cx7 = screen.getByText('ConnectX-7 in + out').closest('div') as HTMLElement;
+  const cx7 = screen.getByText('Interconnect in + out').closest('div') as HTMLElement;
   expect(within(cx7).getByText('No direct link')).toBeInTheDocument();
   expect(cx7).not.toHaveTextContent('Not collected yet');
 });
