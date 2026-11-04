@@ -6,6 +6,8 @@ import { useConnection } from '../../store/connection';
 import { useEvents } from '../../store/events';
 import { liveStore } from '../../store/live';
 import sampleJson from '../../test/fixtures/sample.json';
+import wsInfo from '../../test/fixtures/platforms/workstation/info.json';
+import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
 import Overview from '../Overview';
 
 // uPlot needs a real canvas; the charts have their own tests.
@@ -257,5 +259,44 @@ describe('Overview', () => {
     const row = container.querySelector('.ov-cx');
     expect(row).toHaveTextContent('No direct link');
     expect(row).not.toHaveTextContent('Not collected yet');
+  });
+});
+
+describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => {
+  const ws1 = wsInfo as unknown as NodeInfo;
+  const reading = wsSample as unknown as Sample;
+  const withGpus = (over: Record<number, Partial<Sample['gpu'][number]>>): Sample => ({ ...reading, gpu: reading.gpu.map((g) => ({ ...g, ...over[g.index] })) });
+  const show = (sample: Sample, info: NodeInfo = ws1) => {
+    useCluster.getState().setHello(cluster([node('ws1', { info })]));
+    act(() => {
+      liveStore.removeNode('ws1');
+      liveStore.pushSample({ ...sample, ts: now });
+      liveStore.flush();
+    });
+    render(<Overview />);
+    return screen.getByRole('region', { name: 'Node ws1' });
+  };
+  const pill = (scope: HTMLElement) => scope.querySelector('[data-status]')?.getAttribute('data-status');
+
+  it.each([
+    ['only GPU 3 is at its slowdown temperature', { 3: { temp_c: 94 } }, 'ws1 has GPU 3 at its slowdown temperature'],
+    ['only GPU 3 has its clocks cut by overheating', { 3: { throttle_mask: 0x40 } }, 'ws1 has GPU 3 clocks limited by overheating'],
+  ])('raises the card pill to critical and names ws1 in the cluster sentence when %s', (_, over, sentence) => {
+    const card = show(withGpus(over));
+    expect(pill(card)).toBe('critical');
+    expect(screen.getByRole('heading', { name: sentence })).toBeInTheDocument();
+  });
+
+  it('keeps the card pill healthy while every GPU is calm', () => {
+    expect(pill(show(reading))).toBe('healthy');
+    expect(screen.getByRole('heading', { name: 'ws1 is healthy' })).toBeInTheDocument();
+  });
+
+  it('still names GPU 3 at slowdown while GPU 0 has an open warning alert', () => {
+    useEvents.setState({
+      events: [{ id: 1, ts: now, node_id: 'ws1', severity: 'warning', kind: 'alert', rule_id: 'gpu_temp_high', title: 'GPU temperature high on ws1 · GPU 0', detail: '', metric: 'gpu0.temp_c', value: 88, resolved_ts: null, acked: false }],
+    });
+    show(withGpus({ 0: { temp_c: 88 }, 3: { temp_c: 94 } }));
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 3 at its slowdown temperature · 1 warning' })).toBeInTheDocument();
   });
 });

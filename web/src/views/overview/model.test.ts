@@ -133,7 +133,7 @@ describe('clusterHealth with live conditions and explained alerts', () => {
   });
 
   it('lets the alert count speak once the rule has fired', () => {
-    const h = clusterHealth([{ id: 'spark1', status: 'online', condition: hot, alerted: true }, { id: 'spark2', status: 'online' }], { critical: 1, warning: 0 });
+    const h = clusterHealth([{ id: 'spark1', status: 'online', condition: hot, alert: 'critical' }, { id: 'spark2', status: 'online' }], { critical: 1, warning: 0 });
     expect(h.sentence).toBe('All 2 nodes online · 1 critical alert');
   });
 

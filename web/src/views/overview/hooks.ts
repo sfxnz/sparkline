@@ -103,10 +103,10 @@ export function useClusterHealth(): Health {
   const consoleLive = useConnection((s) => s.status === 'live');
   const notLiveIds = order.filter((id) => nodes[id]?.status !== 'online');
   const alerts = useEvents(useShallow((s) => openAlertCounts(s.events, notLiveIds)));
-  const alerted = useEvents(useShallow((s) => order.map((id) => openAlertLevel(s.events, id) !== null)));
+  const levels = useEvents(useShallow((s) => order.map((id) => openAlertLevel(s.events, id))));
   const conditions = useLiveConditions(order);
   return clusterHealth(
-    order.map((id, i) => ({ id, status: nodes[id]?.status, condition: conditions[id] ?? null, alerted: alerted[i] ?? false })),
+    order.map((id, i) => ({ id, status: nodes[id]?.status, condition: conditions[id] ?? null, alert: levels[i] ?? null })),
     alerts,
     consoleLive,
   );

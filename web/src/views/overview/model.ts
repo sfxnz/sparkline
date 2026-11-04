@@ -24,8 +24,8 @@ export interface NodeHealthInput {
   status: NodeStatus | undefined;
   /** What the latest sample already flags (temperature at slowdown, hardware clock limits), if anything. */
   condition?: LiveCondition | null;
-  /** The node has an open warning/critical alert (its rule has fired). */
-  alerted?: boolean;
+  /** The level of the node's worst open alert (a rule has fired), if any. */
+  alert?: 'warning' | 'critical' | null;
 }
 
 export interface AlertCounts {
@@ -79,8 +79,8 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   const error = by('error');
   const stale = by('stale');
   const connecting = nodes.filter((n) => n.status === 'connecting' || n.status === undefined).map((n) => n.id);
-  // Live flags whose alert has not fired yet; once it has, the alert count says it.
-  const flagged = nodes.filter((n) => n.status === 'online' && n.condition && !n.alerted);
+  // Live flags no open alert covers yet; once one at least as severe has fired, the alert count says it.
+  const flagged = nodes.filter((n) => n.status === 'online' && n.condition && n.alert !== 'critical' && n.alert !== n.condition.level);
 
   const parts: string[] = [];
   if (offline.length) parts.push(`${listNodes(offline)} ${isAre(offline)} offline`);
