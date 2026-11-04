@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from dataclasses import replace
 from typing import ClassVar, get_args
 
@@ -9,7 +10,7 @@ import pytest
 from platforms import GB10, gb10, gb10_without
 from test_capabilities import assert_every_metric_is_reported_or_declared, warm
 
-from sparkline.agent.collectors import GpuField
+from sparkline.agent.collectors import GpuField, gpu
 from sparkline.agent.collectors.gpu import CHAINS, GpuCollector
 from sparkline.agent.collectors.gpu.backend import CannotOpen, Chain, Gap, NoDevice
 from sparkline.agent.collectors.gpu.nvml import Nvml
@@ -438,6 +439,30 @@ def test_close_waits_for_a_tick_still_reading_the_backend(monkeypatch):
     tick.join(5)
     closing.join(5)
     assert Closes.closed == ["blocks"]
+
+
+def test_close_gives_up_on_a_wedged_backend_and_closes_the_others(monkeypatch, caplog):
+    Closes.closed.clear()
+    Blocks.entered.clear()
+    Blocks.release.clear()
+    other = type("other", (Closes,), {"name": "other"})
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (Blocks,)), Chain("amd", (other,))))
+    monkeypatch.setattr(gpu, "CLOSE_WAIT_S", 0.2, raising=False)
+    g = GpuCollector(gb10())
+    tick = threading.Thread(target=g.collect)
+    tick.start()
+    assert Blocks.entered.wait(5)
+    started = time.monotonic()
+    g.close()
+    waited = time.monotonic() - started
+    try:
+        assert waited < 2, f"close() waited {waited:.1f} s on a wedged backend"
+        assert Closes.closed == ["other"]
+        assert "blocks backend" in caplog.text
+    finally:
+        Blocks.release.set()
+        tick.join(5)
+    assert Closes.closed == ["other"], "the wedged backend was closed, or the stuck tick read a closed one"
 
 
 def test_two_backends_with_one_name_are_refused(monkeypatch):
