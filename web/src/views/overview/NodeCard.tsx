@@ -284,13 +284,13 @@ function Temperature() {
   const footer = room || second ? (
     <>
       {flag ?? (room ? <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</> : null)}
-      {second ? <span className="ov-stat__who">{second}</span> : null}
+      {second ? <span className={`ov-stat__who${flag || room ? ' ov-stat__who--second' : ''}`}>{second}</span> : null}
     </>
   ) : null;
   return (
     <>
       <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />
-      {flag && !gap ? <p className="ov-card__flag">{flag}{gpu.name ? <span className="ov-card__flag-who"> · {gpu.name}</span> : null}</p> : null}
+      {flag && !gap ? <p className="ov-card__flag">{flag}{gpu.name ? <span className="ov-stat__who">{gpu.name}</span> : null}</p> : null}
     </>
   );
 }

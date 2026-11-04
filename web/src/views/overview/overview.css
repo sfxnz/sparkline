@@ -34,7 +34,6 @@
 .ov-flag svg { width: 13px; height: 13px; flex: none; color: var(--tone); }
 .ov-stat__who { display: block; }
 .ov-card__flag { display: none; grid-column: 1 / -1; grid-row: 2; margin: 0; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
-.ov-card__flag-who { white-space: nowrap; }
 
 /* -------------------------------------------------------------- node cards */
 /* Three cards fit side by side down to a 1280 px laptop (sidebar open); the minimum is in rem so cards also drop to
@@ -65,7 +64,7 @@
   .ov-stat .unsupported { display: block; }
   .ov-stat .unsupported__info { display: inline-grid; vertical-align: middle; }
   .ov-card__flag { display: block; }
-  .ov-stat .ov-flag, .ov-stat__who:not(:first-child) { display: none; }
+  .ov-stat .ov-flag, .ov-stat__who--second { display: none; }
 }
 .ov-card__panel { flex: 1; position: relative; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
 .ov-card:hover .ov-card__panel { border-color: var(--separator-strong); }
