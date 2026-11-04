@@ -663,6 +663,7 @@ class DemoSource(NodeSource):
         self.model = model
         self.seq = 0
         self.energy: dict[int, float] = {}
+        self.last_power_w: dict[int, float] = {}
         self.procs_ts: float | None = None
         self.interval = 1.0
 
@@ -688,8 +689,11 @@ class DemoSource(NodeSource):
                 continue
             s = self.model.sample_at(now, self.seq, procs=self.seq % 5 == 0)
             for g in s.gpu:
+                if g.power_w is not None:
+                    self.last_power_w[g.index] = g.power_w
                 prev = self.energy.get(g.index)
-                e = (g.energy_j or 0.0) if prev is None else prev + (g.power_w or 0) * self.interval
+                gained = self.last_power_w.get(g.index, 0.0) * self.interval
+                e = (g.energy_j or 0.0) if prev is None else prev + gained
                 self.energy[g.index] = e
                 g.energy_j = round(e, 1)
             if s.procs is not None:
@@ -726,7 +730,8 @@ def demo_history(
         for k in want if want is not None else subs[1].keys():
             vals = [s[k] for s in subs if k in s]
             for d in (series, mins, maxs):
-                d.setdefault(k, [None] * idx).append(None)
+                v = d.setdefault(k, [])
+                v.extend([None] * (idx + 1 - len(v)))  # a key can skip buckets (ws1's GPU 2 power dropout)
             if not vals:
                 continue
             if k.endswith(COUNTER_KEYS_SUFFIX):
