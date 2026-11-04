@@ -523,7 +523,7 @@ function ResultsPanel({ run, regressionPct, onShare }: { run: BenchRun; regressi
 // ------------------------------------------------------------------------------------------------ modelled figures
 
 function ModelledNote({ modelled, figures }: { modelled: Modelled | null; figures: string }) {
-  return modelled ? <Banner tone="stale" title={modelledNote(modelled, figures)} /> : null;
+  return modelled ? <Banner tone="stale" title="Modelled figures" text={modelledNote(modelled, figures)} /> : null;
 }
 
 function ModelledMark({ result }: { result: BenchResult }) {
