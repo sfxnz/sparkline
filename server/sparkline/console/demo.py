@@ -627,7 +627,7 @@ class DemoModel:
                 GpuInfo(
                     index=0,
                     name="NVIDIA GB10",
-                    uuid=f"GPU-{uuid_hex[:8]}-{uuid_hex[8:12]}-{uuid_hex[12:16]}-{uuid_hex[16:20]}-{uuid_hex[20:]}",
+                    uuid=f"GPU-00000000-0000-0000-0000-0000{uuid_hex[:8]}",
                     arch="Blackwell",
                     compute_capability="12.1",
                     cuda_cores=6144,

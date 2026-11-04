@@ -461,7 +461,7 @@ class WorkstationModel:
 
         def uuid(i: int) -> str:
             x = hashlib.md5(f"{self.node_id}gpu{i}".encode()).hexdigest()
-            return f"GPU-{x[:8]}-{x[8:12]}-{x[12:16]}-{x[16:20]}-{x[20:]}"
+            return f"GPU-00000000-0000-0000-0000-0000{x[:8]}"
 
         return NodeInfo(
             node_id=self.node_id,
@@ -469,6 +469,8 @@ class WorkstationModel:
             agent_version="0.1.0",
             os="Ubuntu 24.04.3 LTS",
             kernel="6.14.0-35-generic",
+            platform="linux",
+            versions={"nvidia.Driver": "580.95.05", "nvidia.CUDA": "13.0", "nvidia.NVML": "13.580.95.05"},
             driver="580.95.05",
             cuda="13.0",
             nvml="13.580.95.05",
@@ -489,6 +491,8 @@ class WorkstationModel:
                     temp_shutdown_c=SHUTDOWN_C,
                     temp_max_c=MAX_OPERATING_C,
                     power_limit_w=POWER_LIMIT_W,
+                    vendor="nvidia",
+                    backend="nvml",
                 )
                 for i in range(GPUS)
             ],

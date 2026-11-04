@@ -5,6 +5,12 @@
   "agent_version": "0.1.0",
   "os": "Ubuntu 24.04.3 LTS",
   "kernel": "6.14.0-35-generic",
+  "platform": "linux",
+  "versions": {
+    "nvidia.Driver": "580.95.05",
+    "nvidia.CUDA": "13.0",
+    "nvidia.NVML": "13.580.95.05"
+  },
   "driver": "580.95.05",
   "cuda": "13.0",
   "nvml": "13.580.95.05",
@@ -465,7 +471,7 @@
     {
       "index": 0,
       "name": "NVIDIA RTX 6000 Ada Generation",
-      "uuid": "GPU-ed92bb4d-964f-40f0-556c-a60fe05af931",
+      "uuid": "GPU-00000000-0000-0000-0000-0000ed92bb4d",
       "arch": "Ada",
       "compute_capability": "8.9",
       "cuda_cores": 18176,
@@ -473,12 +479,14 @@
       "temp_slowdown_c": 93.0,
       "temp_shutdown_c": 96.0,
       "temp_max_c": 89.0,
-      "power_limit_w": 300.0
+      "power_limit_w": 300.0,
+      "vendor": "nvidia",
+      "backend": "nvml"
     },
     {
       "index": 1,
       "name": "NVIDIA RTX 6000 Ada Generation",
-      "uuid": "GPU-610903fc-e0a8-c59c-d6d6-46cbeee75f68",
+      "uuid": "GPU-00000000-0000-0000-0000-0000610903fc",
       "arch": "Ada",
       "compute_capability": "8.9",
       "cuda_cores": 18176,
@@ -486,12 +494,14 @@
       "temp_slowdown_c": 93.0,
       "temp_shutdown_c": 96.0,
       "temp_max_c": 89.0,
-      "power_limit_w": 300.0
+      "power_limit_w": 300.0,
+      "vendor": "nvidia",
+      "backend": "nvml"
     },
     {
       "index": 2,
       "name": "NVIDIA RTX 6000 Ada Generation",
-      "uuid": "GPU-6613dcf0-0d70-daf9-45b2-f3652252b354",
+      "uuid": "GPU-00000000-0000-0000-0000-00006613dcf0",
       "arch": "Ada",
       "compute_capability": "8.9",
       "cuda_cores": 18176,
@@ -499,12 +509,14 @@
       "temp_slowdown_c": 93.0,
       "temp_shutdown_c": 96.0,
       "temp_max_c": 89.0,
-      "power_limit_w": 300.0
+      "power_limit_w": 300.0,
+      "vendor": "nvidia",
+      "backend": "nvml"
     },
     {
       "index": 3,
       "name": "NVIDIA RTX 6000 Ada Generation",
-      "uuid": "GPU-e03f3e0f-0f10-4be7-dd47-f42a79b4da8c",
+      "uuid": "GPU-00000000-0000-0000-0000-0000e03f3e0f",
       "arch": "Ada",
       "compute_capability": "8.9",
       "cuda_cores": 18176,
@@ -512,7 +524,9 @@
       "temp_slowdown_c": 93.0,
       "temp_shutdown_c": 96.0,
       "temp_max_c": 89.0,
-      "power_limit_w": 300.0
+      "power_limit_w": 300.0,
+      "vendor": "nvidia",
+      "backend": "nvml"
     }
   ],
   "net": [

@@ -163,7 +163,7 @@
     {
       "index": 0,
       "name": "NVIDIA GB10",
-      "uuid": "GPU-6eb87eab-38da-54a1-8362-55e3bfe12369",
+      "uuid": "GPU-00000000-0000-0000-0000-00006eb87eab",
       "arch": "Blackwell",
       "compute_capability": "12.1",
       "cuda_cores": 6144,
