@@ -59,6 +59,19 @@ describe('notReported', () => {
     expect(notReported(info, 'fan')).toEqual({ kind: 'agent', label: 'Not collected yet', detail: 'Fan speed is not collected yet (hwmon exposes 2 fan sensors)' });
   });
 
+  it('answers for gpu.backend with that exact entry, which never stands for a GPU, and is never covered by gpu*', () => {
+    const backend = { metric: 'gpu.backend', reason: 'nvml: NVML unavailable (NVML: Driver/library version mismatch)', kind: 'hardware' } as const;
+    expect(notReported(node(backend), 'gpu.backend')).toEqual({ kind: 'hardware', label: HARDWARE, detail: 'nvml: NVML unavailable (NVML: Driver/library version mismatch)' });
+    expect(notReported(node(backend), 'gpu0.util')).toBeNull();
+    expect(notReported(node(backend), 'gpu0')).toBeNull();
+    expect(notReported(node({ metric: 'gpu*', reason: 'nvml: Install nvidia-ml-py', kind: 'dependency' }), 'gpu.backend')).toBeNull();
+    const zero = node(
+      { metric: 'gpu*', reason: 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' },
+      { metric: 'gpu.backend', reason: 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' },
+    );
+    expect(notReported(zero, 'gpu.backend')).toEqual({ kind: 'dependency', label: 'Helper tool missing', detail: 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics' });
+  });
+
   it('answers null without node info', () => {
     expect(notReported(null, 'gpu0.util')).toBeNull();
     expect(notReported(undefined, 'gpu0.util')).toBeNull();
