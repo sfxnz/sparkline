@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import types
+from itertools import pairwise
 from pathlib import Path
 
 import psutil
@@ -1317,34 +1318,37 @@ def test_builtin_io_payload_small_file_removed(tmp_path):
 
 
 GIL_BOUND_IO = """
-import ctypes, os, sys
+import ctypes, os, sys, time
 import builtin_io as b
-usleep = ctypes.PyDLL(None).usleep  # PyDLL calls keep the GIL; sleeping uses no CPU, so load cannot skew it
+usleep = ctypes.PyDLL(None).usleep  # PyDLL calls keep the GIL
+sys.setswitchinterval(1000)  # a thread drops the GIL only in os.write, never between a span's two clock reads
+spans = os.open(sys.argv[2], os.O_WRONLY | os.O_APPEND)
 def held(*a):  # 1 ms holding the GIL, like Python's own work around each real I/O
+    t = time.perf_counter()
     usleep(1000)
+    os.write(spans, f"{t} {time.perf_counter()}\\n".encode())
     return b.RAND_BS
 os.preadv = held
-nbytes, el, ops, lat, direct = b.rand_io(sys.argv[1], 2**20, 0.5, 4, False)
-print(ops, el, b.p99(lat))
+b.rand_io(sys.argv[1], 2**20, 0.5, 4, False)
 """
 
 
 def test_builtin_io_random_workers_do_not_share_a_gil(tmp_path):
     """Real hardware: with threads, Python's per-I/O work queued on one GIL, so at 32 threads the runner
     reported 94 k IOPS where a C reference got 165 k, with p99 latency inflated 1.9x."""
-    f = tmp_path / "io.test"
+    f, log = tmp_path / "io.test", tmp_path / "spans.log"
     f.write_bytes(bytes(2**20))
+    log.touch()
     r = subprocess.run(
-        [sys.executable, "-c", GIL_BOUND_IO, str(f)],
+        [sys.executable, "-c", GIL_BOUND_IO, str(f), str(log)],
         capture_output=True,
         text=True,
         timeout=30,
         env={**os.environ, "PYTHONPATH": PAYLOAD_DIR},
     )
     assert r.returncode == 0, r.stderr[-2000:]
-    ops, el, p99_us = map(float, r.stdout.split())
-    assert ops / el > 2.5 / 0.001  # 4 workers x 1 ms: one shared GIL would give at most 1000/s
-    assert p99_us < 3000  # ... and every op would wait ~3 ms for the other three
+    spans = sorted(tuple(map(float, ln.split())) for ln in log.read_text().splitlines())
+    assert len(spans) > 4 and any(nxt[0] < cur[1] for cur, nxt in pairwise(spans))
 
 
 def test_builtin_io_sigterm_removes_file(tmp_path):
