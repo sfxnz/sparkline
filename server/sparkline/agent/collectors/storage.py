@@ -11,6 +11,8 @@ from ..sources import RootFs, Sources
 from . import Caps, counter_delta
 
 WHOLE_DISK = re.compile(r"^(nvme\d+n\d+|sd[a-z]+|vd[a-z]+)$")
+# An eMMC's boot partitions are block devices of their own, but they are part of the mmcblkN disk.
+EMMC_BOOT = re.compile(r"^mmcblk\d+boot\d+$")
 REAL_FS = {"ext4", "xfs", "btrfs", "f2fs", "zfs"}
 MOUNT_REFRESH_S = 60.0
 
@@ -66,7 +68,9 @@ def no_disks(fs: RootFs, diskstats: str) -> Unsupported:
     unread = [
         name
         for name in (line.split()[2] for line in diskstats.splitlines() if len(line.split()) > 2)
-        if fs.exists(f"/sys/block/{name}") and "/devices/virtual/" not in fs.realpath(f"/sys/block/{name}")
+        if not EMMC_BOOT.match(name)
+        and fs.exists(f"/sys/block/{name}")
+        and "/devices/virtual/" not in fs.realpath(f"/sys/block/{name}")
     ]
     if unread:
         return Unsupported(
