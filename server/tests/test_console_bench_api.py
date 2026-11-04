@@ -164,6 +164,7 @@ def test_single_node_lifecycle(env):
         "peer_node": None,
         "peer_ip": None,
         "peer_port": None,
+        "gpu_index": None,
     }
     done = BenchRun.model_validate(finished(env, run.id))
     assert done.status == "succeeded" and done.progress == 1.0 and done.error is None
