@@ -72,6 +72,18 @@ describe('figures modelled on other hardware', () => {
     expect(within(meta).getByText('Modelled on').nextElementSibling).toHaveTextContent('GB10');
   });
 
+  it('describes every † by the footnote it points to, and hides none from assistive tech', () => {
+    show(ws1Llm('succeeded'));
+    for (const name of ['Result', 'Results']) {
+      const marks = within(screen.getByRole('region', { name })).getAllByText('†');
+      expect(marks.length, name).toBeGreaterThan(0);
+      for (const mark of marks) {
+        expect(mark.closest('[aria-hidden="true"]'), name).toBeNull();
+        expect(mark, name).toHaveAccessibleDescription(FOOTNOTE);
+      }
+    }
+  });
+
   it('notes the tool-calling evaluation on ws1', () => {
     show(ws1Eval());
     expect(screen.getByText(TOOL_EVAL_NOTE)).toBeInTheDocument();
