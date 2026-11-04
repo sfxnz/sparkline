@@ -1,7 +1,9 @@
 import { act, render, screen, within } from '@testing-library/react';
+import { api } from '../lib/api';
 import type { NodeInfo, NodeState } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
+import { historyCache, historyRefreshMs } from '../store/history';
 import { liveStore, LiveStore } from '../store/live';
 import { usePrefs } from '../store/prefs';
 import { sharedYMax, TimeSeriesChart } from './TimeSeriesChart';
@@ -236,5 +238,55 @@ describe('sharedYMax', () => {
     expect(sharedYMax('g', a, 12)).toBe(18);
     expect(sharedYMax('g', a, -Infinity)).toBe(18);
     expect(sharedYMax(undefined, a, 7)).toBe(7);
+  });
+});
+
+describe('history chart whose refresh fails', () => {
+  const NODE = 'rtest';
+  const KEY = 'gpu0.util_pct';
+  const fmt = (n: number) => `${n}%`;
+  const now = 1_800_000_000;
+  const resp = (v: number) => ({ node_id: NODE, resolution_s: 60, ts: [now - 120, now - 60], series: { [KEY]: [v, v] }, min: {}, max: {} });
+  const chart = () => render(<TimeSeriesChart node={NODE} title="Utilisation" series={[{ key: KEY, label: 'Utilisation' }]} format={fmt} range="24h" />);
+  const plotted = () => newest.plot?.data[1];
+  const nextRefresh = async () => {
+    historyCache.clear(); // the cached response has expired by the next refresh
+    await act(async () => { await vi.advanceTimersByTimeAsync(historyRefreshMs('24h')); });
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    historyCache.clear();
+    useConnection.setState({ status: 'live', everLive: true });
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { node_id: NODE, url: '', status: 'online', since: 0, last_sample_ts: null, error: null, info: null, next_retry_ts: null } } });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the plotted history and shows a quiet note instead of Retry, until a refresh succeeds', async () => {
+    vi.spyOn(api, 'history').mockResolvedValueOnce(resp(40)).mockRejectedValueOnce(new Error('timed out')).mockResolvedValueOnce(resp(70));
+    const { container } = chart();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(plotted()).toEqual([40, 40]);
+
+    await nextRefresh();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(container.querySelector('.tschart__plot--hidden')).toBeNull();
+    expect(plotted()).toEqual([40, 40]);
+    expect(screen.getByRole('button', { name: /Couldn’t refresh/ })).toBeInTheDocument();
+
+    await nextRefresh();
+    expect(plotted()).toEqual([70, 70]);
+    expect(screen.queryByRole('button', { name: /Couldn’t refresh/ })).toBeNull();
+  });
+
+  it('still offers Retry when the first load fails, with nothing to show', async () => {
+    vi.spyOn(api, 'history').mockRejectedValue(new Error('timed out'));
+    const { container } = chart();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(container.querySelector('.tschart__plot--hidden')).not.toBeNull();
   });
 });
