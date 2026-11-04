@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import time
 
@@ -198,6 +199,25 @@ def test_an_unlimited_workstation_gpu_runs_clear_of_the_full_speed_cut():
     clocks = [g.sm_mhz or 0.0 for s in samples for g in s.gpu if g.throttle_mask == 0]
     # The GPU tab calls a clock at or above 80 % of the maximum "full speed"; stay well clear of that cut.
     assert top > 0 and clocks and min(clocks) >= 0.85 * top
+
+
+def test_sample_noise_never_flips_a_workstation_gpus_power_cap_for_one_sample():
+    m = ws1()
+    caps = [[bool(g.throttle_mask & 0x4) for g in m.sample_at(T0 + k).gpu] for k in range(3 * 3600)]
+    for i in range(4):
+        bits = [row[i] for row in caps]
+        assert any(bits) and not all(bits), i
+        blips = [k for k in range(1, len(bits) - 1) if bits[k - 1] == bits[k + 1] != bits[k]]
+        assert blips == [], (i, blips[:5])
+
+
+def test_the_workstation_carries_only_documentation_addresses_and_local_macs():
+    docs = [ipaddress.ip_network(n) for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")]
+    m = ws1()
+    for n in m.info.net:
+        assert all(any(ipaddress.ip_address(a) in d for d in docs) for a in n.ipv4), n
+        first = int(n.mac.split(":")[0], 16)
+        assert first & 0x02 and not first & 0x01, n.mac  # locally administered, unicast
 
 
 def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
