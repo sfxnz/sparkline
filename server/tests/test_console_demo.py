@@ -231,6 +231,19 @@ def test_a_workstation_gpus_power_cap_holds_between_its_off_and_on_points_for_as
     assert not capped(t1 + 400)
 
 
+def test_a_workstation_gpu_at_full_draw_before_boot_shows_its_power_cap():
+    m = ws1()
+    h = demo_history(m, None, T0 - 7 * 86400, T0, 2000, now=T0)
+    full_draw_w = 299.6  # more than the 1.2 W of sample noise above the 296.4 W on point
+    for i in range(4):
+        draw = h.max[f"gpu{i}.power_w"]
+        full = [k for k, t in enumerate(h.ts) if t < m.boot and (draw[k] or 0) > full_draw_w]
+        assert full, i
+        for k in full:
+            assert (h.series[f"gpu{i}.power_capped_pct"][k] or 0) > 0, (i, h.ts[k] - m.boot)
+            assert int(h.series[f"gpu{i}.throttle_mask"][k] or 0) & POWER_CAP_BIT, (i, h.ts[k] - m.boot)
+
+
 def test_the_workstation_carries_only_documentation_addresses_and_local_macs():
     docs = [ipaddress.ip_network(n) for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")]
     m = ws1()
