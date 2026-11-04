@@ -441,16 +441,47 @@ def test_a_name_in_a_reviewed_path_or_link_target_is_replaced(path: str, node: N
     assert watch.lower().encode() not in written.lower()
 
 
-def test_an_os_release_key_that_does_not_name_the_os_or_its_version_is_dropped(tmp_path):
+def test_os_release_keeps_only_the_line_the_agent_reads(tmp_path):
     report = capture_of(with_os_release_line(gb10_copy(tmp_path), "X_OWNER=someone"), tmp_path / "out")
     kept = (tmp_path / "out/root/usr/lib/os-release").read_text().splitlines()
-    assert [line.partition("=")[0] for line in kept] == [
-        "PRETTY_NAME",
-        "NAME",
-        "VERSION_ID",
-        "VERSION",
-        "VERSION_CODENAME",
-        "ID",
-        "ID_LIKE",
+    assert kept == ['PRETTY_NAME="Ubuntu 24.04.5 LTS"']
+    assert report.left_out["os-release lines other than PRETTY_NAME"] == 13
+
+
+def test_a_tool_found_outside_the_system_directories_is_recorded_without_its_directory(tmp_path):
+    copy = gb10_copy(tmp_path)
+    host = json.loads((copy / "host.json").read_text())
+    host["which"] |= {
+        "fio": "/opt/zorbcorp-internal/bin/fio",
+        "nvcc": j("/", "", "home", USER, "acme-nda-project", "bin", "nvcc"),
+    }
+    (copy / "host.json").write_text(json.dumps(host))
+    report = capture_of(copy, tmp_path / "out")
+    assert report.differences == []
+    assert json.loads((tmp_path / "out/host.json").read_text())["which"] == {
+        "all_reduce_perf": None,
+        "docker": "/usr/bin/docker",
+        "fio": "<elsewhere>/fio",
+        "ib_write_bw": "/usr/bin/ib_write_bw",
+        "nvcc": "<elsewhere>/nvcc",
+    }
+
+
+def test_a_mount_line_keeps_a_disk_source_its_mount_point_and_type_and_drops_the_rest(tmp_path):
+    copy = gb10_copy(tmp_path)
+    mounts = copy / "root/proc/self/mounts"
+    mounts.write_text(
+        mounts.read_text()
+        + "/dev/mapper/zorbcorp--vg-data /data ext4 rw,relatime,x-gvfs-name=zorbcorp 0 0\n"
+        + "tank/zorbcorp-nda /tank zfs ro,xattr,context=zorbcorp 0 0\n"
+        + "/dev/mapper/zorbcorp--vg-data /data/again ext4 rw,nosuid 0 0\n"
+    )
+    report = capture_of(copy, tmp_path / "out")
+    assert report.differences == []
+    kept = (tmp_path / "out/root/proc/self/mounts").read_text().splitlines()
+    assert kept == [
+        "/dev/nvme0n1p2 / ext4 rw 0 0",
+        "<source1> /data ext4 rw 0 0",
+        "<source2> /tank zfs ro 0 0",
+        "<source1> /data/again ext4 rw 0 0",
     ]
-    assert report.left_out["os-release lines other than the OS name and version"] == 7
