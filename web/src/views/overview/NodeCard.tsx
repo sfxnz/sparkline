@@ -241,7 +241,7 @@ function UtilRing() {
             {util !== null ? <span className="ov-ring__unit">%</span> : null}
           </span>
         )}
-        <span className="ov-ring__label">{from && !lost ? from : 'GPU'}</span>
+        {from && !lost ? <span className="ov-ring__label ov-ring__label--from">{from}</span> : <span className="ov-ring__label">GPU</span>}
       </span>
     </RingGauge>
   );
@@ -282,9 +282,9 @@ function Temperature() {
     ) : null;
   // The footer has two lines: the second names the flagged GPU, or else how many GPUs the reading covers.
   const second = flag ? gpu.name : from;
-  const footer = room ? (
+  const footer = room || second ? (
     <>
-      {flag ?? <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</>}
+      {flag ?? (room ? <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</> : null)}
       {second ? <span className="ov-stat__who">{second}</span> : null}
     </>
   ) : null;
