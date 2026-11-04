@@ -105,7 +105,7 @@ function gpuStats(c: GpuCtx, smFormat: Formatter): GpuStatSpec[] {
       missingFooter: <PowerTypical nodeId={nodeId} index={index} />,
     },
     { label: 'Performance state', reading: 'pstate', format: pstateParts, footer: (v) => (v === 0 ? 'Maximum performance' : v != null ? 'Reduced performance state' : null) },
-    { label: 'Energy since driver load', reading: 'energy_j', format: energyParts, footer: () => <RangeEnergy nodeId={nodeId} index={index} currency={c.currency} rate={c.rate} glueCost={c.multi} /> },
+    { label: 'Energy since driver load', reading: 'energy_j', format: energyParts, footer: () => <RangeEnergy nodeId={nodeId} index={index} currency={c.currency} rate={c.rate} glue={c.multi} /> },
   ];
 }
 
@@ -423,18 +423,20 @@ function PowerTypical({ nodeId, index }: { nodeId: string; index: number }) {
   return avg != null ? <>Typical {formatWatts(avg)} · {phraseOf(range, data)}</> : null;
 }
 
-/** `glueCost` keeps the "·" with the text before it, so a narrow GPU section never starts a line with it. */
-function RangeEnergy({ nodeId, index, currency, rate, glueCost = false }: { nodeId: string; index: number; currency: string; rate: number | null; glueCost?: boolean }) {
+/** `glue` keeps the span phrase ("last 11 min") whole and the "·" with it, so a narrow GPU section never splits
+ *  the span or starts a line with "·". */
+function RangeEnergy({ nodeId, index, currency, rate, glue = false }: { nodeId: string; index: number; currency: string; rate: number | null; glue?: boolean }) {
   const { range, data, error } = useGpuRange(nodeId, index);
   if (error) return <>Range total unavailable</>;
   if (!data) return <Skeleton width={110} height={10} />;
   const key = gpuKey(index, 'energy_j');
   const j = historyEnergy(data.series[key], data.min[key]);
   if (j == null) return <>No energy readings {RANGE_PHRASE[range]}</>;
+  const phrase = phraseOf(range, data);
   return (
     <span className="num">
-      {formatEnergyAuto(j)} {phraseOf(range, data)}
-      {rate != null ? `${glueCost ? '\u00a0' : ' '}· ${formatEnergyCost(j, rate, currency)}` : ''}
+      {formatEnergyAuto(j)} {glue ? phrase.replaceAll(' ', '\u00a0') : phrase}
+      {rate != null ? `${glue ? '\u00a0' : ' '}· ${formatEnergyCost(j, rate, currency)}` : ''}
     </span>
   );
 }
