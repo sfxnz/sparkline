@@ -105,7 +105,7 @@ function gpuStats(c: GpuCtx, smFormat: Formatter): GpuStatSpec[] {
       missingFooter: <PowerTypical nodeId={nodeId} index={index} />,
     },
     { label: 'Performance state', reading: 'pstate', format: pstateParts, footer: (v) => (v === 0 ? 'Maximum performance' : v != null ? 'Reduced performance state' : null) },
-    { label: 'Energy since driver load', reading: 'energy_j', format: energyParts, footer: () => <RangeEnergy nodeId={nodeId} index={index} currency={c.currency} rate={c.rate} /> },
+    { label: 'Energy since driver load', reading: 'energy_j', format: energyParts, footer: () => <RangeEnergy nodeId={nodeId} index={index} currency={c.currency} rate={c.rate} glueCost={c.multi} /> },
   ];
 }
 
@@ -423,7 +423,8 @@ function PowerTypical({ nodeId, index }: { nodeId: string; index: number }) {
   return avg != null ? <>Typical {formatWatts(avg)} · {phraseOf(range, data)}</> : null;
 }
 
-function RangeEnergy({ nodeId, index, currency, rate }: { nodeId: string; index: number; currency: string; rate: number | null }) {
+/** `glueCost` keeps the "·" with the text before it, so a narrow GPU section never starts a line with it. */
+function RangeEnergy({ nodeId, index, currency, rate, glueCost = false }: { nodeId: string; index: number; currency: string; rate: number | null; glueCost?: boolean }) {
   const { range, data, error } = useGpuRange(nodeId, index);
   if (error) return <>Range total unavailable</>;
   if (!data) return <Skeleton width={110} height={10} />;
@@ -433,7 +434,7 @@ function RangeEnergy({ nodeId, index, currency, rate }: { nodeId: string; index:
   return (
     <span className="num">
       {formatEnergyAuto(j)} {phraseOf(range, data)}
-      {rate != null ? ` · ${formatEnergyCost(j, rate, currency)}` : ''}
+      {rate != null ? `${glueCost ? '\u00a0' : ' '}· ${formatEnergyCost(j, rate, currency)}` : ''}
     </span>
   );
 }

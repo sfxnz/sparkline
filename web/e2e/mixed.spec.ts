@@ -25,3 +25,13 @@ test('a GB10 on the same console keeps the single-GPU layout', async ({ page }) 
   await expect(page.getByRole('region', { name: 'Clock limits' })).toBeVisible();
   await expect(page.getByRole('region', { name: GPU_SECTION })).toHaveCount(0);
 });
+
+test('long GPU names on Thermals & Power wrap, so every reading stays in view', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${MIXED}/node/ws1/thermals`);
+  const table = page.locator('.tp-sensors').first();
+  await expect(table.getByRole('rowheader', { name: 'NVIDIA RTX 6000 Ada Generation #3' })).toBeVisible({ timeout: 15_000 });
+  await expect(table.getByRole('columnheader', { name: 'Headroom' })).toBeVisible();
+  const overflow = await table.evaluate((t) => (t.parentElement ? t.parentElement.scrollWidth - t.parentElement.clientWidth : 0));
+  expect(overflow).toBe(0);
+});

@@ -70,6 +70,7 @@ export function SensorGroupPanel({ nodeId, group, info, range, history, stale, s
   const hasLimits = group.sensors.some((x) => x.limit != null);
   // One sensor: its row sits above a full-width chart (side by side, the one-row table would leave a blank block).
   const single = group.sensors.length === 1;
+  const wrapNames = group.id === 'gpu' && !single;
   const chartHeight = single ? 150 : Math.min(300, Math.max(168, group.sensors.length * 38 + 20));
   const span = RANGE_SHORT[range];
 
@@ -77,7 +78,7 @@ export function SensorGroupPanel({ nodeId, group, info, range, history, stale, s
     <Panel title={group.title} subtitle={subtitleFor(group, charted.length)} className={`tp-group${stale ? ' is-stale' : ''}`}>
       <div className={`tp-group__body${single ? ' tp-group__body--single' : ''}`}>
         <div className="table-wrap">
-          <table className="table tp-sensors">
+          <table className={`table tp-sensors${wrapNames ? ' tp-sensors--wrap' : ''}`}>
             <caption className="visually-hidden">{`${group.title} temperatures, with minimum and maximum over the last ${span}`}</caption>
             <thead>
               <tr>
