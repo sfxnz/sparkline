@@ -8,14 +8,10 @@ from collections.abc import Callable
 from typing import Any
 
 from ...common.schema import GpuInfo, GpuSample, Unsupported
+from ..sources import Sources
 from . import Caps, counter_delta
 
 log = logging.getLogger(__name__)
-
-try:
-    import pynvml as nv
-except ImportError:  # pragma: no cover - dependency is declared, but stay alive without it
-    nv = None
 
 # Energy and violation counters cost ~1.5-3.5 ms of CPU per NVML call on GB10 (vs ~0.03 ms for the
 # others), so they are read on a slower cadence: violations every 10 s (the window's % is reported on each
@@ -56,7 +52,7 @@ def _reason(e: Exception) -> str:
     return f"NVML: {e}" if str(e) else f"NVML: {type(e).__name__}"
 
 
-def _no_permission(e: Exception) -> bool:
+def _no_permission(nv: Any, e: Exception) -> bool:
     return isinstance(e, nv.NVMLError_NoPermission)
 
 
@@ -83,7 +79,8 @@ class _Gpu:
 class GpuCollector:
     name = "gpu"
 
-    def __init__(self) -> None:
+    def __init__(self, src: Sources) -> None:
+        self.nv = nv = src.nvml
         self.gpus: list[_Gpu] = []
         self.info: list[GpuInfo] = []
         self.unsupported: list[Unsupported] = []
@@ -101,7 +98,7 @@ class GpuCollector:
             nv.nvmlInit()
             n = nv.nvmlDeviceGetCount()
         except Exception as e:
-            if _no_permission(e):
+            if _no_permission(nv, e):
                 gap = Unsupported(metric="gpu*", reason=_denied(e), kind="access")
             else:
                 gap = Unsupported(metric="gpu*", reason=f"NVML unavailable ({_reason(e)})")
@@ -128,6 +125,7 @@ class GpuCollector:
             return None
 
     def _probe(self, g: _Gpu) -> GpuInfo:
+        nv = self.nv
         h, p = g.h, f"gpu{g.index}."
         cc = self._try(nv.nvmlDeviceGetCudaComputeCapability, h)
         info = GpuInfo(
@@ -166,7 +164,7 @@ class GpuCollector:
                 if key == "power_limit_w":
                     info.power_limit_w = v / 1000
             except Exception as e:
-                if _no_permission(e):
+                if _no_permission(nv, e):
                     self.unsupported.append(Unsupported(metric=p + key, reason=_denied(e), kind="access"))
                     continue
                 why = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
@@ -182,9 +180,9 @@ class GpuCollector:
             return None
         try:
             return fn(g.h, *args)
-        except nv.NVMLError_NotSupported:
+        except self.nv.NVMLError_NotSupported:
             g.disabled.add(field)
-        except nv.NVMLError as e:
+        except self.nv.NVMLError as e:
             log.debug("gpu%d %s: %s", g.index, field, e)
         return None
 
@@ -192,6 +190,7 @@ class GpuCollector:
         return {}
 
     def collect(self) -> dict:
+        nv = self.nv
         out = []
         proc_mem: dict[int, int] = {}
         any_procs = False
@@ -241,7 +240,7 @@ class GpuCollector:
 
     def _update_energy(self, g: _Gpu, now: float, power_w: float | None) -> None:
         if now - g.energy_t >= ENERGY_EVERY_S:
-            mj = self._read(g, "energy", nv.nvmlDeviceGetTotalEnergyConsumption)
+            mj = self._read(g, "energy", self.nv.nvmlDeviceGetTotalEnergyConsumption)
             if mj is not None:
                 g.energy_t, g.energy_base, g.energy_integ = now, mj / 1000, 0.0
         elif g.energy_base is not None and power_w is not None and g.prev_t is not None:
@@ -251,6 +250,7 @@ class GpuCollector:
 
     def process_util(self) -> dict[int, float]:
         """pid -> mean SM % over samples since the last call (best effort; empty if none)."""
+        nv = self.nv
         acc: dict[int, list[int]] = {}
         for g in self.gpus:
             if "putil" in g.disabled:

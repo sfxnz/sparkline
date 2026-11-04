@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 
 from ...common.metrics import mount_key
 from ...common.schema import DiskInfo, DiskSample, FsSample
-from . import Caps, counter_delta, read, read_once
+from ..sources import Sources
+from . import Caps, counter_delta
 
 WHOLE_DISK = re.compile(r"^(nvme\d+n\d+|sd[a-z]+|vd[a-z]+)$")
 REAL_FS = {"ext4", "xfs", "btrfs", "f2fs", "zfs"}
@@ -65,8 +65,10 @@ def parse_mounts(text: str) -> list[tuple[str, str]]:
 class StorageCollector:
     name = "storage"
 
-    def __init__(self) -> None:
-        self.disks = sorted(parse_diskstats(read("/proc/diskstats")))
+    def __init__(self, src: Sources) -> None:
+        self.fs = src.fs
+        self._statvfs = src.statvfs
+        self.disks = sorted(parse_diskstats(self.fs.read("/proc/diskstats")))
         self._prev: dict[str, tuple] = {}
         self._prev_t: float | None = None
         self._mounts: list[tuple[str, str]] = []
@@ -74,22 +76,22 @@ class StorageCollector:
         self._refresh_mounts()
 
     def _refresh_mounts(self) -> None:
-        self._mounts = parse_mounts(read("/proc/self/mounts"))
+        self._mounts = parse_mounts(self.fs.read("/proc/self/mounts"))
         self._mounts_t = time.monotonic()
 
     def info(self) -> list[DiskInfo]:
         out = []
         for d in self.disks:
-            size = read_once(f"/sys/block/{d}/size")
+            size = self.fs.read_once(f"/sys/block/{d}/size")
             mounts = [
                 m
                 for dev, m in self._mounts
-                if dev.startswith("/dev/") and (dev[5:] == d or os.path.exists(f"/sys/block/{d}/{dev[5:]}"))
+                if dev.startswith("/dev/") and (dev[5:] == d or self.fs.exists(f"/sys/block/{d}/{dev[5:]}"))
             ]
             out.append(
                 DiskInfo(
                     name=d,
-                    model=read_once(f"/sys/block/{d}/device/model"),
+                    model=self.fs.read_once(f"/sys/block/{d}/device/model"),
                     size_bytes=int(size) * 512 if size else None,
                     mounts=mounts,
                 )
@@ -103,7 +105,7 @@ class StorageCollector:
         now = time.monotonic()
         if now - self._mounts_t > MOUNT_REFRESH_S:
             self._refresh_mounts()
-        cur = parse_diskstats(read("/proc/diskstats"))
+        cur = parse_diskstats(self.fs.read("/proc/diskstats"))
         elapsed = now - self._prev_t if self._prev_t is not None else 0.0
         self._prev_t = now
         disks = []
@@ -120,7 +122,7 @@ class StorageCollector:
         fs = []
         for dev, mnt in self._mounts:
             try:
-                st = os.statvfs(mnt)
+                st = self._statvfs(mnt)
             except OSError:
                 continue
             total = st.f_blocks * st.f_frsize

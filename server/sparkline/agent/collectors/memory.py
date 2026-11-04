@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 
 from ...common.schema import MemSample
-from . import Caps, parse_psi, read
+from ..sources import Sources
+from . import Caps, parse_psi
 
 
 def parse_meminfo(text: str) -> dict[str, int]:
@@ -63,16 +63,17 @@ def build_mem(mi: dict[str, int], gpu: int | None, psi: dict[str, float] | None)
 class MemoryCollector:
     name = "memory"
 
-    def __init__(self, gpu_mem: Callable[[], int | None] = lambda: None) -> None:
+    def __init__(self, src: Sources, gpu_mem: Callable[[], int | None] = lambda: None) -> None:
+        self.fs = src.fs
         self._gpu_mem = gpu_mem
-        self._psi = os.path.exists("/proc/pressure/memory")
-        mi = parse_meminfo(read("/proc/meminfo"))
+        self._psi = self.fs.exists("/proc/pressure/memory")
+        mi = parse_meminfo(self.fs.read("/proc/meminfo"))
         self.mem_total, self.swap_total = mi["MemTotal"], mi.get("SwapTotal", 0)
 
     def caps(self) -> Caps:
         return {}
 
     def collect(self) -> dict:
-        mi = parse_meminfo(read("/proc/meminfo"))
-        psi = parse_psi(read("/proc/pressure/memory")) if self._psi else None
+        mi = parse_meminfo(self.fs.read("/proc/meminfo"))
+        psi = parse_psi(self.fs.read("/proc/pressure/memory")) if self._psi else None
         return {"mem": build_mem(mi, self._gpu_mem(), psi)}

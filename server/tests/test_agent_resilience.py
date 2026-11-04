@@ -13,11 +13,13 @@ import threading
 from types import SimpleNamespace
 
 import pytest
+from platforms import gb10
 
 from sparkline.agent.collectors import gpu as gpu_mod
 from sparkline.agent.collectors import procs as procs_mod
 from sparkline.agent.collectors import thermal as thermal_mod
 from sparkline.agent.sampler import Sampler
+from sparkline.agent.sources import RootFs
 
 # -- NVML ------------------------------------------------------------------------------------------------
 
@@ -79,14 +81,12 @@ class FakeNvml:
 
 
 @pytest.fixture
-def nvml(monkeypatch):
-    fake = FakeNvml()
-    monkeypatch.setattr(gpu_mod, "nv", fake)
-    return fake
+def nvml():
+    return FakeNvml()
 
 
 def test_gpu_reads_recover_after_transient_nvml_errors(nvml):
-    g = gpu_mod.GpuCollector()
+    g = gpu_mod.GpuCollector(gb10(nvml=nvml))
     assert len(g.gpus) == 1
     healthy = g.collect()["gpu"][0]
     assert (healthy.util, healthy.temp_c, healthy.power_w) == (42, 55, 30.0)
@@ -104,7 +104,7 @@ def test_gpu_reads_recover_after_transient_nvml_errors(nvml):
 
 
 def test_unexpected_nvml_exception_is_isolated_by_the_sampler(nvml, tmp_path):
-    g = gpu_mod.GpuCollector()
+    g = gpu_mod.GpuCollector(gb10(nvml=nvml))
     s = Sampler("n1", [g], 1000, ring_seconds=10)
     nvml.fail = RuntimeError("ctypes blew up")  # not an NVMLError: escapes the collector
     s.collect_once()
@@ -114,15 +114,14 @@ def test_unexpected_nvml_exception_is_isolated_by_the_sampler(nvml, tmp_path):
     assert s.latest.seq == 2 and s.latest.gpu[0].util == 42 and "gpu" not in s.latest.errors
 
 
-def test_nvml_init_failure_leaves_an_empty_gpu_list(monkeypatch):
+def test_nvml_init_failure_leaves_an_empty_gpu_list():
     fake = FakeNvml()
 
     def broken_init():
         raise NVMLError("Driver Not Loaded")
 
     fake.nvmlInit = broken_init  # type: ignore[attr-defined]
-    monkeypatch.setattr(gpu_mod, "nv", fake)
-    g = gpu_mod.GpuCollector()
+    g = gpu_mod.GpuCollector(gb10(nvml=fake))
     assert g.collect() == {"gpu": []}
     assert "NVML unavailable" in g.unsupported[0].reason
 
@@ -132,7 +131,7 @@ def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missi
         "nvmlDeviceGetPowerManagementLimit": NVMLError_NoPermission("Insufficient Permissions"),
         "nvmlDeviceGetFanSpeed": NVMLError_NotSupported("Not Supported"),
     }
-    gaps = {u.metric: u for u in gpu_mod.GpuCollector().unsupported}
+    gaps = {u.metric: u for u in gpu_mod.GpuCollector(gb10(nvml=nvml)).unsupported}
     assert set(gaps) == {"gpu0.power_limit_w", "gpu0.fan_pct"}
     limit = gaps["gpu0.power_limit_w"]
     assert limit.kind == "access"
@@ -143,14 +142,13 @@ def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missi
 
 def test_nvml_refusing_access_at_startup_says_a_privilege_is_missing(nvml):
     nvml.fail_on = {"nvmlInit": NVMLError_NoPermission("Insufficient Permissions")}
-    (gap,) = gpu_mod.GpuCollector().unsupported
+    (gap,) = gpu_mod.GpuCollector(gb10(nvml=nvml)).unsupported
     assert (gap.metric, gap.kind) == ("gpu*", "access")
     assert gap.reason == "Permission denied to the agent's user (NVML: Insufficient Permissions)"
 
 
-def test_missing_nvidia_ml_py_says_what_to_install(monkeypatch):
-    monkeypatch.setattr(gpu_mod, "nv", None)
-    g = gpu_mod.GpuCollector()
+def test_missing_nvidia_ml_py_says_what_to_install():
+    g = gpu_mod.GpuCollector(gb10(nvml=None))
     assert g.collect() == {"gpu": []}
     (gap,) = g.unsupported
     assert (gap.metric, gap.kind) == ("gpu*", "dependency")
@@ -210,18 +208,15 @@ def serve_docker_once(path: str, body: bytes) -> threading.Thread:
     return t
 
 
-def test_docker_socket_disappearing_keeps_process_collection_running(tmp_path, monkeypatch):
+class AllInDocker(RootFs):
+    def read_once(self, p: str) -> str | None:
+        return f"0::/docker/{CID}" if p.endswith("/cgroup") else super().read_once(p)
+
+
+def test_docker_socket_disappearing_keeps_process_collection_running(tmp_path):
     sock = str(tmp_path / "docker.sock")
-    real_get = procs_mod.docker_get
-    monkeypatch.setattr(procs_mod, "docker_get", lambda path: real_get(path, sock_path=sock, timeout=1.0))
-    real_read_once = procs_mod.read_once
-    # every process looks containerised, so every collect() wants container names
-    monkeypatch.setattr(
-        procs_mod,
-        "read_once",
-        lambda p: f"0::/docker/{CID}" if p.endswith("/cgroup") else real_read_once(p),
-    )
-    c = procs_mod.ProcsCollector(gpu=None, interval_s=1)
+    src = gb10(fs=AllInDocker(), docker=lambda path: procs_mod.docker_get(path, sock_path=sock, timeout=1.0))
+    c = procs_mod.ProcsCollector(src, gpu=None, interval_s=1)
 
     # 1. docker is up: names resolve
     t = serve_docker_once(sock, json.dumps([{"Id": CID, "Names": ["/vllm-worker"]}]).encode())
@@ -237,13 +232,13 @@ def test_docker_socket_disappearing_keeps_process_collection_running(tmp_path, m
     assert rows and {r.container for r in rows} == {"vllm-worker"}
 
     # 3. a fresh collector with no cache and no socket: short container ids instead of names
-    c2 = procs_mod.ProcsCollector(gpu=None, interval_s=1)
+    c2 = procs_mod.ProcsCollector(src, gpu=None, interval_s=1)
     rows = c2.collect()["procs"]
     assert rows and {r.container for r in rows} == {CID[:12]}
 
     # 4. something else answers on the path with garbage: still no exception
     t = serve_docker_once(sock, b"not json")
-    c3 = procs_mod.ProcsCollector(gpu=None, interval_s=1)
+    c3 = procs_mod.ProcsCollector(src, gpu=None, interval_s=1)
     assert {r.container for r in c3.collect()["procs"]} == {CID[:12]}
     t.join(5)
 
@@ -272,29 +267,30 @@ def make_hwmon(root, n: int, name: str, temps: dict[int, int], label: str | None
     return str(d)
 
 
+HWMON = "sys/class/hwmon"
+
+
 def test_hwmon_sensor_vanishing_reports_none_and_the_rest_keep_reading(tmp_path, monkeypatch):
-    root = tmp_path / "hwmon"
+    root = tmp_path / HWMON
     make_hwmon(root, 0, "acpitz", {1: 45_000})
     nvme = make_hwmon(root, 1, "nvme", {1: 38_850}, label="Composite")
-    real_scan = thermal_mod.scan_hwmon
-    monkeypatch.setattr(thermal_mod, "scan_hwmon", lambda: real_scan(str(root)))
 
-    class GoneOnRead:
+    class GoneOnRead(RootFs):
         """sysfs semantics: once a device is removed, reads through an fd opened earlier fail with ENODEV."""
 
         def __init__(self) -> None:
+            super().__init__(tmp_path)
             self.gone: set[str] = set()
 
-        def __call__(self, path: str) -> str:
-            if any(path.startswith(g) for g in self.gone):
+        def read(self, p: str) -> str:
+            if any(self.path(p).startswith(g) for g in self.gone):
                 raise OSError(19, "No such device")
-            with open(path) as f:
+            with open(self.path(p)) as f:
                 return f.read()
 
     read = GoneOnRead()
-    monkeypatch.setattr(thermal_mod, "read", read)
     monkeypatch.setattr(thermal_mod.time, "monotonic", itertools.count(0, thermal_mod.SLOW_EVERY_S).__next__)
-    t = thermal_mod.ThermalCollector()
+    t = thermal_mod.ThermalCollector(gb10(fs=read))
     temps = {x.id: x.c for x in t.collect()["temps"]}
     assert temps == {"acpitz.0": 45.0, "nvme.composite": 38.85}
 
@@ -308,8 +304,19 @@ def test_hwmon_sensor_vanishing_reports_none_and_the_rest_keep_reading(tmp_path,
     assert {x.id: x.c for x in t.collect()["temps"]}["nvme.composite"] == 40.0
 
 
+class CountingFs(RootFs):
+    def __init__(self, root) -> None:
+        super().__init__(root)
+        self.reads: list[str] = []
+
+    def read(self, p: str) -> str:
+        self.reads.append(os.path.basename(os.path.dirname(p)))
+        with open(self.path(p)) as f:
+            return f.read()
+
+
 def test_device_queried_sensors_are_read_every_slow_interval_and_carried_between(tmp_path, monkeypatch):
-    root = tmp_path / "hwmon"
+    root = tmp_path / HWMON
     acpi = make_hwmon(root, 0, "acpitz", {1: 45_000})
     nvme = make_hwmon(root, 1, "nvme", {1: 38_000}, label="Composite")
     wifi = make_hwmon(root, 2, "mt7925_phy0", {1: 50_000})
@@ -319,19 +326,11 @@ def test_device_queried_sensors_are_read_every_slow_interval_and_carried_between
         ib.mkdir(parents=True)
         (ib / "sys_image_guid").write_text("0200:0000:0000:0001\n")
         os.symlink(tmp_path / f"pci{n}", f"{h}/device")
-    real_scan = thermal_mod.scan_hwmon
-    monkeypatch.setattr(thermal_mod, "scan_hwmon", lambda: real_scan(str(root)))
-    reads: list[str] = []
-
-    def read(path: str) -> str:
-        reads.append(os.path.basename(os.path.dirname(path)))
-        with open(path) as f:
-            return f.read()
-
-    monkeypatch.setattr(thermal_mod, "read", read)
+    fs = CountingFs(tmp_path)
+    reads = fs.reads
     now = [100.0]
     monkeypatch.setattr(thermal_mod.time, "monotonic", lambda: now[0])
-    t = thermal_mod.ThermalCollector()
+    t = thermal_mod.ThermalCollector(gb10(fs=fs))
 
     def tick(at: float) -> tuple[dict, list[str]]:
         now[0] = at
@@ -357,24 +356,21 @@ def test_device_queried_sensors_are_read_every_slow_interval_and_carried_between
 
 
 def test_a_failed_device_queried_read_is_retried_on_the_next_tick(tmp_path, monkeypatch):
-    root = tmp_path / "hwmon"
-    make_hwmon(root, 0, "nvme", {1: 38_000}, label="Composite")
-    real_scan = thermal_mod.scan_hwmon
-    monkeypatch.setattr(thermal_mod, "scan_hwmon", lambda: real_scan(str(root)))
+    make_hwmon(tmp_path / HWMON, 0, "nvme", {1: 38_000}, label="Composite")
     failing = [True]
-    reads = []
 
-    def read(path: str) -> str:
-        reads.append(path)
-        if failing[0]:
-            raise OSError(5, "Input/output error")
-        with open(path) as f:
-            return f.read()
+    class FailingFs(CountingFs):
+        def read(self, p: str) -> str:
+            if failing[0]:
+                self.reads.append(p)
+                raise OSError(5, "Input/output error")
+            return super().read(p)
 
-    monkeypatch.setattr(thermal_mod, "read", read)
+    fs = FailingFs(tmp_path)
+    reads = fs.reads
     now = [100.0]
     monkeypatch.setattr(thermal_mod.time, "monotonic", lambda: now[0])
-    t = thermal_mod.ThermalCollector()
+    t = thermal_mod.ThermalCollector(gb10(fs=fs))
 
     def tick(at: float) -> tuple[float | None, int]:
         now[0] = at
@@ -388,7 +384,7 @@ def test_a_failed_device_queried_read_is_retried_on_the_next_tick(tmp_path, monk
 
 
 def test_hwmon_dir_removed_during_scan_is_skipped(tmp_path, monkeypatch):
-    root = tmp_path / "hwmon"
+    root = tmp_path / HWMON
     make_hwmon(root, 0, "acpitz", {1: 45_000})
     gone = make_hwmon(root, 1, "nvme", {1: 38_850}, label="Composite")
     real_listdir = os.listdir
@@ -399,7 +395,7 @@ def test_hwmon_dir_removed_during_scan_is_skipped(tmp_path, monkeypatch):
         return real_listdir(path)
 
     monkeypatch.setattr(thermal_mod.os, "listdir", racy_listdir)
-    chips, _fans, _power = thermal_mod.scan_hwmon(str(root))
+    chips, _fans, _power = thermal_mod.scan_hwmon(RootFs(tmp_path))
     assert [c.name for c in chips] == ["acpitz"]
 
 

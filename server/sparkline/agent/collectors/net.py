@@ -14,10 +14,8 @@ SLOW_EVERY_S seconds because one GSTATS dump of ~2450 mlx5 stats costs ~1 ms of 
 from __future__ import annotations
 
 import contextlib
-import glob
 import ipaddress
 import logging
-import os
 import socket
 import time
 from collections.abc import Sequence
@@ -27,8 +25,8 @@ import psutil
 
 from ...common.netutil import default_route_iface
 from ...common.schema import NetIfInfo, NetSample
-from ..ethtool import EthtoolStats
-from . import SLOW_EVERY_S, Caps, counter_delta, read, read_once, slow_due
+from ..sources import EthReader, RootFs, Sources
+from . import SLOW_EVERY_S, Caps, counter_delta, slow_due
 
 log = logging.getLogger(__name__)
 
@@ -121,10 +119,10 @@ def parse_rdma_state(text: str) -> str:
     return text.partition(":")[2].strip() or text.strip()
 
 
-def phy_port(name: str) -> str:
+def phy_port(fs: RootFs, name: str) -> str:
     """Physical port identity: PCI functions of one NIC port share phys_switch_id + phys_port_name."""
-    sw = read_once(f"/sys/class/net/{name}/phys_switch_id")
-    port = read_once(f"/sys/class/net/{name}/phys_port_name")
+    sw = fs.read_once(f"/sys/class/net/{name}/phys_switch_id")
+    port = fs.read_once(f"/sys/class/net/{name}/phys_port_name")
     return f"{sw}/{port}" if sw and port else name
 
 
@@ -137,10 +135,10 @@ def phy_owners(funcs: list[tuple[str, str, str]]) -> set[str]:
     return set(owner.values())
 
 
-def rdma_map() -> dict[str, str]:
+def rdma_map(fs: RootFs) -> dict[str, str]:
     """netdev name -> RDMA device name."""
     out = {}
-    for p in glob.glob("/sys/class/infiniband/*/device/net/*"):
+    for p in fs.glob("/sys/class/infiniband/*/device/net/*"):
         parts = p.split("/")
         out[parts[-1]] = parts[4]
     return out
@@ -150,7 +148,7 @@ class _If:
     def __init__(self, info: NetIfInfo) -> None:
         self.info = info
         self.name = info.name
-        self.eth: EthtoolStats | None = None
+        self.eth: EthReader | None = None
         self.rdma_base: str | None = None  # .../ports/1/ when RDMA data counters are readable
         self.prev: dict[str, float] = {}
         self.prev_t: float | None = None
@@ -166,27 +164,27 @@ class NetCollector:
     name = "net"
 
     def __init__(
-        self, peers: dict[str, str | list[str]] | None = None, include_virtual: bool = False
+        self, src: Sources, peers: dict[str, str | list[str]] | None = None, include_virtual: bool = False
     ) -> None:
+        fs = self.fs = src.fs
+        self._ethtool = src.ethtool
         peers = peers or {}
-        rmap = rdma_map()
-        default_if = default_route_iface()
-        addrs = psutil.net_if_addrs()
-        names = sorted(n for n in os.listdir("/sys/class/net") if n != "lo")
+        rmap = rdma_map(fs)
+        default_if = default_route_iface(fs.read_once("/proc/net/route") or "")
+        addrs = src.if_addrs()
+        names = sorted(n for n in fs.listdir("/sys/class/net") if n != "lo")
         raw: list[tuple[str, NetRole, bool, str]] = []
         for n in names:
             role = classify(n, set(rmap), default_if)
-            up = read_once(f"/sys/class/net/{n}/operstate") == "up"
-            key = (
-                os.path.realpath(f"/sys/class/net/{n}/device")
-                if os.path.exists(f"/sys/class/net/{n}/device")
-                else n
-            )
+            up = fs.read_once(f"/sys/class/net/{n}/operstate") == "up"
+            key = fs.realpath(f"/sys/class/net/{n}/device") if fs.exists(f"/sys/class/net/{n}/device") else n
             raw.append((n, role, up, key))
         labels = assign_labels(raw)
         self.ifaces: list[_If] = []
         self.info: list[NetIfInfo] = []
-        owners = phy_owners([(key, phy_port(n), n) for n, role, _up, key in raw if role == "interconnect"])
+        owners = phy_owners(
+            [(key, phy_port(fs, n), n) for n, role, _up, key in raw if role == "interconnect"]
+        )
         for n, role, _up, _ in sorted(raw, key=lambda r: display_order(r[1], labels[r[0]], r[0])):
             v4 = [(a.address, a.netmask) for a in addrs.get(n, []) if a.family == socket.AF_INET]
             mac = next((a.address for a in addrs.get(n, []) if a.family == psutil.AF_LINK), None)
@@ -207,13 +205,12 @@ class NetCollector:
             if include_virtual or role not in ("virtual", "wireless"):
                 self.ifaces.append(i)
 
-    @staticmethod
-    def _setup_hw_counters(i: _If, phy_owner: bool) -> None:
+    def _setup_hw_counters(self, i: _If, phy_owner: bool) -> None:
         if i.info.rdma_device:
             base = f"/sys/class/infiniband/{i.info.rdma_device}/ports/1/"
             try:
                 for c in RDMA_DATA:
-                    int(read(base + c))
+                    int(self.fs.read(base + c))
                 i.rdma_base = base
                 i.info.counter_source = "netdev_rdma"
             except (OSError, ValueError) as e:
@@ -221,16 +218,15 @@ class NetCollector:
         if not phy_owner:  # another function of this physical port already reports the PHY counters
             return
         try:
-            i.eth = EthtoolStats(i.name, DROPS + ERRORS)
+            i.eth = self._ethtool(i.name, DROPS + ERRORS)
             i.eth.read()
         except OSError as e:
             log.warning("%s: ethtool PHY counters unavailable (%s)", i.name, e)
             i.eth = None
 
-    @staticmethod
-    def _speed(name: str) -> int | None:
+    def _speed(self, name: str) -> int | None:
         try:
-            v = int(read(f"/sys/class/net/{name}/speed"))
+            v = int(self.fs.read(f"/sys/class/net/{name}/speed"))
         except (OSError, ValueError):
             return None
         return v if v > 0 else None
@@ -239,7 +235,7 @@ class NetCollector:
         return {}
 
     def collect(self) -> dict:
-        netdev = parse_net_dev(read("/proc/net/dev"))
+        netdev = parse_net_dev(self.fs.read("/proc/net/dev"))
         out = []
         for i in self.ifaces:
             try:
@@ -252,14 +248,14 @@ class NetCollector:
 
     def _sample(self, i: _If, netdev: dict[str, dict[str, int]]) -> NetSample:
         try:
-            up = read(f"/sys/class/net/{i.name}/operstate").strip() == "up"
+            up = self.fs.read(f"/sys/class/net/{i.name}/operstate").strip() == "up"
         except OSError:
             up = False
         # Each state or rate read is a firmware query, and a RoCE port's state follows its link.
         if i.info.rdma_device and (up != (i.rdma_state == "ACTIVE") or slow_due(i.rdma_t, time.monotonic())):
             base = f"/sys/class/infiniband/{i.info.rdma_device}/ports/1/"
-            state = parse_rdma_state(read(base + "state"))
-            i.rdma_rate = read(base + "rate").strip() if state == "ACTIVE" else None
+            state = parse_rdma_state(self.fs.read(base + "state"))
+            i.rdma_rate = self.fs.read(base + "rate").strip() if state == "ACTIVE" else None
             i.rdma_state, i.rdma_t = state, time.monotonic()
         if not up:  # no cable / link down: skip counter reads; restart rates from 0 when it comes back
             i.prev, i.prev_t, i.speed = {}, None, None
@@ -291,8 +287,7 @@ class NetCollector:
             rdma_rate=i.rdma_rate,
         )
 
-    @staticmethod
-    def _counters(i: _If, netdev: dict[str, dict[str, int]]) -> dict[str, float]:
+    def _counters(self, i: _If, netdev: dict[str, dict[str, int]]) -> dict[str, float]:
         """Every tick: netdev bytes/errors/drops, plus RDMA port data for RDMA-backed interfaces."""
         d = netdev.get(i.name, {})
         cur: dict[str, float] = {
@@ -302,12 +297,11 @@ class NetCollector:
             "errors": d.get("rx_errs", 0) + d.get("tx_errs", 0),
         }
         if i.rdma_base:
-            cur["rx"] += 4 * int(read(i.rdma_base + RDMA_DATA[0]))
-            cur["tx"] += 4 * int(read(i.rdma_base + RDMA_DATA[1]))
+            cur["rx"] += 4 * int(self.fs.read(i.rdma_base + RDMA_DATA[0]))
+            cur["tx"] += 4 * int(self.fs.read(i.rdma_base + RDMA_DATA[1]))
         return cur
 
-    @staticmethod
-    def _slow_counters(i: _If) -> dict[str, float]:
+    def _slow_counters(self, i: _If) -> dict[str, float]:
         """Every SLOW_EVERY_S: ethtool PHY discards / CRC errors and RDMA error counters."""
         out: dict[str, float] = {}
         if i.eth is not None:
@@ -319,6 +313,6 @@ class NetCollector:
             total = 0
             for c in RDMA_ERRORS:
                 with contextlib.suppress(OSError, ValueError):
-                    total += int(read(base + c))
+                    total += int(self.fs.read(base + c))
             out["rdma_errors"] = total
         return out
