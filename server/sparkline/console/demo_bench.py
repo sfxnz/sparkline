@@ -1049,6 +1049,8 @@ SHOWCASE_STRUCTURAL = [
         ],
     ),
 ]
+# The story's sensor reading is a DGX Spark's; on other hardware it would read as that node's own
+SPARK_READING, NO_READING = "41 degrees", "cool air"
 SHOWCASE_THINKING = [
     "The user wants a long answer, so I should plan a few sections first.",
     "Start with the main idea, then add examples and concrete details.",
@@ -1084,9 +1086,12 @@ class ShowcaseDemo:
     """A simulated llm-showcase run on one node with each stream's one request planned up front (simulated
     seconds since they all went out), at LlmDemo's GB10-like rates for that many streams. With Fill to output
     length every stream writes max_tokens, so they end within a few percent of each other; without it some end
-    early. Thinking spends the first ~15% of each stream's tokens reasoning."""
+    early. Thinking spends the first ~15% of each stream's tokens reasoning. Off GB10, the story about a DGX
+    Spark gives no sensor reading."""
 
-    def __init__(self, p: dict[str, Any], node: str, rng: random.Random) -> None:
+    def __init__(
+        self, p: dict[str, Any], node: str, rng: random.Random, info: NodeInfo | None = None
+    ) -> None:
         self.p = p
         self.model = p["model"] or SERVED_MODEL.get(node, "model")
         n = p["streams"]
@@ -1098,6 +1103,8 @@ class ShowcaseDemo:
         for i in range(n):
             kind = pool[i % len(pool)]
             prompt, lines = kind[i // len(pool) % len(kind)]
+            if not _gb10(info):
+                lines = [x.replace(SPARK_READING, NO_READING) for x in lines]
             tokens = p["max_tokens"]
             if not p["fill_to_max"]:
                 tokens = max(1, round(tokens * rng.uniform(0.45, 1.0)))
@@ -2080,7 +2087,8 @@ class DemoBench:
         """llm-showcase plays its planned streams (ShowcaseDemo) in demo time; a cancel leaves the detail of
         where they were, as the payload does."""
         st = sim.state
-        show = sim.showcase = ShowcaseDemo(sim.req.params, sim.node, rng)
+        info = self.cluster.sources[sim.node].state.info
+        show = sim.showcase = ShowcaseDemo(sim.req.params, sim.node, rng, info)
         start = LLM_START_S * sim.duration / sum(show.walls())  # querying the endpoint, then the streams
         n, t = len(show.streams), 0.0
         st.log_tail = [f"model {show.model}, engine {LLM_ENGINE}"]
