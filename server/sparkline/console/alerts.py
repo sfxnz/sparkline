@@ -6,6 +6,7 @@ import fnmatch
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 from ..common.metrics import GPU_TOTALS, flatten
 from ..common.schema import AlertRule, Event, NodeInfo, NodeStatus, Problem, Sample
@@ -93,6 +94,31 @@ def validate_rules(rules: list[AlertRule]) -> None:
             raise ValueError(f"Rule {r.id!r}: throttle rules need a non-zero bitmask in threshold")
 
 
+Unit = Literal["celsius", "gib", "percent", "watts", "mhz", "mbit_s", "mbyte_s", "kwh", "plain"]
+
+UNIT_PATTERNS: tuple[tuple[str, Unit], ...] = (
+    ("*temp_c", "celsius"),
+    ("temp.*", "celsius"),
+    ("*.psi*", "percent"),
+    ("*_pct", "percent"),
+    ("*.util", "percent"),
+    ("*_util", "percent"),
+    ("mem.*", "gib"),
+    ("*.vram_used", "gib"),
+    ("*.shared_used", "gib"),
+    ("*.mem_used", "gib"),
+    ("fs.*.used", "gib"),
+    ("fs.*.total", "gib"),
+    ("fs.*.free", "gib"),
+    ("*power_w", "watts"),
+    ("*_mhz", "mhz"),
+    ("*.mhz", "mhz"),
+    ("disk.*_bps", "mbyte_s"),
+    ("*_bps", "mbit_s"),
+    ("*energy_j", "kwh"),
+)
+
+
 def _bitrate(bytes_per_s: float) -> str:
     bits = bytes_per_s * 8
     for unit, scale in (("Gb/s", 1e9), ("Mb/s", 1e6), ("kb/s", 1e3)):
@@ -101,24 +127,22 @@ def _bitrate(bytes_per_s: float) -> str:
     return f"{bits:.0f} b/s"
 
 
+_FORMAT: dict[Unit, Callable[[float], str]] = {
+    "celsius": lambda v: f"{v:.0f} °C",
+    "gib": lambda v: f"{v / GIB:.1f} GiB",
+    "percent": lambda v: f"{v:.1f} %",
+    "watts": lambda v: f"{v:.1f} W",
+    "mhz": lambda v: f"{v / 1000:.2f} GHz" if v >= 1000 else f"{v:.0f} MHz",
+    "mbit_s": _bitrate,
+    "mbyte_s": lambda v: f"{v / 1e6:.3g} MB/s",
+    "kwh": lambda v: f"{v / 3.6e6:.3g} kWh",
+    "plain": lambda v: f"{v:g}",
+}
+
+
 def fmt_value(key: str, v: float) -> str:
-    """A metric value with its unit, as the rule editor shows it (web/src/views/alerts/rules.ts unitFor)."""
-    if key.endswith("temp_c") or key.startswith("temp."):
-        return f"{v:.0f} °C"
-    memory = key.startswith("mem.") and not key.startswith("mem.psi") and not key.endswith("_pct")
-    if memory or key.endswith((".vram_used", ".shared_used", ".mem_used")):
-        return f"{v / GIB:.1f} GiB"
-    if key.endswith(("_pct", ".util")) or ".psi" in key:
-        return f"{v:.1f} %"
-    if key.endswith("power_w"):
-        return f"{v:.1f} W"
-    if key.endswith(("_mhz", ".mhz")):
-        return f"{v / 1000:.2f} GHz" if v >= 1000 else f"{v:.0f} MHz"
-    if key.endswith("_bps") and key.startswith("disk."):
-        return f"{v / 1e6:.3g} MB/s"
-    if key.endswith("_bps"):
-        return _bitrate(v)
-    return f"{v:g}"
+    unit: Unit = next((u for pattern, u in UNIT_PATTERNS if fnmatch.fnmatchcase(key, pattern)), "plain")
+    return _FORMAT[unit](v)
 
 
 def _sentence(titles: list[str]) -> str:
