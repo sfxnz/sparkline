@@ -35,3 +35,32 @@ test('long GPU names on Thermals & Power wrap, so every reading stays in view', 
   const overflow = await table.evaluate((t) => (t.parentElement ? t.parentElement.scrollWidth - t.parentElement.clientWidth : 0));
   expect(overflow).toBe(0);
 });
+
+for (const width of [375, 1440]) {
+  test(`each GPU's energy footer keeps its time span on one line at ${width} px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${MIXED}/node/ws1/gpu`);
+    const footers = page.locator('.ngpu-section .stat', { hasText: 'Energy since driver load' }).locator('.stat__footer');
+    await expect(footers).toHaveCount(4, { timeout: 15_000 });
+    for (const footer of await footers.all()) {
+      await expect(footer).toHaveText(/last\s\d+\s\w+/, { timeout: 15_000 });
+      const lines = await footer.evaluate((el) => {
+        const rows: { top: number; words: string[] }[] = [];
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          for (const m of (n.textContent ?? '').matchAll(/\S+/g)) {
+            const r = document.createRange();
+            r.setStart(n, m.index);
+            r.setEnd(n, m.index + m[0].length);
+            const top = Math.round(r.getBoundingClientRect().top);
+            const row = rows.find((x) => Math.abs(x.top - top) < 4);
+            if (row) row.words.push(m[0]);
+            else rows.push({ top, words: [m[0]] });
+          }
+        }
+        return rows.map((x) => x.words.join(' '));
+      });
+      expect(lines.some((l) => /last \d+ \w+/.test(l)), JSON.stringify(lines)).toBe(true);
+    }
+  });
+}
