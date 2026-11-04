@@ -56,6 +56,10 @@ def _reason(e: Exception) -> str:
     return f"NVML: {e}" if str(e) else f"NVML: {type(e).__name__}"
 
 
+def _no_permission(e: Exception) -> bool:
+    return isinstance(e, nv.NVMLError_NoPermission)
+
+
 class _Gpu:
     def __init__(self, index: int, handle: Any) -> None:  # an NVML device handle
         self.index = index
@@ -83,13 +87,25 @@ class GpuCollector:
         self.proc_mem: dict[int, int] = {}  # pid -> bytes, refreshed every tick
         self.proc_mem_total: int | None = None
         if nv is None:
-            self.unsupported.append(Unsupported(metric="gpu", reason="nvidia-ml-py is not installed"))
+            self.unsupported.append(
+                Unsupported(
+                    metric="gpu*", reason="Install nvidia-ml-py to read NVIDIA GPU metrics", kind="dependency"
+                )
+            )
             return
         try:
             nv.nvmlInit()
             n = nv.nvmlDeviceGetCount()
         except Exception as e:
-            self.unsupported.append(Unsupported(metric="gpu", reason=f"NVML unavailable ({_reason(e)})"))
+            if _no_permission(e):
+                gap = Unsupported(
+                    metric="gpu*",
+                    reason=f"Needs read access to the NVIDIA device files (/dev/nvidia*) ({_reason(e)})",
+                    kind="access",
+                )
+            else:
+                gap = Unsupported(metric="gpu*", reason=f"NVML unavailable ({_reason(e)})")
+            self.unsupported.append(gap)
             return
         self.driver = self._try(nv.nvmlSystemGetDriverVersion)
         cuda = self._try(nv.nvmlSystemGetCudaDriverVersion_v2)
@@ -150,6 +166,11 @@ class GpuCollector:
                 if key == "power_limit_w":
                     info.power_limit_w = v / 1000
             except Exception as e:
+                if _no_permission(e):
+                    self.unsupported.append(
+                        Unsupported(metric=p + key, reason=f"Needs root ({_reason(e)})", kind="access")
+                    )
+                    continue
                 why = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
                 self.unsupported.append(
                     Unsupported(
