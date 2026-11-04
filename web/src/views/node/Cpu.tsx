@@ -4,7 +4,7 @@ import { TimeSeriesChart } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { percentParts, tempParts } from '../../lib/format';
-import type { NodeInfo } from '../../lib/types';
+import type { NodeInfo, SensorInfo } from '../../lib/types';
 import { notReported } from '../../lib/capabilities';
 import { ChartPanelSkeleton, StatSkeleton } from '../placeholders';
 import { CoreGrid } from './partsB/CoreGrid';
@@ -70,7 +70,7 @@ function CpuView({ node, info }: { node: string; info: NodeInfo }) {
             unsupported={psiUnsupported}
             footer="Waiting for a CPU · 10 s avg"
           />
-          <LiveStat node={node} label="CPU temperature" format={tempParts} metric="cpu.temp" unsupported={notReported(info, 'cpu.temp')} footer="Hottest CPU sensor" />
+          <LiveStat node={node} label="CPU temperature" format={tempParts} metric="cpu.temp" unsupported={notReported(info, 'cpu.temp')} footer={cpuTempFooter(info.sensors)} />
         </div>
       </Panel>
 
@@ -102,6 +102,13 @@ function heatmapSubtitle({ product, split, groups }: CoreLayout): string {
   if (!product) return `${list.charAt(0).toUpperCase()}${list.slice(1)}. ${rows}`;
   if (split) return `${product}: ${list}. ${rows}`;
   return `${[product, ...groups.map(facts)].filter(Boolean).join(', ')}. ${rows}`;
+}
+
+/** k10temp reports Tdie only on parts that offset Tctl. Without Tdie the agent's hottest reading counts Tctl, which
+ *  AMD defines for fan control on an arbitrary scale. */
+function cpuTempFooter(sensors: readonly SensorInfo[]): string {
+  const k10temp = (reading: string) => sensors.some((s) => new RegExp(`^k10temp\\.${reading}(_\\d+)?$`).test(s.id));
+  return k10temp('tctl') && !k10temp('tdie') ? 'Includes Tctl, a fan-control value' : 'Hottest CPU sensor';
 }
 
 /** "5 min 3.10 · 15 min 2.95" (from the latest sample: the 5/15-minute loads are not kept in history). */
