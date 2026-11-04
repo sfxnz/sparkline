@@ -226,33 +226,50 @@ describe('Node page', () => {
       const s = within(await show(header({
         versions: { 'amd.ROCm': '999.2', 'nvidia.Driver': '999.1' },
         gpus: [gpu('Test NVIDIA GPU'), gpu('Test AMD GPU', { index: 1, vendor: 'amd', backend: 'amdgpu-sysfs' })],
-        unsupported: [{ metric: 'gpu.backend', reason: 'amdsmi: Install amdsmi to read AMD GPU metrics', kind: 'dependency' }],
+        unsupported: [{ metric: 'gpu.backend.amdsmi', reason: 'Install amdsmi to read AMD GPU metrics', kind: 'dependency' }],
       })));
       expect(s.getByText('1 GPU · Test NVIDIA GPU')).toBeInTheDocument();
       expect(s.getByText('amdgpu-sysfs')).toBeInTheDocument();
       expect(s.getByText('1 GPU · Test AMD GPU')).toBeInTheDocument();
-      expect(s.getByText('Skipped')).toHaveTextContent('Helper tool missing');
+      expect(s.getByText('Skipped')).toBeInTheDocument();
+      expect(s.getByText('amdsmi').closest('li')).toHaveTextContent('amdsmiHelper tool missingInstall amdsmi to read AMD GPU metrics');
       expect(s.getByText('amdsmi')).toBeInTheDocument();
       expect(s.getByText('Install amdsmi to read AMD GPU metrics')).toBeInTheDocument();
       expect(s.getAllByRole('heading').map((h) => h.textContent)).toEqual(['Platform', 'GPU backend', 'Versions', 'NVIDIA', 'AMD']);
     });
 
-    it('says no GPU backend opened in the meta row and gives each backend reason in the details', async () => {
-      const why = 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics; amdgpu-sysfs: No amdgpu device under /sys/class/drm';
+    it('says no GPU backend opened in the meta row and gives each backend its own row and kind', async () => {
+      const why = 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics; amdgpu-sysfs: Needs the render group for /dev/kfd';
       const sheet = await show(header({
         unsupported: [
-          { metric: 'gpu*', reason: why, kind: 'dependency' },
-          { metric: 'mem.gpu', reason: why, kind: 'dependency' },
-          { metric: 'gpu.backend', reason: why, kind: 'dependency' },
+          { metric: 'gpu*', reason: why, kind: 'access' },
+          { metric: 'mem.gpu', reason: why, kind: 'access' },
+          { metric: 'gpu.backend', reason: why, kind: 'access' },
+          { metric: 'gpu.backend.nvml', reason: 'Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' },
+          { metric: 'gpu.backend.amdgpu-sysfs', reason: 'Needs the render group for /dev/kfd', kind: 'access' },
         ],
       }));
       expect(meta()).toContain('No GPU backend');
       const s = within(sheet);
       expect(s.getByText('No GPU backend opened')).toBeInTheDocument();
-      expect(s.getByText('Helper tool missing')).toBeInTheDocument();
-      expect(s.getByText('Install nvidia-ml-py to read NVIDIA GPU metrics')).toBeInTheDocument();
-      expect(s.getByText('No amdgpu device under /sys/class/drm')).toBeInTheDocument();
+      expect(s.getAllByRole('listitem').filter((li) => li.classList.contains('nsheet__skip')).map((li) => li.textContent)).toEqual([
+        'nvmlHelper tool missingInstall nvidia-ml-py to read NVIDIA GPU metrics',
+        'amdgpu-sysfsNo accessNeeds the render group for /dev/kfd',
+      ]);
       expect(s.getByText('No GPU versions reported')).toBeInTheDocument();
+    });
+
+    it('on a Mac without macmon and not root, names the helper to install and the root need on their own rows', async () => {
+      const s = within(await show(header({
+        platform: 'darwin',
+        gpus: [gpu('Test Apple GPU', { vendor: 'apple', backend: 'ioreg' })],
+        unsupported: [
+          { metric: 'gpu.backend.apple', reason: 'Install macmon (0.9.0 or later)', kind: 'dependency' },
+          { metric: 'gpu.backend.powermetrics', reason: 'Needs root', kind: 'access' },
+        ],
+      })));
+      expect(s.getByText('apple').closest('li')).toHaveTextContent('appleHelper tool missingInstall macmon (0.9.0 or later)');
+      expect(s.getByText('powermetrics').closest('li')).toHaveTextContent('powermetricsNo accessNeeds root');
     });
 
     it('offers no details while the node has not reported its info', () => {

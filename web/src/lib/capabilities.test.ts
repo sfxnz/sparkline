@@ -72,6 +72,14 @@ describe('notReported', () => {
     expect(notReported(zero, 'gpu.backend')).toEqual({ kind: 'dependency', label: 'Helper tool missing', detail: 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics' });
   });
 
+  it('never lets a skipped backend entry stand for the node-wide gpu.backend answer or for a GPU metric', () => {
+    const skipped = node({ metric: 'gpu.backend.amdsmi', reason: 'Install amdsmi to read AMD GPU metrics', kind: 'dependency' });
+    expect(notReported(skipped, 'gpu.backend')).toBeNull();
+    expect(notReported(skipped, 'gpu0.util')).toBeNull();
+    expect(notReported(skipped, 'gpu0')).toBeNull();
+    expect(notReported(skipped, 'gpu.backend.amdsmi')).toEqual({ kind: 'dependency', label: 'Helper tool missing', detail: 'Install amdsmi to read AMD GPU metrics' });
+  });
+
   it('answers null without node info', () => {
     expect(notReported(null, 'gpu0.util')).toBeNull();
     expect(notReported(undefined, 'gpu0.util')).toBeNull();
