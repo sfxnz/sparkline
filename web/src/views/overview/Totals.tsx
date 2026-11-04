@@ -2,6 +2,7 @@
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
+import { notReported } from '../../lib/capabilities';
 import { formatBytes, formatPercent, percentParts, wattsParts, type Formatter } from '../../lib/format';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
@@ -39,6 +40,7 @@ export function Totals() {
       const known = ids.some((id) => liveStore.latest(id)?.procs);
       const lastTs = Math.max(0, ...ids.map((id) => liveStore.lastTs(id) ?? 0));
       const r = (v: number | null, q: number) => (v === null ? null : Math.round(v / q) * q);
+      const memMissing = ids.filter((id) => liveStore.latestValue(id, 'mem.used') === null || !infos[id]?.info?.mem_total);
       return {
         util: r(t.util, 1),
         power: r(t.power, 0.1),
@@ -47,6 +49,7 @@ export function Totals() {
         memTotal: t.memTotal,
         psi: r(t.psiMax, 0.01),
         reporting: t.reporting,
+        memMissing: memMissing.join('\n'),
         procs: known ? procs.length : null,
         containers,
         updatedAt: lastTs ? Math.floor(lastTs) : null,
@@ -59,6 +62,8 @@ export function Totals() {
   const energy = useEnergyToday(order);
   const rate = useCluster((s) => s.cluster?.settings);
   const of = stale ? 'No node is reporting live data' : `${online.length === order.length ? 'All' : `${online.length} of`} ${order.length} ${order.length === 1 ? 'node' : 'nodes'} reporting`;
+  const memMissing = totals.memMissing ? totals.memMissing.split('\n') : [];
+  const memGap = !stale && ids.length === 1 && memMissing.length === 1 ? notReported(infos[ids[0] ?? '']?.info, 'mem') : null;
 
   return (
     <Panel label="Cluster totals" className="ov-totals">
@@ -91,14 +96,18 @@ export function Totals() {
           value={totals.memPct}
           format={percentParts}
           {...staleProps}
+          unsupported={memGap}
           footer={
             totals.memUsed !== null && totals.memTotal ? (
               <span className="num">
                 {formatBytes(totals.memUsed).replace(/\s?GiB$/, '')} of {formatBytes(totals.memTotal)}
                 {totals.psi !== null ? (totals.psi < 0.05 ? ' · no memory pressure' : ` · waiting on memory ${formatPercent(totals.psi, totals.psi < 10 ? 1 : 0)} of the time`) : ''}
+                {memMissing.length ? ` · excl. ${listNodes(memMissing)}` : ''}
               </span>
-            ) : (
+            ) : stale ? (
               of
+            ) : memGap ? null : (
+              'No node is reporting memory'
             )
           }
         />
