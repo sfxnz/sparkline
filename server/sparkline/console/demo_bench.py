@@ -9,7 +9,7 @@ plausible GB10 numbers with small run-to-run noise. While a run is going,
 the node's demo telemetry carries the load (DemoNode.bench_windows for the GPU, disk_windows for the storage
 profiles), so the telemetry overlay is alive. fio is "not
 installed" on the demo nodes (built-in runner, noted), and spark3 has no ConnectX-7 peer, so 2-node
-benchmarks are unavailable there.
+benchmarks are unavailable there. Benchmarks whose results are GB10 numbers are unavailable on other hardware.
 """
 
 from __future__ import annotations
@@ -122,11 +122,28 @@ DISK_LOAD = {
 }
 
 
+# make_results reports numbers measured on a DGX Spark for these; no other demo hardware has modelled results
+GB10_RESULTS = ("gpu-matmul", "mem-bandwidth", "cpu-throughput")
+
+
+def _not_gb10(node: str, info: NodeInfo | None) -> Problem | None:
+    if info is None or any(g.name == "NVIDIA GB10" for g in info.gpus):
+        return None
+    return Problem(
+        message="Demo results are modelled on GB10 only",
+        cause=f"The demo reports numbers measured on a DGX Spark, which would be false for {node}'s hardware",
+        fix="Run this benchmark on a DGX Spark demo node, such as spark1",
+    )
+
+
 def demo_catalog(node: str, info: NodeInfo | None) -> list[BenchSpec]:
     env = _env(node, info)
+    not_gb10 = _not_gb10(node, info)
     out = []
     for b in AGENT_REGISTRY.values():
         problem, note = probes.availability(b.id, env)
+        if b.id in GB10_RESULTS:
+            problem = not_gb10 or problem
         notes = {"llm-inference": LLM_NOTE, "llm-showcase": SHOWCASE_NOTE, "tool-eval": TE_NOTE}
         demo = notes.get(b.id, COMPRESSED_NOTE)
         out.append(b.spec({node: problem}, f"{note} {demo}".strip()))
