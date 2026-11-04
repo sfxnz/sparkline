@@ -77,12 +77,13 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
   const gpuPower = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.power_w'), [nodeId]), Object.is);
   const gpuSensor = groups.find((g) => g.id === 'gpu')?.sensors[0];
   const gpuInfo = useCluster((s) => s.nodes[nodeId]?.info?.gpus[0]);
+  const anySensor = groups.some((g) => g.sensors.some((s) => !notReported(info, s.key)));
 
   return (
     <Panel label={`${nodeId} thermals and power summary`} className="tp-head">
       <NowLabel />
       <div className="nstats">
-        <Stat label="Hottest sensor" value={hot?.c} format={tempParts} stale={stale} updatedAt={updatedAt} unsupported={sensorGap} reporting={!stale} footer={hot?.label} />
+        <Stat label="Hottest sensor" value={hot?.c} format={tempParts} stale={stale} updatedAt={updatedAt} unsupported={anySensor ? null : sensorGap} reporting={!stale} footer={hot?.label} />
         <Stat
           label="GPU temperature"
           value={gpuTemp}
