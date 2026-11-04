@@ -33,7 +33,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
   const gpu = info?.gpus[0];
   const memTotal = info?.mem_total ?? null;
   const rails = useMemo(() => cabledRails(info), [info]);
-  const railNames = useMemo(() => rails.map((r) => r.iface.name), [rails]);
+  const railNames = useMemo(() => rails.map((r) => r.name), [rails]);
   const model = nicModel(info?.net);
   const nic = nicHeading(model);
   const railId = railNames.join(',');
@@ -46,8 +46,8 @@ export default function Summary({ nodeId }: NodeTabProps) {
   const txKeys = useMemo(() => railNames.map((n) => `net.${n}.tx_bps`), [railNames]);
   const cx7Series = useMemo<SeriesSpec[]>(
     () => rails.flatMap((r) => [
-      { key: `net.${r.iface.name}.rx_bps`, label: `${railName(r.letter)} in` },
-      { key: `net.${r.iface.name}.tx_bps`, label: `${railName(r.letter)} out` },
+      { key: `net.${r.name}.rx_bps`, label: `${railName(r)} in` },
+      { key: `net.${r.name}.tx_bps`, label: `${railName(r)} out` },
     ]),
     [rails],
   );

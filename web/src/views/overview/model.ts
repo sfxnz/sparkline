@@ -2,8 +2,8 @@
 // the interconnect topology. No React, no stores, so every rule here is unit-tested in model.test.ts.
 import type { Status } from '../../design/components/StatusPill';
 import type { LiveCondition } from '../../lib/condition';
-import { railIfaces, railName, type RailIface } from '../../lib/interconnect';
-import type { Event, NodeInfo, NodeStatus, ProcSample } from '../../lib/types';
+import { railName } from '../../lib/interconnect';
+import type { Event, NetIfInfo, NodeInfo, NodeStatus, ProcSample } from '../../lib/types';
 import { linkRecoveries } from '../alerts/model';
 
 // ------------------------------------------------------------------------------------------------ wording helpers
@@ -304,7 +304,8 @@ export interface Link {
   rails: Rail[];
 }
 
-const peerRails = (info: NodeInfo | null | undefined, peer: string): RailIface[] => railIfaces(info?.net).filter((r) => r.iface.peer === peer);
+const peerRails = (info: NodeInfo | null | undefined, peer: string): NetIfInfo[] =>
+  (info?.net ?? []).filter((n) => n.role === 'interconnect' && n.peer === peer);
 
 /** Direct links between nodes, one per node pair, from the interconnect interfaces that name a peer. */
 export function interconnectLinks(order: readonly string[], infos: Readonly<Record<string, NodeInfo | null | undefined>>): Link[] {
@@ -320,11 +321,11 @@ export function interconnectLinks(order: readonly string[], infos: Readonly<Reco
       links.push({
         a,
         b,
-        rails: peerRails(infos[a], b).map((r, i) => ({
-          name: r.iface.name,
-          peerName: theirs[i]?.iface.name ?? null,
-          label: railName(r.letter),
-          speedMbps: r.iface.speed_mbps,
+        rails: peerRails(infos[a], b).map((n, i) => ({
+          name: n.name,
+          peerName: theirs[i]?.name ?? null,
+          label: railName(n),
+          speedMbps: n.speed_mbps,
         })),
       });
     }

@@ -9,9 +9,10 @@ Conventions:
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 SCHEMA_VERSION = 1
 
@@ -61,6 +62,16 @@ class NetIfInfo(BaseModel):
     counter_source: Literal["netdev_rdma", "ethtool_phy", "netdev"] = "netdev"
     peer: str | None = None  # node_id at the far end of an interconnect link, if known
     nic_model: str | None = None  # "ConnectX-7", from PCI IDs; None if unknown or from an older agent
+    rail: str | None = None  # "A", "B": interconnects up at agent start, in PCI order; None for spare ports
+
+    @model_validator(mode="before")
+    @classmethod
+    def _rail_from_old_agent_label(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "rail" not in data and data.get("role") == "interconnect":
+            m = re.search(r"rail ([A-Z])$", str(data.get("label", "")))
+            if m:
+                return {**data, "rail": m.group(1)}
+        return data
 
 
 class DiskInfo(BaseModel):
