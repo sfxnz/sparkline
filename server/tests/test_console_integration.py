@@ -154,6 +154,45 @@ def test_history_proxy_forwards_valid_history_and_rejects_invalid(env):
         agent_app.state.history_body = None
 
 
+BAD_VALUES = {
+    "a string in resolution_s": b'"60"',
+    "true in a series": b"true",
+    "NaN in a series": b"NaN",
+    "Infinity in a series": b"Infinity",
+    "a string in a series": b'"12.25"',
+}
+
+
+@pytest.mark.parametrize("value", BAD_VALUES.values(), ids=BAD_VALUES.keys())
+@pytest.mark.parametrize("every_field", [True, False], ids=["every field", "min and max left out"])
+def test_history_proxy_rejects_values_a_repo_agent_never_sends(env, value, every_field):
+    wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
+    res, cell = (value, b"12.25") if value == b'"60"' else (b"60.0", value)
+    body = b'{"node_id": "n1", "resolution_s": %s, "ts": [1.5], "series": {"gpu0.util": [%s]}' % (res, cell)
+    body += b', "min": {"gpu0.util": [3.0]}, "max": {"gpu0.util": [40.5]}}' if every_field else b"}"
+    env["agent_app"].state.history_body = body
+    try:
+        r = env["http"].get("/api/v1/history", params={"node": "n1", "keys": "gpu0.util"})
+    finally:
+        env["agent_app"].state.history_body = None
+    assert r.status_code == 502, r.text
+    assert r.json()["problem"]["message"] == "Agent on n1 returned invalid history"
+
+
+def test_history_proxy_forwards_ints_and_nulls_byte_for_byte(env):
+    wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
+    body = (
+        b'{"node_id":"n1","resolution_s":60,"ts":[1,61.5],"series":{"gpu0.util":[12,null]},'
+        b'"min":{"gpu0.util":[0,null]},"max":{"gpu0.util":[40.5,null]}}'
+    )
+    env["agent_app"].state.history_body = body
+    try:
+        r = env["http"].get("/api/v1/history", params={"node": "n1", "keys": "gpu0.util"})
+    finally:
+        env["agent_app"].state.history_body = None
+    assert r.status_code == 200 and r.content == body
+
+
 def test_history_proxy_fills_in_the_defaults_of_fields_the_agent_left_out(env):
     wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
     sparse = {"node_id": "n1", "resolution_s": 60.0, "ts": [1.5], "series": {"gpu0.util": [12.25]}}
