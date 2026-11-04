@@ -16,6 +16,7 @@ import { useNow } from '../design/useNow';
 import { api } from '../lib/api';
 import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
+import { noGpuLabel } from '../lib/platform';
 import type { NodeInfo, NodeState } from '../lib/types';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
@@ -113,7 +114,7 @@ function metaItems(node: NodeState, now: number): string[] {
   return [
     info.hostname !== node.node_id ? info.hostname : null,
     host,
-    info.gpus[0]?.name ?? (notReported(info, 'gpu.backend') ? 'No GPU backend' : null),
+    info.gpus[0]?.name ?? noGpuLabel(info),
     info.driver ? `Driver ${info.driver}` : null,
     info.cuda ? `CUDA ${info.cuda}` : null,
     `Agent ${info.agent_version}`,
@@ -128,7 +129,8 @@ function NodeHeader({ id }: { id: string }) {
   const status = useNodeDisplayStatus(id);
   const items = node ? metaItems(node, serverNow()) : [];
   const info = node?.info;
-  const [open, setOpen] = useState(false);
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const open = openFor === id;
   const sheetId = useId();
 
   return (
@@ -151,7 +153,7 @@ function NodeHeader({ id }: { id: string }) {
             ))}
           </ul>
           {info ? (
-            <button type="button" className="nhead__more" aria-expanded={open} aria-controls={sheetId} onClick={() => { setOpen(!open); }}>
+            <button type="button" className="nhead__more" aria-expanded={open} aria-controls={sheetId} onClick={() => { setOpenFor(open ? null : id); }}>
               Details
               <ChevronDown aria-hidden="true" className="nhead__chevron" />
             </button>
