@@ -1,17 +1,21 @@
-import { CircleCheck } from 'lucide-react';
-import { useCallback, useMemo, type ReactNode } from 'react';
+import { CircleCheck, Clock, Unplug } from 'lucide-react';
+import { useCallback, useId, useMemo, type ReactNode } from 'react';
 import { TimeSeriesChart, type SeriesSpec, type Threshold } from '../../charts/TimeSeriesChart';
+import { gpuColor } from '../../charts/theme';
+import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
 import { Stat } from '../../design/components/Stat';
 import { Skeleton } from '../../design/components/Skeleton';
+import '../../design/components/StatusPill.css';
+import { useNow } from '../../design/useNow';
 import { notReported, type NotReported } from '../../lib/capabilities';
 import { NoData, Unsupported } from '../../design/components/Unsupported';
-import { energyParts, formatFreq, formatPercent, formatTemp, formatWatts, percentParts, tempParts, wattsParts, type Formatter } from '../../lib/format';
+import { energyParts, formatAgo, formatFreq, formatPercent, formatTemp, formatWatts, percentParts, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { gpuKey, type GpuField, type GpuReading } from '../../lib/metrics';
 import { decodeThrottle } from '../../lib/throttle';
 import type { GpuInfo, NodeInfo, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
-import { useLatest } from '../../store/live';
+import { liveStore, useLatest } from '../../store/live';
 import { formatEnergyAuto, formatEnergyCost, historyEnergy } from '../shared/energy';
 import { mean, peak } from './parts/gpu';
 import { TempFooter } from './parts/TempFooter';
@@ -21,9 +25,9 @@ import type { TimeRange } from '../../lib/prefs';
 import { useFreshness, useRangeData, type RangeData } from './parts/hooks';
 import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
-import { clockLevel, CollectorErrors, SEVERITY_META, throttleHeadline, ThrottleRows } from './parts/Notices';
+import { clockLevel, CollectorErrors, SEVERITY_META, throttleBadge, throttleHeadline, ThrottleRows } from './parts/Notices';
 import { ProcTable } from './parts/ProcTable';
-import { gpuSelector } from './parts/selectors';
+import { gpuPresent, gpuSelector } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
 import { gpuAt, notResponding } from '../../lib/gpu';
 
@@ -66,6 +70,8 @@ interface GpuCtx {
   index: number;
   gpu: GpuInfo | undefined;
   info: NodeInfo | null | undefined;
+  /** One section among several: the name is the section's subtitle, and power reads against this GPU's limit. */
+  multi: boolean;
   currency: string;
   rate: number | null;
 }
@@ -84,15 +90,24 @@ function gpuStats(c: GpuCtx, smFormat: Formatter): GpuStatSpec[] {
   const smMax = gpu?.sm_mhz_max ?? null;
   const slowdown = gpu?.temp_slowdown_c ?? null;
   const shutdown = gpu?.temp_shutdown_c ?? null;
+  const limit = gpu?.power_limit_w ?? null;
   return [
-    { label: 'Utilisation', reading: 'util', format: percentParts, footer: () => gpu?.name ?? null },
+    { label: 'Utilisation', reading: 'util', format: percentParts, footer: () => (c.multi ? 'Time the GPU was busy' : (gpu?.name ?? null)) },
     { label: 'SM clock', reading: 'sm_mhz', format: smFormat, footer: (v) => (v != null && smMax ? `${Math.round((100 * v) / smMax)}% of maximum` : null) },
     { label: 'Temperature', reading: 'temp_c', format: tempParts, footer: (v) => <TempFooter temp={v} slowdown={slowdown} shutdown={shutdown} /> },
-    { label: 'GPU power', reading: 'power_w', format: wattsParts, footer: () => <PowerPeak nodeId={nodeId} index={index} /> },
+    {
+      label: 'GPU power',
+      reading: 'power_w',
+      format: wattsParts,
+      footer:
+        c.multi && limit
+          ? (v) => (v != null ? `${Math.round((100 * v) / limit)}% of the ${formatWatts(limit)} limit` : null)
+          : () => <PowerPeak nodeId={nodeId} index={index} idle={c.multi ? null : 'GPU rail only'} />,
+    },
     {
       label: 'Power limit',
       field: 'power_limit_w',
-      value: gpu?.power_limit_w ?? null,
+      value: limit,
       format: wattsParts,
       missingFooter: <PowerTypical nodeId={nodeId} index={index} />,
     },
@@ -144,7 +159,9 @@ export default function Gpu({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const currency = useCluster((s) => s.cluster?.settings.currency ?? '£');
   const rate = useCluster((s) => s.cluster?.settings.energy_rate_per_kwh ?? null);
-  return <SingleGpu c={{ nodeId, index: 0, gpu: gpuAt(info?.gpus, 0), info, currency, rate }} />;
+  const gpus = info?.gpus ?? [];
+  if (gpus.length > 1) return <MultiGpu nodeId={nodeId} info={info} gpus={gpus} currency={currency} rate={rate} />;
+  return <SingleGpu c={{ nodeId, index: 0, gpu: gpuAt(gpus, 0), info, multi: false, currency, rate }} />;
 }
 
 function SingleGpu({ c }: { c: GpuCtx }) {
@@ -212,10 +229,149 @@ function SingleGpu({ c }: { c: GpuCtx }) {
         </Panel>
       </div>
 
-      <Panel title="GPU processes" subtitle="Processes holding GPU memory. Refreshed every few seconds." flush>
-        <ProcTable nodeId={nodeId} mode="gpu" />
-      </Panel>
+      <GpuProcesses nodeId={nodeId} />
     </div>
+  );
+}
+
+interface MultiProps {
+  nodeId: string;
+  info: NodeInfo | null | undefined;
+  gpus: readonly GpuInfo[];
+  currency: string;
+  rate: number | null;
+}
+
+function MultiGpu({ nodeId, info, gpus, currency, rate }: MultiProps) {
+  const allId = useId();
+  const perGpu = (field: GpuReading): SeriesSpec[] => gpus.map((g) => ({ key: gpuKey(g.index, field), label: `GPU ${g.index}`, gpu: g.index }));
+  const smMaxes = gpus.map((g) => g.sm_mhz_max);
+  const smTop = smMaxes.every((m) => m != null) ? Math.max(...smMaxes) : null;
+  // One set of dashed lines is true for every series only when all GPUs share both points.
+  const first = gpus[0];
+  const agree = gpus.every((g) => g.temp_slowdown_c === first?.temp_slowdown_c) && gpus.every((g) => g.temp_shutdown_c === first?.temp_shutdown_c);
+  const slowdown = agree ? (first?.temp_slowdown_c ?? null) : null;
+  const shutdown = agree ? (first?.temp_shutdown_c ?? null) : null;
+  const thresholds = useMemo(() => tempThresholds(slowdown, shutdown), [slowdown, shutdown]);
+
+  return (
+    <div className="view">
+      <CollectorErrors nodeId={nodeId} only={['gpu']} />
+      <NowLabel />
+      <div className="ngpu__sections">
+        {gpus.map((g) => (
+          <GpuSection key={g.index} c={{ nodeId, index: g.index, gpu: g, info, multi: true, currency, rate }} />
+        ))}
+      </div>
+
+      <section className="ngpu-group" aria-labelledby={allId}>
+        <header className="ngpu-group__head">
+          <h2 id={allId} className="ngpu-group__title">All GPUs</h2>
+          <span className="ngpu-group__note">One line per GPU, in its section’s colour</span>
+        </header>
+        <div className="ngpu__charts">
+          <Panel title="Utilisation" subtitle="Share of time each GPU was busy">
+            <TimeSeriesChart node={nodeId} title="GPU utilisation" series={perGpu('util')} format={pct} yMin={0} yMax={100} />
+          </Panel>
+          <Panel title="SM clock" subtitle={smTop ? `Chart top is the highest maximum, ${formatFreq(smTop)}` : undefined}>
+            <TimeSeriesChart node={nodeId} title="SM clock" series={perGpu('sm_mhz')} format={formatGhz} yMin={0} yMax={smTop ?? undefined} />
+          </Panel>
+          <Panel title="Temperature" subtitle={thresholds.length ? 'Dashed: the slowdown and shutdown points all GPUs share' : 'Each GPU’s section shows its own slowdown point'}>
+            <TimeSeriesChart
+              node={nodeId}
+              title="GPU temperature"
+              series={perGpu('temp_c')}
+              format={formatTemp}
+              thresholds={thresholds}
+              yMin={30}
+              yMax={shutdown != null ? shutdown + 4 : undefined}
+            />
+          </Panel>
+          <Panel title="GPU power" subtitle="Per GPU, as the driver reports it">
+            <TimeSeriesChart node={nodeId} title="GPU power" series={perGpu('power_w')} format={formatWatts} yMin={0} />
+          </Panel>
+        </div>
+      </section>
+
+      <GpuProcesses nodeId={nodeId} />
+    </div>
+  );
+}
+
+/** One GPU of several: its live stats and clock limits, or a notice when the latest sample has nothing for it. */
+function GpuSection({ c }: { c: GpuCtx }) {
+  const { nodeId, index, gpu } = c;
+  const present = useLatest(nodeId, gpuPresent(index));
+  const { waiting } = useFreshness(nodeId);
+  const gap = useGpuGap(nodeId, c.info, index);
+  const silent = gap(`gpu${index}`);
+  const name = `GPU ${index}`;
+  return (
+    <Panel
+      className="ngpu-section"
+      label={name}
+      title={
+        <>
+          <span className="ngpu-section__swatch" style={{ background: gpuColor(index) }} aria-hidden="true" />
+          {name}
+        </>
+      }
+      subtitle={gpu?.name}
+      actions={present === false ? null : <GpuStatus nodeId={nodeId} index={index} />}
+      busy={waiting}
+    >
+      {present === false ? (
+        <EmptyState icon={Unplug} title={`${name} not responding`} compact>
+          {silent?.detail ?? 'The latest sample has no entry for this GPU.'} The other GPUs are unaffected.
+        </EmptyState>
+      ) : (
+        <>
+          <div className="nstats ngpu-section__stats">
+            <GpuStats c={c} />
+          </div>
+          <div className="nclock ngpu-section__clock">
+            <ThrottleNow nodeId={nodeId} index={index} smMax={gpu?.sm_mhz_max ?? null} gap={gap(gpuKey(index, 'throttle_mask'))} />
+            <CappedShare nodeId={nodeId} index={index} info={c.info} />
+          </div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+/** A section's compact status: its clock-limit badge, or the age of its values once the node stops reporting. */
+function GpuStatus({ nodeId, index }: { nodeId: string; index: number }) {
+  const mask = useLatest(nodeId, gpuSelector(index, 'throttle_mask'));
+  const { stale } = useFreshness(nodeId);
+  if (stale) return <StaleSince nodeId={nodeId} />;
+  if (mask === null) return null;
+  const badge = throttleBadge(decodeThrottle(mask));
+  const meta = badge.severity === 'ok' ? null : SEVERITY_META[badge.severity];
+  const Icon = meta?.icon ?? CircleCheck;
+  return (
+    <span className={`status status--pill status--sm ${meta?.tone ?? 'tone-ok'}`}>
+      <Icon className="status__icon" aria-hidden="true" strokeWidth={2.25} />
+      <span className="status__label">{badge.label}</span>
+    </span>
+  );
+}
+
+function StaleSince({ nodeId }: { nodeId: string }) {
+  useNow(1000);
+  const last = liveStore.lastTs(nodeId);
+  return (
+    <span className="status status--pill status--sm tone-stale">
+      <Clock className="status__icon" aria-hidden="true" strokeWidth={2.25} />
+      <span className="status__label">{last ? `Updated ${formatAgo(last, serverNow())}` : 'No recent data'}</span>
+    </span>
+  );
+}
+
+function GpuProcesses({ nodeId }: { nodeId: string }) {
+  return (
+    <Panel title="GPU processes" subtitle="Processes holding GPU memory. Refreshed every few seconds." flush>
+      <ProcTable nodeId={nodeId} mode="gpu" />
+    </Panel>
   );
 }
 
@@ -263,11 +419,11 @@ function useGpuRange(nodeId: string, index: number) {
   return useRangeData(nodeId, keys);
 }
 
-function PowerPeak({ nodeId, index }: { nodeId: string; index: number }) {
+function PowerPeak({ nodeId, index, idle }: { nodeId: string; index: number; idle: string | null }) {
   const { range, data } = useGpuRange(nodeId, index);
   const key = gpuKey(index, 'power_w');
   const p = data ? peak(data.series[key], data.max[key]) : null;
-  return <>{p != null ? `Peak ${formatWatts(p)} · ${phraseOf(range, data)}` : 'GPU rail only'}</>;
+  return <>{p != null ? `Peak ${formatWatts(p)} · ${phraseOf(range, data)}` : idle}</>;
 }
 
 function PowerTypical({ nodeId, index }: { nodeId: string; index: number }) {

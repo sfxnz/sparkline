@@ -139,6 +139,14 @@ export function throttleHeadline(reasons: readonly ThrottleReason[], clocks: Clo
   return { text: `Clocks limited by ${names}`, severity: sev };
 }
 
+/** The headline as a header badge: the worst limiting reason ("Thermal limit +1"), else "Idle" or "Not limited". */
+export function throttleBadge(reasons: readonly ThrottleReason[]): { label: string; severity: Severity | 'ok' } {
+  const active = worstFirst(limiting(reasons));
+  const worst = active[0];
+  if (!worst) return { label: reasons.length ? 'Idle' : 'Not limited', severity: 'ok' };
+  return { label: active.length > 1 ? `${worst.title} +${active.length - 1}` : worst.title, severity: worst.severity };
+}
+
 const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
 const worstFirst = (reasons: readonly ThrottleReason[]) => [...reasons].sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.bit - b.bit);
 
