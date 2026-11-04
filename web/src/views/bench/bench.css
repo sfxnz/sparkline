@@ -128,6 +128,7 @@
 .bench-node__why .bench-tip { max-width: 18rem; }
 .bench-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
 .bench-pair .ops-select { width: 100%; }
+.bench-gpu { justify-items: stretch; }
 
 .bench-form { display: grid; gap: var(--space-4); }
 .bench-field { display: grid; gap: 6px; justify-items: start; min-width: 0; margin: 0; padding: 0; border: 0; }

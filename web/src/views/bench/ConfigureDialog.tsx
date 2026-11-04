@@ -3,7 +3,7 @@
 // with. Only "Run benchmark" there starts it (the API also refuses a create without confirm: true).
 import { ArrowLeft, CircleCheck, Clock, Play, TriangleAlert } from 'lucide-react';
 import type { NetIfInfo } from '../../lib/types';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '../../design/components/Button';
 import { Dialog } from '../../design/components/Dialog';
 import { useNow } from '../../design/useNow';
@@ -20,6 +20,9 @@ import {
   type Competition,
   type LinkTraffic,
   estimateDuration,
+  gpuOptions,
+  gpuPick,
+  type GpuIndex,
   paramText,
   railLabel,
   runnableNodes,
@@ -39,9 +42,10 @@ interface Props {
   open: boolean;
   onClose: () => void;
   /** Called with the validated request once the user confirms; the caller closes the dialog (it navigates away). */
-  onRun: (nodes: string[], params: ParamValues) => void;
+  onRun: (nodes: string[], params: ParamValues, gpuIndex: GpuIndex) => void;
   initialParams?: Record<string, unknown>;
   initialNodes?: string[];
+  initialGpuIndex?: GpuIndex;
 }
 
 const RAIL = 'rail';
@@ -54,7 +58,7 @@ function initialPick(spec: BenchSpec, order: readonly string[], prev?: string[])
   return ok.slice(0, Math.max(1, spec.min_nodes));
 }
 
-export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, initialNodes }: Props) {
+export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, initialNodes, initialGpuIndex }: Props) {
   const order = useCluster((s) => s.order);
   const nodeStates = useCluster((s) => s.nodes);
   const known = useMemo(() => {
@@ -64,6 +68,8 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
   }, [order, spec.availability]);
   const [form, setForm] = useState<FormValues>(() => toForm(spec, { ...defaultParams(spec), ...(initialParams as ParamValues | undefined) }));
   const [nodes, setNodes] = useState<string[]>(() => initialPick(spec, known, initialNodes));
+  const [gpuChoice, setGpuChoice] = useState<GpuIndex>(() => initialGpuIndex ?? {});
+  const gpuIndex = gpuPick(spec, nodes, gpuChoice);
   const [touched, setTouched] = useState(false);
   const [step, setStep] = useState<'configure' | 'review'>('configure');
   const backRef = useRef<HTMLButtonElement>(null);
@@ -155,7 +161,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
           <>
             <Button ref={backRef} variant="ghost" icon={<ArrowLeft />} onClick={() => { setStep('configure'); }} className="bench-config__back">Back</Button>
             <Button variant="secondary" onClick={close}>Cancel</Button>
-            <Button variant="primary" icon={<Play />} onClick={() => { if (values) onRun(nodes, values); }}>Run benchmark</Button>
+            <Button variant="primary" icon={<Play />} onClick={() => { if (values) onRun(nodes, values, gpuIndex); }}>Run benchmark</Button>
           </>
         )
       }
@@ -173,8 +179,11 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
             {pair ? (
               <PairPicker spec={spec} known={known} statuses={nodeStates} nodes={nodes} onChange={setNodes} />
             ) : (
-              <NodeList spec={spec} known={known} statuses={nodeStates} nodes={nodes} single={spec.max_nodes === 1} onChange={setNodes} />
+              <NodeList spec={spec} known={known} statuses={nodeStates} nodes={nodes} gpuIndex={gpuIndex} single={spec.max_nodes === 1} onChange={setNodes} />
             )}
+            {nodes.filter((n) => gpuOptions(spec, n).length).map((n) => (
+              <GpuPicker key={n} spec={spec} node={n} value={gpuIndex[n]} onChange={(i) => { setGpuChoice((c) => ({ ...c, [n]: i })); }} />
+            ))}
             {pair && railParam ? (
               <ParamField param={railParam} value={form[RAIL]} error={shownErrors[RAIL]} onChange={(v) => { set(RAIL, v); }} />
             ) : null}
@@ -188,7 +197,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
           ) : null}
         </div>
       ) : (
-        <Review spec={spec} nodes={nodes} values={values ?? {}} estimate={estimate} />
+        <Review spec={spec} nodes={nodes} gpuIndex={gpuIndex} values={values ?? {}} estimate={estimate} />
       )}
     </Dialog>
   );
@@ -198,7 +207,7 @@ function nodeHint(status: NodeStatus | undefined): string {
   return status === 'online' || status === undefined ? '' : status === 'stale' ? 'not reporting' : status;
 }
 
-function NodeList({ spec, known, statuses, nodes, single, onChange }: { spec: BenchSpec; known: readonly string[]; statuses: Record<string, { status: NodeStatus } | undefined>; nodes: string[]; single: boolean; onChange: (n: string[]) => void }) {
+function NodeList({ spec, known, statuses, nodes, gpuIndex, single, onChange }: { spec: BenchSpec; known: readonly string[]; statuses: Record<string, { status: NodeStatus } | undefined>; nodes: string[]; gpuIndex: GpuIndex; single: boolean; onChange: (n: string[]) => void }) {
   return (
     // A group of options, not a list: <li> under role="group" is an axe "listitem" violation.
     <div className="bench-nodes" role={single ? 'radiogroup' : 'group'} aria-label="Nodes to run on">
@@ -222,7 +231,7 @@ function NodeList({ spec, known, statuses, nodes, single, onChange }: { spec: Be
               {problem ? (
                 <span className="bench-node__why"><ProblemTip problem={problem} /></span>
               ) : (
-                <NodeLoad node={id} hint={nodeHint(statuses[id]?.status)} />
+                <NodeLoad node={id} hint={nodeHint(statuses[id]?.status)} gpu={gpuIndex[id]} />
               )}
             </label>
           </div>
@@ -262,14 +271,37 @@ function PairPicker({ spec, known, statuses, nodes, onChange }: { spec: BenchSpe
   );
 }
 
-/** Live one-liner next to a node: "96% GPU · serving DeepSeek…" (refreshes every 2 s while the dialog is open). */
-function NodeLoad({ node, hint }: { node: string; hint: string }) {
+/** Live one-liner next to a node: "serving DeepSeek… · GPU 96%", "GPU 2 3%" for the GPU chosen on a node with a choice
+ * (refreshes every 2 s while the dialog is open). */
+function NodeLoad({ node, hint, gpu }: { node: string; hint: string; gpu: number | undefined }) {
   useNow(2000);
   const s = liveStore.latest(node);
-  const util = gpuAt(s?.gpu, 0)?.util;
+  const util = gpuAt(s?.gpu, gpu ?? 0)?.util;
   const top = topGpuProcess(s?.procs);
-  const text = [hint, top ? `${isServing(top) ? 'serving' : 'running'} ${workloadName(top)}` : null, util != null ? `GPU ${Math.round(util)}%` : null].filter(Boolean).join(' · ');
+  const text = [hint, top ? `${isServing(top) ? 'serving' : 'running'} ${workloadName(top)}` : null, util != null ? `${gpu === undefined ? 'GPU' : `GPU ${gpu}`} ${Math.round(util)}%` : null].filter(Boolean).join(' · ');
   return <span className="bench-node__load num">{text || 'No live data'}</span>;
+}
+
+/** Which GPU of a multi-GPU node the run gets, each listed with its live load; one that cannot run the bench is
+ * listed but disabled, with why. */
+function GpuPicker({ spec, node, value, onChange }: { spec: BenchSpec; node: string; value: number | undefined; onChange: (index: number) => void }) {
+  useNow(2000);
+  const id = useId();
+  const s = liveStore.latest(node);
+  const options = gpuOptions(spec, node);
+  return (
+    <div className="bench-field bench-gpu">
+      <label className="bench-field__label" htmlFor={id}>GPU on {node}</label>
+      <Select id={id} value={value ?? ''} onChange={(e) => { onChange(Number(e.target.value)); }}>
+        {options.map((o) => {
+          const util = gpuAt(s?.gpu, o.index)?.util;
+          const text = o.problem ? `GPU ${o.index} — ${o.problem.message}` : [`GPU ${o.index}`, util != null ? `${Math.round(util)}% busy` : null, o.name].filter(Boolean).join(' · ');
+          return <option key={o.index} value={o.index} disabled={!!o.problem}>{text}</option>;
+        })}
+      </Select>
+      {options.map((o) => (o.problem ? <p key={o.index} className="bench-field__help"><ProblemTip problem={o.problem} /></p> : null))}
+    </div>
+  );
 }
 
 const TRAFFIC_WINDOW_S = 60;
@@ -284,10 +316,10 @@ function recentTraffic(node: string, rails: readonly NetIfInfo[]): LinkTraffic[]
   return rails.map((r, i) => ({ name: r.name, label: railLabel(r), rx: peak(2 * i), tx: peak(2 * i + 1) }));
 }
 
-function Review({ spec, nodes, values, estimate }: { spec: BenchSpec; nodes: string[]; values: ParamValues; estimate: number }) {
+function Review({ spec, nodes, gpuIndex, values, estimate }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; values: ParamValues; estimate: number }) {
   useNow(1000); // live: what it competes with is re-read every second
   const infos = useCluster((s) => s.nodes);
-  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic);
+  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex);
   // Once a node has been shown busy it stays busy while the review is open: the verdict must not flip while it is read.
   const [seenBusy, setSeenBusy] = useState<Record<string, Competition>>({});
   const fresh = live.filter((c) => c.busy && seenBusy[c.node]?.text !== c.text);
@@ -296,7 +328,7 @@ function Review({ spec, nodes, values, estimate }: { spec: BenchSpec; nodes: str
   const busy = comp.filter((c) => c.busy);
   return (
     <div className="bench-review">
-      <p className="bench-review__lead">{runSentence(spec, nodes)}</p>
+      <p className="bench-review__lead">{runSentence(spec, nodes, gpuIndex)}</p>
       <dl className="bench-review__facts">
         <div>
           <dt>Estimated duration</dt>

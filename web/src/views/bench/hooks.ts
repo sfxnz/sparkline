@@ -6,7 +6,7 @@ import type { BenchRun, BenchSpec, Problem } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { MAX_RUNS, useBench } from '../../store/bench';
-import { isActive } from './model';
+import { isActive, type GpuIndex } from './model';
 
 export type Load<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'error'; problem: Problem };
 
@@ -153,9 +153,10 @@ export const runPath = (id: string) => `/benchmarks/runs/${encodeURIComponent(id
  * Optimistic start: a placeholder run appears at once (the caller navigates to it), the POST follows, and the
  * placeholder is swapped for the console's run, or turned into a failed run that says why.
  */
-export function startRun(spec: BenchSpec, nodes: string[], params: Record<string, unknown>, onCreated: (pendingId: string, run: BenchRun) => void): string {
+export function startRun(spec: BenchSpec, nodes: string[], params: Record<string, unknown>, gpuIndex: GpuIndex, onCreated: (pendingId: string, run: BenchRun) => void): string {
   const id = `${PENDING_PREFIX}${Date.now().toString(36)}${(pendingSeq++).toString(36)}`;
   const now = serverNow();
+  const pinned = Object.keys(gpuIndex).length ? { gpu_index: { ...gpuIndex } } : {};
   const placeholder: BenchRun = {
     id,
     bench_id: spec.id,
@@ -175,9 +176,10 @@ export function startRun(spec: BenchSpec, nodes: string[], params: Record<string
     baseline_for: false,
     params_key: '',
     baseline_run_id: null,
+    ...pinned,
   };
   useBench.getState().upsert(placeholder);
-  benchApi.create({ bench_id: spec.id, nodes, params, confirm: true }).then(
+  benchApi.create({ bench_id: spec.id, nodes, params, confirm: true, ...pinned }).then(
     (run) => {
       useBench.getState().upsert(run);
       onCreated(id, run);
