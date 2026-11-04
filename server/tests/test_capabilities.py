@@ -12,10 +12,12 @@ from pathlib import Path
 import pytest
 from platforms import AMD_THREADRIPPER, GB10, INTEL_HYBRID, gb10, gb10_without, workstation
 
+from sparkline.agent.capture import capture
 from sparkline.agent.collectors import VOCABULARY, covers, declares
 from sparkline.agent.collectors.gpu.nvml import VIOLATION_EVERY_S
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors, catch_all
+from sparkline.agent.redact import Facts
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.sources import NvmlReplay, Sources, recorded
 from sparkline.common.metrics import flatten
@@ -139,8 +141,15 @@ ZERO_INSTANCES = {
     "loopback only": lambda tmp: gb10_with(tmp, nics=()),
 }
 
+
+def gb10_recaptured(tmp: Path) -> Sources:
+    capture(recorded(GB10), tmp / "recaptured", Facts())
+    return recorded(tmp / "recaptured")
+
+
 RECORDED = {
     "gb10": lambda tmp: gb10(),
+    "gb10, recaptured": gb10_recaptured,
     "4-GPU discrete workstation": workstation,
     "amd-threadripper": lambda tmp: recorded(AMD_THREADRIPPER),
     "intel-hybrid": lambda tmp: recorded(INTEL_HYBRID),
