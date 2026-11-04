@@ -33,9 +33,9 @@ The command takes a few seconds. It creates a directory named after your platfor
 `sparkline-linux-x86_64`, in the current directory. To choose another name, pass it as the only argument,
 for example `sparkline-capture rtx4090-box`. The directory must not exist yet, or must be empty.
 
-At the end, the command prints how many values of each kind it replaced and what it left out. Every value
-that it prints gets the same placeholders as the recording, so the output directory prints as, for example,
-`/home/<user1>/rtx4090-box`. You can paste the lines into an issue.
+At the end, the command prints how many values of each kind it replaced and what it left out. It names the
+output directory only when the directory has the default name, so a name that you chose is never printed. You
+can paste the lines into an issue.
 
 ## Look through the recording
 
@@ -43,7 +43,7 @@ The directory holds plain text and JSON, so you can read every file before you s
 
 - `root/` holds the `/proc` and `/sys` files that the agent read, at their paths on your machine.
 - `nvml.json` holds the answers of the NVIDIA driver library.
-- `host.json` holds the network addresses, disk space, NIC counters, Docker image tags and the tools found.
+- `host.json` holds the network addresses, disk space, NIC counters, NGC PyTorch image tags and the tools found.
   A tool found outside the system directories, such as `/usr/bin`, is recorded as `<elsewhere>/<tool>`.
 - `platform.json` says how the recording was made and lists what was replaced and left out.
 
@@ -93,13 +93,14 @@ the recording that can hold such a name, so read each one:
   parentheses after the process id in `root/proc/<pid>/stat`. A program can set its own name.
 - The network interface names, in `root/proc/self/net/dev`, `root/proc/self/net/route`, `root/sys/class/net/`
   and the `net` directories under `root/sys/devices/`, and under `net_if_addrs` and `ethtool` in `host.json`. The
-  RDMA device names in `root/sys/class/infiniband/` follow them. A VPN or bridge can carry a name that you gave
-  it.
+  RDMA device names in `root/sys/class/infiniband/` follow them, and the list of unreadable files in
+  `platform.json` can repeat them. A VPN or bridge can carry a name that you gave it.
 - The kernel release, in `root/proc/sys/kernel/osrelease`. A kernel that you built can carry your own suffix.
-- The OS name, `PRETTY_NAME` in `root/usr/lib/os-release`. A company's own image can carry its name.
-- The names that firmware sets: the sensor names and labels in the `name` and `temp*_label` files under
-  `root/sys/devices/`, and the CPU description in `root/proc/cpuinfo`. A custom board can carry its maker's
-  name.
+- The OS name, `PRETTY_NAME` in `root/usr/lib/os-release` or `root/etc/os-release`. A company's own image can
+  carry its name.
+- The names that firmware or a driver sets: the sensor names and labels in the `name` and `temp*_label` files
+  and the disk names in the `model` files under `root/sys/devices/`, and the CPU description in
+  `root/proc/cpuinfo`. A custom board or a virtual disk can carry a name that its maker chose.
 - The CUDA directory names, under `root/usr/local/` and as the links in `root/etc/alternatives/`.
 
 The command checks its own work, but you are the last check. If you see something you don't want to share,
@@ -125,7 +126,7 @@ name into every entry of an archive. `recording.tgz` holds no user names and no 
 | 1 | The recording is ready, but the agent reads it differently from your machine. | Attach `recording.tgz` and paste the lines it printed. |
 | 2 | It met something that it cannot make safe, and wrote nothing. | Read the lines it printed. If they say that a name is also a word in what the agent reads, see the next section. Otherwise open an issue and paste the lines. They name the place and the kind of value, never the value. |
 | 3 | The output directory already holds files, or the command got more than one argument. | Give it one new or empty directory. |
-| 4 | It failed unexpectedly, and kept nothing. | Open an issue and paste the lines it printed. They hold no message text, only where it failed. |
+| 4 | It failed unexpectedly. It keeps no partial recording. | Open an issue and paste the lines it printed. They hold no message text, only where it failed. |
 | 130 | You stopped it with Ctrl-C. | Nothing to do. It keeps no partial recording. |
 
 Exit code 2 has these causes:
