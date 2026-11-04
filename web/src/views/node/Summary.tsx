@@ -57,13 +57,14 @@ export default function Summary({ nodeId }: NodeTabProps) {
       <Panel label="At a glance">
         <NowLabel />
         <div className="nstats nstats--8">
-          <LiveStat nodeId={nodeId} label="GPU utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} href={paths.node(nodeId, 'gpu')} footer={() => 'Time the GPU was busy'} />
+          <LiveStat nodeId={nodeId} label="GPU utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} unsupported={notReported(info, 'gpu0.util')} href={paths.node(nodeId, 'gpu')} footer={() => 'Time the GPU was busy'} />
           <LiveStat
             nodeId={nodeId}
             label="GPU temperature"
             select={gpuTemp}
             metric="gpu0.temp_c"
             format={tempParts}
+            unsupported={notReported(info, 'gpu0.temp_c')}
             href={paths.node(nodeId, 'gpu')}
             footer={(v) => <TempFooter temp={v} slowdown={gpu?.temp_slowdown_c ?? null} shutdown={gpu?.temp_shutdown_c ?? null} />}
           />

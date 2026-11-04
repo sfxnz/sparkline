@@ -20,18 +20,21 @@ interface Props {
   reporting?: boolean;
   size?: 'md' | 'lg';
   footer?: ReactNode;
+  /** Shown in place of the footer under a gap: context that stays true when the value is missing. */
+  gapFooter?: ReactNode;
 }
 
-export function Stat({ label, value, format, delta, stale, updatedAt, unsupported, reporting, size = 'md', footer }: Props) {
+export function Stat({ label, value, format, delta, stale, updatedAt, unsupported, reporting, size = 'md', footer, gapFooter }: Props) {
   const target = value == null || !Number.isFinite(value) ? null : format(value);
   const unit = target?.unit ?? '';
   const textFor = useCallback((n: number) => format(n, unit || undefined).value, [format, unit]);
   const DeltaIcon = delta?.direction === 'up' ? ArrowUpRight : delta?.direction === 'down' ? ArrowDownRight : Minus;
+  const gap = !!unsupported || (!!reporting && target === null);
 
   return (
     <div className={`stat stat--${size}${stale ? ' stat--stale' : ''}`}>
       <div className="stat__label">{label}</div>
-      {unsupported || (reporting && target === null) ? (
+      {gap ? (
         <div className="stat__unsupported">
           {unsupported ? <Unsupported gap={unsupported} /> : <NoData />}
         </div>
@@ -50,7 +53,7 @@ export function Stat({ label, value, format, delta, stale, updatedAt, unsupporte
       )}
       {/* Stale: the value dims. A stat keeps its own caption (its context still matters, and the screen labels the
           group "last known values" once); only a stat with no caption says its age itself. */}
-      {footer ? <div className="stat__footer">{footer}</div> : stale && !unsupported ? <StaleNote updatedAt={updatedAt ?? null} /> : null}
+      {gap ? (gapFooter ? <div className="stat__footer">{gapFooter}</div> : null) : footer ? <div className="stat__footer">{footer}</div> : stale ? <StaleNote updatedAt={updatedAt ?? null} /> : null}
     </div>
   );
 }

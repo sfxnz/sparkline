@@ -82,7 +82,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
     <Panel label={`${nodeId} thermals and power summary`} className="tp-head">
       <NowLabel />
       <div className="nstats">
-        <Stat label="Hottest sensor" value={hot?.c} format={tempParts} stale={stale} updatedAt={updatedAt} unsupported={sensorGap} reporting={!stale} footer={hot && !sensorGap ? hot.label : undefined} />
+        <Stat label="Hottest sensor" value={hot?.c} format={tempParts} stale={stale} updatedAt={updatedAt} unsupported={sensorGap} reporting={!stale} footer={hot?.label} />
         <Stat
           label="GPU temperature"
           value={gpuTemp}

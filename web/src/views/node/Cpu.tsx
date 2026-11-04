@@ -46,7 +46,7 @@ function CpuView({ node, info }: { node: string; info: NodeInfo }) {
       <Panel label="CPU summary">
         <NowLabel />
         <div className="nstats">
-          <LiveStat node={node} label="CPU utilisation" format={percentParts} metric="cpu.util" footer={`Average of ${n} cores`} />
+          <LiveStat node={node} label="CPU utilisation" format={percentParts} metric="cpu.util" unsupported={notReported(info, 'cpu.util')} footer={`Average of ${n} cores`} />
           {perf ? (
             <LiveStat
               node={node}
@@ -65,7 +65,7 @@ function CpuView({ node, info }: { node: string; info: NodeInfo }) {
               footer={`${eff.cores.length} × ${eff.model ?? 'cores'}`}
             />
           ) : null}
-          <LiveStat node={node} label="Load average · 1 min" format={loadParts} metric="cpu.load1" footer={<LoadFooter node={node} />} />
+          <LiveStat node={node} label="Load average · 1 min" format={loadParts} metric="cpu.load1" unsupported={notReported(info, 'cpu.load1')} footer={<LoadFooter node={node} />} />
           <LiveStat
             node={node}
             label="CPU pressure"
