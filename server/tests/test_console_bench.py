@@ -194,7 +194,7 @@ def test_run_ids_are_short_and_sortable():
     assert len({new_run_id(1_791_280_000.0 + i / 1000) for i in range(200)}) == 200  # distinct ms
 
 
-def test_rail_ip_by_position_ignoring_labels():
+def test_rail_ip_follows_the_rail_not_the_label():
     assert rail_ip(INFO, "A") == "203.0.113.1" and rail_ip(INFO, "B") == "192.0.2.1"
     relabelled = INFO.model_copy(deep=True)
     for n, label in zip(relabelled.net, ["Interconnect B", "fast link", "Interconnect A"], strict=False):

@@ -1,4 +1,5 @@
-import { ifaceLabel, nicAbbr, nicHeading, nicModel, nicNoun, noLinkReason, railIfaces, railName, rdmaCounting } from './interconnect';
+import shared from '../test/fixtures/rails.json';
+import { ifaceLabel, nicAbbr, nicHeading, nicModel, nicNoun, noLinkReason, railName, rdmaCounting } from './interconnect';
 import type { NetIfInfo } from './types';
 
 const nif = (name: string, p: Partial<NetIfInfo> = {}): NetIfInfo => ({
@@ -22,11 +23,13 @@ describe('ifaceLabel', () => {
   });
 });
 
-describe('rail letters', () => {
-  it('letters interconnects by position in the node list, skipping other roles', () => {
-    const net = [nif('a', { label: 'storage fabric' }), nif('lan', { role: 'lan', label: 'LAN' }), nif('b', { label: 'Interconnect A' }), nif('spare', { label: 'Interconnect port (no cable)' })];
-    expect(railIfaces(net).map((r) => [r.iface.name, railName(r.letter)])).toEqual([['a', 'Rail A'], ['b', 'Rail B'], ['spare', 'Rail C']]);
-    expect(railIfaces(null)).toEqual([]);
+describe('railName', () => {
+  it.each(shared.cases)('$case', ({ net, rails }) => {
+    const letterOf = new Map(Object.entries(rails).map(([letter, name]) => [name, letter]));
+    for (const n of (net as NetIfInfo[]).filter((x) => x.role === 'interconnect')) {
+      const letter = letterOf.get(n.name);
+      expect(railName(n)).toBe(letter ? `Rail ${letter}` : n.name);
+    }
   });
 });
 

@@ -237,8 +237,8 @@ const info = (net: NetIfInfo[]) => ({ net }) as unknown as NodeInfo;
 
 describe('interconnect', () => {
   const rails = (peer: string | null) => [
-    nif({ name: 'enp1s0f1np1', label: 'ConnectX-7 rail A', peer }),
-    nif({ name: 'enP2p1s0f1np1', label: 'ConnectX-7 rail B', peer }),
+    nif({ name: 'enp1s0f1np1', label: 'ConnectX-7 rail A', rail: 'A', peer }),
+    nif({ name: 'enP2p1s0f1np1', label: 'ConnectX-7 rail B', rail: 'B', peer }),
     nif({ name: 'enp1s0f0np0', label: 'ConnectX-7 port (no cable)' }),
     nif({ name: 'enP7s7', role: 'lan', label: 'LAN' }),
   ];
@@ -268,13 +268,19 @@ describe('interconnect', () => {
     expect(links[0]?.rails[0]?.peerName).toBeNull();
   });
 
-  it('names rails by position, whatever the interfaces are labelled', () => {
+  it('names rails by their letter, whatever the interfaces are labelled', () => {
     const relabelled = (peer: string) => [
-      nif({ name: 'ens1f0', label: 'Interconnect A', nic_model: 'ConnectX-7', peer }),
-      nif({ name: 'ens1f1', label: 'storage fabric', nic_model: 'Intel E810-C', peer }),
+      nif({ name: 'ens1f0', label: 'Interconnect B', rail: 'A', nic_model: 'ConnectX-7', peer }),
+      nif({ name: 'ens1f1', label: 'storage fabric', rail: 'B', nic_model: 'Intel E810-C', peer }),
     ];
     const links = interconnectLinks(['n1', 'n2'], { n1: info(relabelled('n2')), n2: info(relabelled('n1')) });
     expect(links[0]?.rails.map((r) => r.label)).toEqual(['Rail A', 'Rail B']);
+  });
+
+  it('names a spare port that reaches a peer by its interface, not a rail letter', () => {
+    const withSpare = (peer: string) => [...rails(peer).slice(0, 2), nif({ name: 'enp1s0f0np0', label: 'Interconnect port (no cable)', peer })];
+    const links = interconnectLinks(['spark1', 'spark2'], { spark1: info(withSpare('spark2')), spark2: info(withSpare('spark1')) });
+    expect(links[0]?.rails.map((r) => r.label)).toEqual(['Rail A', 'Rail B', 'enp1s0f0np0']);
   });
 
   it('computes load and quantises flow speed', () => {
