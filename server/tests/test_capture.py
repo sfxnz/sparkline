@@ -116,12 +116,8 @@ def gb10_copy(tmp: Path) -> Path:
     return copy
 
 
-def with_version(copy: Path, text: str) -> Path:
-    release = copy / "root/usr/lib/os-release"
-    lines = release.read_text().splitlines()
-    release.write_text(
-        "".join(f"VERSION={text}\n" if line.startswith("VERSION=") else line + "\n" for line in lines)
-    )
+def with_free_text(copy: Path, text: str) -> Path:
+    _append(copy / "root/proc/cpuinfo", f"Hardware\t: {text}\n")
     return copy
 
 
@@ -153,7 +149,7 @@ def planted(tmp: Path) -> Path:
     (root / "sys/class/infiniband/rocep1s0f0/sys_image_guid").write_text(SYS_IMAGE_GUID + "\n")
     (root / "sys/class/net/enp1s0f0np0/phys_switch_id").write_text(SWITCH_ID + "\n")
     _append(root / "proc/cpuinfo", f"Serial\t\t: {CPU_SERIAL}\n")
-    with_version(copy, f"{USER} {MACHINE_ID} {DMI_SERIAL} {PRODUCT_UUID}")
+    with_free_text(copy, f"{USER} {MACHINE_ID} {DMI_SERIAL} {PRODUCT_UUID}")
     gpu = root / "proc" / str(GPU_PID)
     gpu.mkdir()
     (gpu / "stat").write_text(_stat(GPU_PID, "python3"))
@@ -450,7 +446,7 @@ GUARDED = {
 @pytest.mark.parametrize("line", REAL_LOOKING)
 def test_every_identifier_form_the_guard_knows_is_replaced_or_refused(line, tmp_path):
     copy = gb10_copy(tmp_path)
-    with_version(copy, line)
+    with_free_text(copy, line)
     out = tmp_path / "out"
     try:
         capture_of(copy, out)
