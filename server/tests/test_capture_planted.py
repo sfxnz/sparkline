@@ -133,14 +133,21 @@ class Case:
 
 
 CASES = [
-    Case("hostname inside a node_desc-like string", "replaced", (HOST,), f"{HOST} mlx5_0"),
-    Case("FQDN of this host", "replaced", (HOST, "zorbcorp"), f"{HOST}.zorbcorp.example"),
+    Case(
+        "hostname inside a node_desc-like string",
+        "refused",
+        (HOST,),
+        f"{HOST} mlx5_0",
+        because="hostname",
+    ),
+    Case("FQDN of this host", "refused", (HOST, "zorbcorp"), f"{HOST}.zorbcorp.example", because="hostname"),
     Case(
         "domain of a dotted hostname, on its own",
-        "replaced",
+        "refused",
         (HOST, "zorbcorp"),
         "mail.zorbcorp.example",
         hostname=f"{HOST}.zorbcorp.example",
+        because="domain name",
     ),
     Case(
         "other or old hostname, in node_desc",
@@ -150,7 +157,7 @@ CASES = [
     ),
     Case("home under /home", "replaced", (USER,), f"{HOME}/proj/x"),
     Case("home under /Users", "replaced", (USER,), j("/", "", "Users", USER, "proj")),
-    Case("bare user name", "replaced", (USER,), f"owner {USER}"),
+    Case("bare user name", "refused", (USER,), f"owner {USER}", because="user"),
     Case("HF_HOME under a home", "replaced", (USER,), f"HF_HOME={HOME}/.cache/hf"),
     Case("two-letter user name", "refused", ("qz",), "owner qz", passwd("qz"), because="user"),
     Case(
@@ -259,13 +266,21 @@ CASES = [
         ("8a1b2c3d",),
         "MIG-GPU-" + j("-", "8a1b2c3d", "1234", "5678", "9abc", "def012345679") + "/1/0",
     ),
-    Case("NVMe serial, harvested", "replaced", (SERIAL,), f"SN={SERIAL}", an_nvme_serial),
+    Case(
+        "NVMe serial, harvested",
+        "refused",
+        (SERIAL,),
+        f"SN={SERIAL}",
+        an_nvme_serial,
+        because="serial number",
+    ),
     Case(
         "NVMe serial, harvested, inside a subsysnqn",
-        "replaced",
+        "refused",
         (SERIAL,),
         f"nqn.2014.08.org.nvmexpress:144d144d{SERIAL} Samsung",
         an_nvme_serial,
+        because="serial number",
     ),
     Case(
         "NVMe serial, not harvested, in an unknown os-release key",
@@ -301,7 +316,6 @@ CASES = [
     ),
     Case("vfat volume id", "replaced", ("AB12-34CD",), "UUID=AB12-34CD"),
     Case("Docker id, 64 hex", "replaced", ("c0ffee" + "ab" * 29,), "c0ffee" + "ab" * 29),
-    Case("hostname power", "replaced", (), hostname="power"),
     Case("hostname GB10, a word of the GPU name", "refused", ("GB10",), hostname="GB10", because="hostname"),
     Case("hostname acpitz, a sensor name", "refused", ("acpitz",), hostname="acpitz", because="hostname"),
     Case("hostname cpu, a word of reviewed paths", "refused", (), hostname="cpu", because="hostname"),
