@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from ...common.schema import MemSample
 from ..sources import Sources
-from . import Caps, parse_psi
+from . import Caps, parse_psi, psi_caps
 
 
 def parse_meminfo(text: str) -> dict[str, int]:
@@ -69,9 +69,14 @@ class MemoryCollector:
         self._psi = self.fs.exists("/proc/pressure/memory")
         mi = parse_meminfo(self.fs.read("/proc/meminfo"))
         self.mem_total, self.swap_total = mi["MemTotal"], mi.get("SwapTotal", 0)
+        meminfo = ("used", "available", "anon", "cache", "shmem", "kernel", "other", "swap_used", "used_pct")
+        self._caps = {
+            **dict.fromkeys(f"mem.{k}" for k in meminfo),
+            **psi_caps(self.fs, "memory", ("mem.psi_some", "mem.psi_full")),
+        }
 
     def caps(self) -> Caps:
-        return {}
+        return self._caps
 
     def collect(self) -> dict:
         mi = parse_meminfo(self.fs.read("/proc/meminfo"))

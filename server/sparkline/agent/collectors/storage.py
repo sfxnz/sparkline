@@ -99,7 +99,8 @@ class StorageCollector:
         return out
 
     def caps(self) -> Caps:
-        return {}
+        fields = ("read_bps", "write_bps", "read_iops", "write_iops", "busy_pct")
+        return {**dict.fromkeys(f"disk.{d}.{f}" for d in self.disks for f in fields), "fs": None}
 
     def collect(self) -> dict:
         now = time.monotonic()

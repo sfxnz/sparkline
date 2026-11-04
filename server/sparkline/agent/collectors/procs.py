@@ -192,7 +192,7 @@ class ProcsCollector:
         return self._users[uid]
 
     def caps(self) -> Caps:
-        return {}
+        return {"procs": None}
 
     def collect(self) -> dict:
         now = time.monotonic()

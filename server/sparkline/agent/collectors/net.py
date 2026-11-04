@@ -232,7 +232,8 @@ class NetCollector:
         return v if v > 0 else None
 
     def caps(self) -> Caps:
-        return {}
+        fields = ("rx_bps", "tx_bps", "errors", "drops", "up")
+        return dict.fromkeys(f"net.{i.name}.{f}" for i in self.ifaces for f in fields)
 
     def collect(self) -> dict:
         netdev = parse_net_dev(self.fs.read("/proc/net/dev"))
