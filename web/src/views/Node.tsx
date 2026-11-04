@@ -16,7 +16,7 @@ import { useNow } from '../design/useNow';
 import { api } from '../lib/api';
 import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
-import type { NodeState } from '../lib/types';
+import type { NodeInfo, NodeState } from '../lib/types';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { useNodeDisplayStatus } from '../store/attention';
@@ -29,6 +29,8 @@ import './views.css';
 // The metric prefixes each tab's data comes from. When the agent declares all of them unsupported (its collector
 // could not start), the tab says why instead of drawing the agent's placeholder zeros.
 const TAB_METRICS: Partial<Record<NodeTab, readonly string[]>> = { memory: ['mem'], cpu: ['cpu'], network: ['net'], storage: ['disk', 'fs'], processes: ['procs'] };
+const tabMetrics = (tab: NodeTab, info: NodeInfo | null | undefined): readonly string[] =>
+  tab === 'gpu' ? (info?.gpus.length ? info.gpus.map((g) => `gpu${g.index}`) : ['gpu0']) : (TAB_METRICS[tab] ?? []);
 
 export default function Node() {
   const params = useParams<{ id: string; tab?: string }>();
@@ -39,7 +41,7 @@ export default function Node() {
   const known = useCluster((s) => s.cluster !== null);
   const exists = useCluster((s) => id in s.nodes);
   const info = useCluster((s) => s.nodes[id]?.info);
-  const gaps = (TAB_METRICS[tab] ?? []).map((m) => notReported(info, m));
+  const gaps = tabMetrics(tab, info).map((m) => notReported(info, m));
   const gap = gaps.length && gaps.every(Boolean) ? gaps[0] : null;
 
   if (known && !exists) return <NodeNotFound id={id} />;

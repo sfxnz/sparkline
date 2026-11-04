@@ -1,6 +1,8 @@
 import { Box, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Table, type Column } from '../../../design/components/Table';
+import { Unsupported } from '../../../design/components/Unsupported';
+import { notReported } from '../../../lib/capabilities';
 import { formatBytes } from '../../../lib/format';
 import type { ProcSample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
@@ -76,13 +78,15 @@ export function topMemoryProcs(list: readonly ProcSample[], n = 10): ProcSample[
 export function ProcTable({ nodeId, mode }: { nodeId: string; mode: 'gpu' | 'memory' }) {
   const list = useLatest(nodeId, selectProcs);
   const { stale } = useFreshness(nodeId);
-  const memTotal = useCluster((s) => s.nodes[nodeId]?.info?.mem_total ?? null);
+  const info = useCluster((s) => s.nodes[nodeId]?.info);
+  const memTotal = info?.mem_total ?? null;
   const [sort, setSort] = useState<ProcSort>({ id: 'gpu_mem', dir: 'desc' });
   if (!list) {
     // Processes refresh every few seconds; until the first list arrives, hold the table's shape.
     return stale ? <p className="nmuted ntable-pad">No process list was received before {nodeId} stopped reporting.</p> : <div className="ntable-pad"><RowsSkeleton rows={4} /></div>;
   }
   if (mode === 'gpu') {
+    const gap = notReported(info, 'gpu0.proc_mem');
     // The Processes tab's table, filtered to GPU users: one look for the same row on every tab.
     return (
       <div className={stale ? 'is-stale' : undefined}>
@@ -91,7 +95,7 @@ export function ProcTable({ nodeId, mode }: { nodeId: string; mode: 'gpu' | 'mem
           sort={sort}
           onSort={setSort}
           memTotal={memTotal}
-          empty={<span className="nmuted">No processes are using the GPU right now.</span>}
+          empty={gap ? <Unsupported gap={gap} /> : <span className="nmuted">No processes are using the GPU right now.</span>}
         />
       </div>
     );
