@@ -21,448 +21,448 @@
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 1,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 2,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 3,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 4,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 5,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 6,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 7,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 8,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 9,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 10,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 11,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 12,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 13,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 14,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 15,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 16,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 17,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 18,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 19,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 20,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 21,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 22,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 23,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 24,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 25,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 26,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 27,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 28,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 29,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 30,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 31,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 32,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 33,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 34,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 35,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 36,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 37,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 38,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 39,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 0
+      "cluster": null
     },
     {
       "id": 40,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 41,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 42,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 43,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 44,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 45,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 46,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 47,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 1
+      "cluster": null
     },
     {
       "id": 48,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 49,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 50,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 51,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 52,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 53,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 54,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 55,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 2
+      "cluster": null
     },
     {
       "id": 56,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 57,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 58,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 59,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 60,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 61,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 62,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     },
     {
       "id": 63,
       "kind": "unknown",
       "model": "AMD Ryzen Threadripper PRO 7975WX 32-Cores",
       "max_mhz": 5300.0,
-      "cluster": 3
+      "cluster": null
     }
   ],
   "mem_total": 269944365056,
@@ -596,31 +596,31 @@
   "sensors": [
     {
       "id": "k10temp.tctl",
-      "label": "k10temp Tctl",
+      "label": "CPU control (Tctl)",
       "group": "other",
       "crit_c": null
     },
     {
       "id": "k10temp.tccd1",
-      "label": "k10temp Tccd1",
+      "label": "CPU CCD 1",
       "group": "other",
       "crit_c": null
     },
     {
       "id": "k10temp.tccd2",
-      "label": "k10temp Tccd2",
+      "label": "CPU CCD 2",
       "group": "other",
       "crit_c": null
     },
     {
       "id": "k10temp.tccd3",
-      "label": "k10temp Tccd3",
+      "label": "CPU CCD 3",
       "group": "other",
       "crit_c": null
     },
     {
       "id": "k10temp.tccd4",
-      "label": "k10temp Tccd4",
+      "label": "CPU CCD 4",
       "group": "other",
       "crit_c": null
     },
