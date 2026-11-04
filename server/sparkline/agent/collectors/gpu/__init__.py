@@ -92,8 +92,12 @@ class GpuCollector:
             raise
 
     def _open(self, src: Sources) -> None:
+        chains = CHAINS.get(src.platform, ())
+        names = [b.name for chain in chains for b in chain.backends]
+        if len(set(names)) < len(names):
+            raise ValueError(f"GPU backend names must be unique on {src.platform}: {', '.join(names)}")
         failures: list[_Failure] = []
-        for chain in CHAINS.get(src.platform, ()):
+        for chain in chains:
             for make in chain.backends:
                 try:
                     backend = make(src)
