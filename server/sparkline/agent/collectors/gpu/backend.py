@@ -45,8 +45,15 @@ class GpuBackend(Protocol):
     def proc_util(self) -> Mapping[int, float] | None: ...
 
     def close(self) -> None:
-        """Release what open() acquired (a child process, a library handle). Called once on every backend
-        that was built, whether or not open() succeeded, when the chain drops it or the agent stops."""
+        """Release what open() acquired (a child process, a library handle). Called exactly once on every
+        backend that was built, whether or not open() succeeded:
+
+        - at start-up, as soon as the chain drops it (open(), caps() or versions() raised, or no GPU found);
+        - at start-up, on every backend already opened, if building the GPU collector fails;
+        - at shutdown on SIGTERM or SIGINT, after the sampler stops and any sample() or proc_util() call in
+          progress returns; or when start-up fails after the collectors exist.
+
+        A SIGKILL or a crash of the interpreter skips it."""
         ...
 
 
