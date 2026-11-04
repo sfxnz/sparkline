@@ -9,7 +9,8 @@ import sampleJson from '../test/fixtures/sample.json';
 import Thermals from '../views/node/Thermals';
 import { NodeCard } from '../views/overview/NodeCard';
 import { liveCondition, tempRoom } from './condition';
-import type { NodeInfo, NodeState, Sample } from './types';
+import type { GpuSample, NodeInfo, NodeState, Sample } from './types';
+import { gpuAt } from './gpu';
 
 vi.mock('../charts/TimeSeriesChart', async (importActual) => ({
   ...(await importActual<typeof import('../charts/TimeSeriesChart')>()),
@@ -98,7 +99,7 @@ describe('one GPU temperature rule on every surface (slowdown 86 °C, shutdown 9
   ])('%s °C reads %s on the overview card, its status pill, the Thermals header and the GPU sensor row', (temp, level) => {
     const sample = sampleJson as unknown as Sample;
     act(() => {
-      liveStore.pushSample({ ...sample, node_id: NODE, ts: now, gpu: [{ ...sample.gpu[0], temp_c: temp }] } as Sample);
+      liveStore.pushSample({ ...sample, node_id: NODE, ts: now, gpu: [{ ...(gpuAt(sample.gpu, 0) as GpuSample), temp_c: temp }] });
       liveStore.flush();
     });
 

@@ -21,6 +21,7 @@ import { EnergyPanel, PowerPanel } from './partsC/Power';
 import { SensorGroupPanel } from './partsC/SensorGroup';
 import { buildGroups, hottest, type SensorGroup } from './partsC/thermal';
 import './partsC/partsC.css';
+import { gpuAt } from '../../lib/gpu';
 
 export default function Thermals({ nodeId }: { nodeId: string }) {
   const info = useCluster((s) => s.nodes[nodeId]?.info ?? null);
@@ -76,7 +77,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
   const gpuTemp = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.temp_c'), [nodeId]), Object.is);
   const gpuPower = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.power_w'), [nodeId]), Object.is);
   const gpuSensor = groups.find((g) => g.id === 'gpu')?.sensors[0];
-  const gpuInfo = useCluster((s) => s.nodes[nodeId]?.info?.gpus[0]);
+  const gpuInfo = useCluster((s) => gpuAt(s.nodes[nodeId]?.info?.gpus, 0));
   const anySensor = groups.some((g) => g.sensors.some((s) => !notReported(info, s.key)));
 
   return (

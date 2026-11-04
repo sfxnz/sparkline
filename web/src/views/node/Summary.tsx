@@ -15,6 +15,7 @@ import { TempFooter } from './parts/TempFooter';
 import { CollectorErrors, ThrottleNotice } from './parts/Notices';
 import { cpuUtil, cx7Rails, gpuPower, gpuTemp, gpuUtil, memAvailable, NO_LINK_REASON, railShort, rootUsedPct, sumNet } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
+import { gpuAt } from '../../lib/gpu';
 
 const pct = (n: number) => formatPercent(n);
 const CPU_SERIES: readonly SeriesSpec[] = [
@@ -30,7 +31,7 @@ const MEM_SERIES: readonly SeriesSpec[] = [
 
 export default function Summary({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
-  const gpu = info?.gpus[0];
+  const gpu = gpuAt(info?.gpus, 0);
   const memTotal = info?.mem_total ?? null;
   const rails = useMemo(() => cx7Rails(info), [info]);
   const railNames = useMemo(() => rails.map((r) => r.name), [rails]);

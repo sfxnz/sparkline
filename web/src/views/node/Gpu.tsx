@@ -1,5 +1,5 @@
 import { CircleCheck } from 'lucide-react';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { TimeSeriesChart, type SeriesSpec, type Threshold } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Stat } from '../../design/components/Stat';
@@ -16,7 +16,7 @@ import { TempFooter } from './parts/TempFooter';
 import { RANGE_PHRASE, spanPhrase } from '../shared/live';
 import { serverNow } from '../../store/cluster';
 import type { TimeRange } from '../../lib/prefs';
-import type { NodeInfo } from '../../lib/types';
+import type { NodeInfo, Sample } from '../../lib/types';
 import { useFreshness, useRangeData, type RangeData } from './parts/hooks';
 import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
@@ -24,6 +24,7 @@ import { clockLevel, CollectorErrors, SEVERITY_META, selectThrottleMask, throttl
 import { ProcTable } from './parts/ProcTable';
 import { gpuEnergy, gpuPower, gpuPstate, gpuSm, gpuTemp, gpuUtil } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
+import { gpuAt, notResponding } from '../../lib/gpu';
 
 const pct = (n: number) => formatPercent(n);
 const pct1 = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
@@ -41,6 +42,8 @@ const CAPPED: readonly SeriesSpec[] = [
 ];
 const RANGE_KEYS = ['gpu0.power_w', 'gpu0.energy_j', 'gpu0.power_capped_pct', 'gpu0.thermal_capped_pct'] as const;
 
+const sameGap = (a: NotReported | null, b: NotReported | null) => a?.label === b?.label && a?.detail === b?.detail;
+
 /** "2.17 / 3.00 GHz": the current SM clock over the GPU's maximum. */
 function smOverMax(maxMhz: number | null | undefined): Formatter {
   if (!maxMhz) return (n) => ({ value: (n / 1000).toFixed(2), unit: 'GHz' });
@@ -50,7 +53,7 @@ function smOverMax(maxMhz: number | null | undefined): Formatter {
 
 export default function Gpu({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
-  const gpu = info?.gpus[0];
+  const gpu = gpuAt(info?.gpus, 0);
   const currency = useCluster((s) => s.cluster?.settings.currency ?? '£');
   const rate = useCluster((s) => s.cluster?.settings.energy_rate_per_kwh ?? null);
   const smMax = gpu?.sm_mhz_max ?? null;
@@ -65,7 +68,9 @@ export default function Gpu({ nodeId }: NodeTabProps) {
     return t;
   }, [slowdown, shutdown]);
   const limitReason = notReported(info, 'gpu0.power_limit_w');
-  const energyGap = notReported(info, 'gpu0.energy_j');
+  const silent = useLatest(nodeId, useCallback((s: Sample | null) => notResponding(info, s, 0), [info]), sameGap);
+  const gap = (key: string) => notReported(info, key) ?? silent;
+  const energyGap = gap('gpu0.energy_j');
 
   return (
     <div className="view">
@@ -73,13 +78,13 @@ export default function Gpu({ nodeId }: NodeTabProps) {
       <Panel label={`${gpu?.name ?? 'GPU'} now`}>
         <NowLabel />
         <div className="nstats ngpu__stats">
-          <LiveStat nodeId={nodeId} label="Utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} unsupported={notReported(info, 'gpu0.util')} footer={() => gpu?.name ?? null} />
+          <LiveStat nodeId={nodeId} label="Utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} unsupported={gap('gpu0.util')} footer={() => gpu?.name ?? null} />
           <LiveStat
             nodeId={nodeId}
             label="SM clock"
             select={gpuSm} metric="gpu0.sm_mhz"
             format={smFormat}
-            unsupported={notReported(info, 'gpu0.sm_mhz')}
+            unsupported={gap('gpu0.sm_mhz')}
             footer={(v) => (v != null && smMax ? `${Math.round((100 * v) / smMax)}% of maximum` : null)}
           />
           <LiveStat
@@ -87,7 +92,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
             label="Temperature"
             select={gpuTemp} metric="gpu0.temp_c"
             format={tempParts}
-            unsupported={notReported(info, 'gpu0.temp_c')}
+            unsupported={gap('gpu0.temp_c')}
             footer={(v) => <TempFooter temp={v} slowdown={slowdown} shutdown={shutdown} />}
           />
           <LiveStat
@@ -95,7 +100,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
             label="GPU power"
             select={gpuPower} metric="gpu0.power_w"
             format={wattsParts}
-            unsupported={notReported(info, 'gpu0.power_w')}
+            unsupported={gap('gpu0.power_w')}
             footer={() => <PowerPeak nodeId={nodeId} />}
           />
           {gpu?.power_limit_w != null ? (
@@ -103,7 +108,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
           ) : (
             <Stat label="Power limit" value={null} format={wattsParts} unsupported={limitReason} reporting gapFooter={<PowerTypical nodeId={nodeId} />} />
           )}
-          <LiveStat nodeId={nodeId} label="Performance state" select={gpuPstate} format={pstateParts} unsupported={notReported(info, 'gpu0')} footer={(v) => (v === 0 ? 'Maximum performance' : v != null ? 'Reduced performance state' : null)} />
+          <LiveStat nodeId={nodeId} label="Performance state" select={gpuPstate} format={pstateParts} unsupported={gap('gpu0')} footer={(v) => (v === 0 ? 'Maximum performance' : v != null ? 'Reduced performance state' : null)} />
           <LiveStat
             nodeId={nodeId}
             label="Energy since driver load"
@@ -120,7 +125,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
       <Panel title="Clock limits" subtitle="Why the GPU is not running at full clock, from the driver">
         <div className="ngpu__throttle">
           <div className="nclock">
-            <ThrottleNow nodeId={nodeId} smMax={smMax} gap={notReported(info, 'gpu0.throttle_mask')} />
+            <ThrottleNow nodeId={nodeId} smMax={smMax} gap={gap('gpu0.throttle_mask')} />
             <CappedShare nodeId={nodeId} info={info} />
           </div>
           <div className="nclock-time">
