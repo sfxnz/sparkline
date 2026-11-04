@@ -16,11 +16,10 @@ export function TempFooter({ temp, slowdown, shutdown, name = null }: { temp: nu
 
 const sameHeadroom = (a: HeadroomGpu, b: HeadroomGpu) => a.temp === b.temp && a.slowdown === b.slowdown && a.shutdown === b.shutdown && a.name === b.name;
 
-/** The node's temperature footer: its one GPU's headroom at the node reading `value`, or on a node with several the
- *  GPU closest to its own slowdown, named. */
-export function NodeTempFooter({ nodeId, value }: { nodeId: string; value: number | null }) {
+/** `oneGpuTemp` is the stat's own reading, which the footer measures on a node with one GPU. */
+export function NodeTempFooter({ nodeId, oneGpuTemp }: { nodeId: string; oneGpuTemp: number | null }) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
-  const compute = useCallback((st: LiveStore) => headroomGpu(info, value, (i) => st.latestValue(nodeId, gpuKey(i, 'temp_c'))), [info, value, nodeId]);
+  const compute = useCallback((st: LiveStore) => headroomGpu(info, oneGpuTemp, (i) => st.latestValue(nodeId, gpuKey(i, 'temp_c'))), [info, oneGpuTemp, nodeId]);
   const gpu = useLiveDerived(nodeId, compute, sameHeadroom);
   return <TempFooter temp={gpu.temp} slowdown={gpu.slowdown} shutdown={gpu.shutdown} name={gpu.name} />;
 }

@@ -43,6 +43,8 @@ export interface Health {
   sentence: string;
 }
 
+const alertCovers = (alert: 'warning' | 'critical' | null | undefined, level: LiveCondition['level']) => alert === 'critical' || alert === level;
+
 /** Alert rules whose event only restates a node state the sentence already names. */
 const NODE_STATE_RULES = new Set(['node_offline']);
 
@@ -79,8 +81,7 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   const error = by('error');
   const stale = by('stale');
   const connecting = nodes.filter((n) => n.status === 'connecting' || n.status === undefined).map((n) => n.id);
-  // Live flags no open alert covers yet; once one at least as severe has fired, the alert count says it.
-  const flagged = nodes.filter((n) => n.status === 'online' && n.condition && n.alert !== 'critical' && n.alert !== n.condition.level);
+  const flagged = nodes.filter((n) => n.status === 'online' && n.condition && !alertCovers(n.alert, n.condition.level));
 
   const parts: string[] = [];
   if (offline.length) parts.push(`${listNodes(offline)} ${isAre(offline)} offline`);

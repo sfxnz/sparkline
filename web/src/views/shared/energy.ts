@@ -78,7 +78,6 @@ export function historyPlusLive(resp: { ts: readonly number[]; resolution_s: num
   return (base ?? 0) + extra;
 }
 
-/** A node's GPU energy counters, one per GPU it lists. */
 export const energyKeys = (info: NodeInfo | null | undefined) => gpuIndexes(info).map((i) => gpuKey(i, 'energy_j'));
 
 /** historyPlusLive summed over several counters (one per GPU), or null when none of them has a reading. */

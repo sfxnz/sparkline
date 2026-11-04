@@ -154,7 +154,7 @@ export interface EnergyToday {
 
 /**
  * GPU (rail) energy since local midnight, summed over `ids` and each node's GPUs, computed exactly as the Thermals
- * tab does (historyPlusLive): the counters' history since midnight, refreshed every minute, extended with the live
+ * tab does (sumCounters): the counters' history since midnight, refreshed every minute, extended with the live
  * readings. A node that stops reporting keeps its last good history, so the day's total never goes down; it counts
  * up to its last reading and is listed in `until`. Only a node whose history never loaded is left out (`missing`),
  * and a node with a GPU that has no energy counter (a partial sum would understate).

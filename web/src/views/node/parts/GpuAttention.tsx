@@ -9,8 +9,7 @@ import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
 import { SEVERITY_META } from './Notices';
 
-/** Rows past this many GPUs share a row per condition, so the summary never outgrows the sections it points to. */
-const MAX_ROWS = 3;
+const ONE_ROW_PER_GPU_UP_TO = 3;
 
 export const gpuSectionId = (nodeId: string, index: number) => `ngpu-${nodeId}-${index}`;
 
@@ -24,7 +23,7 @@ interface Row {
 }
 
 function rowsOf(conditions: readonly GpuCondition[]): Row[] {
-  const rows: Row[] = conditions.length > MAX_ROWS
+  const rows: Row[] = conditions.length > ONE_ROW_PER_GPU_UP_TO
     ? byWhat(conditions).map((g) => ({ level: g.condition.level, indexes: g.indexes, text: g.condition.what }))
     : conditions.map((c) => ({ level: c.level, indexes: [c.index], text: c.reading }));
   return rows.toSorted((a, b) => Number(b.level === 'critical') - Number(a.level === 'critical'));

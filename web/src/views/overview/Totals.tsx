@@ -26,7 +26,6 @@ function leftOut(ids: readonly string[], gapOf: (id: string) => NotReported | nu
   return { excl: gaps.map(([id]) => id), gap: gaps.length && gaps.length === ids.length ? gapAcross(gaps) : null };
 }
 
-/** Nodes whose `field` total dropped out of their latest sample, one per line (stable across ticks that agree). */
 const droppedOut = (ids: readonly string[], nodes: Record<string, NodeState>, field: NodeTotal) =>
   ids.filter((id) => totalGap(nodes[id]?.info, liveStore.latest(id), field)).join('\n');
 const exclText = (excl: readonly string[]) => (excl.length ? ` · excl. ${listNodes(excl)}` : '');

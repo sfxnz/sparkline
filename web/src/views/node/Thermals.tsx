@@ -96,7 +96,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
           updatedAt={updatedAt}
           unsupported={tempGap}
           reporting={!stale}
-          footer={gpuTemp == null ? undefined : <NodeTempFooter nodeId={nodeId} value={gpuTemp} />}
+          footer={gpuTemp == null ? undefined : <NodeTempFooter nodeId={nodeId} oneGpuTemp={gpuTemp} />}
         />
         <Stat label="GPU power" value={gpuPower} format={wattsParts} stale={stale} updatedAt={updatedAt} unsupported={powerGap} reporting={!stale} footer="GPU rail only" />
         <EnergyToday nodeId={nodeId} gap={gpuSetGap(info, 'energy_j', 'every')} />

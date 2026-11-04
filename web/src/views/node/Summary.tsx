@@ -72,7 +72,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
             format={tempParts}
             unsupported={tempGap}
             href={paths.node(nodeId, 'gpu')}
-            footer={(v) => <NodeTempFooter nodeId={nodeId} value={v} />}
+            footer={(v) => <NodeTempFooter nodeId={nodeId} oneGpuTemp={v} />}
           />
           <LiveStat nodeId={nodeId} label="GPU power" select={nodeGpuSelector(info, 'power_w')} metric={powerKey} format={wattsParts} unsupported={powerGap} href={paths.node(nodeId, 'gpu')} footer={() => 'GPU rail only'} />
           <LiveStat

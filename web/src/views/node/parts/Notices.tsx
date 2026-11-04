@@ -2,12 +2,12 @@ import { ChevronRight, Info, OctagonAlert, TriangleAlert, type LucideIcon } from
 import type { ReactNode } from 'react';
 import { Link } from 'wouter';
 import { paths, type NodeTab } from '../../../app/routes';
-import { lostGpu, notReported } from '../../../lib/capabilities';
+import { notReported } from '../../../lib/capabilities';
 import { decodeThrottle, worstSeverity, type ThrottleReason } from '../../../lib/throttle';
 import type { NodeInfo, Sample, Severity } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
-import { andList, gpuAt, gpuIndexes, gpuList, reportingGpus, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
+import { andList, gpuAt, gpuCollectorDown, gpuList, reportingGpus, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
 
 // ------------------------------------------------------------------ collector errors
 
@@ -32,11 +32,8 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
 
 export const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
 
-/** A lost GPU declares `gpu<i>` too, but the GPU collector still runs and reads the other GPUs. */
 const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
-  name === 'gpu'
-    ? gpuIndexes(info).every((i) => notReported(info, `gpu${i}`) !== null && !lostGpu(info, i))
-    : notReported(info, COLLECTORS[name]?.metric ?? name) !== null;
+  name === 'gpu' ? gpuCollectorDown(info) : notReported(info, COLLECTORS[name]?.metric ?? name) !== null;
 
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
  *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. While
@@ -172,7 +169,6 @@ export function ThrottleRows({ reasons }: { reasons: readonly ThrottleReason[] }
 }
 
 interface GpuMask { index: number; mask: number | null }
-/** Each GPU's clocks-event mask in the latest sample, in index order. */
 const selectMasks = (s: Sample | null): GpuMask[] => (s?.gpu ?? []).toSorted((a, b) => a.index - b.index).map((g) => ({ index: g.index, mask: g.throttle_mask }));
 const sameMasks = (a: GpuMask[], b: GpuMask[]) => a.length === b.length && a.every((x, i) => b[i]?.index === x.index && b[i].mask === x.mask);
 

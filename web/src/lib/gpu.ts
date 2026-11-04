@@ -34,6 +34,9 @@ export function powerLimit(info: NodeInfo | null | undefined): number | null {
   return gpus.reduce((sum, g) => sum + (g.power_limit_w ?? 0), 0);
 }
 
+export const gpuCollectorDown = (info: NodeInfo | null | undefined) =>
+  gpuIndexes(info).every((i) => notReported(info, `gpu${i}`) !== null && !lostGpu(info, i));
+
 /** "GPU 2", "GPUs 1 and 2". */
 export const gpuList = (indexes: readonly number[]) => `${indexes.length === 1 ? 'GPU' : 'GPUs'} ${andList(indexes)}`;
 

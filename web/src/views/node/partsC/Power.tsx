@@ -151,7 +151,6 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
   );
 }
 
-/** Sum of the values that are known, or null when none is. */
 function sumOf(values: readonly (number | null)[]): number | null {
   let sum: number | null = null;
   for (const v of values) if (v !== null) sum = (sum ?? 0) + v;

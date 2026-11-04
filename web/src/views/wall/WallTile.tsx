@@ -44,7 +44,6 @@ function LiveMetric({ node, metric, parts, quantum, info }: { node: string; metr
   return <BigValue value={value} parts={parts} />;
 }
 
-/** The node's GPU total of `field`, or why it has none. */
 function LiveTotal({ node, field, parts, quantum, info }: { node: string; field: NodeTotal; parts: Formatter; quantum: number; info: NodeInfo | null }) {
   const value = useLiveValue(node, nodeGpuKey(info, field), quantum);
   const gap = useTotalGap(node, field);

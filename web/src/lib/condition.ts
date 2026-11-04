@@ -34,15 +34,15 @@ export interface HeadroomGpu {
   name: string | null;
 }
 
-/** The GPU a node's temperature footer measures. A node with one GPU (or none): that GPU at the node's own reading
- *  `nodeTemp`. A node with several: the one with the least headroom to its own slowdown in `tempOf` (ties: lowest
- *  index; without any slowdown, the hottest), named. */
-export function headroomGpu(info: NodeInfo | null | undefined, nodeTemp: number | null, tempOf: (index: number) => number | null): HeadroomGpu {
+/** The GPU a node's temperature footer measures. A node with one GPU (or none): that GPU at `oneGpuTemp`. A node
+ *  with several: the one with the least headroom to its own slowdown in `tempOf` (ties: lowest index; without any
+ *  slowdown, the hottest), named. */
+export function headroomGpu(info: NodeInfo | null | undefined, oneGpuTemp: number | null, tempOf: (index: number) => number | null): HeadroomGpu {
   const gpus = info?.gpus ?? [];
   if (gpus.length <= 1) {
     const [only = 0] = gpuIndexes(info);
     const g = gpuAt(gpus, only);
-    return { temp: nodeTemp, slowdown: g?.temp_slowdown_c ?? null, shutdown: g?.temp_shutdown_c ?? null, name: null };
+    return { temp: oneGpuTemp, slowdown: g?.temp_slowdown_c ?? null, shutdown: g?.temp_shutdown_c ?? null, name: null };
   }
   let best: { g: GpuInfo; temp: number; room: number } | null = null;
   for (const g of gpus.toSorted((a, b) => a.index - b.index)) {
@@ -62,10 +62,9 @@ interface ConditionInput {
   throttle_mask: number | null | undefined;
 }
 
-/** One GPU's live condition, judged against its own slowdown temperature. */
 export interface GpuCondition extends LiveCondition {
   index: number;
-  /** What is wrong, short: "At slowdown", "Clocks limited by thermal limit". GPUs that share it share a row. */
+  /** What is wrong, short: "At slowdown", "Clocks limited by thermal limit". */
   what: string;
   /** `what` with the GPU's reading: "At slowdown, 94 °C (slows at 93 °C)". */
   reading: string;
@@ -104,7 +103,7 @@ export interface ConditionGroup {
   indexes: number[];
 }
 
-/** The GPUs that share each `what`, in index order. */
+/** The GPUs that share each `what`, groups in the order their first GPU appears. */
 export function byWhat(conditions: readonly GpuCondition[]): ConditionGroup[] {
   const groups: ConditionGroup[] = [];
   for (const c of conditions) {
