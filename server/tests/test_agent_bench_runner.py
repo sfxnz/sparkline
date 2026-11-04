@@ -1987,10 +1987,14 @@ def test_llm_showcase_sends_a_rejected_request_again_without_the_fill_fields(fak
     msgs = run_payload(
         "llm_showcase.py", "--base-url", url, "--streams", "2", "--max-tokens", "64", "--fill-to-max"
     )
-    assert len(bodies) == 4 and all("ignore_eos" in b for b in bodies[:2])
-    for b in bodies[2:]:  # the same request without ignore_eos, min_tokens and stop
-        assert not {"ignore_eos", "min_tokens", "stop"} & set(b) and b["temperature"] == 0.7
-        assert b["messages"][0]["content"].endswith(" never wrap up.")
+    fill = {"ignore_eos", "min_tokens", "stop"}
+    per_stream: dict[str, list[dict]] = {}
+    for b in bodies:
+        per_stream.setdefault(b["messages"][0]["content"], []).append(b)
+    assert len(bodies) == 4 and len(per_stream) == 2
+    for first, again in per_stream.values():
+        assert fill <= set(first) and again == {k: v for k, v in first.items() if k not in fill}
+        assert again["temperature"] == 0.7 and again["messages"][0]["content"].endswith(" never wrap up.")
     rejected = [m["log"] for m in msgs if "log" in m and "rejected" in m["log"]]
     assert rejected == [
         "The server rejected ignore_eos, min_tokens or stop (HTTP 400: unknown field ignore_eos); sent again "
