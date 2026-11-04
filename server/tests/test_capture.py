@@ -511,8 +511,8 @@ def test_a_name_that_is_also_a_word_shows_its_placeholder_only_where_the_name_li
         capture_of(copy, out)
     except CaptureRefused as refused:
         assert not out.exists(), "nothing is written"
-        assert {leak.surface for leak in refused.value.leaks} == {"a word in what the agent reads"}
-        assert "sudo hostname" in str(refused.value) and "docker rename" in str(refused.value)
+        assert {leak.surface for leak in refused.leaks} == {"a word in what the agent reads"}
+        assert "sudo hostname" in str(refused) and "docker rename" in str(refused)
         return
     assert placeholders_outside_their_place(out) == []
 
@@ -634,14 +634,14 @@ def test_every_identifier_form_the_guard_knows_is_replaced_or_refused(line, tmp_
 
 def test_a_capture_that_meets_an_identifier_it_cannot_replace_writes_nothing(tmp_path):
     copy = gb10_copy(tmp_path)
-    (copy / "root/proc/sys/kernel/hostname").write_text(HOST + "\n")
-    (copy / "root/proc/sys/kernel/osrelease").write_bytes(b"6.17.0-\xff\xfe" + HOST.encode() + b"\n")
+    (copy / "root/etc/machine-id").write_text(MACHINE_ID + "\n")
+    (copy / "root/proc/sys/kernel/osrelease").write_bytes(b"6.17.0-\xff\xfe" + MACHINE_ID.encode() + b"\n")
     out = tmp_path / "out"
     with pytest.raises(CaptureRefused) as refused:
         capture_of(copy, out)
     assert not out.exists()
-    assert "root/proc/sys/kernel/osrelease: hostname" in str(refused.value)
-    assert HOST not in str(refused.value)
+    assert "root/proc/sys/kernel/osrelease: machine-id" in str(refused.value)
+    assert MACHINE_ID not in str(refused.value)
 
 
 def a_collector_also_reads(monkeypatch: pytest.MonkeyPatch, read: Callable[[RootFs], object]) -> None:

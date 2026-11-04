@@ -60,7 +60,6 @@ from .redact import (
     User,
     dumps,
     leaks,
-    name_collisions,
     platform_doc,
     redact,
 )
@@ -623,12 +622,11 @@ def capture(src: Sources, out: Path, facts: Facts) -> Report:
     tree, dropped = materialize(tape, src.fs, gpu_pids)
     raw = Recording(src.platform, _meta(info, tape, dropped), tree, tape.nvml, tape.host)
     red = redact(raw, facts)
+    if red.collisions:
+        raise CaptureRefused(red.collisions, RENAME)
     found = leaks(red)
     if found:
         raise CaptureRefused(found)
-    collided = name_collisions(red)
-    if collided:
-        raise CaptureRefused(collided, RENAME)
     created = not out.exists()
     try:
         out.mkdir(exist_ok=True)

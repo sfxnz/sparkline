@@ -349,6 +349,7 @@ CASES = [
         "refused",
         (HOST,),
         plant=a_collector_reads(GPU_METRICS, blob(HOST.encode())),
+        because="hostname",
     ),
     Case(
         "binary blob, unknown IPv6",
