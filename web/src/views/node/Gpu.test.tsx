@@ -306,4 +306,13 @@ describe('GPU tab on a node with two vendors', () => {
     expect(within(now).queryByText('Not reported by this hardware')).not.toBeInTheDocument();
     expect(within(now).getAllByRole('button', { name: 'Why is this not reported?' })[0]).toHaveAccessibleDescription(lost);
   });
+
+  it('gives each stat of a lone GPU that sends no reading this tick its backend’s error as the reason', () => {
+    const gpus = [gpuInfo(0, 'GPU 0', 'nvidia', 'nvml')];
+    const now = showHybrid({ ...base, gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } }, { ...hybrid, gpus }, 'GPU 0 now');
+
+    expect(within(now).getAllByText('Not responding').length).toBeGreaterThanOrEqual(4);
+    const why = within(now).getAllByRole('button', { name: 'Why is this not reported?' });
+    for (const button of why) expect(button).toHaveAccessibleDescription(NV_ERROR);
+  });
 });
