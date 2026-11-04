@@ -22,7 +22,7 @@ from fastapi import Depends, FastAPI, Query, Request, Response, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import HTTPConnection
 
@@ -86,6 +86,12 @@ def validate_settings(s: ConsoleSettings) -> None:
 
 class LoginBody(BaseModel):
     token: str = Field(max_length=1024)
+
+
+class AgentHistory(HistoryResponse):
+    """Stricter than HistoryResponse: the console forwards these bytes as sent to the browser."""
+
+    model_config = ConfigDict(strict=True, allow_inf_nan=False)
 
 
 class ConfirmBody(BaseModel):
@@ -410,7 +416,7 @@ def create_app(
                 f"Check `journalctl -u sparkline-agent` on {node}",
             )
         try:
-            h = HistoryResponse.model_validate_json(r.content)
+            h = AgentHistory.model_validate_json(r.content)
         except ValidationError as e:
             raise ProblemError(
                 502,
