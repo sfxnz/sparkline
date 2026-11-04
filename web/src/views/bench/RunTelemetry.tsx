@@ -20,7 +20,7 @@ export interface TelemetryChart {
   id: string;
   title: string;
   format: (n: number) => string;
-  /** Flat metric keys on a node (summed, averaged or maxed into one line per node); `gpu` is the run's GPU there. */
+  /** Flat metric keys on a node (summed, averaged or maxed into one line per node). */
   keys: (info: NodeInfo | undefined, gpu: number) => string[];
   agg: 'sum' | 'mean' | 'max';
   /** The kind under which the console saves this chart's series with the run (GPU telemetry only). */

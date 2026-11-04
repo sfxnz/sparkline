@@ -105,7 +105,7 @@ class Job:
         self.bench = bench
         self.params = params
         self.env: probes.Env = env
-        self.gpu = gpu  # the GPU a GPU benchmark runs on (None for the others)
+        self.gpu = gpu
         self.info: NodeInfo = runner.info()
         self.node_id = runner.node_id
         self.dir = Path(runner.work_dir) / req.run_id

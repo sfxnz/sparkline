@@ -456,7 +456,6 @@ WS1_OPTIONS = [{"index": 0, "name": "RTX", "problem": LOST}] + [
 
 @pytest.fixture(scope="module")
 def gpus(tmp_path_factory):
-    """A workstation whose agent knows itself as ws1 (the console calls it w1) and a single-GPU node s1."""
     apps = {
         "w1": make_fake_agent(
             "agent-tok", info=info_for("ws1", "203.0.113.5", "192.0.2.5"), gpu_options=WS1_OPTIONS

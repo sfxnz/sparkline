@@ -128,7 +128,6 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
   const regressionPct = typeof run.metadata.regression_pct === 'number' ? run.metadata.regression_pct : settingPct;
   const active = isActive(run.status);
   const estimate = runEstimate(run, spec);
-  // Without an estimate the charts' time axis follows the run as it goes.
   const expected = estimate === null ? elapsed(run, now) : projectedTotal(run, now, estimate);
   const name = spec?.name ?? run.bench_id;
   const pending = run.id.startsWith(PENDING_PREFIX);

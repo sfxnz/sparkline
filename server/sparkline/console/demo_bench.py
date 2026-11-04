@@ -153,8 +153,6 @@ def _modelled(bench: str, info: NodeInfo | None) -> dict[str, str]:
 
 
 def _unestimated(bench: str, params: dict[str, Any], info: NodeInfo | None) -> dict[str, None]:
-    """A real agent reports est_duration_s as null where its estimate rests on rates this node does not have.
-    The demo reports no estimate otherwise: its runs are time-compressed."""
     b = AGENT_REGISTRY[bench]
     return {} if b.estimate_on(b.validate(params), info).grounded else {"est_duration_s": None}
 
@@ -226,7 +224,7 @@ def demo_catalog(node: str, info: NodeInfo | None) -> list[BenchSpec]:
     out = []
     for b in AGENT_REGISTRY.values():
         problem, note = probes.availability(b.id, env)
-        if b.id in GB10_RESULTS and not (b.gpu and env.gpu):  # no NVIDIA GPU: the more basic reason
+        if b.id in GB10_RESULTS and not (b.gpu and env.gpu):
             problem = not_gb10 or problem
         notes = {"llm-inference": LLM_NOTE, "llm-showcase": SHOWCASE_NOTE, "tool-eval": TE_NOTE}
         demo = notes.get(b.id, COMPRESSED_NOTE)
@@ -1865,7 +1863,7 @@ class _Sim:
     req: BenchStartRequest
     state: NodeBenchState
     duration: float
-    gpu: probes.GpuTarget | None = None  # the GPU a GPU benchmark runs on
+    gpu: probes.GpuTarget | None = None
     window: BenchWindow | None = None
     disk: list[list[float]] = field(default_factory=list)
     task: asyncio.Task | None = None

@@ -146,9 +146,6 @@ def _episode(p: float, ramp: float, hold: float, fall: float) -> float:
 
 @dataclass
 class BenchWindow:
-    """A demo benchmark's load on one GPU from start to end (intensity 0..1); a run that stops early moves
-    end."""
-
     start: float
     end: float
     load: float
@@ -156,7 +153,6 @@ class BenchWindow:
 
 
 def bench_load(windows: list[BenchWindow], t: float, gpu: int) -> tuple[float, float]:
-    """(load, heat) of demo benchmarks on GPU ``gpu`` at t: load is immediate, heat ramps up over ~45 s."""
     load = heat = 0.0
     for w in windows:
         if w.gpu == gpu and w.start <= t < w.end:
@@ -194,7 +190,6 @@ class DemoModel:
         self.info = self._info()
         # Cumulative GPU energy tables (see energy_at): since boot, and for the driver session before it.
         self._cum: dict[str, tuple[float, float, list[float]]] = {}
-        # Demo benchmark load windows (demo_bench.py), so telemetry shows them.
         self.bench_windows: list[BenchWindow] = []
         # Demo storage benchmark disk load [start, end, read B/s, write B/s], added to the NVMe telemetry.
         self.disk_windows: list[list[float]] = []

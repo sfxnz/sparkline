@@ -31,7 +31,6 @@ const GB10 = gb10Info as unknown as NodeInfo;
 const GB10_SAMPLE: Sample = gb10Sample;
 const RTX = 'NVIDIA RTX 6000 Ada Generation';
 const noop = () => undefined;
-/** "GPU 2" naming one GPU of several, not a load like "GPU 62%". */
 const GPU_NUMBER = /GPU \d+(?![\d%])/;
 
 function wsWith(utils: Record<number, number>): Sample {

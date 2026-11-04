@@ -103,11 +103,6 @@ def cpu_quota(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> 
         return None
 
 
-# ---------------------------------------------------------------------------------------------------------
-# Which GPU a GPU benchmark runs on. GPUs are named by GpuInfo.index, never by list position: NVML lists the
-# GPUs it cannot open last.
-# ---------------------------------------------------------------------------------------------------------
-
 _LOST = re.compile(r"gpu(\d+)")
 _VENDOR = {"amd": "AMD", "apple": "Apple"}
 _NOT_YET = {"amd": "AMD GPUs (ROCm)", "apple": "Apple GPUs"}
@@ -115,9 +110,6 @@ _NOT_YET = {"amd": "AMD GPUs (ROCm)", "apple": "Apple GPUs"}
 
 @dataclass(frozen=True)
 class GpuTarget:
-    """The GPU a benchmark runs on. Pinned when the node has a choice of NVIDIA GPUs: the container then sees
-    only this one, and the run records which it was."""
-
     gpu: GpuInfo
     pinned: bool
 
@@ -131,7 +123,6 @@ def _nvidia(info: NodeInfo) -> list[GpuInfo]:
 
 
 def _lost(info: NodeInfo) -> dict[int, str]:
-    """GPU index -> why the agent cannot read it (the collector declares a lost GPU i as metric gpu<i>)."""
     return {int(m[1]): u.reason for u in info.unsupported if (m := _LOST.fullmatch(u.metric))}
 
 
@@ -146,7 +137,6 @@ def _not_responding(node: str, index: int, reason: str) -> Problem:
 
 
 def gpu_options(node: str, info: NodeInfo) -> list[GpuOption]:
-    """The NVIDIA GPUs to choose from, by index, on a node with two or more; a lost one carries why."""
     nvidia, lost = _nvidia(info), _lost(info)
     if len(nvidia) < 2:
         return []
@@ -161,7 +151,6 @@ def gpu_options(node: str, info: NodeInfo) -> list[GpuOption]:
 
 
 def gpu_problem(node: str, info: NodeInfo) -> Problem | None:
-    """Why GPU benchmarks cannot run on this node at all, None when one of its NVIDIA GPUs responds."""
     nvidia, lost = _nvidia(info), _lost(info)
     if any(g.index not in lost for g in nvidia):
         return None
@@ -199,7 +188,6 @@ def gpu_problem(node: str, info: NodeInfo) -> Problem | None:
 
 
 def resolve_gpu(node: str, info: NodeInfo, asked: int | None) -> GpuTarget | Problem:
-    """The GPU a GPU benchmark runs on: the one asked for, or the first that responds."""
     if (problem := gpu_problem(node, info)) is not None:
         return problem
     nvidia, lost = _nvidia(info), _lost(info)

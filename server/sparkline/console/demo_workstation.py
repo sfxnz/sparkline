@@ -10,7 +10,7 @@ Telemetry is a deterministic function of wall time, as in DemoModel. vLLM serves
 with tensor parallel 4, so the four GPUs load together. On scenario time: GPU 3, with impaired cooling, heats
 past slowdown every 6 min from 90 s for ~50 s under a burst of requests (sw_thermal then hw_thermal, clocks
 sag). Otherwise GPU 2, between two cards, runs hottest. GPU 2's power reading drops out every 6 min from 200 s
-for 20 s, as on a transient NVML power read error. A demo benchmark loads the GPU its run chose.
+for 20 s, as on a transient NVML power read error.
 """
 
 from __future__ import annotations

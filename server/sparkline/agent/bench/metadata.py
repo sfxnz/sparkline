@@ -49,7 +49,6 @@ def suite_hashes() -> dict[str, str | bool | None]:
 
 
 def gpu_index(target: GpuTarget | None) -> int:
-    """The GPU a run describes: its target, or GPU 0 for a benchmark that runs on no GPU."""
     return target.gpu.index if target else 0
 
 
@@ -58,7 +57,6 @@ def gpu_sample(s: Sample, index: int) -> GpuSample | None:
 
 
 def gpu(gpus: list[GpuInfo], target: GpuTarget | None) -> dict[str, Any]:
-    """The GPU keys of a run's metadata; gpu_index only when the node had a choice of GPUs."""
     i = gpu_index(target)
     g = next((x for x in gpus if x.index == i), None)
     out = {
@@ -70,7 +68,6 @@ def gpu(gpus: list[GpuInfo], target: GpuTarget | None) -> dict[str, Any]:
 
 
 def telemetry(s: Sample | None, target: GpuTarget | None) -> dict[str, Any]:
-    """The run's GPU clocks/temp/power/throttle and memory use from the sampler's latest sample."""
     if s is None:
         return {}
     out: dict[str, Any] = {"ts": s.ts, "mem_used": s.mem.used, "mem_gpu": s.mem.gpu}

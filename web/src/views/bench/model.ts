@@ -315,12 +315,8 @@ export function paramsSummary(spec: BenchSpec | undefined, params: Record<string
     .join(' · ');
 }
 
-// ------------------------------------------------------------------------------------------------ GPU choice
-
-/** Node -> the GPU a run uses there. Only nodes with a choice (two or more NVIDIA GPUs) have an entry. */
 export type GpuIndex = Readonly<Record<string, number>>;
 
-/** The GPUs a run of this bench can choose from on a node: none on a single-GPU node (every GB10). */
 export const gpuOptions = (spec: Pick<BenchSpec, 'gpu_options'>, node: string): readonly GpuOption[] => spec.gpu_options?.[node] ?? [];
 
 export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly string[], prev: GpuIndex = {}): Record<string, number> {
@@ -374,9 +370,6 @@ export function projectedTotal(run: Pick<BenchRun, 'created_ts' | 'started_ts' |
   return elapsed(run, now) + (eta(run, now, estimate) ?? 0);
 }
 
-/** Seconds a run should take: the agents' own estimate for these exact parameters once they report it, else the
- * catalog's. null when an agent reports none (est_duration_s: null: its rates are GB10's and the node is not one),
- * so nothing quotes a GB10 duration for another machine. */
 export function runEstimate(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states' | 'params'>, spec: BenchSpec | undefined): number | null {
   const metas = Object.values(nodeMeta(run));
   if (metas.some((m) => m.est_duration_s === null)) return null;
@@ -934,9 +927,7 @@ function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: s
  * What a benchmark will compete with on each node, from the latest live samples. GPU-bound benches look at GPU
  * load and GPU processes; CPU, storage and interconnect benches at CPU, NVMe and CX7 load respectively. For the
  * interconnect, a GPU workload counts as busy on its own (a TP=2 model across the nodes uses the link in bursts), and
- * `linkTraffic` gives each rail's peak over a recent window rather than one instantaneous sample. On a node with a
- * choice of GPU (`gpuIndex`) the chosen GPU's load decides: a process cannot be tied to one GPU of several, so a
- * workload elsewhere on the node is named only when that GPU is busy.
+ * `linkTraffic` gives each rail's peak over a recent window rather than one instantaneous sample.
  */
 export function competition(
   spec: Pick<BenchSpec, 'category' | 'impact'>,

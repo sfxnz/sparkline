@@ -1,5 +1,3 @@
-"""Which GPU a GPU benchmark runs on, and why it cannot run at all: the policy in agent/bench/probes.py."""
-
 from __future__ import annotations
 
 import pytest

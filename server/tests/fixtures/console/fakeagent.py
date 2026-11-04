@@ -102,7 +102,6 @@ def bench_defaults() -> dict[str, Any]:
 def make_fake_agent(
     token: str, interval: float = 0.2, info: dict | None = None, gpu_options: list[dict] | None = None
 ) -> FastAPI:
-    """``gpu_options``: the GPUs a node with two or more NVIDIA GPUs offers its GPU benchmarks."""
     app = FastAPI()
     app.state.paused = False
     app.state.ts_offset = 0.0  # simulated agent clock skew

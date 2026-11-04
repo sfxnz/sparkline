@@ -623,8 +623,8 @@ describe('GPU choice', () => {
   it('picks the first GPU that can run it, keeps a previous pick while it still can, and leaves single-GPU nodes out', () => {
     expect(gpuPick(spec, ['spark1', 'ws1'])).toEqual({ ws1: 0 });
     expect(gpuPick(spec, ['ws1'], { ws1: 2 })).toEqual({ ws1: 2 });
-    expect(gpuPick(spec, ['ws1'], { ws1: 1 })).toEqual({ ws1: 0 }); // GPU 1 is lost
-    expect(gpuPick(spec, ['ws1'], { ws1: 9 })).toEqual({ ws1: 0 }); // no longer offered
+    expect(gpuPick(spec, ['ws1'], { ws1: 1 })).toEqual({ ws1: 0 });
+    expect(gpuPick(spec, ['ws1'], { ws1: 9 })).toEqual({ ws1: 0 });
     expect(gpuPick({ gpu_options: { ws1: wsGpuOptions({ 0: lost }) } }, ['ws1'])).toEqual({ ws1: 1 });
     expect(gpuPick(spec, ['spark1'], { ws1: 2 })).toEqual({});
     expect(gpuPick(MATMUL, ['spark1', 'spark2'])).toEqual({});
@@ -633,7 +633,7 @@ describe('GPU choice', () => {
   it('names the GPU of each node that had a choice, from the run metadata', () => {
     const meta = { nodes: { ws1: { gpu_name: 'NVIDIA RTX 6000 Ada Generation', gpu_index: 2 } } };
     expect(runGpuLabel(run({ id: 'a', nodes: ['ws1'], gpu_index: { ws1: 2 }, metadata: meta }))).toBe('GPU 2 · NVIDIA RTX 6000 Ada Generation');
-    expect(runGpuLabel(run({ id: 'b', nodes: ['ws1'], gpu_index: { ws1: 2 } }))).toBe('GPU 2'); // before the agent reports
+    expect(runGpuLabel(run({ id: 'b', nodes: ['ws1'], gpu_index: { ws1: 2 } }))).toBe('GPU 2');
     expect(runGpuLabel(run({ id: 'c', nodes: ['spark1', 'ws1'], gpu_index: { ws1: 3 }, metadata: meta }))).toBe('ws1 GPU 3 · NVIDIA RTX 6000 Ada Generation');
     expect(runGpuLabel(run({ id: 'd', metadata: { nodes: { spark1: { gpu_name: 'NVIDIA GB10' } } } }))).toBeNull();
   });

@@ -35,7 +35,6 @@ def _unique(v: list) -> list:
 
 
 def is_gb10(info: NodeInfo | None) -> bool:
-    """A DGX Spark (or a node not described yet): the hardware the estimate rates were measured on."""
     return info is None or any(g.name == "NVIDIA GB10" for g in info.gpus)
 
 
@@ -412,9 +411,6 @@ def est_soak(p: ThermalSoakParams) -> float:
 
 @dataclass(frozen=True)
 class Estimate:
-    """A run's expected duration. Grounded when it rests on rates measured on this hardware (or is the
-    duration the user asked for); otherwise only the timeout guard uses it."""
-
     seconds: float
     grounded: bool
 
@@ -441,8 +437,8 @@ class Bench:
     min_nodes: int = 1
     max_nodes: int | None = 1
     roles: tuple[str, ...] = ("single",)
-    gpu: bool = False  # runs on one GPU of the node (probes.resolve_gpu picks it)
-    gb10_rates: bool = False  # the estimate rests on GB10 / DGX Spark rates
+    gpu: bool = False
+    gb10_rates: bool = False
 
     def validate(self, raw: dict[str, Any]) -> Params:
         return self.params.model_validate(raw)

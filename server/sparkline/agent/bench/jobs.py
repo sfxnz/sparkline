@@ -497,7 +497,6 @@ def _local_ips() -> set[str]:
 
 
 def soak_keys(index: int) -> tuple[str, str, str, str, str]:
-    """The soak's series of GPU ``index``: sm_mhz, temp_c, power_w, throttle_mask, util."""
     return (
         f"gpu{index}.sm_mhz",
         f"gpu{index}.temp_c",

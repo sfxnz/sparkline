@@ -97,8 +97,7 @@ def canonical(params: dict[str, Any]) -> str:
 def params_key(bench_id: str, params: dict[str, Any], gpu_index: dict[str, int] | None = None) -> str:
     """Baseline identity of validated params: canonical JSON, leaving out KEY_NEUTRAL params while neutral.
     llm-inference without a sweep counts the requests it sends (at least one per stream since 2026-10-21), so
-    an older run with Requests below Concurrency, which sent fewer at once, is never compared with it. A run
-    on a chosen GPU compares only with runs on the same GPU of each node."""
+    an older run with Requests below Concurrency, which sent fewer at once, is never compared with it."""
     neutral = KEY_NEUTRAL.get(bench_id, {})
     key = {k: v for k, v in params.items() if k not in neutral or v != neutral[k]}
     if bench_id == "llm-inference" and not params.get("sweep"):
@@ -161,8 +160,6 @@ def validate_params(spec: BenchSpec, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_gpu_index(spec: BenchSpec, nodes: list[str], asked: dict[str, int]) -> dict[str, int]:
-    """The GPU of every node of the run that offers a choice (spec.gpu_options): the one asked for, else its
-    first GPU without a problem. Raises BenchError(400) for a GPU the run cannot use."""
     for n, i in asked.items():
         if n not in nodes:
             raise BenchError(
@@ -487,8 +484,6 @@ class AgentBackend:
 
 
 def _own[T](per_node: dict[str, T], node: str) -> T | None:
-    """A node's entry in its own agent's catalog: under the console's node id, else the agent's only entry
-    (the agent may know itself by another id)."""
     if node in per_node:
         return per_node[node]
     return next(iter(per_node.values())) if len(per_node) == 1 else None

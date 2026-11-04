@@ -94,7 +94,6 @@ GPU_BENCHES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce", "thermal-soak")
 
 
 def probed_catalog(tmp_path, info) -> dict[str, dict]:
-    """The catalog as the agent serves it, from its real probe of a node without Docker."""
     sampler = Sampler("n1", [], 1000)
     runner = BenchRunner(
         "n1",
