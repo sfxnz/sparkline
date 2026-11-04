@@ -17,6 +17,7 @@ import { useRangeHistory } from '../shared/live';
 import { useLiveDerived, useSpanEnergy, useStaleSince } from './partsC/hooks';
 import { NowLabel } from './parts/NowLabel';
 import { TempFooter } from './parts/TempFooter';
+import { useGpuGap } from './parts/useGpuGap';
 import { EnergyPanel, PowerPanel } from './partsC/Power';
 import { SensorGroupPanel } from './partsC/SensorGroup';
 import { buildGroups, hottest, type SensorGroup } from './partsC/thermal';
@@ -79,6 +80,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
   const gpuSensor = groups.find((g) => g.id === 'gpu')?.sensors[0];
   const gpuInfo = useCluster((s) => gpuAt(s.nodes[nodeId]?.info?.gpus, 0));
   const anySensor = groups.some((g) => g.sensors.some((s) => !notReported(info, s.key)));
+  const gap = useGpuGap(nodeId);
 
   return (
     <Panel label={`${nodeId} thermals and power summary`} className="tp-head">
@@ -91,11 +93,11 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
           format={tempParts}
           stale={stale}
           updatedAt={updatedAt}
-          unsupported={notReported(info, 'gpu0.temp_c')}
+          unsupported={gap('gpu0.temp_c')}
           reporting={!stale}
           footer={gpuTemp == null ? undefined : <TempFooter temp={gpuTemp} slowdown={gpuInfo?.temp_slowdown_c ?? gpuSensor?.limit ?? null} shutdown={gpuInfo?.temp_shutdown_c ?? null} />}
         />
-        <Stat label="GPU power" value={gpuPower} format={wattsParts} stale={stale} updatedAt={updatedAt} unsupported={notReported(info, 'gpu0.power_w')} reporting={!stale} footer="GPU rail only" />
+        <Stat label="GPU power" value={gpuPower} format={wattsParts} stale={stale} updatedAt={updatedAt} unsupported={gap('gpu0.power_w')} reporting={!stale} footer="GPU rail only" />
         <EnergyToday nodeId={nodeId} gap={notReported(info, 'gpu0.energy_j')} />
         <Stat label="Fans" value={null} format={wattsParts} unsupported={notReported(info, 'fan')} reporting />
       </div>

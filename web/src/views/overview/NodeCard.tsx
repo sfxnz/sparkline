@@ -21,7 +21,7 @@ import { api } from '../../lib/api';
 import { bitrateParts, DASH, formatAgo, formatBytes, formatPercent, formatWatts, text, wattsParts } from '../../lib/format';
 import { tempRoom } from '../../lib/condition';
 import type { NodeInfo, Sample } from '../../lib/types';
-import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
+import { interconnectGap, lostGpu, notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { useNodeDisplayStatus } from '../../store/attention';
@@ -222,16 +222,22 @@ function CardNotice() {
 }
 
 function UtilRing() {
-  const { id, freshness } = useContext(Ctx);
+  const { id, freshness, info } = useContext(Ctx);
   const util = useLiveValue(id, 'gpu0.util', 1);
-  if (util === null && freshness === 'waiting') return <Skeleton width={RING} height={RING} radius={RING / 2} />;
+  const lost = lostGpu(info, 0);
+  if (util === null && freshness === 'waiting' && !lost) return <Skeleton width={RING} height={RING} radius={RING / 2} />;
+  const said = lost ? lost.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%`;
   return (
-    <RingGauge value={util === null ? null : util / 100} size={RING} stroke={8} label={`GPU utilisation ${util === null ? 'unknown' : `${util.toFixed(0)}%`}`}>
+    <RingGauge value={lost ? null : util === null ? null : util / 100} size={RING} stroke={8} label={`GPU utilisation ${said}`}>
       <span className="ov-ring">
-        <span className="ov-ring__value">
-          <AnimatedNumber value={util} format={intText} />
-          {util !== null ? <span className="ov-ring__unit">%</span> : null}
-        </span>
+        {lost ? (
+          <span className="ov-ring__gap">{lost.label}</span>
+        ) : (
+          <span className="ov-ring__value">
+            <AnimatedNumber value={util} format={intText} />
+            {util !== null ? <span className="ov-ring__unit">%</span> : null}
+          </span>
+        )}
         <span className="ov-ring__label">GPU</span>
       </span>
     </RingGauge>

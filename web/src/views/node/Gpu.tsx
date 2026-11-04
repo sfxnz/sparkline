@@ -1,5 +1,5 @@
 import { CircleCheck } from 'lucide-react';
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import { TimeSeriesChart, type SeriesSpec, type Threshold } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Stat } from '../../design/components/Stat';
@@ -13,10 +13,11 @@ import { useLatest } from '../../store/live';
 import { formatEnergyAuto, formatEnergyCost, historyEnergy } from '../shared/energy';
 import { mean, peak } from './parts/gpu';
 import { TempFooter } from './parts/TempFooter';
+import { useGpuGap } from './parts/useGpuGap';
 import { RANGE_PHRASE, spanPhrase } from '../shared/live';
 import { serverNow } from '../../store/cluster';
 import type { TimeRange } from '../../lib/prefs';
-import type { NodeInfo, Sample } from '../../lib/types';
+import type { NodeInfo } from '../../lib/types';
 import { useFreshness, useRangeData, type RangeData } from './parts/hooks';
 import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
@@ -24,7 +25,7 @@ import { clockLevel, CollectorErrors, SEVERITY_META, selectThrottleMask, throttl
 import { ProcTable } from './parts/ProcTable';
 import { gpuEnergy, gpuPower, gpuPstate, gpuSm, gpuTemp, gpuUtil } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
-import { gpuAt, notResponding } from '../../lib/gpu';
+import { gpuAt } from '../../lib/gpu';
 
 const pct = (n: number) => formatPercent(n);
 const pct1 = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
@@ -41,8 +42,6 @@ const CAPPED: readonly SeriesSpec[] = [
   { key: 'gpu0.thermal_capped_pct', label: 'Thermal-capped' },
 ];
 const RANGE_KEYS = ['gpu0.power_w', 'gpu0.energy_j', 'gpu0.power_capped_pct', 'gpu0.thermal_capped_pct'] as const;
-
-const sameGap = (a: NotReported | null, b: NotReported | null) => a?.label === b?.label && a?.detail === b?.detail;
 
 /** "2.17 / 3.00 GHz": the current SM clock over the GPU's maximum. */
 function smOverMax(maxMhz: number | null | undefined): Formatter {
@@ -67,9 +66,8 @@ export default function Gpu({ nodeId }: NodeTabProps) {
     if (shutdown != null) t.push({ value: shutdown, label: `Shutdown ${formatTemp(shutdown)}`, tone: 'crit' });
     return t;
   }, [slowdown, shutdown]);
-  const silent = useLatest(nodeId, useCallback((s: Sample | null) => notResponding(info, s, 0), [info]), sameGap);
   const limitReason = notReported(info, 'gpu0.power_limit_w');
-  const gap = (key: string) => notReported(info, key) ?? silent;
+  const gap = useGpuGap(nodeId);
   const energyGap = gap('gpu0.energy_j');
 
   return (
