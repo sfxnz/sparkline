@@ -47,7 +47,6 @@ from ..common.schema import (
     NodeBenchState,
     NodeInfo,
     Problem,
-    ProcSample,
 )
 from ..common.throttle import LIMITING_MASK, POWER_CAP_BIT
 from .bench import (
@@ -161,31 +160,51 @@ def _gb10_modelled(
     ]
 
 
+@dataclass(frozen=True)
+class RunSpan:
+    """A run on one demo node: the node's model, and when the run started and ended."""
+
+    model: DemoNode
+    t0: float
+    t1: float
+
+
 def _llm_memory(
     info: NodeInfo | None,
-    procs: list[ProcSample] | None,
+    span: RunSpan | None,
     served: str,
     gb10: tuple[float, float],
     ex: dict[str, Any],
 ) -> list[BenchResult]:
-    """The agent's memory rows. On GB10, spark1's recorded footprint; elsewhere the GPU memory of the served
-    model's process and the rest of its container, from the node's own process table, as the agent sums the
-    listener's process tree. No such process: no serving row, as on a real node."""
-    serving, growth = gb10
-    rows = procs or []
-    if not _gb10(info):
-        root = next((p for p in rows if p.model == served), None)
-        tree = [p for p in rows if root and (p is root or (root.container and p.container == root.container))]
+    """The agent's memory rows. On GB10, spark1's recorded footprint. Elsewhere, read off the node's own model
+    over the span as the agent reads its samples: the GPU memory of the served model's process and the rest
+    of its container at the end, and system memory's peak during the run less its use at the start, from at
+    most 61 samples (the demo's memory moves over tens of minutes). No such process: no serving row, as on a
+    real node."""
+    if _gb10(info):
+        serving, growth = gb10
+        found = [(serving, "pid 4242 and its children")]
+        mem: dict[str, float] = {}
+    elif span is None:
+        return []
+    else:
+        procs = span.model.sample_at(span.t1, procs=True).procs or []
+        root = next((p for p in procs if p.model == served), None)
+        tree = [
+            p for p in procs if root and (p is root or (root.container and p.container == root.container))
+        ]
         found = (
             [(sum(p.gpu_mem or 0 for p in tree) / GIB, f"pid {root.pid} and its children")] if root else []
         )
-    else:
-        found = [(serving, "pid 4242 and its children")]
+        n = max(2, min(61, int(span.t1 - span.t0) + 1))
+        used = [span.model.sample_at(span.t0 + (span.t1 - span.t0) * k / (n - 1)).mem.used for k in range(n)]
+        growth = (max(used) - used[0]) / GIB
+        mem = {"mem_used_before_gib": used[0] / GIB, "mem_used_peak_gib": max(used) / GIB}
     out = [
         _r("serving_gpu_mem_gib", "Serving process GPU memory", v, "GiB", "lower", **ex, source=src)
         for v, src in found
     ]
-    return [*out, _r("mem_used_delta_gib", mem_growth_label(info), growth, "GiB", "lower", **ex)]
+    return [*out, _r("mem_used_delta_gib", mem_growth_label(info), growth, "GiB", "lower", **ex, **mem)]
 
 
 def demo_catalog(node: str, info: NodeInfo | None) -> list[BenchSpec]:
@@ -328,11 +347,11 @@ def make_results(
     rng: random.Random,
     role: str,
     info: NodeInfo | None = None,
-    procs: list[ProcSample] | None = None,
+    span: RunSpan | None = None,
 ) -> tuple[list[BenchResult], dict[str, list[float]]]:
     """Plausible GB10 results for one node. role: single | client | server | rank0 | rank1; the rdma server
     and NCCL rank 1 report none (the client / rank 0 measure). The thermal soak's come from soak_results.
-    procs: the node's process table at the end of the run, for llm-inference's serving memory."""
+    span: the run on the node, for llm-inference's memory rows."""
     if role in ("server", "rank1"):
         return [], {}
 
@@ -504,7 +523,7 @@ def make_results(
             _r("decode_tok_s_total", "Output tokens/s, all requests", decode * c * 0.97, "tok/s", **ex),
         ]
         mem = (80.1 * n(0.002), 0.35 * n(0.2))
-        return [*_gb10_modelled(info, rates), *_llm_memory(info, procs, model, mem, ex)], {}
+        return [*_gb10_modelled(info, rates), *_llm_memory(info, span, model, mem, ex)], {}
     if bench == "tool-eval":
         return _gb10_modelled(info, ToolEvalDemo(p, node, rng).bench_results(), TE_SPEED), {}
     return [], {}
@@ -863,11 +882,8 @@ class LlmDemo:
             timeline[str(self.sizes[k])] = {"cols": cols, "rows": rows, "truncated": len(self.plan[k]) > 256}
         return {"levels": [self.summary(k) for k in range(upto)], "timeline": timeline}
 
-    def results(
-        self, info: NodeInfo | None = None, procs: list[ProcSample] | None = None
-    ) -> list[BenchResult]:
-        """The payload's results for these requests (sweep or not), then the agent's memory results.
-        procs: the node's process table at the end of the run."""
+    def results(self, info: NodeInfo | None = None, span: RunSpan | None = None) -> list[BenchResult]:
+        """The payload's results for these requests (sweep or not), then the agent's memory results."""
         p = self.p
         base: dict[str, Any] = {"engine": LLM_ENGINE, "model": self.model, "simulated": True}
         per = []
@@ -918,7 +934,7 @@ class LlmDemo:
                 out.append(
                     _r(f"ttft_p95_ms_c{size}", f"Time to first token p95 · {at}", p95, "ms", "lower", **ex)
                 )
-        return [*_gb10_modelled(info, out), *_llm_memory(info, procs, self.model, self.mem, base)]
+        return [*_gb10_modelled(info, out), *_llm_memory(info, span, self.model, self.mem, base)]
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1952,7 +1968,7 @@ class DemoBench:
             if req.bench_id == "thermal-soak":
                 st.results = soak_results(st.series)
             elif sim.llm is not None:  # the requests the live view showed
-                st.results = sim.llm.results(info, model.sample_at(time.time(), procs=True).procs)
+                st.results = sim.llm.results(info, RunSpan(model, st.started_ts or t0, time.time()))
             elif sim.showcase is not None:
                 st.results = sim.showcase.results(info)
             else:
@@ -2164,7 +2180,7 @@ def seed_history(
                 results = _gb10_modelled(m.info, te.bench_results(), TE_SPEED)
                 run.node_states[n] = te.node_state(run.id, n, started, started + dur)
             elif llm is not None:  # a finished sweep: its final streams, every level and the request timeline
-                results = llm.results(m.info, m.sample_at(started + dur, procs=True).procs)
+                results = llm.results(m.info, RunSpan(m, started, started + dur))
                 last = len(llm.sizes) - 1
                 lines = [f"model {llm.model}, engine {LLM_ENGINE}", f"{bench}: {len(results)} results"]
                 run.node_states[n] = NodeBenchState(
@@ -2184,10 +2200,8 @@ def seed_history(
                 results = show.results(m.info)
                 run.node_states[n] = show.node_state(run.id, n, started, started + dur)
             else:
-                procs = m.sample_at(started + dur, procs=True).procs if bench == "llm-inference" else None
-                results, series = make_results(
-                    bench, params, n, rng, role.get(bench, "single"), m.info, procs
-                )
+                span = RunSpan(m, started, started + dur)
+                results, series = make_results(bench, params, n, rng, role.get(bench, "single"), m.info, span)
             if outcome != "succeeded":
                 results = []
             if i == len(_SEED) - 1:  # the regression run
