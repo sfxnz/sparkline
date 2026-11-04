@@ -20,7 +20,8 @@ from sparkline.agent.sampler import Sampler
 from sparkline.agent.sources import NvmlReplay, Sources, recorded
 from sparkline.common.metrics import flatten
 from sparkline.common.schema import NodeInfo, Sample, UnsupportedKind
-from sparkline.console.demo import UNSUPPORTED, DemoModel
+from sparkline.console.demo import UNSUPPORTED
+from sparkline.console.demo_fleets import FLEETS
 
 WEB = Path(__file__).resolve().parents[2] / "web" / "src"
 PROBED_ONLY = ("mem_mhz", "fan_pct", "fb_memory", "ecc", "pcie_bps", "cpu.temp")
@@ -44,6 +45,9 @@ def reported(key: str, info: NodeInfo, sample: Sample, flat: dict[str, float]) -
     if m := re.fullmatch(r"gpu(\d+)\.power_limit_w", key):
         return next(g.power_limit_w for g in info.gpus if g.index == int(m.group(1))) is not None
     if key.endswith(".proc_mem"):
+        # The process table shows it; mem.gpu is its sum only where GPU memory is system memory (GB10)
+        if sample.procs and any(p.gpu_mem is not None for p in sample.procs):
+            return True
         return "mem.gpu" in flat if "mem.used" in flat else None
     if key == "procs":
         return sample.procs is not None
@@ -160,9 +164,9 @@ def test_every_flattened_key_the_agent_writes_is_declared_by_a_collector(platfor
     assert [k for k in flatten(sample) if not any(covers(d, k) for d in declared)] == []
 
 
-@pytest.mark.parametrize("node", ["spark1", "spark2", "spark3"])
+@pytest.mark.parametrize("node", list(FLEETS["mixed"]))
 def test_every_metric_on_a_demo_node_is_reported_or_declared_unsupported(node):
-    model = DemoModel(node, time.time() - 3600)
+    model = FLEETS["mixed"][node](time.time() - 3600, 1.0)
     assert_every_metric_is_reported_or_declared(model._info(), model.sample_at(time.time(), procs=True))
 
 
