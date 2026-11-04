@@ -211,6 +211,7 @@ export function TimeSeriesChart({
   const unsupported =
     unsupportedProp ?? (keys.length && keys.every((k) => notReported(info, k)) ? notReported(info, keys[0] ?? '') : null);
   const isUnsupported = unsupported !== null;
+  const seriesGaps = isUnsupported ? [] : series.map((s) => notReported(info, s.key));
 
   useEffect(() => {
     formatRef.current = format;
@@ -584,7 +585,11 @@ export function TimeSeriesChart({
         <li key={s.key} className="tschart__legend-item">
           <span className={`tschart__swatch ${swatches[i] ?? ''}`} aria-hidden="true" />
           <span className="tschart__legend-label">{s.label}</span>
-          <span className="tschart__legend-value num" ref={isUnsupported ? undefined : (r) => { legendRefs.current[i] = r; }}>—</span>
+          {seriesGaps[i] ? (
+            <Unsupported gap={seriesGaps[i]} />
+          ) : (
+            <span className="tschart__legend-value num" ref={isUnsupported ? undefined : (r) => { legendRefs.current[i] = r; }}>—</span>
+          )}
         </li>
       ))}
       {thresholds?.map((t) => (
