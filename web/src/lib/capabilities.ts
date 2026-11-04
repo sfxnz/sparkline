@@ -32,9 +32,12 @@ function moreSpecific(a: Unsupported, b: Unsupported): boolean {
 export function notReported(info: NodeInfo | null | undefined, key: string): NotReported | null {
   let best: Unsupported | undefined;
   for (const u of info?.unsupported ?? []) if (covers(u.metric, key) && (!best || moreSpecific(u, best))) best = u;
-  if (!best) return null;
-  const kind = isKind(best.kind) ? best.kind : 'hardware';
-  return { kind, label: LABEL[kind], detail: best.reason };
+  return best ? describeGap(best) : null;
+}
+
+export function describeGap(u: Unsupported): NotReported {
+  const kind = isKind(u.kind) ? u.kind : 'hardware';
+  return { kind, label: LABEL[kind], detail: u.reason };
 }
 
 /** The `net` gap as it bears on the ConnectX-7 interconnect. An `agent` gap says only that Sparkline skipped Wi-Fi or

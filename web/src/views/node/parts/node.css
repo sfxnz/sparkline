@@ -101,11 +101,10 @@
   letter-spacing: var(--ls-caption);
   text-transform: none;
 }
-.nsheet__skips { grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--space-2); row-gap: var(--space-2); }
-.nsheet__skip { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
-.nsheet__skip > code { grid-column: 1; justify-self: start; }
-.nsheet__reason { grid-column: 2; min-width: 0; color: var(--text-2); overflow-wrap: anywhere; }
-.nsheet__skip > .nsheet__reason:only-child { grid-column: 1 / -1; }
+.nsheet__primary + .nsheet__skipped { margin-top: var(--space-3); }
+.nsheet__skip { display: grid; gap: 2px; font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.nsheet__skiphead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; }
+.nsheet__reason { margin: 0; min-width: 0; color: var(--text-2); overflow-wrap: anywhere; }
 .nsheet__vgroup + .nsheet__vgroup { margin-top: var(--space-3); }
 .nsheet__vgroup .nsheet__sublabel { margin: 0 0 var(--space-1); }
 .nsheet__kv { display: grid; margin: 0; }

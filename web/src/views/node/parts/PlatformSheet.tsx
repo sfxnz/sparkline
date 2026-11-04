@@ -5,7 +5,6 @@ const KIND_TONE: Record<UnsupportedKind, string> = { access: 'tone-warn', depend
 
 export function PlatformSheet({ info }: { info: NodeInfo }) {
   const sheet = platformSheet(info);
-  const gap = sheet.backendGap;
   return (
     <div className="nsheet">
       <div className="nsheet__group">
@@ -31,16 +30,13 @@ export function PlatformSheet({ info }: { info: NodeInfo }) {
             ))}
           </ul>
         ) : (
-          <p className="nsheet__primary">{gap ? 'No GPU backend opened' : 'No GPUs reported'}</p>
+          <p className="nsheet__primary">{sheet.missing}</p>
         )}
-        {gap ? (
+        {sheet.skipped.length ? (
           <div className="nsheet__skipped">
-            <p className="nsheet__sublabel">
-              {sheet.backends.length ? 'Skipped' : null}
-              <span className={`nsheet__tag ${KIND_TONE[gap.kind]}`}>{gap.label}</span>
-            </p>
+            {sheet.backends.length ? <p className="nsheet__sublabel">Skipped</p> : null}
             <ul className="nsheet__list nsheet__skips">
-              {sheet.skipped.map((s, i) => <SkippedRow key={i} item={s} />)}
+              {sheet.skipped.map((s) => <SkippedRow key={s.backend ?? ''} item={s} />)}
             </ul>
           </div>
         ) : null}
@@ -79,8 +75,11 @@ export function PlatformSheet({ info }: { info: NodeInfo }) {
 function SkippedRow({ item }: { item: SkippedBackend }) {
   return (
     <li className="nsheet__skip">
-      {item.backend ? <code>{item.backend}</code> : null}
-      <span className="nsheet__reason">{item.reason}</span>
+      <p className="nsheet__skiphead">
+        {item.backend ? <code>{item.backend}</code> : null}
+        <span className={`nsheet__tag ${KIND_TONE[item.gap.kind]}`}>{item.gap.label}</span>
+      </p>
+      <p className="nsheet__reason">{item.gap.detail}</p>
     </li>
   );
 }
