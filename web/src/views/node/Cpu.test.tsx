@@ -7,7 +7,7 @@ import gb10Sample from '../../test/fixtures/platforms/gb10/sample.json';
 import wsInfo from '../../test/fixtures/platforms/workstation/info.json';
 import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
 import type { SeriesSpec } from '../../charts/TimeSeriesChart';
-import type { CoreInfo, NodeInfo, NodeState, Sample } from '../../lib/types';
+import type { CoreInfo, NodeInfo, NodeState, Sample, SensorInfo } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
@@ -173,8 +173,18 @@ describe('CPU tab on GB10', () => {
 describe('CPU temperature stat', () => {
   const withTemp = (c: number | null): Sample => ({ ...workstation.sample, cpu_temp_c: c });
 
-  it('shows the hottest CPU sensor reading on the workstation', () => {
+  it('says the reading includes Tctl, a fan-control value, on a k10temp chip without Tdie', () => {
     show(workstation, Cpu, { sample: withTemp(67.4) });
+    expect(stat('CPU temperature')).toHaveTextContent('67°C');
+    expect(stat('CPU temperature')).toHaveTextContent('Includes Tctl, a fan-control value');
+  });
+
+  it.each([
+    ['a k10temp chip with Tdie', [{ id: 'k10temp.tctl', label: 'CPU control (Tctl)' }, { id: 'k10temp.tdie', label: 'CPU die (Tdie)' }]],
+    ['coretemp', [{ id: 'coretemp.package_id_0', label: 'CPU package' }, { id: 'coretemp.core_0', label: 'CPU core 0' }]],
+  ])('shows the hottest CPU sensor reading on %s', (_, chip) => {
+    const sensors = chip.map((s): SensorInfo => ({ ...s, group: 'other', crit_c: null }));
+    show(platform({ ...workstation.info, sensors }, workstation.sample), Cpu, { sample: withTemp(67.4) });
     expect(stat('CPU temperature')).toHaveTextContent('67°C');
     expect(stat('CPU temperature')).toHaveTextContent('Hottest CPU sensor');
   });
