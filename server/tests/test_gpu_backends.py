@@ -350,3 +350,50 @@ def test_a_gpu_whose_handle_fails_keeps_its_nvml_index_and_says_so_instead_of_re
     assert "gpu0.util" in flat and "gpu2.util" in flat and not any(k.startswith("gpu1.") for k in flat)
     assert [s.index for s in sample.gpu] == [0, 1, 2]
     assert_every_metric_is_reported_or_declared(info, sample)
+
+
+class Closes(Opens):
+    """Records close(), as a backend that owns a child process (macmon) must be closed."""
+
+    name = "closes"
+    closed: ClassVar[list[str]] = []
+
+    def close(self) -> None:
+        self.closed.append(self.name)
+
+
+def closes(name: str, **broken: Exception) -> type[Closes]:
+    def raiser(e: Exception):
+        def fn(self: Closes) -> object:
+            raise e
+
+        return fn
+
+    return type(name, (Closes,), {"name": name, **{m: raiser(e) for m, e in broken.items()}})
+
+
+def test_a_backend_abandoned_after_it_was_constructed_is_closed_and_one_in_use_is_not(monkeypatch):
+    Closes.closed.clear()
+    chain = (
+        closes("caps-fails", caps=RuntimeError("bad caps")),
+        closes("versions-fails", versions=RuntimeError("bad versions")),
+        closes("open-fails", open=CannotOpen("Install macmon (0.9.0 or later)", "dependency")),
+        type("empty", (Closes,), {"name": "empty", "gpus": ()}),
+        Closes,
+    )
+    monkeypatch.setitem(CHAINS, "darwin", (Chain("apple", chain),))
+    g = GpuCollector(replace(gb10(), platform="darwin"))
+
+    assert [i.backend for i in g.info] == ["closes"]
+    assert Closes.closed == ["caps-fails", "versions-fails", "open-fails", "empty"]
+
+
+def test_closing_the_agent_closes_every_backend_in_use_once(monkeypatch):
+    Closes.closed.clear()
+    other = type("other", (Closes,), {"name": "other"})
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (Closes,)), Chain("amd", (other,))))
+    _, _, collectors = warm(monkeypatch, gb10())
+
+    collectors.close()
+    collectors.close()
+    assert Closes.closed == ["closes", "other"]
