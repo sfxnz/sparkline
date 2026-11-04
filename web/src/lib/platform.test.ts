@@ -1,4 +1,4 @@
-import { gpuHeadline, platformSheet } from './platform';
+import { gpuHeadline, gpuSetName, platformSheet } from './platform';
 import type { GpuInfo, NodeInfo, Unsupported } from './types';
 
 let next = 0;
@@ -102,3 +102,22 @@ describe('gpuHeadline', () => {
     expect(gpuHeadline(node({ unsupported: [{ metric: 'gpu.backend', reason: 'nvml: Install nvidia-ml-py', kind: 'dependency' }, { metric: 'gpu.backend.nvml', reason: 'Install nvidia-ml-py', kind: 'dependency' }] }))).toBe('No GPU backend');
   });
 });
+
+describe('gpuSetName', () => {
+  it('counts a repeated GPU once: a workstation with four of the same card', () => {
+    const ws1 = node({ gpus: [0, 1, 2, 3].map((index) => gpu('NVIDIA RTX 6000 Ada Generation', { index })) });
+    expect(gpuSetName(ws1)).toBe('4× NVIDIA RTX 6000 Ada Generation');
+    expect(gpuHeadline(ws1)).toBe('4× NVIDIA RTX 6000 Ada Generation');
+  });
+
+  it('joins a mixed set in index order', () => {
+    const mixed = node({ gpus: [gpu('Radeon RX 7900 XTX', { index: 2 }), gpu('NVIDIA GB10', { index: 0 }), gpu('Radeon RX 7900 XTX', { index: 3 }), gpu('Radeon 8060S', { index: 1 })] });
+    expect(gpuSetName(mixed)).toBe('NVIDIA GB10 + Radeon 8060S + 2× Radeon RX 7900 XTX');
+  });
+
+  it('names a lone GPU as before, and nothing for a node without GPUs', () => {
+    expect(gpuSetName(node({ gpus: [gpu('NVIDIA GB10')] }))).toBe('NVIDIA GB10');
+    expect(gpuSetName(node({}))).toBeNull();
+  });
+});
+

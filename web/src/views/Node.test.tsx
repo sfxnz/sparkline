@@ -362,5 +362,9 @@ describe('Node page', () => {
     it('keeps the status pill healthy while GPU 3 is calm', () => {
       expect(showWs1({})).toBe('healthy');
     });
+    it('names the GPU set in the meta row', () => {
+      showWs1({});
+      expect(screen.getByRole('list', { name: 'ws1 details' })).toHaveTextContent('4× NVIDIA RTX 6000 Ada Generation');
+    });
   });
 });

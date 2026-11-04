@@ -17,6 +17,7 @@ export interface MetricMeta {
 /** Metrics offered in the rule editor (threshold rules). Keys are flattened metric keys; `*` matches any part. */
 export const RULE_METRICS: readonly MetricMeta[] = [
   { key: 'gpu0.temp_c', label: 'GPU temperature', unit: 'celsius' },
+  { key: 'gpu*.temp_c', label: 'Any GPU temperature', unit: 'celsius' },
   { key: 'gpu0.util', label: 'GPU utilisation', unit: 'percent' },
   { key: 'gpu0.power_w', label: 'GPU power', unit: 'watts' },
   { key: 'gpu0.sm_mhz', label: 'GPU SM clock', unit: 'mhz' },
