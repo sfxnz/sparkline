@@ -340,6 +340,7 @@
       "c": 37.1
     }
   ],
+  "cpu_temp_c": null,
   "procs": [
     {
       "pid": 41022,

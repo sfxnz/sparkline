@@ -215,6 +215,8 @@ export interface Sample {
   disk: DiskSample[];
   fs: FsSample[];
   temps: TempSample[];
+  /** Hottest CPU die reading, °C (k10temp, coretemp). Absent from older agents. */
+  cpu_temp_c?: number | null;
   procs: ProcSample[] | null;
   /** When the process list was last refreshed (carried on every tick; null from older agents). */
   procs_ts?: number | null;

@@ -96,6 +96,7 @@ def flatten(s: Sample) -> dict[str, float]:
     put("cpu.load5", c.load5)
     put("cpu.load15", c.load15)
     put("cpu.psi_some", c.psi_some)
+    put("cpu.temp", s.cpu_temp_c)
     for i, u in enumerate(c.per_core):
         put(f"cpu.core{i}.util", u)
     for i, f in enumerate(c.freq_mhz):

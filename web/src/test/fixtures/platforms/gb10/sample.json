@@ -233,6 +233,7 @@
       "c": 62.2
     }
   ],
+  "cpu_temp_c": null,
   "procs": [
     {
       "pid": 48213,

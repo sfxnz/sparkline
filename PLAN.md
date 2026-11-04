@@ -83,7 +83,7 @@ the last reading. The RDMA state is also read again on any tick where the link s
 ### Flattened metric keys (history, alerts, charts)
 `gpu0.util gpu0.sm_mhz gpu0.temp_c gpu0.power_w gpu0.energy_j gpu0.throttle_mask gpu0.power_capped_pct`
 `mem.used mem.available mem.gpu mem.anon mem.cache mem.shmem mem.kernel mem.swap_used mem.psi_some mem.psi_full`
-`cpu.util cpu.perf_util cpu.eff_util cpu.load1 cpu.psi_some cpu.core{N}.util cpu.core{N}.mhz`
+`cpu.util cpu.perf_util cpu.eff_util cpu.load1 cpu.psi_some cpu.temp cpu.core{N}.util cpu.core{N}.mhz`
 `net.{ifname}.rx_bps net.{ifname}.tx_bps net.{ifname}.errors net.{ifname}.drops`
 `disk.{dev}.read_bps disk.{dev}.write_bps disk.{dev}.read_iops disk.{dev}.write_iops disk.{dev}.busy_pct`
 `fs.{mountkey}.used` (`/` → `root`, `/data` → `data`), `temp.{sensor_id}`

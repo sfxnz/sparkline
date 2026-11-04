@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Literal
+from collections.abc import Mapping
+from dataclasses import dataclass
 
-from ...common.schema import CoreInfo, CpuSample, Unsupported
+from ...common.schema import CoreInfo, CoreKind, CpuSample, Unsupported
 from ..sources import RootFs, Sources
 from . import Caps, parse_psi, psi_caps
 
-# MIDR "CPU part" for implementer 0x41 (Arm Ltd).
+ARM_LTD_IMPLEMENTER = 0x41
 ARM_PARTS = {
     0xD03: "Cortex-A53",
     0xD05: "Cortex-A55",
@@ -39,6 +40,17 @@ ARM_PARTS = {
 }
 
 SYS_CPU = "/sys/devices/system/cpu"
+# cluster_id where the kernel has none: x86 leaves l2c_id at BAD_APICID (AMD), arm64 at -1.
+NO_CLUSTER = (0xFFFF, -1)
+PMU_DIR = "/sys/bus/event_source/devices"
+# One perf PMU per Intel hybrid core type, from intel_hybrid_pmu_type_map in arch/x86/events/intel/core.c;
+# cpu_lowpower holds Arrow Lake-H's low-power E-cores.
+# https://github.com/torvalds/linux/blob/v6.14/tools/perf/Documentation/intel-hybrid.txt
+HYBRID_PMUS: dict[str, CoreKind] = {
+    "cpu_core": "performance",
+    "cpu_atom": "efficiency",
+    "cpu_lowpower": "efficiency",
+}
 
 
 def parse_proc_stat(text: str) -> dict[int, tuple[int, int]]:
@@ -74,48 +86,72 @@ def parse_loadavg(text: str) -> tuple[float, float, float]:
     return float(a), float(b), float(c)
 
 
-def parse_cpuinfo_parts(text: str) -> dict[int, str]:
-    """-> {core_id: model name} from MIDR implementer/part; unknown parts omitted."""
-    out: dict[int, str] = {}
-    cur = impl = None
+@dataclass(frozen=True)
+class Processor:
+    midr: tuple[int, int] | None = None
+    model_name: str | None = None
+
+    @property
+    def core_model(self) -> str | None:
+        arm = ARM_PARTS.get(self.midr[1]) if self.midr and self.midr[0] == ARM_LTD_IMPLEMENTER else None
+        return arm or self.model_name
+
+
+def parse_cpuinfo(text: str) -> dict[int, Processor]:
+    entries: dict[int, dict[str, str]] = {}
+    fields: dict[str, str] = {}
     for line in text.splitlines():
         key, _, val = line.partition(":")
         key, val = key.strip(), val.strip()
         if key == "processor":
-            cur, impl = int(val), None
-        elif key == "CPU implementer":
-            impl = int(val, 16)
-        elif key == "CPU part" and cur is not None and impl == 0x41:
-            name = ARM_PARTS.get(int(val, 16))
-            if name:
-                out[cur] = name
+            fields = entries.setdefault(int(val), {})
+        else:
+            fields[key] = val
+    out = {}
+    for cpu, f in entries.items():
+        impl, part = f.get("CPU implementer"), f.get("CPU part")
+        midr = (int(impl, 16), int(part, 16)) if impl and part else None
+        out[cpu] = Processor(midr=midr, model_name=f.get("model name") or None)
     return out
 
 
-def classify_cores(
-    max_khz: dict[int, int | None], models: dict[int, str], cluster_ids: dict[int, int | None]
-) -> list[CoreInfo]:
-    """Cores at the highest cpuinfo_max_freq are performance, others efficiency; all equal -> unknown.
-    Raw cluster ids (e.g. 56, 1144) are renumbered 0, 1, ... in ascending order."""
-    known = {f for f in max_khz.values() if f}
-    top = max(known) if known else None
-    clusters = {c: n for n, c in enumerate(sorted({c for c in cluster_ids.values() if c is not None}))}
-    cores = []
-    for i in sorted(max_khz):
-        f = max_khz[i]
-        kind: Literal["performance", "efficiency", "unknown"]
-        kind = "unknown" if len(known) < 2 or not f else "performance" if f == top else "efficiency"
-        cid = cluster_ids.get(i)
-        cores.append(
-            CoreInfo(
-                id=i,
-                kind=kind,
-                model=models.get(i),
-                max_mhz=f / 1000 if f else None,
-                cluster=clusters.get(cid) if cid is not None else None,
-            )
-        )
-    return cores
+def parse_cpulist(text: str) -> set[int]:
+    out: set[int] = set()
+    for part in text.strip().split(","):
+        if part:
+            lo, _, hi = part.partition("-")
+            out.update(range(int(lo), int(hi or lo) + 1))
+    return out
+
+
+def core_kinds(
+    ids: list[int],
+    hybrid: Mapping[str, set[int]],
+    midr: Mapping[int, tuple[int, int]],
+    capacity: Mapping[int, int | None],
+) -> dict[int, CoreKind]:
+    """Not from clock speed, which favoured cores raise, nor from cpu_capacity alone: it varies inside a
+    design (GB10's X925 cores read 997, 1017 and 1024), so its top value also picks a favoured core."""
+    kinds: dict[int, CoreKind] = dict.fromkeys(ids, "unknown")
+    by_pmu = {cpu: HYBRID_PMUS[pmu] for pmu, cpus in hybrid.items() for cpu in cpus if cpu in kinds}
+    if by_pmu:
+        return kinds | by_pmu
+    designs: dict[tuple[int, int], list[int]] = {}
+    for cpu in ids:
+        if cpu in midr:
+            designs.setdefault(midr[cpu], []).append(cpu)
+    grouped = [cpu for cpus in designs.values() for cpu in cpus]
+    known = {cpu: c for cpu in grouped if (c := capacity.get(cpu)) is not None}
+    if len(designs) < 2 or len(known) < len(grouped):
+        return kinds
+    top = {d: max(known[cpu] for cpu in cpus) for d, cpus in designs.items()}
+    best = max(top.values())
+    if list(top.values()).count(best) > 1:
+        return kinds
+    for d, cpus in designs.items():
+        kind: CoreKind = "performance" if top[d] == best else "efficiency"
+        kinds |= dict.fromkeys(cpus, kind)
+    return kinds
 
 
 def describe_cpu(cores: list[CoreInfo]) -> str:
@@ -148,13 +184,34 @@ class CpuCollector:
         ids = sorted(
             int(m.group(1)) for p in fs.glob(f"{SYS_CPU}/cpu[0-9]*") if (m := re.search(r"cpu(\d+)$", p))
         )
-        models = parse_cpuinfo_parts(fs.read_once("/proc/cpuinfo") or "")
-        self.cores = classify_cores(
-            {i: _int(fs, f"{SYS_CPU}/cpu{i}/cpufreq/cpuinfo_max_freq") for i in ids},
-            models,
-            {i: _int(fs, f"{SYS_CPU}/cpu{i}/topology/cluster_id") for i in ids},
+        procs = parse_cpuinfo(fs.read_once("/proc/cpuinfo") or "")
+        hybrid = {
+            pmu: parse_cpulist(text)
+            for pmu in HYBRID_PMUS
+            if (text := fs.read_once(f"{PMU_DIR}/{pmu}/cpus")) is not None
+        }
+        kinds = core_kinds(
+            ids,
+            hybrid,
+            {i: p.midr for i, p in procs.items() if p.midr},
+            {i: _int(fs, f"{SYS_CPU}/cpu{i}/cpu_capacity") for i in ids},
         )
-        self.model = describe_cpu(self.cores)
+        max_khz = {i: _int(fs, f"{SYS_CPU}/cpu{i}/cpufreq/cpuinfo_max_freq") for i in ids}
+        raw_clusters = {i: _int(fs, f"{SYS_CPU}/cpu{i}/topology/cluster_id") for i in ids}
+        cluster_ids = {i: None if c in NO_CLUSTER else c for i, c in raw_clusters.items()}
+        clusters = {c: n for n, c in enumerate(sorted({c for c in cluster_ids.values() if c is not None}))}
+        self.cores = [
+            CoreInfo(
+                id=i,
+                kind=kinds[i],
+                model=procs.get(i, Processor()).core_model,
+                max_mhz=f / 1000 if (f := max_khz[i]) else None,
+                cluster=None if (c := cluster_ids[i]) is None else clusters[c],
+            )
+            for i in ids
+        ]
+        names = list(dict.fromkeys(p.model_name for p in procs.values() if p.model_name))
+        self.model = " + ".join(names) or describe_cpu(self.cores)
         self.ids = ids
         self.perf = [n for n, c in enumerate(self.cores) if c.kind == "performance"]
         self.eff = [n for n, c in enumerate(self.cores) if c.kind == "efficiency"]

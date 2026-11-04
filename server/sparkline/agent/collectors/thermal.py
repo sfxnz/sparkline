@@ -14,6 +14,20 @@ from . import SLOW_EVERY_S, Caps, slow_due
 
 # A read of these is a command to the device (NVMe admin command, Wi-Fi firmware query).
 SLOW_GROUPS = ("nvme", "wireless")
+# https://docs.kernel.org/hwmon/k10temp.html: Tctl is "a non-physical temperature on an arbitrary scale", and
+# Tdie appears only on family 17h parts that offset Tctl.
+# https://github.com/torvalds/linux/blob/v6.14/drivers/hwmon/coretemp.c: "Package id N", "Core N" per core id.
+CPU_CHIPS: dict[str, tuple[tuple[re.Pattern[str], str], ...]] = {
+    "k10temp": (
+        (re.compile(r"Tctl"), "control (Tctl)"),
+        (re.compile(r"Tdie"), "die (Tdie)"),
+        (re.compile(r"Tccd(\d+)"), r"CCD \1"),
+    ),
+    "coretemp": (
+        (re.compile(r"Package id \d+"), "package"),
+        (re.compile(r"Core (\d+)"), r"core \1"),
+    ),
+}
 
 
 @dataclass
@@ -29,6 +43,18 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
 
 
+def _cpu_label(chip: str, label: str | None) -> str | None:
+    if label is None:
+        return None
+    return next((m.expand(text) for pat, text in CPU_CHIPS[chip] if (m := pat.fullmatch(label))), label)
+
+
+def feeds_cpu_temp(chip: Chip, idx: int) -> bool:
+    if chip.name not in CPU_CHIPS:
+        return False
+    return chip.temps[idx][0] != "Tctl" or "Tdie" not in {label for label, _ in chip.temps.values()}
+
+
 def build_sensors(chips: list[Chip]) -> list[tuple[SensorInfo, list[tuple[str, int]]]]:
     """-> [(SensorInfo, [(chip path, temp index), ...])] with stable ids: acpitz.N, nvme.<label>, mlx5.N, ...
 
@@ -39,11 +65,16 @@ def build_sensors(chips: list[Chip]) -> list[tuple[SensorInfo, list[tuple[str, i
     counters: dict[str, int] = {}
     nics: dict[tuple[str, int], list[tuple[str, int]]] = {}  # (chip id, temp index) -> member paths
     nvme_chips = 0
+    cpu_chips = sum(1 for c in chips if c.name in CPU_CHIPS)
+    cpu_chip = 0
     group: Literal["soc", "gpu", "nvme", "nic", "wireless", "other"]  # SensorInfo.group
     for chip in sorted(chips, key=lambda c: (c.name, c.device)):
         if chip.name == "nvme":
             prefix = "nvme" if nvme_chips == 0 else f"nvme{nvme_chips}"
             nvme_chips += 1
+        if chip.name in CPU_CHIPS:
+            cpu_chip += 1
+            cpu = f"CPU {cpu_chip}" if cpu_chips > 1 else "CPU"
         for idx in sorted(chip.temps):
             label, crit = chip.temps[idx]
             paths = [(chip.path, idx)]
@@ -67,6 +98,10 @@ def build_sensors(chips: list[Chip]) -> list[tuple[SensorInfo, list[tuple[str, i
             elif chip.name.startswith(("mt79", "iwl")):
                 sid = f"{chip.name}.{_slug(label) if label else idx}"
                 text, group = f"Wi-Fi {label}" if label else "Wi-Fi", "wireless"
+            elif chip.name in CPU_CHIPS:
+                sid = f"{chip.name}.{_slug(label) if label else idx}"
+                readable = _cpu_label(chip.name, label)
+                text, group = f"{cpu} {readable}" if readable else cpu, "other"
             else:
                 sid = f"{chip.name}.{_slug(label) if label else idx}"
                 text, group = f"{chip.name} {label}" if label else chip.name, "other"
@@ -138,11 +173,12 @@ class ThermalCollector:
             (s.id, s.group in SLOW_GROUPS, [f"{path}/temp{idx}_input" for path, idx in members])
             for s, members in built
         ]
+        by_path = {c.path: c for c in chips}
+        self._cpu_ids = [
+            s.id for s, members in built if any(feeds_cpu_temp(by_path[p], i) for p, i in members)
+        ]
         self._last: dict[str, float | None] = {}
         self._slow_t = -SLOW_EVERY_S
-        has_core_temps = any(
-            re.fullmatch(r"core\s*\d+", label or "", re.I) for c in chips for label, _ in c.temps.values()
-        )
         no_sensors = "No temperature sensors exposed (hwmon)"
         self._caps: dict[str, Unsupported | None] = {
             **(
@@ -151,7 +187,7 @@ class ThermalCollector:
                 else {"temp": Unsupported(metric="temp", reason=no_sensors)}
             ),
             "cpu.temp": None
-            if has_core_temps
+            if any(c.name in CPU_CHIPS for c in chips)
             else Unsupported(
                 metric="cpu.temp",
                 reason="Per-core CPU temperature is not exposed (only unlabelled ACPI zones)"
@@ -188,4 +224,8 @@ class ThermalCollector:
         for sid, is_slow, paths in self._paths:
             if slow or not is_slow or self._last.get(sid) is None:
                 self._last[sid] = _first_reading(self.fs, paths)
-        return {"temps": [TempSample(id=sid, c=self._last[sid]) for sid, _, _ in self._paths]}
+        cpu = [c for sid in self._cpu_ids if (c := self._last[sid]) is not None]
+        return {
+            "temps": [TempSample(id=sid, c=self._last[sid]) for sid, _, _ in self._paths],
+            "cpu_temp_c": max(cpu, default=None),
+        }

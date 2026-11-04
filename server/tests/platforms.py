@@ -14,6 +14,8 @@ from sparkline.agent.sources import Sources, recorded
 PLATFORMS = Path(__file__).parent / "fixtures" / "platforms"
 GB10 = PLATFORMS / "gb10"
 WORKSTATION = PLATFORMS / "workstation"
+AMD_THREADRIPPER = PLATFORMS / "amd-threadripper"
+INTEL_HYBRID = PLATFORMS / "intel-hybrid"
 
 _FS_EVENTS = {"open", "os.listdir", "os.scandir", "glob.glob", "glob.glob/2"}
 _seen: list[str] | None = None
