@@ -298,18 +298,17 @@ def test_a_backend_that_opens_with_no_gpu_counts_as_absent_and_the_chain_moves_o
     assert (gap.reason, gap.kind) == ("empty: Opened, but found no GPU", "hardware")
 
 
-def nvml_handles(count: int, **failing: str) -> Sources:
-    """The GB10 recording as `count` GPUs sharing its one handle; `i<n>="text"` makes handle n fail."""
+def nvml_handles(count: int, failing: dict[int, str]) -> Sources:
     calls = json.loads((GB10 / "nvml.json").read_text())
     handles = {f"[{i}]": calls["nvmlDeviceGetHandleByIndex"]["[0]"] for i in range(count)}
-    handles |= {f"[{i[1:]}]": {"__error__": 15, "str": text} for i, text in failing.items()}
+    handles |= {f"[{i}]": {"__error__": 15, "str": text} for i, text in failing.items()}
     return gb10(
         nvml=NvmlReplay({**calls, "nvmlDeviceGetCount": {"[]": count}, "nvmlDeviceGetHandleByIndex": handles})
     )
 
 
 def test_nvml_that_sees_a_gpu_but_opens_none_keeps_the_versions_and_says_it_could_not_open_it(monkeypatch):
-    info, sample, _ = warm(monkeypatch, nvml_handles(1, i0="GPU is lost"))
+    info, sample, _ = warm(monkeypatch, nvml_handles(1, {0: "GPU is lost"}))
 
     assert (info.driver, info.cuda) == ("580.178.04", "13.0")
     assert info.versions == {
@@ -329,7 +328,7 @@ def test_nvml_that_sees_a_gpu_but_opens_none_keeps_the_versions_and_says_it_coul
 
 def test_a_lost_nvidia_gpu_stays_named_once_another_vendor_opens(monkeypatch):
     monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (Nvml,)), Chain("amd", (AmdFake,))))
-    info, sample, _ = warm(monkeypatch, nvml_handles(1, i0="GPU is lost"))
+    info, sample, _ = warm(monkeypatch, nvml_handles(1, {0: "GPU is lost"}))
 
     assert [g.vendor for g in info.gpus] == ["amd", "amd"]
     nvml = next(u for u in info.unsupported if u.metric == "gpu.backend.nvml")
@@ -339,7 +338,7 @@ def test_a_lost_nvidia_gpu_stays_named_once_another_vendor_opens(monkeypatch):
 
 
 def test_a_gpu_whose_handle_fails_keeps_its_nvml_index_and_says_so_instead_of_renumbering(monkeypatch):
-    info, sample, _ = warm(monkeypatch, nvml_handles(3, i1="GPU is lost"))
+    info, sample, _ = warm(monkeypatch, nvml_handles(3, {1: "GPU is lost"}))
 
     assert [(g.index, g.name) for g in info.gpus] == [(0, "NVIDIA GB10"), (1, "GPU 1"), (2, "NVIDIA GB10")]
     gaps = {u.metric: u for u in info.unsupported}
@@ -356,8 +355,6 @@ def test_a_gpu_whose_handle_fails_keeps_its_nvml_index_and_says_so_instead_of_re
 
 
 class Closes(Opens):
-    """Records close(), as a backend that owns a child process (macmon) must be closed."""
-
     name = "closes"
     closed: ClassVar[list[str]] = []
 
