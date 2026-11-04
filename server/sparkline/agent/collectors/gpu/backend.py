@@ -56,7 +56,8 @@ class GpuBackend(Protocol):
         - at shutdown on SIGTERM or SIGINT, after the sampler stops and any sample() or proc_util() call in
           progress returns; or when start-up fails after the collectors exist.
 
-        A SIGKILL or a crash of the interpreter skips it."""
+        A SIGKILL or a crash of the interpreter skips it. So does a read that hangs: shutdown waits up to
+        CLOSE_WAIT_S (5 s) for it, then closes every other backend and leaves the one still reading open."""
         ...
 
 
