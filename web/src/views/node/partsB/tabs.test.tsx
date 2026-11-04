@@ -151,6 +151,21 @@ describe('Storage tab', () => {
     expect(screen.getByText('Drive reports critical at 85 °C')).toBeInTheDocument();
   });
 
+  it('shows filesystem capacity and says why disks are not reported when the agent declares only disk', () => {
+    const reason = 'Disk I/O is not collected yet for mmcblk0 (Sparkline reads NVMe, SATA/SAS and virtio disks)';
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: { ...info, disks: [], unsupported: [{ metric: 'disk', reason, kind: 'agent' }] } } } });
+    push(sample({ disk: [] }));
+    render(<Storage nodeId={NODE} />);
+    expect(within(screen.getByRole('region', { name: 'Capacity' })).getAllByRole('meter')[0]).toHaveAttribute('aria-valuenow', '90');
+    const disks = screen.getByRole('region', { name: 'Disks' });
+    expect(disks).toHaveTextContent('Not collected yet');
+    expect(disks).toHaveTextContent(reason);
+    expect(screen.queryByText('No disks reported')).not.toBeInTheDocument();
+    const now = screen.getByRole('region', { name: 'Storage now' });
+    expect(within(now).getByText('Root disk used').parentElement).toHaveTextContent('90%');
+    expect(within(now).getByText('Read').parentElement).toHaveTextContent('Not collected yet');
+  });
+
   it('keeps the last disk values, dimmed, and explains a failing storage collector', () => {
     push(sample());
     push(sample({ ts: TS + 1, seq: 2, disk: [], errors: { storage: 'Failed to read /proc/diskstats: [Errno 5] Input/output error' } }));
@@ -248,5 +263,20 @@ describe('Summary tab', () => {
     const notes = screen.getByRole('list', { name: 'Metrics unavailable' });
     expect(notes).toHaveTextContent('Temperature sensors unavailable: OSError: hwmon vanished');
     expect(notes).not.toHaveTextContent('no data');
+  });
+
+  it('says why GPU utilisation and temperature are missing, not "No data", when the agent lacks NVML', () => {
+    const reason = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+    const unsupported = [{ metric: 'gpu*', reason, kind: 'dependency' as const }, { metric: 'mem.gpu', reason, kind: 'dependency' as const }];
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: { ...info, gpus: [], unsupported } } } });
+    push(sample());
+    render(<Summary nodeId={NODE} />);
+    for (const label of ['GPU utilisation', 'GPU temperature', 'GPU power']) {
+      const stat = screen.getByText(label, { selector: '.stat__label' }).closest('.stat');
+      expect(stat).toHaveTextContent('Helper tool missing');
+      expect(stat).not.toHaveTextContent('No data');
+      expect(within(stat as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(reason);
+    }
+    expect(screen.getByText('GPU utilisation', { selector: '.stat__label' }).closest('.stat')).not.toHaveTextContent('Time the GPU was busy');
   });
 });
