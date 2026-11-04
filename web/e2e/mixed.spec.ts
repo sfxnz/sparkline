@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const MIXED = `http://127.0.0.1:${process.env.E2E_MIXED_PORT ?? 9703}`;
 const GPU_SECTION = /^GPU \d+$/;
@@ -75,8 +75,8 @@ const STREAMS_NOTE = 'For ws1, token rates and timings are modelled on GB10, not
 const TOOL_EVAL_NOTE = 'For ws1, timings and the Responsiveness and Deployability scores are modelled on GB10, not measured.';
 const FOOTNOTE = 'For ws1, figures marked † are modelled on GB10, not measured.';
 
-async function startRun(page: Page, bench: string, node: string, params: Record<string, unknown>): Promise<string> {
-  const res = await page.request.post(`${MIXED}/api/v1/bench/runs`, { data: { bench_id: bench, nodes: [node], params, confirm: true } });
+async function startRun(page: Page, bench: string, nodes: string[], params: Record<string, unknown>): Promise<string> {
+  const res = await page.request.post(`${MIXED}/api/v1/bench/runs`, { data: { bench_id: bench, nodes, params, confirm: true } });
   expect(res.status(), await res.text()).toBe(201);
   return ((await res.json()) as RunJson).id;
 }
@@ -102,8 +102,8 @@ async function resultRows(page: Page, run: RunJson) {
 }
 
 async function compareWithSpark1(page: Page, bench: string, params: Record<string, unknown>, note: string, live: boolean): Promise<RunJson> {
-  const spark1 = await startRun(page, bench, 'spark1', params);
-  const ws1 = await startRun(page, bench, 'ws1', params);
+  const spark1 = await startRun(page, bench, ['spark1'], params);
+  const ws1 = await startRun(page, bench, ['ws1'], params);
   await page.setViewportSize({ width: 1440, height: 900 });
   if (live) {
     await page.goto(`${MIXED}/benchmarks/runs/${ws1}`);
@@ -136,7 +136,76 @@ async function compareWithSpark1(page: Page, bench: string, params: Record<strin
   return run;
 }
 
+async function openFinished(page: Page, id: string) {
+  await page.goto(`${MIXED}/benchmarks/runs/${id}`);
+  await expect(page.getByRole('region', { name: 'Results' }).getByRole('table')).toBeVisible({ timeout: 15_000 });
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  return {
+    heads: page.getByRole('region', { name: 'Result', exact: true }).getByRole('listitem'),
+    rows: page.getByRole('region', { name: 'Results' }).locator('tbody tr'),
+  };
+}
+
+/** Each † in these elements, with the visible characters its box covers. */
+const daggerCovers = (scopes: Locator) =>
+  scopes.evaluateAll((els) =>
+    els.flatMap((el) => {
+      const glyphs: { c: string; box: DOMRect }[] = [];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (n.parentElement?.closest('.visually-hidden')) continue;
+        const text = n.textContent ?? '';
+        for (let i = 0; i < text.length; i++) {
+          if (/\s/.test(text.charAt(i))) continue;
+          const r = document.createRange();
+          r.setStart(n, i);
+          r.setEnd(n, i + 1);
+          glyphs.push({ c: text.charAt(i), box: r.getBoundingClientRect() });
+        }
+      }
+      const overlap = (a: DOMRect, b: DOMRect) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.25 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.25;
+      return glyphs.filter((g) => g.c === '†').map((d) => ({ in: el.textContent, covers: glyphs.filter((g) => g !== d && overlap(g.box, d.box)).map((g) => g.c).join('') }));
+    }),
+  );
+
+/** Height by the label's own text, plus the Node column for a row. */
+const heightsBy = (scopes: Locator, label: string) =>
+  scopes.evaluateAll(
+    (els, sel) => Object.fromEntries(els.map((el) => [`${el.querySelector(sel)?.firstChild?.textContent ?? ''}|${el instanceof HTMLTableRowElement ? (el.cells[1]?.textContent ?? '') : ''}`, el.getBoundingClientRect().height])),
+    label,
+  );
+
 test.describe.serial('figures ws1 shows from the GB10 model', () => {
+  test("a † never covers the text beside it, and no ws1 headline or row is taller than spark1's", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ws1First = await startRun(page, 'llm-inference', ['ws1', 'spark1'], { requests: 2 });
+    await succeeded(page, ws1First);
+    const spark1First = await startRun(page, 'llm-inference', ['spark1', 'ws1'], { requests: 2 });
+    await succeeded(page, spark1First);
+
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      const { heads, rows } = await openFinished(page, ws1First);
+      const marks = await daggerCovers(heads.or(rows));
+      expect(marks.length, `${width} px`).toBeGreaterThanOrEqual(8);
+      expect(marks.filter((m) => m.covers), `${width} px`).toEqual([]);
+    }
+
+    await page.setViewportSize({ width: 375, height: 900 });
+    const { heads, rows } = await openFinished(page, ws1First);
+    const rowHeight = await heightsBy(rows, '.bench-res__metric > span');
+    const ws1Rows = Object.entries(rowHeight).filter(([k]) => k.endsWith('|ws1'));
+    for (const [k, h] of ws1Rows) {
+      const twin = rowHeight[k.replace(/\|ws1$/, '|spark1')];
+      if (twin !== undefined) expect(h, k).toBeLessThanOrEqual(twin + 0.5);
+    }
+    expect(ws1Rows.length).toBeGreaterThanOrEqual(5);
+    const ws1Heads = await heightsBy(heads, '.bench-head__label');
+    const spark1Heads = await heightsBy((await openFinished(page, spark1First)).heads, '.bench-head__label');
+    expect(Object.keys(ws1Heads).sort()).toEqual(Object.keys(spark1Heads).sort());
+    for (const [k, h] of Object.entries(ws1Heads)) expect(h, k).toBeLessThanOrEqual((spark1Heads[k] ?? 0) + 0.5);
+  });
+
   test('llm-inference names them in the note, the headlines, the Results rows, Metadata and the share card', async ({ page }) => {
     test.setTimeout(120_000);
     await compareWithSpark1(page, 'llm-inference', { requests: 2 }, STREAMS_NOTE, false);
@@ -167,7 +236,7 @@ test.describe.serial('figures ws1 shows from the GB10 model', () => {
 
   test('thermal soak is ws1\'s own telemetry, so nothing says modelled', async ({ page }) => {
     test.setTimeout(120_000);
-    const id = await startRun(page, 'thermal-soak', 'ws1', { minutes: 1 });
+    const id = await startRun(page, 'thermal-soak', ['ws1'], { minutes: 1 });
     await page.goto(`${MIXED}/benchmarks/runs/${id}`);
     await expect(page.getByRole('progressbar', { name: 'Benchmark progress' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/modelled/i)).toHaveCount(0);
