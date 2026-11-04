@@ -144,6 +144,16 @@ describe('live chart, as lines or as stacked layers', () => {
       for (const layer of drawn.slice(1)) expect(layer[3]).toBeNull();
     });
 
+    it('says "No data in this range", not a blank plot, when samples arrive without the chart\'s keys', () => {
+      const now = Date.now() / 1000;
+      liveStore.seed({ node_id: NODE, resolution_s: 1, ts: [now - 2, now - 1], series: { 'cpu.util': [5, 6] }, min: {}, max: {} });
+      liveStore.flush();
+      const { container } = charts[mode]();
+      runFrames(2);
+      expect(screen.getByText('No data in this range')).toBeInTheDocument();
+      expect(container.querySelector('.skeleton')).not.toBeInTheDocument();
+    });
+
     it('shows the loading skeleton, not "No data in this range", while an online node has sent nothing yet', () => {
       const { container } = charts[mode]();
       runFrames(2);

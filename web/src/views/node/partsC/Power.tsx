@@ -5,8 +5,8 @@ import { Panel } from '../../../design/components/Panel';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { Stat } from '../../../design/components/Stat';
 import { Tooltip } from '../../../design/components/Tooltip';
-import { Unsupported } from '../../../design/components/Unsupported';
-import { notReported, notReportedByHardware } from '../../../lib/capabilities';
+import { NoData, Unsupported } from '../../../design/components/Unsupported';
+import { notReported, type NotReported } from '../../../lib/capabilities';
 import { DASH, formatWatts, wattsParts } from '../../../lib/format';
 import type { TimeRange } from '../../../lib/prefs';
 import type { NodeInfo } from '../../../lib/types';
@@ -54,7 +54,7 @@ export function PowerPanel({ nodeId, info, range, stale, updatedAt, store = live
   );
   const stats = live ? liveStats : histStats;
   const span = RANGE_SHORT[range];
-  const limitReason = notReported(info, 'gpu0.power_limit_w') ?? notReportedByHardware('GB10 does not report a GPU power limit (NVML: Not Supported).');
+  const limit = info?.gpus[0]?.power_limit_w ?? null;
   const powerReason = notReported(info, POWER);
 
   return (
@@ -67,22 +67,17 @@ export function PowerPanel({ nodeId, info, range, stale, updatedAt, store = live
         <TimeSeriesChart node={nodeId} title="GPU power" series={POWER_SERIES} format={formatWatts} height={228} yMin={0} store={store} />
         <div className="tp-power__stats">
           <Stat label="Now" value={now} format={wattsParts} stale={stale} updatedAt={updatedAt} unsupported={powerReason} />
-          <RangeStat label={`Average · ${span}`} value={stats?.avg ?? null} loading={!live && hist.state === 'loading'} error={!live && hist.state === 'error'} />
-          <RangeStat label={`Peak · ${span}`} value={stats?.peak ?? null} loading={!live && hist.state === 'loading'} error={!live && hist.state === 'error'} />
-          <div className="stat">
-            <div className="stat__label">Power limit</div>
-            <div className="stat__unsupported">
-              <Unsupported gap={limitReason} />
-            </div>
-          </div>
+          <RangeStat label={`Average · ${span}`} value={stats?.avg ?? null} loading={!live && hist.state === 'loading'} error={!live && hist.state === 'error'} unsupported={powerReason} />
+          <RangeStat label={`Peak · ${span}`} value={stats?.peak ?? null} loading={!live && hist.state === 'loading'} error={!live && hist.state === 'error'} unsupported={powerReason} />
+          <Stat label="Power limit" value={limit} format={wattsParts} unsupported={limit === null ? notReported(info, 'gpu0.power_limit_w') : null} reporting />
         </div>
       </div>
     </Panel>
   );
 }
 
-function RangeStat({ label, value, loading, error }: { label: string; value: number | null; loading: boolean; error: boolean }) {
-  if (loading) {
+function RangeStat({ label, value, loading, error, unsupported }: { label: string; value: number | null; loading: boolean; error: boolean; unsupported: NotReported | null }) {
+  if (loading && !unsupported) {
     return (
       <div className="stat" aria-busy="true">
         <div className="stat__label">{label}</div>
@@ -90,7 +85,7 @@ function RangeStat({ label, value, loading, error }: { label: string; value: num
       </div>
     );
   }
-  return <Stat label={label} value={value} format={wattsParts} footer={error ? 'History unavailable' : undefined} />;
+  return <Stat label={label} value={value} format={wattsParts} unsupported={unsupported} reporting={!error} footer={error ? 'History unavailable' : undefined} />;
 }
 
 /** Energy the GPU rail used over the range, today and the last 7 days, priced at the configured rate. */
@@ -100,7 +95,7 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
   const currency = settings.currency;
   const live = range === 'live';
   const energyReason = notReported(info, ENERGY);
-  const systemReason = notReported(info, 'system.power_w') ?? notReportedByHardware('Whole-system power is not exposed; only the GPU rail (NVML) is.');
+  const systemReason = notReported(info, 'system.power_w');
 
   const liveJ = useLiveDerived(
     nodeId,
@@ -141,7 +136,7 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
       <div className="tp-energy__system">
         <div className="tp-energy__system-head">
           <span className="tp-energy__system-label">Whole-system power</span>
-          <Unsupported gap={systemReason} />
+          {systemReason ? <Unsupported gap={systemReason} /> : <NoData />}
         </div>
         <p className="tp-note">
           These totals are the GPU rail only. CPU, memory, NIC and storage draw more on top, so the wall figure is higher.
