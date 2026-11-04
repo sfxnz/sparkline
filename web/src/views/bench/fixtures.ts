@@ -82,17 +82,15 @@ export const LLM: BenchSpec = {
 
 export const CATALOG: BenchSpec[] = [MATMUL, RDMA, SOAK, LLM];
 
-/** ws1 from the platform fixtures: four NVIDIA RTX 6000 Ada Generation, so a GPU bench offers it a choice of GPU. */
 export const WS1 = wsInfo as unknown as NodeInfo;
 export const wsGpuOptions = (lost: Record<number, Problem> = {}): GpuOption[] => WS1.gpus.map((g) => ({ index: g.index, name: g.name, problem: lost[g.index] ?? null }));
 export const WS_MATMUL: BenchSpec = { ...MATMUL, availability: { spark1: null, ws1: null }, gpu_options: { ws1: wsGpuOptions() } };
 export const WS_SOAK: BenchSpec = { ...SOAK, availability: { spark1: null, ws1: null }, gpu_options: { ws1: wsGpuOptions() } };
 
-/** A Mac's availability for a GPU bench, as the agent words it. */
 export const MAC_GPU: Problem = {
   message: 'GPU benchmarks need an NVIDIA GPU',
-  cause: "mac1 is a Mac (No GPU backend reads darwin yet). Sparkline runs GPU benchmarks as CUDA in NVIDIA's PyTorch container.",
-  fix: 'Apple GPUs are not supported yet.',
+  cause: 'mac1 is a Mac, and its agent reports "No GPU backend reads darwin yet"',
+  fix: 'Sparkline cannot benchmark Apple GPUs yet; run GPU benchmarks on a node with an NVIDIA GPU',
 };
 
 export const result = (p: Partial<BenchResult> & Pick<BenchResult, 'metric' | 'value'>): BenchResult => ({

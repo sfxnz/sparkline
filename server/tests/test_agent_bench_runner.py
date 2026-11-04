@@ -99,20 +99,17 @@ RTX = "NVIDIA RTX 6000 Ada Generation"
 
 
 def workstation_info(lost: dict[int, str] | None = None) -> NodeInfo:
-    """Synthesized: node_info() with four NVIDIA GPUs; a lost one is declared as the GPU collector does."""
     gpus = [GpuInfo(index=i, name=RTX, uuid=f"GPU-{i}", compute_capability="8.9") for i in range(4)]
     gaps = [Unsupported(metric=f"gpu{i}", reason=why) for i, why in (lost or {}).items()]
     return node_info().model_copy(update={"gpus": gpus, "unsupported": gaps})
 
 
 def amd_info() -> NodeInfo:
-    """Synthesized: no AMD GPU backend exists yet; this is the GpuInfo one would report."""
     amd = GpuInfo(index=0, name="AMD Radeon 8060S", vendor="amd", backend="amdgpu-sysfs")
     return node_info().model_copy(update={"gpus": [amd], "driver": None, "cuda": None, "nvml": None})
 
 
 def mac_info() -> NodeInfo:
-    """Synthesized: a darwin agent, whose GPU collector declares gpu* with this reason."""
     gap = Unsupported(metric="gpu*", reason="No GPU backend reads darwin yet", kind="agent")
     return node_info().model_copy(
         update={"platform": "darwin", "gpus": [], "unsupported": [gap], "driver": None, "cuda": None}
@@ -652,7 +649,6 @@ async def test_gpu_and_soak_and_mem_argv(tmp_path):
 
 
 def workstation_sample(ts: float) -> Sample:
-    """GPU i at 1000 + 100 i MHz and 60 + i °C, out of index order (NVML lists a GPU it cannot open last)."""
     gpus = [
         GpuSample(index=i, util=90, sm_mhz=1000.0 + 100 * i, temp_c=60.0 + i, power_w=200, throttle_mask=0)
         for i in (1, 2, 3, 0)
@@ -661,8 +657,6 @@ def workstation_sample(ts: float) -> Sample:
 
 
 def capturing(bench_id: str, seen: list[list[dict]]):
-    """The bench's real job function, with every argv it would run recorded instead."""
-
     async def fn(job: Job, p) -> None:
         seen.append(capture(job))
         await jobs.JOBS[bench_id](job, p)
@@ -759,7 +753,7 @@ async def test_a_gpu_choice_for_a_benchmark_without_one_is_refused_before_busy(t
     await wait_for(lambda: r.current is None)
 
 
-async def test_a_thermal_soak_on_gpu_2_records_and_summarises_gpu_2(tmp_path):
+async def test_a_thermal_soak_on_gpu_2_records_and_summarises_gpu_2(tmp_path, monkeypatch):
     t = [time.time()]
 
     def latest() -> Sample:
@@ -772,7 +766,7 @@ async def test_a_thermal_soak_on_gpu_2_records_and_summarises_gpu_2(tmp_path):
             await asyncio.sleep(1.2)
             return 0, []
 
-        job.run = run  # type: ignore[method-assign]
+        monkeypatch.setattr(job, "run", run)
         await jobs.thermal_soak(job, p)
 
     r = make_runner(tmp_path, {"thermal-soak": soak}, info=workstation_info, latest=latest)
