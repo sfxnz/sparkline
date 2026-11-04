@@ -4,6 +4,7 @@ import gzip
 import io
 import json
 import os
+import pwd
 import shutil
 import sys
 import tarfile
@@ -640,3 +641,26 @@ def test_a_capture_that_fails_unexpectedly_prints_no_message_that_could_hold_a_v
     err = capsys.readouterr().err
     assert "failed with FileNotFoundError" in err
     assert USER not in err and LAN_IP not in err
+
+
+def test_no_printed_line_holds_the_home_or_the_user_name(tmp_path, monkeypatch, capsys):
+    import sparkline.agent.capture as cli
+
+    user = "zorbuser"
+    home = tmp_path / "home" / user
+    home.mkdir(parents=True)
+    copy = gb10_copy(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(home))
+    me = pwd.struct_passwd((user, "x", 1000, 1000, "", str(home), "/bin/bash"))
+    monkeypatch.setattr(cli.pwd, "getpwuid", lambda _uid: me)
+    monkeypatch.setattr(cli.socket, "gethostname", lambda: HOST)
+    monkeypatch.setattr(cli, "live", lambda: recorded(copy))
+    monkeypatch.setattr(cli.logging, "disable", lambda _level: None)
+    codes = [cli.main([str(home / "first")]), cli.main(["~/second"]), cli.main([str(home / "first")])]
+    assert codes == [0, 0, 3]
+    assert (home / "second/recording.tgz").exists(), "a quoted ~ is expanded"
+    printed = capsys.readouterr()
+    lines = (printed.out + printed.err).splitlines()
+    assert any(line.startswith("Recorded this machine into") for line in lines)
+    assert [line for line in lines if str(home) in line or user in line] == []

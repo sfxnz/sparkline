@@ -449,6 +449,10 @@ class Redacted:
     read_at: dict[str, str]
     rewrite: Callable[[str], str] = field(repr=False)
 
+    def printable(self, line: str) -> str | None:
+        text = self.rewrite(line)
+        return None if _categories(text, False, self.originals) else text
+
 
 def _text(node: Node | None) -> str | None:
     if not isinstance(node, File):

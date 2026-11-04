@@ -73,6 +73,7 @@ THIS_PROCESS = "/proc/self"
 EAGAIN_TRIES = 10
 EAGAIN_WAIT_S = 0.02
 RECORDING = ("platform.json", "host.json", "nvml.json", "root")
+NOT_SHOWN = "  (a line that would name this machine is not shown)"
 
 Need = Literal["content", "listing", "entry"]
 T = TypeVar("T")
@@ -595,6 +596,7 @@ class Report:
     left_out: dict[str, int]
     unreadable: int
     differences: list[str]
+    printable: Callable[[str], str | None] = field(repr=False)
 
 
 def _remove(out: Path, created: bool) -> None:
@@ -610,7 +612,7 @@ def _remove(out: Path, created: bool) -> None:
 
 def capture(src: Sources, out: Path, facts: Facts) -> Report:
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
-        raise OutputNotEmpty(f"{out} already exists and is not an empty directory")
+        raise OutputNotEmpty("the output directory already exists and is not empty")
     tsrc, tape = traced(src)
     info, sample, gpu_pids = exercise(tsrc)
     tree, dropped = materialize(tape, src.fs, gpu_pids)
@@ -640,6 +642,7 @@ def capture(src: Sources, out: Path, facts: Facts) -> Report:
         red.left_out,
         len(red.recording.meta["unreadable"]),
         differences,
+        red.printable,
     )
 
 
@@ -668,7 +671,10 @@ def _summary(report: Report) -> str:
     else:
         lines.append("Replay check: the recording replays as this machine ran.")
     lines += [f"Attach {report.archive} to a new issue: {ISSUE_URL}"]
-    return "\n".join(lines)
+    return "\n".join(
+        NOT_SHOWN if (shown := report.printable(line)) is None else shown
+        for line in "\n".join(lines).splitlines()
+    )
 
 
 def silence_logs_that_name_unredacted_paths() -> None:
@@ -696,9 +702,11 @@ def main(argv: list[str] | None = None) -> int:
     silence_logs_that_name_unredacted_paths()
     src = live()
     try:
-        report = capture(src, Path(args.out), _session_facts(facts_of(src)))
-    except OutputNotEmpty as e:
-        print(f"{e}; choose another directory.", file=sys.stderr)
+        report = capture(src, Path(os.path.expanduser(args.out)), _session_facts(facts_of(src)))
+    except OutputNotEmpty:
+        print(
+            "The output directory already exists and is not empty. Choose another directory.", file=sys.stderr
+        )
         return 3
     except CaptureRefused as e:
         print(e, file=sys.stderr)
