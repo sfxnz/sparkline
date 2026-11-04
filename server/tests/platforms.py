@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -39,3 +40,16 @@ def paths_read() -> Iterator[list[str]]:
         yield seen
     finally:
         _seen = None
+
+
+def gb10_without(tmp: Path, *missing: str) -> Sources:
+    """The GB10 recording with some machine paths removed, as on a box whose kernel or hardware lacks them."""
+    copy = tmp / "gb10"
+    shutil.copytree(GB10, copy, symlinks=True)
+    for p in missing:
+        target = copy / "root" / p.lstrip("/")
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+    return recorded(copy)
