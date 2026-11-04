@@ -11,15 +11,15 @@ import { loadSpan, SPAN_REFRESH_MS, useNodeStale, type Loadable, type Span } fro
  * sample notification; the component re-renders only when `isEqual` says the derived value changed.
  */
 export function useLiveDerived<T>(node: string, compute: (store: LiveStore) => T, isEqual: (a: T, b: T) => boolean, store: LiveStore = liveStore): T {
-  const cache = useRef<{ ts: number | null; compute: (s: LiveStore) => T; value: T } | null>(null);
+  const cache = useRef<{ revision: number; compute: (s: LiveStore) => T; value: T } | null>(null);
   const subscribe = useCallback((cb: () => void) => store.subscribeSample(node, cb), [store, node]);
   const get = () => {
-    const ts = store.lastTs(node);
+    const revision = store.revision(node);
     const prev = cache.current;
-    if (prev && prev.ts === ts && prev.compute === compute) return prev.value;
+    if (prev && prev.revision === revision && prev.compute === compute) return prev.value;
     const next = compute(store);
     const value = prev && isEqual(prev.value, next) ? prev.value : next;
-    cache.current = { ts, compute, value };
+    cache.current = { revision, compute, value };
     return value;
   };
   return useSyncExternalStore(subscribe, get, get);

@@ -87,13 +87,8 @@ export function useRangeData(nodeId: string, keys: readonly string[]): { range: 
 
 const noop = () => () => undefined;
 
-/**
- * Timestamp of the newest buffered tick, subscribed only while `enabled`. Lets a stale view re-render once the
- * ring buffer is back-filled from history (that does not change the latest full Sample, so useLatest misses it).
- * Disabled while live, so it never adds a render per tick.
- */
-export function useBufferTs(nodeId: string, enabled: boolean): number | null {
+export function useRerenderOnBufferWrite(nodeId: string, enabled: boolean): void {
   const subscribe = useCallback((cb: () => void) => liveStore.subscribeSample(nodeId, cb), [nodeId]);
-  const get = () => (enabled ? liveStore.lastTs(nodeId) : null);
-  return useSyncExternalStore(enabled ? subscribe : noop, get, get);
+  const get = () => (enabled ? liveStore.revision(nodeId) : null);
+  useSyncExternalStore(enabled ? subscribe : noop, get, get);
 }

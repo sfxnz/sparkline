@@ -9,7 +9,7 @@ import type { MemoryLayout } from '../../../lib/memoryLayout';
 import type { MemSample } from '../../../lib/types';
 import { liveStore, useLatest } from '../../../store/live';
 import { lastKnownValue } from '../../shared/live';
-import { useBufferTs, useFreshness } from './hooks';
+import { useRerenderOnBufferWrite, useFreshness } from './hooks';
 import { memoryBreakdown, type MemSegment } from './memory';
 import { mem as selectMem } from './selectors';
 
@@ -20,7 +20,7 @@ export function MemoryHero({ nodeId, total, layout }: { nodeId: string; total: n
   const latest = useLatest(nodeId, selectMem);
   const { stale, waiting } = useFreshness(nodeId);
   const fallback = latest === null && stale && !!total;
-  useBufferTs(nodeId, fallback);
+  useRerenderOnBufferWrite(nodeId, fallback);
   const m = latest ?? (fallback && total ? memFromBuffer(nodeId, total, layout.sharesRam) : null);
   // Keep the headline unit fixed while the number animates.
   const unit = m ? bytesParts(m.total).unit : 'GiB';
