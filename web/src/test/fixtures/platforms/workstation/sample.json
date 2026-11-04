@@ -7,8 +7,8 @@
     {
       "index": 0,
       "util": 85.7,
-      "sm_mhz": 2461.0,
-      "gr_mhz": 2461.0,
+      "sm_mhz": 2677.0,
+      "gr_mhz": 2677.0,
       "video_mhz": 1965.0,
       "temp_c": 71.8,
       "power_w": 264.79,
@@ -21,8 +21,8 @@
     {
       "index": 1,
       "util": 86.4,
-      "sm_mhz": 2492.0,
-      "gr_mhz": 2492.0,
+      "sm_mhz": 2702.0,
+      "gr_mhz": 2702.0,
       "video_mhz": 1965.0,
       "temp_c": 74.6,
       "power_w": 267.91,
@@ -35,8 +35,8 @@
     {
       "index": 2,
       "util": 87.0,
-      "sm_mhz": 2452.0,
-      "gr_mhz": 2452.0,
+      "sm_mhz": 2670.0,
+      "gr_mhz": 2670.0,
       "video_mhz": 1965.0,
       "temp_c": 76.7,
       "power_w": 265.82,
@@ -49,8 +49,8 @@
     {
       "index": 3,
       "util": 86.7,
-      "sm_mhz": 2489.0,
-      "gr_mhz": 2489.0,
+      "sm_mhz": 2699.0,
+      "gr_mhz": 2699.0,
       "video_mhz": 1965.0,
       "temp_c": 72.0,
       "power_w": 269.96,

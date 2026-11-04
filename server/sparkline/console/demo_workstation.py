@@ -169,7 +169,7 @@ class WorkstationModel:
             temp += self.thermal(t) * (94.4 + 0.4 * j("th") - temp)
         busy = util >= 5
         mask = 0 if busy else 0x1
-        sm = 2490 + 50 * j("sm") if busy else 210.0
+        sm = 2700 + 40 * j("sm") if busy else 210.0
         if capped > 5:
             mask |= 0x4
             sm -= capped / 100 * 330
