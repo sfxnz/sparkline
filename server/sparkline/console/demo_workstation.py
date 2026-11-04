@@ -58,7 +58,7 @@ SM_MAX_MHZ = 3105.0
 MAX_OPERATING_C, SLOWDOWN_C, SHUTDOWN_C = 89.0, 93.0, 96.0
 IDLE_W = 24.0
 CAP_ON_W, CAP_OFF_W = POWER_LIMIT_W - 3.6, POWER_LIMIT_W - 10
-CAP_MIN_S, CAP_LOOKBACK_S = 10, 300
+CAP_MIN_S = 10
 SLOT_HEAT_C = (1.0, 3.0, 6.0, 0.0)
 POWER_SKEW_W = (0.0, 2.5, -2.0, 3.5)
 EPISODE_GPU = 3
@@ -147,9 +147,12 @@ class WorkstationModel:
         return POWER_LIMIT_W + (raw - POWER_LIMIT_W) * 0.1 if raw > POWER_LIMIT_W else raw
 
     def power_capped(self, i: int, t: float) -> bool:
-        """Hysteresis on the noise-free draw, so noise near the limit never flips the bit for one sample."""
+        """Hysteresis on the noise-free draw, so noise near the limit never flips the bit for one sample: set
+        above CAP_ON_W, cleared below CAP_OFF_W once CAP_MIN_S has passed since it was last above, off at
+        boot. The scan back ends at the first decisive second, within a minute on this model's load."""
         low = None
-        for k in range(CAP_LOOKBACK_S):
+        k = 0
+        while t - k >= self.boot:
             p = self.raw_power(i, t - k, noise=False)
             if p > CAP_ON_W:
                 return True
@@ -157,6 +160,7 @@ class WorkstationModel:
                 low = k
             if low is not None and k >= low + CAP_MIN_S:
                 return False
+            k += 1
         return False
 
     def energy_at(self, i: int, t: float) -> float:
