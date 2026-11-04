@@ -1,3 +1,4 @@
+import importlib.util
 import shutil
 import sqlite3
 from pathlib import Path
@@ -7,6 +8,16 @@ import pytest
 from sparkline.agent.store import Rollup, Store, agg_kind, choose_resolution, downsample
 
 HISTORY_FIXTURES = Path(__file__).parent / "fixtures" / "agent" / "history"
+
+
+def store_at_d96ee29() -> type:
+    spec = importlib.util.spec_from_file_location(
+        "sparkline.agent.store_d96ee29", HISTORY_FIXTURES / "store_d96ee29.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.Store
 
 
 def test_agg_kinds():
@@ -148,4 +159,38 @@ def test_store_upgrades_a_database_the_agent_at_d96ee29_wrote(tmp_path):
     rows, covered = s.query(60, t0, t0 + 240)
     assert [r[1]["gpu0.util"][0] for r in rows] == [10.0, 20.0, 30.0, 40.0, 50.0]
     assert covered == [60.0, 60.0, 60.0, 12.0, 60.0], "a row the older agent writes after a rollback"
+    s.close()
+
+
+@pytest.mark.parametrize("killed_mid_upgrade", [False, True])
+def test_a_row_the_agent_at_d96ee29_replaces_after_a_rollback_counts_as_full_width(
+    tmp_path, killed_mid_upgrade
+):
+    m = 1_793_000_160
+    if killed_mid_upgrade:
+        with sqlite3.connect(tmp_path / "history.sqlite") as half_upgraded:
+            for t in ("r10", "r60"):
+                half_upgraded.execute(f"CREATE TABLE {t} (ts INTEGER PRIMARY KEY, data TEXT NOT NULL)")
+                half_upgraded.execute(
+                    f"CREATE TABLE {t}_covered (ts INTEGER PRIMARY KEY, covered_s REAL NOT NULL)"
+                )
+            half_upgraded.execute(
+                "CREATE TRIGGER r10_row_replaced AFTER INSERT ON r10"
+                " BEGIN DELETE FROM r10_covered WHERE ts = NEW.ts; END"
+            )
+    s = Store(str(tmp_path))
+    s.write(60, m, {"gpu0.util": [0.0, 0.0, 0.0]}, 2.0)
+    s.write(10, m, {"gpu0.util": [0.0, 0.0, 0.0]}, 2.0)
+    s.close()
+
+    old = store_at_d96ee29()(str(tmp_path))
+    old.write(60, m, {"gpu0.util": [100.0, 100.0, 100.0]})
+    old.write(10, m, {"gpu0.util": [100.0, 100.0, 100.0]})
+    old.close()
+
+    s = Store(str(tmp_path))
+    assert s.query(60, m, m) == ([(m + 30.0, {"gpu0.util": [100.0, 100.0, 100.0]})], [60.0])
+    assert s.query(10, m, m) == ([(m + 5.0, {"gpu0.util": [100.0, 100.0, 100.0]})], [10.0])
+    s.write(60, m, {"gpu0.util": [50.0, 50.0, 50.0]}, 30.0)
+    assert s.query(60, m, m)[1] == [30.0], "the agent's own replace keeps the seconds it just wrote"
     s.close()
