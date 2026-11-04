@@ -48,17 +48,23 @@
 .nb-cores__name { font-size: var(--fs-subheadline); line-height: var(--lh-subheadline); font-weight: 600; color: var(--text-1); }
 .nb-cores__detail { font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 400; color: var(--text-3); }
 .nb-cores__cells {
+  --columns: 5;
+  --gap: 6px;
+  --widest-clock: 3.25rem;
+  --stacked-cell-min: calc(var(--widest-clock) + 2 * (9px + var(--hairline)));
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(max(var(--stacked-cell-min), (100% - (var(--columns) - 1) * var(--gap)) / var(--columns)), 1fr)
+  );
+  gap: var(--gap);
 }
 .nb-core { min-width: 0; }
 .nb-core .tooltip-anchor { display: flex; }
 .nb-core__cell {
   position: relative;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-areas: 'util util' 'ghz id';
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 0 var(--space-1);
   width: 100%;
@@ -70,10 +76,10 @@
   cursor: default;
 }
 .nb-core__cell:hover { background: var(--fill-2); }
-.nb-core__util { grid-area: util; font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: 620; color: var(--text-1); letter-spacing: -0.01em; }
-.nb-core__ghz { grid-area: ghz; font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text-2); white-space: nowrap; }
+.nb-core__util { flex-basis: 100%; font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: 620; color: var(--text-1); letter-spacing: -0.01em; }
+.nb-core__ghz { font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text-2); white-space: nowrap; }
 .nb-core__unit { color: var(--text-3); }
-.nb-core__id { grid-area: id; justify-self: end; font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text-3); }
+.nb-core__id { order: 1; min-width: calc(var(--widest-core-id-digits) * 1ch); margin-left: auto; text-align: right; font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text-3); }
 .nb-core__bar { position: absolute; left: 9px; right: 9px; bottom: 5px; height: 2px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
 .nb-core__fill { display: block; height: 100%; background: var(--accent); transform-origin: left center; transition: transform var(--dur-base) var(--ease-out); }
 
