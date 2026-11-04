@@ -8,6 +8,7 @@ import { usePrefs } from '../../../store/prefs';
 import Cpu from '../Cpu';
 import Network from '../Network';
 import Storage from '../Storage';
+import Summary from '../Summary';
 
 vi.mock('../../../charts/TimeSeriesChart', async (importActual) => ({
   ...(await importActual<typeof import('../../../charts/TimeSeriesChart')>()),
@@ -189,5 +190,27 @@ describe('CPU tab', () => {
     expect(util).toHaveTextContent('33%');
     expect(util).toHaveClass('stat--stale'); // dimmed; the page banner says "last known values" once
     expect(util).toHaveTextContent('Average of 4 cores');
+  });
+});
+
+describe('Summary tab', () => {
+  it('shows memory and network as not reported, not as 0 or "no link", when their collectors could not start', () => {
+    const unsupported = [
+      { metric: 'mem', reason: 'The memory collector could not start: /proc/meminfo: No such file or directory', kind: 'hardware' as const },
+      { metric: 'net', reason: 'The net collector could not start: /sys/class/net: No such file or directory', kind: 'hardware' as const },
+    ];
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: { ...info, gpus: [], net: [], mem_total: 0, unsupported } } } });
+    const zeros = { total: 0, available: 0, used: 0, free: 0, gpu: null, anon: 0, cache: 0, shmem: 0, kernel: 0, other: 0, swap_total: 0, swap_used: 0, psi_some: null, psi_full: null };
+    push(sample({ mem: zeros, errors: { mem: 'no data', thermal: 'OSError: hwmon vanished' } }));
+    render(<Summary nodeId={NODE} />);
+    const memory = screen.getByText('Memory available', { selector: '.stat__label' }).closest('.stat');
+    expect(memory).toHaveTextContent('Not reported by this hardware');
+    expect(memory).not.toHaveTextContent('0 B');
+    expect(screen.getByText('ConnectX-7 in', { selector: '.stat__label' }).closest('.stat')).toHaveTextContent('Not reported by this hardware');
+    expect(screen.queryByText(/No ConnectX-7 link is cabled/)).not.toBeInTheDocument();
+    expect(screen.getByText('CPU utilisation', { selector: '.stat__label' }).closest('.stat')).toHaveTextContent('40%');
+    const notes = screen.getByRole('list', { name: 'Metrics unavailable' });
+    expect(notes).toHaveTextContent('Temperature sensors unavailable: OSError: hwmon vanished');
+    expect(notes).not.toHaveTextContent('no data');
   });
 });

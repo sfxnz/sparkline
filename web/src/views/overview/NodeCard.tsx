@@ -318,6 +318,15 @@ function MemoryBar() {
   const available = useLiveValue(id, 'mem.available', GIB / 20);
   const gpu = useLiveValue(id, 'mem.gpu', GIB / 20);
   const split = memSplit(info?.mem_total, available, gpu);
+  const gap = notReported(info, 'mem.available');
+  if (gap) {
+    return (
+      <div className="ov-mem">
+        <div className="ov-row"><span className="ov-label">Unified memory</span></div>
+        <Unsupported gap={gap} />
+      </div>
+    );
+  }
   if (!split && freshness === 'waiting') {
     return (
       <div className="ov-mem">
@@ -384,11 +393,14 @@ function Interconnect() {
     names,
   );
   const peers = [...new Set(rails.map((r) => r.peer))];
+  const gap = notReported(info, 'net');
   if (!rails.length) {
     return (
       <div className="ov-row ov-cx">
-        <span className="ov-label">ConnectX-7</span>
-        <span className="ov-cx__none">{freshness === 'waiting' && !info ? <Skeleton width={150} height={12} /> : 'No direct link'}</span>
+        <span className="ov-label">
+          {gap ? <><span className="ov-cx__long">ConnectX-7</span><abbr className="ov-cx__short" title="ConnectX-7">CX7</abbr></> : 'ConnectX-7'}
+        </span>
+        <span className="ov-cx__none">{gap ? <Unsupported gap={gap} /> : freshness === 'waiting' && !info ? <Skeleton width={150} height={12} /> : 'No direct link'}</span>
       </div>
     );
   }

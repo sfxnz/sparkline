@@ -3,6 +3,7 @@ import { paths } from '../../app/routes';
 import { BYTE_INCRS } from '../../charts/theme';
 import { TimeSeriesChart, type SeriesSpec } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
+import { Unsupported } from '../../design/components/Unsupported';
 import { bitrateParts, bytesParts, formatBitrate, formatBytes, formatPercent, formatWatts, percentParts, tempParts, wattsParts } from '../../lib/format';
 import { notReported } from '../../lib/capabilities';
 import type { Sample } from '../../lib/types';
@@ -49,6 +50,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
     [rails],
   );
   const powerUnsupported = notReported(info, 'gpu0.power_w');
+  const netGap = notReported(info, 'net');
 
   return (
     <div className="view nsum">
@@ -72,10 +74,11 @@ export default function Summary({ nodeId }: NodeTabProps) {
             select={memAvailable}
             metric="mem.available"
             format={bytesParts}
+            unsupported={notReported(info, 'mem.available')}
             href={paths.node(nodeId, 'memory')}
             footer={() => (memTotal ? `of ${formatBytes(memTotal)} unified` : null)}
           />
-          <LiveStat nodeId={nodeId} label="CPU utilisation" select={cpuUtil} metric="cpu.util" format={percentParts} href={paths.node(nodeId, 'cpu')} footer={() => (info ? `${info.cores.length} cores` : null)} />
+          <LiveStat nodeId={nodeId} label="CPU utilisation" select={cpuUtil} metric="cpu.util" format={percentParts} unsupported={notReported(info, 'cpu.util')} href={paths.node(nodeId, 'cpu')} footer={() => (info ? `${info.cores.length} cores` : null)} />
           {(['in', 'out'] as const).map((dir) => (
             <LiveStat
               key={dir}
@@ -85,11 +88,11 @@ export default function Summary({ nodeId }: NodeTabProps) {
               metric={dir === 'in' ? rxKeys : txKeys}
               format={bitrateParts}
               href={paths.node(nodeId, 'network')}
-              unsupported={info && !rails.length ? { kind: 'hardware', label: 'No direct link', detail: NO_LINK_REASON } : null}
+              unsupported={netGap ?? (info && !rails.length ? { kind: 'hardware', label: 'No direct link', detail: NO_LINK_REASON } : null)}
               footer={() => (rails.length ? `${rails.length} cabled ${rails.length === 1 ? 'rail' : 'rails'}` : null)}
             />
           ))}
-          <LiveStat nodeId={nodeId} label="Root disk used" select={rootUsedPct} metric="fs.root.used_pct" format={percentParts} href={paths.node(nodeId, 'storage')} footer={() => 'Filesystem /'} />
+          <LiveStat nodeId={nodeId} label="Root disk used" select={rootUsedPct} metric="fs.root.used_pct" format={percentParts} unsupported={notReported(info, 'fs.root.used_pct')} href={paths.node(nodeId, 'storage')} footer={() => 'Filesystem /'} />
         </div>
       </Panel>
 
@@ -110,7 +113,9 @@ export default function Summary({ nodeId }: NodeTabProps) {
           <TimeSeriesChart node={nodeId} title="CPU utilisation by core type" series={CPU_SERIES} format={pct} yMin={0} yMax={100} height={168} />
         </Panel>
         <Panel title="ConnectX-7 throughput" subtitle="Inter-node traffic, both directions" className="nsum__wide" actions={<TabLink nodeId={nodeId} tab="network">Network</TabLink>}>
-          {cx7Series.length ? (
+          {netGap ? (
+            <Unsupported gap={netGap} block />
+          ) : cx7Series.length ? (
             <TimeSeriesChart node={nodeId} title="ConnectX-7 throughput" series={cx7Series} format={formatBitrate} yMin={0} height={168} />
           ) : (
             <p className="nmuted">No ConnectX-7 link is cabled on {nodeId}.</p>
