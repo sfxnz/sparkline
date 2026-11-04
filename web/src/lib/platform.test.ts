@@ -1,14 +1,16 @@
-import { platformSheet } from './platform';
+import { gpuHeadline, platformSheet } from './platform';
 import type { GpuInfo, NodeInfo, Unsupported } from './types';
 
-const gpu = (name: string, more: Partial<GpuInfo> = {}) => ({ name, ...more }) as GpuInfo;
+let next = 0;
+const gpu = (name: string, more: Partial<GpuInfo> = {}) => ({ index: next++, name, ...more }) as GpuInfo;
+beforeEach(() => { next = 0; });
 const node = (more: Partial<NodeInfo>) => ({ gpus: [], unsupported: [], ...more }) as unknown as NodeInfo;
 
 describe('platformSheet', () => {
   it('reads an older payload without platform, vendor, backend or versions as Linux, NVIDIA, nvml and no versions', () => {
     const sheet = platformSheet(node({ gpus: [gpu('Test GPU')] }));
     expect(sheet.platform).toBe('Linux');
-    expect(sheet.backends).toEqual([{ vendor: 'NVIDIA', backend: 'nvml', gpus: ['Test GPU'] }]);
+    expect(sheet.backends).toEqual([{ vendor: 'NVIDIA', backend: 'nvml', gpus: ['Test GPU'], notResponding: [] }]);
     expect(sheet.versions).toEqual([]);
     expect(sheet.missing).toBeNull();
     expect(sheet.skipped).toEqual([]);
@@ -21,16 +23,16 @@ describe('platformSheet', () => {
     }));
     expect(sheet.platform).toBe('macOS');
     expect(sheet.backends).toEqual([
-      { vendor: 'AMD', backend: 'amdgpu-sysfs', gpus: ['A', 'A'] },
-      { vendor: 'NVIDIA', backend: 'nvml', gpus: ['N'] },
-      { vendor: 'Apple', backend: 'ioreport', gpus: ['M'] },
+      { vendor: 'AMD', backend: 'amdgpu-sysfs', gpus: ['A', 'A'], notResponding: [] },
+      { vendor: 'NVIDIA', backend: 'nvml', gpus: ['N'], notResponding: [] },
+      { vendor: 'Apple', backend: 'ioreport', gpus: ['M'], notResponding: [] },
     ]);
   });
 
   it('shows a platform and a vendor a newer agent sends as sent, never as Linux or NVIDIA', () => {
     const sheet = platformSheet(node({ platform: 'freebsd', gpus: [gpu('Arc', { vendor: 'intel', backend: 'level-zero' })] }));
     expect(sheet.platform).toBe('freebsd');
-    expect(sheet.backends).toEqual([{ vendor: 'intel', backend: 'level-zero', gpus: ['Arc'] }]);
+    expect(sheet.backends).toEqual([{ vendor: 'intel', backend: 'level-zero', gpus: ['Arc'], notResponding: [] }]);
   });
 
   it('groups versions by vendor prefix, NVIDIA then AMD then Apple then unknown prefixes, labels printed as sent', () => {
@@ -79,5 +81,24 @@ describe('platformSheet', () => {
     const older = platformSheet(node({ unsupported: [gap('gpu*', 'Install nvidia-ml-py to read NVIDIA GPU metrics', 'dependency')] }));
     expect(older.missing).toBe('No GPU data');
     expect(older.skipped).toEqual([{ backend: null, gap: { kind: 'dependency', label: 'Helper tool missing', detail: 'Install nvidia-ml-py to read NVIDIA GPU metrics' } }]);
+  });
+
+  it('marks a GPU the backend sees but cannot open as not responding, and counts it apart from the ones that report', () => {
+    const lost = 'NVML could not open GPU 1 (NVML: GPU is lost)';
+    const sheet = platformSheet(node({
+      gpus: [gpu('NVIDIA GB10', { vendor: 'nvidia', backend: 'nvml' }), gpu('GPU 1', { vendor: 'nvidia', backend: 'nvml' }), gpu('NVIDIA GB10', { vendor: 'nvidia', backend: 'nvml' })],
+      unsupported: [{ metric: 'gpu1', reason: lost, kind: 'hardware' }, { metric: 'gpu1.util', reason: lost, kind: 'hardware' }],
+    }));
+    expect(sheet.backends).toEqual([{ vendor: 'NVIDIA', backend: 'nvml', gpus: ['NVIDIA GB10', 'NVIDIA GB10'], notResponding: [{ index: 1, reason: lost }] }]);
+    expect(sheet.missing).toBeNull();
+  });
+});
+
+describe('gpuHeadline', () => {
+  it("names GPU 0, says when it is not responding, and falls back to why there is no GPU", () => {
+    expect(gpuHeadline(node({ gpus: [gpu('NVIDIA GB10')] }))).toBe('NVIDIA GB10');
+    const lost = node({ gpus: [gpu('GPU 0', { index: 0, vendor: 'nvidia', backend: 'nvml' })], unsupported: [{ metric: 'gpu0', reason: 'NVML could not open GPU 0 (NVML: GPU is lost)', kind: 'hardware' }] });
+    expect(gpuHeadline(lost)).toBe('GPU not responding');
+    expect(gpuHeadline(node({ unsupported: [{ metric: 'gpu.backend', reason: 'nvml: Install nvidia-ml-py', kind: 'dependency' }, { metric: 'gpu.backend.nvml', reason: 'Install nvidia-ml-py', kind: 'dependency' }] }))).toBe('No GPU backend');
   });
 });

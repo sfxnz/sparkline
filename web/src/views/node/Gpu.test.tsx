@@ -41,8 +41,8 @@ const hybrid = {
 const base = sampleJson as unknown as Sample;
 const reading = (index: number, util: number, temp_c: number, power_w: number): GpuSample => ({ ...(gpuAt(base.gpu, 0) as GpuSample), index, util, temp_c, power_w });
 
-const show = (sample: Sample) => {
-  const node: NodeState = { node_id: NODE, url: 'http://x:9750', status: 'online', since: 0, last_sample_ts: TS, error: null, info: hybrid, next_retry_ts: null };
+const show = (sample: Sample, info: NodeInfo = hybrid, panel = 'NVIDIA GB10 now') => {
+  const node: NodeState = { node_id: NODE, url: 'http://x:9750', status: 'online', since: 0, last_sample_ts: TS, error: null, info, next_retry_ts: null };
   useCluster.setState({ clockOffset: 0, nodes: { [NODE]: node } });
   act(() => {
     liveStore.pushSample({ ...sample, node_id: NODE, ts: TS });
@@ -53,7 +53,7 @@ const show = (sample: Sample) => {
       <Gpu nodeId={NODE} />
     </Router>,
   );
-  return screen.getByRole('region', { name: 'NVIDIA GB10 now' });
+  return screen.getByRole('region', { name: panel });
 };
 
 beforeEach(() => {
@@ -96,5 +96,16 @@ describe('GPU tab on a node with two vendors', () => {
     expect(within(now).getByText('91')).toBeInTheDocument();
     expect(within(now).queryByText('57')).not.toBeInTheDocument();
     expect(within(now).queryByText('Not responding')).not.toBeInTheDocument();
+  });
+
+  it('shows GPU 0 as not responding when the agent declares it lost', () => {
+    const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+    const gpus = [gpuInfo(0, 'GPU 0', 'nvidia', 'nvml')];
+    const fields = ['util', 'temp_c', 'power_w', 'sm_mhz'].map((f) => ({ metric: `gpu0.${f}`, reason: lost, kind: 'hardware' as const }));
+    const now = show({ ...base, gpu: [{ index: 0 } as GpuSample], errors: {} }, { ...hybrid, gpus, unsupported: [{ metric: 'gpu0', reason: lost, kind: 'hardware' }, ...fields] }, 'GPU 0 now');
+
+    expect(within(now).getAllByText('Not responding').length).toBeGreaterThanOrEqual(4);
+    expect(within(now).queryByText('Not reported by this hardware')).not.toBeInTheDocument();
+    expect(within(now).getAllByRole('button', { name: 'Why is this not reported?' })[0]).toHaveAccessibleDescription(lost);
   });
 });
