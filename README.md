@@ -542,6 +542,19 @@ Port-wide discard and CRC counters come from ethtool and are shown once per phys
 **The page says "Frontend not built".** The console can't find `web_dist`. Build it with
 `cd web && npm ci && npm run build`, or check `web_dist` in `console.toml`.
 
+## Help Sparkline support your hardware
+
+If your machine isn't a DGX Spark, a recording of it lets Sparkline learn to read it. One read-only command
+records what the agent reads, replaces your hostname, addresses, serial numbers and other identifiers with
+placeholders, and writes an archive that you can attach to an issue:
+
+```sh
+uvx --from 'git+https://github.com/sfxnz/sparkline#subdirectory=server' sparkline-capture
+```
+
+[docs/record-your-machine.md](docs/record-your-machine.md) says what the recording holds, what it replaces,
+and how to attach it.
+
 ## Development
 
 See [DEV.md](DEV.md) for running everything from the repo, the web dev server with hot reload, the demo,
