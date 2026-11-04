@@ -2,11 +2,6 @@ import type { NetIfInfo } from './types';
 
 type Net = readonly NetIfInfo[] | null | undefined;
 
-export interface RailIface {
-  iface: NetIfInfo;
-  letter: string;
-}
-
 export type RdmaCounting =
   | { kind: 'included' }
   | { kind: 'missing'; ifaces: NetIfInfo[] }
@@ -18,11 +13,7 @@ export function ifaceLabel(n: Pick<NetIfInfo, 'label' | 'nic_model'>): string {
   return /^[A-Z]$/.test(rest) ? `${n.nic_model} rail ${rest}` : `${n.nic_model} ${rest}`;
 }
 
-export function railIfaces(net: Net): RailIface[] {
-  return (net ?? []).filter((n) => n.role === 'interconnect').map((iface, i) => ({ iface, letter: String.fromCharCode(65 + i) }));
-}
-
-export const railName = (letter: string) => `Rail ${letter}`;
+export const railName = (n: Pick<NetIfInfo, 'name' | 'rail'>) => (n.rail ? `Rail ${n.rail}` : n.name);
 
 export function nicModel(net: Net): string | null {
   const models = new Set((net ?? []).filter((n) => n.role === 'interconnect').map((n) => n.nic_model ?? null));

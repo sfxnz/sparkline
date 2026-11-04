@@ -240,6 +240,7 @@ class NetCollector:
                 rdma_device=rmap.get(n),
                 peer=find_peer(v4, peers) if v4 else None,
                 nic_model=read_nic_model(fs, n),
+                rail=letters.get(n),
             )
             i = _If(info)
             if role == "interconnect":

@@ -35,9 +35,7 @@ def is_private(ip: str) -> bool:
 
 
 def rails(info: NodeInfo) -> dict[str, NetIfInfo]:
-    """Rail letter -> interconnect interface, by position among the interconnects in NodeInfo.net order."""
-    ics = [n for n in info.net if n.role == "interconnect"]
-    return {chr(ord("A") + i): n for i, n in enumerate(ics)}
+    return {n.rail: n for n in info.net if n.role == "interconnect" and n.rail}
 
 
 def default_route_iface(route_text: str | None = None) -> str | None:

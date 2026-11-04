@@ -502,7 +502,7 @@ describe('competition', () => {
   it('never judges a node that is not reporting idle or busy, and says what it last saw', () => {
     const CPU_BENCH = { ...MATMUL, category: 'cpu' as const };
     const STORAGE = { ...MATMUL, category: 'storage' as const };
-    const railsInfo = () => [{ name: 'enp1s0f1np1', role: 'interconnect', label: 'Interconnect A', nic_model: 'ConnectX-7' }] as never;
+    const railsInfo = () => [{ name: 'enp1s0f1np1', role: 'interconnect', label: 'Interconnect A', nic_model: 'ConnectX-7', rail: 'A' }] as never;
     const on = (spec: Pick<BenchSpec, 'category' | 'impact'>, s: Sample, status: NodeStatus = 'stale') => competition(spec, ['spark1'], () => s, railsInfo, undefined, undefined, () => status)[0]?.text;
     for (const status of ['stale', 'offline', 'error', 'connecting'] as const) {
       for (const spec of [MATMUL, CPU_BENCH, STORAGE, RDMA]) expect(competition(spec, ['spark1'], () => sample(), railsInfo, undefined, undefined, () => status)[0]).toMatchObject({ busy: false, stale: true });

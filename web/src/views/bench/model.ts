@@ -3,7 +3,7 @@
 // the "what will this compete with" sentences. No React, no stores: every rule here is unit-tested in model.test.ts.
 import type { Status } from '../../design/components/StatusPill';
 import { formatBytes, formatDuration, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
-import { nicModel, nicNoun, railIfaces, type RailIface } from '../../lib/interconnect';
+import { nicModel, nicNoun } from '../../lib/interconnect';
 import { decodeThrottle } from '../../lib/throttle';
 import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, NodeStatus, ProcSample, RunStatus, Sample } from '../../lib/types';
 import { gpuProcesses, isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
@@ -925,13 +925,13 @@ export interface LinkTraffic {
   tx: number;
 }
 
-export const railLabel = (r: RailIface) => `rail ${r.letter}`;
+export const railLabel = (n: Pick<NetIfInfo, 'name' | 'rail'>) => (n.rail ? `rail ${n.rail}` : n.name);
 
 /** Per-rail traffic from the latest sample only (callers with a live window pass `linkTraffic` instead). */
 function latestTraffic(s: Sample, rails: readonly NetIfInfo[]): LinkTraffic[] {
-  return railIfaces(rails).flatMap((r) => {
-    const n = s.net.find((x) => x.name === r.iface.name);
-    return n ? [{ name: r.iface.name, label: railLabel(r), rx: n.rx_bps, tx: n.tx_bps }] : [];
+  return rails.flatMap((r) => {
+    const n = s.net.find((x) => x.name === r.name);
+    return n ? [{ name: r.name, label: railLabel(r), rx: n.rx_bps, tx: n.tx_bps }] : [];
   });
 }
 

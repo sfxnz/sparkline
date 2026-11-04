@@ -281,8 +281,8 @@ def probe(info: NodeInfo, image: str, work_dir: str, sock_path: str = DOCKER_SOC
     if not r:
         env.rdma = Problem(
             message=f"No interconnect with RDMA on {node}",
-            cause="No network interface backed by an RDMA device was found when the agent started",
-            fix=f"Check `ibv_devinfo` on {node}, then restart sparkline-agent",
+            cause="No interconnect with its link up and an RDMA device was found when the agent started",
+            fix=f"Check the interconnect cabling and `ibv_devinfo` on {node}, then restart sparkline-agent",
         )
     elif not any(g is not None for g in env.gids.values()):
         devs = ", ".join(n.rdma_device or "" for n in r.values())

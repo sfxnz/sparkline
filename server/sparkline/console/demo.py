@@ -594,6 +594,7 @@ class DemoModel:
                     counter_source="netdev_rdma",
                     peer=self.peer,
                     nic_model="ConnectX-7",
+                    rail=chr(ord("A") + i),
                 )
             )
         for i, (name, rdma, label) in enumerate(SPARE_PORTS, start=2):

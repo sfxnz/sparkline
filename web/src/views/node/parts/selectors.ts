@@ -1,7 +1,6 @@
 // Stable selectors for useLatest (module scope, so subscriptions keep their identity across renders).
-import { railIfaces, type RailIface } from '../../../lib/interconnect';
 import { gpuTotals, type GpuReading, type ReadingTotal } from '../../../lib/metrics';
-import type { NodeInfo, Sample } from '../../../lib/types';
+import type { NetIfInfo, NodeInfo, Sample } from '../../../lib/types';
 import { answeredGpu, gpuAt, gpuIndexes } from '../../../lib/gpu';
 
 type Select<T> = (s: Sample | null) => T;
@@ -47,8 +46,8 @@ export function rootUsedPct(s: Sample | null): number | null {
 
 /** Interconnect rails cabled to a peer node: the same rule as the Overview card and Wall mode, so every screen agrees
  *  on "No direct link". A port with a negotiated speed but no peer is not a link to another node. */
-export function cabledRails(info: NodeInfo | null | undefined): RailIface[] {
-  return railIfaces(info?.net).filter((r) => r.iface.peer);
+export function cabledRails(info: NodeInfo | null | undefined): NetIfInfo[] {
+  return (info?.net ?? []).filter((n) => n.role === 'interconnect' && n.peer);
 }
 
 /** Sum of one direction over the given interfaces (null when none reports). */
