@@ -6,8 +6,10 @@ import { Heatmap } from '../../../charts/Heatmap';
 import { LIVE_WINDOW_S } from '../../../charts/TimeSeriesChart';
 import { NoDataInRange } from '../../../charts/NoDataInRange';
 import { HistoryUnavailable } from '../../../charts/HistoryUnavailable';
+import { RefreshFailed } from '../../../charts/RefreshFailed';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { fontScale } from '../../../charts/theme';
+import { LOADING, settle, type Loadable } from '../../../lib/loadable';
 import type { TimeRange } from '../../../lib/prefs';
 import type { CoreInfo, Sample } from '../../../lib/types';
 import { serverNow } from '../../../store/cluster';
@@ -50,7 +52,7 @@ export function RangeHeatmap({ node, cores, cpuModel }: { node: string; cores: r
 
 function HistoryHeatmap({ node, cores, cpuModel, range }: { node: string; cores: readonly CoreInfo[]; cpuModel: string; range: HistoryRange }) {
   const keys = useMemo(() => cores.map((c) => `cpu.core${c.id}.util`), [cores]);
-  const [state, setState] = useState<{ store: LiveStore; empty: boolean } | { error: unknown } | null>(null);
+  const [state, setState] = useState<Loadable<{ store: LiveStore; empty: boolean }>>(LOADING);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -65,10 +67,10 @@ function HistoryHeatmap({ node, cores, cpuModel, range }: { node: string; cores:
           const store = new HistoryStore(Math.max(resp.resolution_s, medianStep(resp.ts)) * 1000);
           store.seed(resp);
           store.flush();
-          setState({ store, empty: resp.ts.length === 0 });
+          setState((prev) => settle(prev, { data: { store, empty: resp.ts.length === 0 } }));
         })
-        .catch((e: unknown) => {
-          if (!cancelled) setState({ error: e });
+        .catch((error: unknown) => {
+          if (!cancelled) setState((prev) => settle(prev, { error }));
         });
     };
     load();
@@ -80,20 +82,21 @@ function HistoryHeatmap({ node, cores, cpuModel, range }: { node: string; cores:
   }, [node, keys, range, attempt]);
 
   const height = heatmapHeight(cores);
-  if (!state) return <Skeleton height={height} radius={6} />;
-  if ('error' in state) {
+  if (state.state === 'loading') return <Skeleton height={height} radius={6} />;
+  if (state.state === 'error') {
     return (
       <div className="nb-heatmap__problem" style={{ minHeight: height }}>
-        <HistoryUnavailable node={node} error={state.error} onRetry={() => { historyCache.clear(); setState(null); setAttempt((a) => a + 1); }} />
+        <HistoryUnavailable node={node} error={state.error} onRetry={() => { historyCache.clear(); setState(LOADING); setAttempt((a) => a + 1); }} />
       </div>
     );
   }
-  if (state.empty) {
+  if (state.data.empty) {
     return (
       <div className="nb-heatmap__problem" style={{ minHeight: height }}>
         <NoDataInRange node={node} what="Per-core history" />
       </div>
     );
   }
-  return <Heatmap node={node} cores={cores} cpuModel={cpuModel} windowS={RANGE_SECONDS[range]} rowHeight={ROW_H} store={state.store} cellAlign="center" />;
+  const note = state.state === 'refresh-failed' ? <RefreshFailed error={state.error} /> : undefined;
+  return <Heatmap node={node} cores={cores} cpuModel={cpuModel} windowS={RANGE_SECONDS[range]} rowHeight={ROW_H} store={state.data.store} cellAlign="center" note={note} />;
 }

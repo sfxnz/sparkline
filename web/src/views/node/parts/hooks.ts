@@ -1,5 +1,6 @@
 // Shared node-page hooks: freshness of a node's data and range-level aggregates (peaks, energy, means).
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { dataOf, LOADING, settleFor, type Tagged } from '../../../lib/loadable';
 import type { TimeRange } from '../../../lib/prefs';
 import type { NodeStatus, Sample } from '../../../lib/types';
 import { serverNow, useCluster } from '../../../store/cluster';
@@ -47,21 +48,21 @@ export interface RangeData {
 export function useRangeData(nodeId: string, keys: readonly string[]): { range: TimeRange; data: RangeData | null; error: boolean } {
   const range = usePrefs((s) => s.timeRange);
   const keysId = keys.join('|');
-  const [state, setState] = useState<{ id: string; data: RangeData | null; error: boolean }>({ id: '', data: null, error: false });
+  const [tagged, setTagged] = useState<Tagged<RangeData>>({ id: '', value: LOADING });
   const id = `${nodeId}|${keysId}|${range}`;
 
   useEffect(() => {
     const ks = keysId.split('|');
     let cancelled = false;
-    const done = (data: RangeData | null, error = false) => {
-      if (!cancelled) setState({ id, data, error });
+    const done = (outcome: { data: RangeData } | { error: unknown }) => {
+      if (!cancelled) setTagged(settleFor(id, outcome));
     };
     let tick: () => void;
     let stop: () => void;
     if (range === 'live') {
       tick = () => {
         const w = liveStore.window(nodeId, ks, serverNow() - LIVE_AGG_S);
-        done({ ts: w.ts, series: Object.fromEntries(ks.map((k, i) => [k, w.values[i] ?? []])), min: {}, max: {} });
+        done({ data: { ts: w.ts, series: Object.fromEntries(ks.map((k, i) => [k, w.values[i] ?? []])), min: {}, max: {} } });
       };
       const t = setInterval(tick, 5_000);
       stop = () => { clearInterval(t); };
@@ -69,8 +70,8 @@ export function useRangeData(nodeId: string, keys: readonly string[]): { range: 
       tick = () => {
         historyCache
           .load(nodeId, ks, range, serverNow())
-          .then((r) => { done({ ts: r.ts, series: r.series, min: r.min, max: r.max }); })
-          .catch(() => { done(null, true); });
+          .then((r) => { done({ data: { ts: r.ts, series: r.series, min: r.min, max: r.max } }); })
+          .catch((error: unknown) => { done({ error }); });
       };
       stop = joinHistoryRefresh(range, tick);
     }
@@ -81,8 +82,8 @@ export function useRangeData(nodeId: string, keys: readonly string[]): { range: 
     };
   }, [nodeId, keysId, range, id]);
 
-  const current = state.id === id;
-  return { range, data: current ? state.data : null, error: current && state.error };
+  const value = tagged.id === id ? tagged.value : LOADING;
+  return { range, data: dataOf(value), error: value.state === 'error' };
 }
 
 const noop = () => () => undefined;
