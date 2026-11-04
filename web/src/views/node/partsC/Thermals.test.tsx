@@ -65,6 +65,32 @@ describe('Thermals tab', () => {
     expect(screen.getAllByText('Not reported by this hardware').length).toBeGreaterThanOrEqual(3);
   });
 
+  it('shows the GPU power limit whenever the GPU reports one', () => {
+    const withLimit = { ...info, gpus: [{ ...info.gpus[0], power_limit_w: 140 }], unsupported: info.unsupported.filter((u) => u.metric !== 'gpu0.power_limit_w') } as NodeInfo;
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { ...state('online'), info: withLimit } } });
+    act(() => {
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: NODE, ts: 1_800_000_000 });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={NODE} />);
+    const limit = within(screen.getByRole('region', { name: 'GPU power' })).getByText('Power limit').closest('.stat');
+    expect(limit).toHaveTextContent('140');
+    expect(limit).not.toHaveTextContent('Not reported');
+  });
+
+  it('says "No data" for fans and whole-system power from an agent that declares neither', () => {
+    const older = { ...info, unsupported: [] };
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { ...state('online'), info: older } } });
+    act(() => {
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: NODE, ts: 1_800_000_000 });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={NODE} />);
+    expect(screen.getByText('Fans').closest('.stat')).toHaveTextContent('No data');
+    expect(screen.getByText('Whole-system power').parentElement).toHaveTextContent('No data');
+    expect(screen.queryByText('Not reported by this hardware')).not.toBeInTheDocument();
+  });
+
   it('keeps last known values when the node is offline, from history seeded into the buffer', () => {
     useCluster.setState({ clockOffset: 0, nodes: { [NODE]: state('offline') } });
     act(() => {

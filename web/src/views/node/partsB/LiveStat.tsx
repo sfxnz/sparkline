@@ -6,6 +6,7 @@ import type { NotReported } from '../../../lib/capabilities';
 import type { Formatter } from '../../../lib/format';
 import { liveStore } from '../../../store/live';
 import { useNodeStale } from '../../shared/live';
+import { useFreshness } from '../parts/hooks';
 import { useDerived, type KeyGetter } from './hooks';
 
 interface Props {
@@ -28,6 +29,7 @@ interface Props {
 export function LiveStat({ node, label, format, metric, derive, stale, updatedAt, unsupported, size, footer }: Props) {
   const value = useDerived(node, derive ?? ((get) => (metric ? get(metric) : null)));
   const nodeStale = useNodeStale(node);
+  const { hasData } = useFreshness(node);
   const isStale = !unsupported && (nodeStale || !!stale);
   // Read, not subscribed: while stale no samples arrive, and subscribing would re-render this leaf every tick.
   const lastTs = isStale ? liveStore.lastTs(node) : null;
@@ -40,6 +42,7 @@ export function LiveStat({ node, label, format, metric, derive, stale, updatedAt
       stale={isStale}
       updatedAt={isStale ? (updatedAt ?? lastTs) : null}
       unsupported={unsupported}
+      reporting={hasData && !isStale}
       footer={footer}
     />
   );

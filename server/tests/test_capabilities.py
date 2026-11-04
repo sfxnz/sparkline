@@ -5,6 +5,7 @@ import json
 import re
 import time
 import typing
+from pathlib import Path
 
 import pytest
 from platforms import GB10, gb10, gb10_without
@@ -19,6 +20,7 @@ from sparkline.common.metrics import flatten
 from sparkline.common.schema import NodeInfo, Sample, UnsupportedKind
 from sparkline.console.demo import UNSUPPORTED, DemoModel
 
+WEB = Path(__file__).resolve().parents[2] / "web" / "src"
 PROBED_ONLY = ("mem_mhz", "fan_pct", "fb_memory", "ecc", "pcie_bps", "cpu.temp")
 
 
@@ -164,3 +166,17 @@ def test_gpu_readings_nvml_does_not_support_are_declared_at_startup(monkeypatch)
         gaps["gpu0.throttle_mask"] == "Clock event reasons not reported by NVIDIA GB10 (NVML: Not Supported)"
     )
     assert_every_metric_is_reported_or_declared(info, sample)
+
+
+WEB_LOOKUP = re.compile(r"""notReported\(\s*info\s*,\s*['"]([^'"]+)['"]""")
+
+
+def test_every_key_the_web_asks_about_is_one_the_agent_declares():
+    asked = {
+        (path.relative_to(WEB).as_posix(), key)
+        for path in WEB.rglob("*.tsx")
+        if not path.name.endswith(".test.tsx")
+        for key in WEB_LOOKUP.findall(path.read_text())
+    }
+    assert asked, "no notReported(info, '<key>') lookups found under web/src"
+    assert sorted((f, k) for f, k in asked if not any(declares(k, v) for v in VOCABULARY)) == []

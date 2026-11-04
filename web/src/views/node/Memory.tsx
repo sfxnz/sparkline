@@ -2,8 +2,8 @@ import { CircleCheck, Hourglass, TriangleAlert } from 'lucide-react';
 import { TimeSeriesChart, type SeriesSpec, type StackLayer } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
-import { Unsupported } from '../../design/components/Unsupported';
-import { notReported, notReportedByHardware } from '../../lib/capabilities';
+import { NoData, Unsupported } from '../../design/components/Unsupported';
+import { notReported } from '../../lib/capabilities';
 import { bytesParts, formatBytes, formatPercent } from '../../lib/format';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
@@ -32,7 +32,6 @@ const PSI: readonly SeriesSpec[] = [
   { key: 'mem.psi_full', label: 'All stalled' },
 ];
 const pct1 = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
-const PSI_UNSUPPORTED = 'Pressure stall information (/proc/pressure/memory) is not available on this kernel.';
 
 export default function Memory({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
@@ -93,7 +92,10 @@ function PressureNow({ nodeId }: { nodeId: string }) {
   }
   const [some, full] = key.split('|').map((x) => (x === 'x' ? null : Number(x)));
   const p = memoryPressure(some ?? null, full ?? null);
-  if (!p) return <div className="npsi"><Unsupported gap={notReported(info, 'mem.psi') ?? notReportedByHardware(PSI_UNSUPPORTED)} /></div>;
+  if (!p) {
+    const gap = notReported(info, 'mem.psi_some');
+    return <div className="npsi">{gap ? <Unsupported gap={gap} /> : <NoData />}</div>;
+  }
   const tone = p.level === 'none' ? 'tone-ok' : p.level === 'some' ? 'tone-warn' : 'tone-crit';
   const Icon = p.level === 'none' ? CircleCheck : p.level === 'some' ? Hourglass : TriangleAlert;
   return (

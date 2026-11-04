@@ -4,7 +4,8 @@ import { TimeSeriesChart, type SeriesSpec, type Threshold } from '../../charts/T
 import { Panel } from '../../design/components/Panel';
 import { Stat } from '../../design/components/Stat';
 import { Skeleton } from '../../design/components/Skeleton';
-import { notReported, notReportedByHardware } from '../../lib/capabilities';
+import { notReported, type NotReported } from '../../lib/capabilities';
+import { NoData, Unsupported } from '../../design/components/Unsupported';
 import { energyParts, formatFreq, formatPercent, formatTemp, formatWatts, percentParts, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { decodeThrottle } from '../../lib/throttle';
 import { useCluster } from '../../store/cluster';
@@ -15,7 +16,8 @@ import { TempFooter } from './parts/TempFooter';
 import { RANGE_PHRASE, spanPhrase } from '../shared/live';
 import { serverNow } from '../../store/cluster';
 import type { TimeRange } from '../../lib/prefs';
-import { useRangeData, type RangeData } from './parts/hooks';
+import type { NodeInfo } from '../../lib/types';
+import { useFreshness, useRangeData, type RangeData } from './parts/hooks';
 import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
 import { clockLevel, CollectorErrors, SEVERITY_META, selectThrottleMask, throttleHeadline, ThrottleRows } from './parts/Notices';
@@ -63,6 +65,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
     return t;
   }, [slowdown, shutdown]);
   const limitReason = notReported(info, 'gpu0.power_limit_w');
+  const energyGap = notReported(info, 'gpu0.energy_j');
 
   return (
     <div className="view">
@@ -70,12 +73,13 @@ export default function Gpu({ nodeId }: NodeTabProps) {
       <Panel label={`${gpu?.name ?? 'GPU'} now`}>
         <NowLabel />
         <div className="nstats ngpu__stats">
-          <LiveStat nodeId={nodeId} label="Utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} footer={() => gpu?.name ?? null} />
+          <LiveStat nodeId={nodeId} label="Utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} unsupported={notReported(info, 'gpu0.util')} footer={() => gpu?.name ?? null} />
           <LiveStat
             nodeId={nodeId}
             label="SM clock"
             select={gpuSm} metric="gpu0.sm_mhz"
             format={smFormat}
+            unsupported={notReported(info, 'gpu0.sm_mhz')}
             footer={(v) => (v != null && smMax ? `${Math.round((100 * v) / smMax)}% of maximum` : null)}
           />
           <LiveStat
@@ -83,6 +87,7 @@ export default function Gpu({ nodeId }: NodeTabProps) {
             label="Temperature"
             select={gpuTemp} metric="gpu0.temp_c"
             format={tempParts}
+            unsupported={notReported(info, 'gpu0.temp_c')}
             footer={(v) => <TempFooter temp={v} slowdown={slowdown} shutdown={shutdown} />}
           />
           <LiveStat
@@ -96,21 +101,16 @@ export default function Gpu({ nodeId }: NodeTabProps) {
           {gpu?.power_limit_w != null ? (
             <Stat label="Power limit" value={gpu.power_limit_w} format={wattsParts} />
           ) : (
-            <Stat
-              label="Power limit"
-              value={null}
-              format={wattsParts}
-              unsupported={limitReason ?? notReportedByHardware('The driver does not report a power limit for this GPU.')}
-              footer={<PowerTypical nodeId={nodeId} />}
-            />
+            <Stat label="Power limit" value={null} format={wattsParts} unsupported={limitReason} reporting footer={<PowerTypical nodeId={nodeId} />} />
           )}
-          <LiveStat nodeId={nodeId} label="Performance state" select={gpuPstate} format={pstateParts} footer={(v) => (v === 0 ? 'Maximum performance' : v != null ? 'Reduced performance state' : null)} />
+          <LiveStat nodeId={nodeId} label="Performance state" select={gpuPstate} format={pstateParts} unsupported={notReported(info, 'gpu0')} footer={(v) => (v === 0 ? 'Maximum performance' : v != null ? 'Reduced performance state' : null)} />
           <LiveStat
             nodeId={nodeId}
             label="Energy since driver load"
             select={gpuEnergy} metric="gpu0.energy_j"
             format={energyParts}
-            footer={() => <RangeEnergy nodeId={nodeId} currency={currency} rate={rate} />}
+            unsupported={energyGap}
+            footer={() => (energyGap ? null : <RangeEnergy nodeId={nodeId} currency={currency} rate={rate} />)}
           />
         </div>
       </Panel>
@@ -120,8 +120,8 @@ export default function Gpu({ nodeId }: NodeTabProps) {
       <Panel title="Clock limits" subtitle="Why the GPU is not running at full clock, from the driver">
         <div className="ngpu__throttle">
           <div className="nclock">
-            <ThrottleNow nodeId={nodeId} smMax={smMax} />
-            <CappedShare nodeId={nodeId} />
+            <ThrottleNow nodeId={nodeId} smMax={smMax} gap={notReported(info, 'gpu0.throttle_mask')} />
+            <CappedShare nodeId={nodeId} info={info} />
           </div>
           <div className="nclock-time">
             <h3 className="nclock-time__title">Time clock-limited</h3>
@@ -161,14 +161,15 @@ export default function Gpu({ nodeId }: NodeTabProps) {
   );
 }
 
-function ThrottleNow({ nodeId, smMax }: { nodeId: string; smMax: number | null }) {
+function ThrottleNow({ nodeId, smMax, gap }: { nodeId: string; smMax: number | null; gap: NotReported | null }) {
+  const { waiting } = useFreshness(nodeId);
   const mask = useLatest(nodeId, selectThrottleMask);
   const clocks = useLatest(nodeId, (s) => clockLevel(s, smMax));
   const reasons = decodeThrottle(mask);
   const head = throttleHeadline(reasons, clocks);
   const meta = head.severity === 'ok' ? null : SEVERITY_META[head.severity];
   const Icon = meta?.icon ?? CircleCheck;
-  if (mask === null) {
+  if (mask === null && waiting && !gap) {
     return (
       <div className="throttle-head" aria-busy="true">
         <Skeleton width={32} height={32} radius={10} />
@@ -176,6 +177,7 @@ function ThrottleNow({ nodeId, smMax }: { nodeId: string; smMax: number | null }
       </div>
     );
   }
+  if (mask === null) return gap ? <Unsupported gap={gap} block /> : <NoData block />;
   return (
     <>
       <div className={`throttle-head ${meta?.tone ?? 'tone-ok'}`}>
@@ -224,13 +226,26 @@ function RangeEnergy({ nodeId, currency, rate }: { nodeId: string; currency: str
   );
 }
 
-function CappedShare({ nodeId }: { nodeId: string }) {
+function CappedShare({ nodeId, info }: { nodeId: string; info: NodeInfo | null | undefined }) {
   const { range, data } = useRangeData(nodeId, RANGE_KEYS);
   const phrase = phraseOf(range, data);
   return (
     <div className="ncapped">
-      <Stat label="Time power-capped" value={data ? mean(data.series['gpu0.power_capped_pct']) : null} format={percentParts} footer={`Average over the ${phrase}`} />
-      <Stat label="Time thermal-capped" value={data ? mean(data.series['gpu0.thermal_capped_pct']) : null} format={percentParts} footer={`Average over the ${phrase}`} />
+      {(['power', 'thermal'] as const).map((cap) => {
+        const key = `gpu0.${cap}_capped_pct`;
+        const gap = notReported(info, key);
+        return (
+          <Stat
+            key={cap}
+            label={`Time ${cap}-capped`}
+            value={data ? mean(data.series[key]) : null}
+            format={percentParts}
+            unsupported={gap}
+            reporting={data !== null}
+            footer={gap ? undefined : `Average over the ${phrase}`}
+          />
+        );
+      })}
     </div>
   );
 }

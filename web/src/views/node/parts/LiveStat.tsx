@@ -54,6 +54,7 @@ export function LiveStat({ nodeId, label, select, format, metric, unsupported, h
       stale={stale}
       updatedAt={stale ? liveStore.lastTs(nodeId) : null}
       unsupported={unsupported}
+      reporting={!stale}
       footer={footer?.(value)}
       size={size}
     />

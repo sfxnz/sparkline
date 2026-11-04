@@ -6,6 +6,7 @@ import { useConnection } from '../../../store/connection';
 import { liveStore } from '../../../store/live';
 import { usePrefs } from '../../../store/prefs';
 import Cpu from '../Cpu';
+import Gpu from '../Gpu';
 import Network from '../Network';
 import Storage from '../Storage';
 import Summary from '../Summary';
@@ -190,6 +191,41 @@ describe('CPU tab', () => {
     expect(util).toHaveTextContent('33%');
     expect(util).toHaveClass('stat--stale'); // dimmed; the page banner says "last known values" once
     expect(util).toHaveTextContent('Average of 4 cores');
+  });
+});
+
+describe('GPU tab', () => {
+  const gpuInfo = (...unsupported: NodeInfo['unsupported']) =>
+    ({ ...info, gpus: [{ index: 0, name: 'NVIDIA GB10', sm_mhz_max: 3003, power_limit_w: null }], unsupported }) as unknown as NodeInfo;
+  const gpuSample = (throttle_mask: number | null, util: number | null = 12) =>
+    sample({ gpu: [{ index: 0, util, sm_mhz: 2100, gr_mhz: null, video_mhz: null, temp_c: 50, power_w: 10, energy_j: null, pstate: 0, throttle_mask, power_capped_pct: null, thermal_capped_pct: null }] });
+  const clockLimits = () => screen.getByRole('region', { name: 'Clock limits' });
+
+  it('shows the Clock limits skeleton only until the first sample', () => {
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: gpuInfo() } } });
+    render(<Gpu nodeId={NODE} />);
+    expect(clockLimits().querySelector('.skeleton')).toBeInTheDocument();
+    push(gpuSample(null));
+    expect(clockLimits().querySelector('.skeleton')).not.toBeInTheDocument();
+    expect(within(clockLimits()).getAllByText('No data')).toHaveLength(3); // the reasons, and both capped shares
+  });
+
+  it('says why the clock limits are not reported when the agent declares it', () => {
+    const gap = { metric: 'gpu0.throttle_mask', reason: 'Clock event reasons not reported by NVIDIA GB10 (NVML: Not Supported)', kind: 'hardware' as const };
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: gpuInfo(gap) } } });
+    push(gpuSample(null));
+    render(<Gpu nodeId={NODE} />);
+    expect(within(clockLimits()).getByText('Not reported by this hardware')).toBeInTheDocument();
+    expect(clockLimits().querySelector('.skeleton')).not.toBeInTheDocument();
+  });
+
+  it('says "No data" for a stat whose value never arrives, rather than a skeleton or a bare dash', () => {
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: gpuInfo() } } });
+    push(gpuSample(0, null));
+    render(<Gpu nodeId={NODE} />);
+    const util = screen.getByText('Utilisation', { selector: '.stat__label' }).closest('.stat');
+    expect(util).toHaveTextContent('No data');
+    expect(util?.querySelector('.skeleton')).toBeNull();
   });
 });
 
