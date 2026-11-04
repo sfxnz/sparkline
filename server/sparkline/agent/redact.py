@@ -364,16 +364,17 @@ def _minimize(rec: Recording) -> tuple[Recording, Counter[str]]:
         left["mount lines of other filesystems"] += len(lines) - len(kept)
         tree["/proc/self/mounts"] = File("".join(kept).encode())
     cids: set[str] = set()
-    for path in list(tree):
+    for path, node in list(tree.items()):
         m = _PID.fullmatch(path)
-        text = _text(tree[path]) if m else None
-        if m is None or text is None:
+        if m is None or not isinstance(node, File):
             continue
+        text = node.data.decode(errors="surrogateescape")
         if m[1] == "cmdline":
             argv = text.split("\0")
-            words = posixpath.basename(argv[0]).split()
-            left["command-line arguments"] += len([a for a in argv if a]) - 1 if argv[0] else 0
-            tree[path] = File(f"{words[0]}\0".encode() if words else b"")
+            words = argv[0].split()
+            left["command-line arguments"] += len(words[1:]) + len([a for a in argv[1:] if a])
+            program = posixpath.basename(words[0]) if words else ""
+            tree[path] = File(f"{program}\0".encode(errors="surrogateescape") if program else b"")
         else:
             cid = container_id(text)
             if cid:
