@@ -101,8 +101,7 @@ def display_order(role: str, letter: str | None, name: str) -> tuple:
     return (ROLE_ORDER.get(role, 2), letter is None, letter or "", name)
 
 
-# From pci.ids (/usr/share/hwdata/pci.ids). PCI IDs, because one driver (mlx5, ice, bnxt_en) covers
-# several NIC generations.
+# Names from the PCI ID Repository (pci-ids.ucw.cz), used under its BSD-3-Clause licence option.
 NIC_MODELS: dict[tuple[int, int], str] = {
     (0x15B3, 0x1013): "ConnectX-4",
     (0x15B3, 0x1015): "ConnectX-4 Lx",
