@@ -135,7 +135,8 @@ def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missi
     gaps = {u.metric: u for u in gpu_mod.GpuCollector().unsupported}
     assert set(gaps) == {"gpu0.power_limit_w", "gpu0.fan_pct"}
     limit = gaps["gpu0.power_limit_w"]
-    assert limit.kind == "access" and limit.reason.startswith("Needs")
+    assert limit.kind == "access"
+    assert limit.reason == "Permission denied to the agent's user (NVML: Insufficient Permissions)"
     assert gaps["gpu0.fan_pct"].kind == "hardware"
     assert gaps["gpu0.fan_pct"].reason == "Fan speed not reported by NVIDIA GB10 (NVML: Not Supported)"
 
@@ -143,7 +144,8 @@ def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missi
 def test_nvml_refusing_access_at_startup_says_a_privilege_is_missing(nvml):
     nvml.fail_on = {"nvmlInit": NVMLError_NoPermission("Insufficient Permissions")}
     (gap,) = gpu_mod.GpuCollector().unsupported
-    assert (gap.metric, gap.kind) == ("gpu*", "access") and gap.reason.startswith("Needs")
+    assert (gap.metric, gap.kind) == ("gpu*", "access")
+    assert gap.reason == "Permission denied to the agent's user (NVML: Insufficient Permissions)"
 
 
 def test_missing_nvidia_ml_py_says_what_to_install(monkeypatch):
@@ -151,7 +153,8 @@ def test_missing_nvidia_ml_py_says_what_to_install(monkeypatch):
     g = gpu_mod.GpuCollector()
     assert g.collect() == {"gpu": []}
     (gap,) = g.unsupported
-    assert (gap.metric, gap.kind) == ("gpu*", "dependency") and "nvidia-ml-py" in gap.reason
+    assert (gap.metric, gap.kind) == ("gpu*", "dependency")
+    assert gap.reason == "Install nvidia-ml-py to read NVIDIA GPU metrics"
 
 
 async def test_sampling_loop_keeps_running_through_collector_failures(tmp_path):

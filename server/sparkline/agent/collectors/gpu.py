@@ -60,6 +60,10 @@ def _no_permission(e: Exception) -> bool:
     return isinstance(e, nv.NVMLError_NoPermission)
 
 
+def _denied(e: Exception) -> str:
+    return f"Permission denied to the agent's user ({_reason(e)})"
+
+
 class _Gpu:
     def __init__(self, index: int, handle: Any) -> None:  # an NVML device handle
         self.index = index
@@ -98,11 +102,7 @@ class GpuCollector:
             n = nv.nvmlDeviceGetCount()
         except Exception as e:
             if _no_permission(e):
-                gap = Unsupported(
-                    metric="gpu*",
-                    reason=f"Needs read access to the NVIDIA device files (/dev/nvidia*) ({_reason(e)})",
-                    kind="access",
-                )
+                gap = Unsupported(metric="gpu*", reason=_denied(e), kind="access")
             else:
                 gap = Unsupported(metric="gpu*", reason=f"NVML unavailable ({_reason(e)})")
             self.unsupported.append(gap)
@@ -167,9 +167,7 @@ class GpuCollector:
                     info.power_limit_w = v / 1000
             except Exception as e:
                 if _no_permission(e):
-                    self.unsupported.append(
-                        Unsupported(metric=p + key, reason=f"Needs root ({_reason(e)})", kind="access")
-                    )
+                    self.unsupported.append(Unsupported(metric=p + key, reason=_denied(e), kind="access"))
                     continue
                 why = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
                 self.unsupported.append(
