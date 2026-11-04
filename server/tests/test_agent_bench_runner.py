@@ -40,6 +40,7 @@ from sparkline.common.schema import (
     Problem,
     ProcSample,
     Sample,
+    Unsupported,
 )
 
 FIX = Path(__file__).parent / "fixtures" / "agent" / "bench"
@@ -91,6 +92,30 @@ def node_info() -> NodeInfo:
         tools={},
         sample_interval_ms=1000,
         boot_time=0,
+    )
+
+
+RTX = "NVIDIA RTX 6000 Ada Generation"
+
+
+def workstation_info(lost: dict[int, str] | None = None) -> NodeInfo:
+    """Synthesized: node_info() with four NVIDIA GPUs; a lost one is declared as the GPU collector does."""
+    gpus = [GpuInfo(index=i, name=RTX, uuid=f"GPU-{i}", compute_capability="8.9") for i in range(4)]
+    gaps = [Unsupported(metric=f"gpu{i}", reason=why) for i, why in (lost or {}).items()]
+    return node_info().model_copy(update={"gpus": gpus, "unsupported": gaps})
+
+
+def amd_info() -> NodeInfo:
+    """Synthesized: no AMD GPU backend exists yet; this is the GpuInfo one would report."""
+    amd = GpuInfo(index=0, name="AMD Radeon 8060S", vendor="amd", backend="amdgpu-sysfs")
+    return node_info().model_copy(update={"gpus": [amd], "driver": None, "cuda": None, "nvml": None})
+
+
+def mac_info() -> NodeInfo:
+    """Synthesized: a darwin agent, whose GPU collector declares gpu* with this reason."""
+    gap = Unsupported(metric="gpu*", reason="No GPU backend reads darwin yet", kind="agent")
+    return node_info().model_copy(
+        update={"platform": "darwin", "gpus": [], "unsupported": [gap], "driver": None, "cuda": None}
     )
 
 

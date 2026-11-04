@@ -6,12 +6,13 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import socket
 from dataclasses import dataclass, field
 from typing import Any
 
-from ...common.schema import NetIfInfo, NodeInfo, Problem
+from ...common.schema import GpuInfo, GpuOption, NetIfInfo, NodeInfo, Problem
 
 DOCKER_SOCK = "/var/run/docker.sock"
 IB_SYSFS = "/sys/class/infiniband"
@@ -102,6 +103,122 @@ def cpu_quota(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> 
         return None
 
 
+# ---------------------------------------------------------------------------------------------------------
+# Which GPU a GPU benchmark runs on. GPUs are named by GpuInfo.index, never by list position: NVML lists the
+# GPUs it cannot open last.
+# ---------------------------------------------------------------------------------------------------------
+
+_LOST = re.compile(r"gpu(\d+)")
+_VENDOR = {"amd": "AMD", "apple": "Apple"}
+_NOT_YET = {"amd": "AMD GPUs (ROCm)", "apple": "Apple GPUs"}
+
+
+@dataclass(frozen=True)
+class GpuTarget:
+    """The GPU a benchmark runs on. Pinned when the node has a choice of NVIDIA GPUs: the container then sees
+    only this one, and the run records which it was."""
+
+    gpu: GpuInfo
+    pinned: bool
+
+    @property
+    def docker_gpus(self) -> str:
+        return f"device={self.gpu.index}" if self.pinned else "all"
+
+
+def _nvidia(info: NodeInfo) -> list[GpuInfo]:
+    return sorted((g for g in info.gpus if g.vendor == "nvidia"), key=lambda g: g.index)
+
+
+def _lost(info: NodeInfo) -> dict[int, str]:
+    """GPU index -> why the agent cannot read it (the collector declares a lost GPU i as metric gpu<i>)."""
+    return {int(m[1]): u.reason for u in info.unsupported if (m := _LOST.fullmatch(u.metric))}
+
+
+def _nvidia_smi_fix(node: str) -> str:
+    return f"Check `nvidia-smi` on {node}, then restart sparkline-agent"
+
+
+def _not_responding(node: str, index: int, reason: str) -> Problem:
+    return Problem(
+        message=f"GPU {index} on {node} is not responding", cause=reason, fix=_nvidia_smi_fix(node)
+    )
+
+
+def gpu_options(node: str, info: NodeInfo) -> list[GpuOption]:
+    """The NVIDIA GPUs to choose from, by index, on a node with two or more; a lost one carries why."""
+    nvidia, lost = _nvidia(info), _lost(info)
+    if len(nvidia) < 2:
+        return []
+    return [
+        GpuOption(
+            index=g.index,
+            name=g.name,
+            problem=_not_responding(node, g.index, lost[g.index]) if g.index in lost else None,
+        )
+        for g in nvidia
+    ]
+
+
+def gpu_problem(node: str, info: NodeInfo) -> Problem | None:
+    """Why GPU benchmarks cannot run on this node at all, None when one of its NVIDIA GPUs responds."""
+    nvidia, lost = _nvidia(info), _lost(info)
+    if any(g.index not in lost for g in nvidia):
+        return None
+    if nvidia:
+        return Problem(
+            message=f"No NVIDIA GPU responds on {node}",
+            cause="; ".join(f"GPU {g.index}: {lost[g.index]}" for g in nvidia),
+            fix=_nvidia_smi_fix(node),
+        )
+    need = "GPU benchmarks need an NVIDIA GPU"
+    elsewhere = "run GPU benchmarks on a node with an NVIDIA GPU"
+    if info.gpus:
+        vendors = {str(g.vendor) for g in info.gpus}
+        vendor = vendors.pop() if len(vendors) == 1 else ""
+        names = ", ".join(f"GPU {g.index}: {g.name}" for g in sorted(info.gpus, key=lambda g: g.index))
+        which = f"an {_VENDOR.get(vendor, vendor)} GPU" if vendor else "no NVIDIA GPU"
+        return Problem(
+            message=need,
+            cause=f"{node} has {which} ({names}), and the GPU benchmarks run CUDA in NVIDIA's "
+            "PyTorch container",
+            fix=f"Sparkline cannot benchmark {_NOT_YET.get(vendor, 'these GPUs')} yet; {elsewhere}",
+        )
+    if info.platform == "darwin":
+        reason = next((u.reason for u in info.unsupported if u.metric == "gpu*"), None)
+        return Problem(
+            message=need,
+            cause=f'{node} is a Mac, and its agent reports "{reason}"' if reason else f"{node} is a Mac",
+            fix=f"Sparkline cannot benchmark Apple GPUs yet; {elsewhere}",
+        )
+    return Problem(
+        message=f"No NVIDIA GPU detected on {node}",
+        cause="NVML reported no GPUs when the agent started",
+        fix=_nvidia_smi_fix(node),
+    )
+
+
+def resolve_gpu(node: str, info: NodeInfo, asked: int | None) -> GpuTarget | Problem:
+    """The GPU a GPU benchmark runs on: the one asked for, or the first that responds."""
+    if (problem := gpu_problem(node, info)) is not None:
+        return problem
+    nvidia, lost = _nvidia(info), _lost(info)
+    if asked is None:
+        gpu = next(g for g in nvidia if g.index not in lost)
+    else:
+        found = next((g for g in nvidia if g.index == asked), None)
+        if found is None:
+            return Problem(
+                message=f"GPU {asked} is not a GPU of {node}",
+                cause=f"{node}'s NVIDIA GPUs are {', '.join(str(g.index) for g in nvidia)}",
+                fix=f"Pick one of the GPUs the console lists for {node}",
+            )
+        if asked in lost:
+            return _not_responding(node, asked, lost[asked])
+        gpu = found
+    return GpuTarget(gpu, pinned=len(nvidia) >= 2)
+
+
 @dataclass
 class Env:
     """One snapshot of what this node can run (refreshed by the runner every few seconds)."""
@@ -138,12 +255,7 @@ def probe(info: NodeInfo, image: str, work_dir: str, sock_path: str = DOCKER_SOC
             fix="Check `systemctl status docker` and that the agent's user is in the `docker` group, "
             "then restart sparkline-agent",
         )
-    if not info.gpus:
-        env.gpu = Problem(
-            message=f"No NVIDIA GPU detected on {node}",
-            cause="NVML reported no GPUs when the agent started",
-            fix=f"Check `nvidia-smi` on {node}, then restart sparkline-agent",
-        )
+    env.gpu = gpu_problem(node, info)
     if not (shutil.which("ib_write_bw") and shutil.which("ib_write_lat")):
         env.perftest = Problem(
             message=f"perftest is not installed on {node}",
@@ -199,7 +311,7 @@ def availability(bench_id: str, env: Env) -> tuple[Problem | None, str]:
     """(blocking problem or None, note appended to the description)."""
     docker = env.docker or env.image
     if bench_id in ("gpu-matmul", "thermal-soak", "mem-bandwidth"):
-        return docker or env.gpu, ""
+        return env.gpu or docker, ""
     if bench_id == "nccl-allreduce":
         why = (
             "all_reduce_perf needs an MPI launcher across nodes"
@@ -207,7 +319,7 @@ def availability(bench_id: str, env: Env) -> tuple[Problem | None, str]:
             else "nccl-tests is not installed"
         )
         note = f"{why}, so torch.distributed (NCCL backend) in the PyTorch container is used."
-        return docker or env.gpu or env.rdma, note
+        return env.gpu or docker or env.rdma, note
     if bench_id == "rdma-bw-lat":
         return env.perftest or env.rdma or env.cpu_cap, ""
     if bench_id == "storage-fio":

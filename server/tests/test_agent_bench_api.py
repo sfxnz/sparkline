@@ -7,7 +7,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
-from test_agent_bench_runner import FAKE_DOCKER, fake, node_info
+from test_agent_bench_runner import FAKE_DOCKER, amd_info, fake, mac_info, node_info
 
 from sparkline.agent.app import create_app
 from sparkline.agent.bench import probes
@@ -88,6 +88,52 @@ def test_catalog(client):
     cat = r.json()
     assert [s["id"] for s in cat][:3] == ["gpu-matmul", "mem-bandwidth", "cpu-throughput"] and len(cat) == 10
     assert all(s["availability"] == {"n1": None} for s in cat)
+
+
+GPU_BENCHES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce", "thermal-soak")
+
+
+def probed_catalog(tmp_path, info) -> dict[str, dict]:
+    """The catalog as the agent serves it, from its real probe of a node without Docker."""
+    sampler = Sampler("n1", [], 1000)
+    runner = BenchRunner(
+        "n1",
+        info,
+        lambda: None,
+        sampler.publish,
+        "img:tag",
+        str(tmp_path / "work"),
+        docker_sock=str(tmp_path / "no-docker.sock"),
+        docker=str(FAKE_DOCKER),
+    )
+    app = create_app(sampler, info, TOKEN, manage_sampler=False, bench=runner)
+    with TestClient(app) as c:
+        r = c.get("/api/v1/bench/catalog", headers=AUTH)
+    assert r.status_code == 200
+    return {s["id"]: s for s in r.json()}
+
+
+@pytest.mark.parametrize(
+    ("info", "cause", "fix"),
+    [
+        (amd_info, "an AMD GPU (GPU 0: AMD Radeon 8060S)", "AMD GPUs (ROCm) yet"),
+        (mac_info, 'n1 is a Mac, and its agent reports "No GPU backend reads darwin yet"', "Apple GPUs yet"),
+    ],
+    ids=["amd", "mac"],
+)
+def test_catalog_says_gpu_benchmarks_need_an_nvidia_gpu_before_saying_docker_is_missing(
+    tmp_path, info, cause, fix
+):
+    cat = probed_catalog(tmp_path, info)
+    for bench in GPU_BENCHES:
+        p = cat[bench]["availability"]["n1"]
+        assert p["message"] == "GPU benchmarks need an NVIDIA GPU", bench
+        assert cause in p["cause"] and fix in p["fix"], bench
+
+
+def test_catalog_on_gb10_without_docker_still_names_docker(tmp_path):
+    cat = probed_catalog(tmp_path, node_info)
+    assert {cat[b]["availability"]["n1"]["message"] for b in GPU_BENCHES} == {"Docker is not reachable on n1"}
 
 
 def test_start_busy_get_cancel(client):
