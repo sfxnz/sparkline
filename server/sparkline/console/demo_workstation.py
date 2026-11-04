@@ -57,6 +57,8 @@ POWER_LIMIT_W = 300.0
 SM_MAX_MHZ = 3105.0
 MAX_OPERATING_C, SLOWDOWN_C, SHUTDOWN_C = 89.0, 93.0, 96.0
 IDLE_W = 24.0
+CAP_ON_W, CAP_OFF_W = POWER_LIMIT_W - 3.6, POWER_LIMIT_W - 10
+CAP_MIN_S, CAP_LOOKBACK_S = 10, 300
 SLOT_HEAT_C = (1.0, 3.0, 6.0, 0.0)
 POWER_SKEW_W = (0.0, 2.5, -2.0, 3.5)
 EPISODE_GPU = 3
@@ -121,15 +123,19 @@ class WorkstationModel:
             b, active = max(b, heat), max(active, min(1.0, 4 * heat))
         return b, active
 
-    def util(self, i: int, t: float) -> float:
+    def util(self, i: int, t: float, noise: bool = True) -> float:
         b, a = self.busy(t)
-        u = a * (62 + 36 * b + 1.5 * self.skew[i](t)) + (1 - a) * 0.3 + 0.8 * _h(self.node_id, "u", i, int(t))
+        u = a * (62 + 36 * b + 1.5 * self.skew[i](t)) + (1 - a) * 0.3
+        if noise:
+            u += 0.8 * _h(self.node_id, "u", i, int(t))
         if i == BENCH_GPU:
             u = max(u, 98 * self.bench_load(t)[0])
         return _clamp(u, 0, 100)
 
-    def raw_power(self, i: int, t: float) -> float:
-        p = IDLE_W + 2.8 * self.util(i, t) + POWER_SKEW_W[i] + 1.2 * _h(self.node_id, "p", i, int(t))
+    def raw_power(self, i: int, t: float, noise: bool = True) -> float:
+        p = IDLE_W + 2.8 * self.util(i, t, noise) + POWER_SKEW_W[i]
+        if noise:
+            p += 1.2 * _h(self.node_id, "p", i, int(t))
         if i == EPISODE_GPU:
             p += 12 * self.thermal(t)
         if i == BENCH_GPU:
@@ -139,6 +145,19 @@ class WorkstationModel:
     def power_at(self, i: int, t: float) -> float:
         raw = self.raw_power(i, t)
         return POWER_LIMIT_W + (raw - POWER_LIMIT_W) * 0.1 if raw > POWER_LIMIT_W else raw
+
+    def power_capped(self, i: int, t: float) -> bool:
+        """Hysteresis on the noise-free draw, so noise near the limit never flips the bit for one sample."""
+        low = None
+        for k in range(CAP_LOOKBACK_S):
+            p = self.raw_power(i, t - k, noise=False)
+            if p > CAP_ON_W:
+                return True
+            if low is None and p < CAP_OFF_W:
+                low = k
+            if low is not None and k >= low + CAP_MIN_S:
+                return False
+        return False
 
     def energy_at(self, i: int, t: float) -> float:
         """GPU i's energy counter (J): the integral of power_at since the driver loaded at boot."""
@@ -161,6 +180,7 @@ class WorkstationModel:
         util = self.util(i, t)
         raw = self.raw_power(i, t)
         capped = _clamp((raw - (POWER_LIMIT_W - 4)) / 8 * 100, 0, 100)
+        at_cap = self.power_capped(i, t)
         lag = (
             0.4 * self.power_at(i, t - 8) + 0.35 * self.power_at(i, t - 25) + 0.25 * self.power_at(i, t - 60)
         )
@@ -170,7 +190,7 @@ class WorkstationModel:
         busy = util >= 5
         mask = 0 if busy else 0x1
         sm = 2700 + 40 * j("sm") if busy else 210.0
-        if capped > 5:
+        if at_cap:
             mask |= 0x4
             sm -= capped / 100 * 330
         thermal_pct = 0.0
@@ -193,7 +213,7 @@ class WorkstationModel:
             energy_j=round(self.energy_at(i, t), 1),
             pstate=0 if busy else 8,
             throttle_mask=mask,
-            power_capped_pct=round(capped if capped > 5 else 0.0, 1),
+            power_capped_pct=round(capped if at_cap else 0.0, 1),
             thermal_capped_pct=thermal_pct,
         )
 
