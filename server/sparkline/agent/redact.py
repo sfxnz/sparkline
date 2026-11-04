@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from ipaddress import IPv4Address, IPv6Address, IPv6Network
 from typing import Any, Literal
 
-from ..common.identifiers import CAPTURE, Detector, scan, text_of
+from ..common.identifiers import CAPTURE, PUBLIC_HF_ORGS, Detector, scan, text_of
 from .collectors.procs import container_id
 from .collectors.storage import REAL_FS
 from .readset import DOCKER_APIS, HOST_READINGS, NVML_CALLS, admits, leads_to, matching
@@ -85,10 +85,29 @@ SERIAL_FILES = {
     "chassis_serial",
     "serial-number",
 }
-GENERIC_NAMES = {"root", "admin", "user", "ubuntu", "debian", "nvidia", "pi", "localhost", "dgx", "spark"}
+GENERIC_NAMES = {
+    "root",
+    "admin",
+    "user",
+    "ubuntu",
+    "debian",
+    "nvidia",
+    "pi",
+    "localhost",
+    "dgx",
+    "spark",
+    "local",
+    "localdomain",
+    "lan",
+    "home.arpa",
+}
+OS_RELEASE = ("/etc/os-release", "/usr/lib/os-release")
+OS_RELEASE_KEYS = {"NAME", "PRETTY_NAME", "ID", "ID_LIKE", "VERSION", "VERSION_ID", "VERSION_CODENAME"}
+SERIAL_ANYWHERE = 8
 
 _HEX = "[0-9A-Fa-f]"
-Form = Literal["hex", "name", "ipv4", "ipv6", "path"]
+Form = Literal["hex", "name", "host", "anywhere", "ipv4", "ipv6", "path"]
+_WORDS: set[Form] = {"name", "host", "anywhere"}
 _UUID = re.compile(rf"(?<!{_HEX}){_HEX}{{8}}(?:-{_HEX}{{4}}){{3}}-{_HEX}{{12}}(?!{_HEX})")
 _UUID_PLACEHOLDER = "00000000-0000-0000-0000-0000"
 _PID = re.compile(r"/proc/\d+/(cmdline|cgroup)")
@@ -101,11 +120,23 @@ _IPV4_POOL = [f"198.51.100.{i}" for i in range(1, 255)] + [
 _NOT_ADJACENT: dict[Form, tuple[str, str]] = {
     "hex": (rf"(?<!{_HEX})", rf"(?!{_HEX})"),
     "name": (r"(?<![A-Za-z0-9])", r"(?![A-Za-z0-9])"),
+    "host": (r"(?<![A-Za-z0-9])", r"(?:\.[A-Za-z][A-Za-z0-9-]*)*(?![A-Za-z0-9])"),
+    "anywhere": ("", ""),
     "ipv4": (r"(?<![\d.])", r"(?!\d|\.\d)"),
     "ipv6": (r"(?<![0-9A-Fa-f:])", r"(?![0-9A-Fa-f:])"),
     "path": (r"(?<![\w.])", r"(?![\w.-])"),
 }
-_NAME_PLACEHOLDER = re.compile(r"(?:host|user|serial|container)\d+|<org\d+>")
+_NAME_PLACEHOLDER = re.compile(r"(?:host|user|serial|container|domain)\d+|<(?:org|model)\d+>")
+_NAME_FORMATS = {
+    "hostname": "host{}",
+    "user": "user{}",
+    "serial number": "serial{}",
+    "container name": "container{}",
+    "domain name": "domain{}",
+    "Hugging Face org": "<org{}>",
+    "Hugging Face model": "<model{}>",
+}
+_CASE_KEPT = {"Hugging Face org", "Hugging Face model"}
 
 
 def dumps(doc: Any) -> str:
@@ -116,7 +147,7 @@ def dumps(doc: Any) -> str:
 class Spelling:
     form: Form
     original: str
-    placeholder: str
+    placeholder: str | None  # None: never replaced, and a capture that meets it is refused
     category: str
 
 
@@ -124,14 +155,14 @@ class Spellings:
     def __init__(self, spellings: Iterable[Spelling]) -> None:
         unique: dict[tuple[str, str], Spelling] = {}
         for s in spellings:
-            key = s.original.lower() if s.form == "name" else s.original
+            key = s.original.lower() if s.form in _WORDS else s.original
             if s.original != s.placeholder:
                 unique.setdefault((s.form, key), s)
         self._items = sorted(unique.values(), key=lambda s: -len(s.original))
         alternatives = []
         for s in self._items:
             lead, trail = _NOT_ADJACENT[s.form]
-            body = f"(?i:{re.escape(s.original)})" if s.form == "name" else re.escape(s.original)
+            body = f"(?i:{re.escape(s.original)})" if s.form in _WORDS else re.escape(s.original)
             alternatives.append(f"({lead}{body}{trail})")
         self._rx = re.compile("|".join(alternatives)) if alternatives else None
 
@@ -140,14 +171,22 @@ class Spellings:
         return self._items[m.lastindex - 1]
 
     def sub(self, text: str) -> str:
-        return self._rx.sub(lambda m: self._spelling(m).placeholder, text) if self._rx else text
+        def placeholder(m: re.Match[str]) -> str:
+            got = self._spelling(m).placeholder
+            return m[0] if got is None else got
+
+        return self._rx.sub(placeholder, text) if self._rx else text
 
     def categories_in(self, text: str) -> set[str]:
         return {self._spelling(m).category for m in self._rx.finditer(text)} if self._rx else set()
 
     def categories_in_bytes(self, data: bytes) -> set[str]:
         low = data.lower()
-        return {s.category for s in self._items if s.original.lower().encode() in low}
+        return {
+            s.category
+            for s in self._items
+            if s.placeholder is not None and s.original.lower().encode() in low
+        }
 
 
 def _mac_forms(b: bytes) -> list[str]:
@@ -210,7 +249,54 @@ def _ipv6_forms(a: IPv6Address) -> list[str]:
 
 
 def _flagged(spelling: str) -> bool:
+    return bool(scan(spelling, GATE))
+
+
+def _flagged_as_an_identifier(spelling: str) -> bool:
     return bool(scan(spelling, CAPTURE))
+
+
+def _colon_mac(m: re.Match[str]) -> str:
+    h = m[1] + m[2] + m[3]
+    return ":".join(h[i : i + 2] for i in range(0, 12, 2))
+
+
+HEX32 = Detector(
+    "32-digit hex id",
+    re.compile(rf"(?<!{_HEX}){_HEX}{{32}}(?!{_HEX})"),
+    lambda m: not _flagged_as_an_identifier(str(IPv6Address(bytes.fromhex(m[0])))),
+)
+HEX64 = Detector(
+    "container id",
+    re.compile(rf"(?<!{_HEX}){_HEX}{{64}}(?!{_HEX})"),
+    lambda m: m[0].lower().endswith("0" * 52),
+)
+HOME_WITH_DOMAIN = Detector(
+    "home directory", re.compile(r"(?<![\w.])/(home|Users)/(<?[\w.-]+>?)@[\w.-]+"), lambda m: False
+)
+MEDIA = Detector("home directory", re.compile(r"(?<![\w.])(/(?:run/)?media)/([\w.-]+)"), lambda m: False)
+HF_MODEL = Detector(
+    "Hugging Face cache path", re.compile(r"models--([\w.-]+?)--([\w.-]+)"), lambda m: m[1] in PUBLIC_HF_ORGS
+)
+DOTTED_MAC = Detector(
+    "MAC address",
+    re.compile(rf"(?<![\w:.-])({_HEX}{{4}})\.({_HEX}{{4}})\.({_HEX}{{4}})(?![\w:-]|\.\w)"),
+    lambda m: not _flagged_as_an_identifier(_colon_mac(m)),
+)
+BRIDGE = Detector(
+    "virtual interface name",
+    re.compile(r"(?<![\w-])br-([0-9a-f]{12})(?![\w-])"),
+    lambda m: m[1].startswith("0" * 8),
+)
+VETH = Detector(
+    "virtual interface name",
+    re.compile(r"(?<![\w-])veth([0-9a-f]{7})(?![\w-])"),
+    lambda m: m[1].startswith("000"),
+)
+VOLUME_ID = Detector(
+    "volume id", re.compile(r"(?<![\w-])([0-9A-F]{4})-[0-9A-F]{4}(?![\w-])"), lambda m: m[1] == "0000"
+)
+GATE = [*CAPTURE, HEX32, HEX64, HOME_WITH_DOMAIN, MEDIA, HF_MODEL, DOTTED_MAC, BRIDGE, VETH, VOLUME_ID]
 
 
 class Placeholders:
@@ -323,18 +409,23 @@ class Placeholders:
             return cid
         return self._take("container id", cid, lambda n: f"{n:012x}" + "0" * 52)
 
+    def virtual_interface(self, name: str) -> str:
+        prefix, digits = ("br-", 12) if name.startswith("br-") else ("veth", 7)
+        return self._take(
+            "virtual interface name",
+            name,
+            lambda n: f"{prefix}{n:0{digits}x}" if n < 1 << 16 else None,
+            counter=prefix,
+        )
+
+    def volume_id(self, text: str) -> str:
+        return self._take("volume id", text, lambda n: f"0000-{n:04X}" if n < 1 << 16 else None)
+
     def name(self, category: str, value: str) -> str:
         if _NAME_PLACEHOLDER.fullmatch(value):
             return value
-        prefix = {
-            "hostname": "host",
-            "user": "user",
-            "serial number": "serial",
-            "container name": "container",
-        }
-        if category == "Hugging Face org":
-            return self._take(category, value, lambda n: f"<org{n}>")
-        return self._take(category, value.lower(), lambda n: f"{prefix[category]}{n}")
+        key = value if category in _CASE_KEPT else value.lower()
+        return self._take(category, key, _NAME_FORMATS[category].format)
 
 
 @dataclass(frozen=True)
@@ -365,6 +456,14 @@ def _minimize(rec: Recording) -> tuple[Recording, Counter[str]]:
         kept = [line for line in lines if len(f := line.split()) > 2 and f[2] in REAL_FS]
         left["mount lines of other filesystems"] += len(lines) - len(kept)
         tree["/proc/self/mounts"] = File("".join(kept).encode())
+    for path in OS_RELEASE:
+        text = _text(tree.get(path))
+        if text is None:
+            continue
+        lines = [line for line in text.splitlines(keepends=True) if line.strip()]
+        kept = [line for line in lines if line.partition("=")[0].strip() in OS_RELEASE_KEYS]
+        left["os-release lines other than the OS name and version"] += len(lines) - len(kept)
+        tree[path] = File("".join(kept).encode())
     cids: set[str] = set()
     for path, node in list(tree.items()):
         m = _PID.fullmatch(path)
@@ -484,12 +583,24 @@ class _Harvest:
 
     def name(self, category: str, value: str) -> None:
         value = value.strip()
-        if len(value) < 3 or value.lower() in GENERIC_NAMES:
+        if category == "hostname" and "." in value:
+            value, _, domain = value.partition(".")
+            self.name("domain name", domain)
+        if not value or value.lower() in GENERIC_NAMES:
+            return
+        if len(value) < 3:
+            if category == "user":
+                self.spellings.append(Spelling("name", value, None, category))
             return
         placeholder = self.ph.name(category, value)
-        self._pairs("name", [value], [placeholder], category)
+        form: Form = "name"
+        if category == "hostname":
+            form = "host"
+        elif category == "serial number" and len(value) >= SERIAL_ANYWHERE:
+            form = "anywhere"
+        self._pairs(form, [value], [placeholder], category)
         if category == "hostname" and "-" in value:
-            self._pairs("name", [value.replace("-", "--")], [placeholder.replace("-", "--")], category)
+            self._pairs(form, [value.replace("-", "--")], [placeholder.replace("-", "--")], category)
 
     def hexes(self, category: str, values: list[str], placeholders: list[str]) -> None:
         self._pairs("hex", values, placeholders, category)
@@ -575,7 +686,7 @@ def _harvest(rec: Recording, facts: Facts, ph: Placeholders) -> list[Spelling]:
     return h.spellings
 
 
-def _rewriters(ph: Placeholders) -> dict[str, Callable[[re.Match[str]], str]]:
+def _rewriters(ph: Placeholders) -> list[tuple[Detector, Callable[[re.Match[str]], str]]]:
     def mac(m: re.Match[str]) -> str:
         text = m[0]
         if not re.search("[:-]", text):
@@ -596,15 +707,36 @@ def _rewriters(ph: Placeholders) -> dict[str, Callable[[re.Match[str]], str]]:
         top, _, name = m[0][1:].partition("/")
         return f"/{top}/<{ph.name('user', name)}>"
 
-    return {
+    def same_case(text: str, like: str) -> str:
+        return text.upper() if re.search("[A-F]", like) else text
+
+    def dotted_mac(m: re.Match[str]) -> str:
+        h = ph.mac(bytes.fromhex(m[1] + m[2] + m[3])).hex()
+        return same_case(".".join(h[i : i + 4] for i in range(0, 12, 4)), m[0])
+
+    def hf_model(m: re.Match[str]) -> str:
+        return f"models--{ph.name('Hugging Face org', m[1])}--{ph.name('Hugging Face model', m[2])}"
+
+    by_category = {
         "IPv4 address": lambda m: str(ph.ipv4(IPv4Address(m[0]))),
         "IPv6 address": lambda m: _spell6(ph.ipv6(IPv6Address(m[0])), m[0]),
         "MAC address": mac,
         "InfiniBand GUID": guid,
         "GPU UUID": lambda m: ph.gpu_uuid(m[0]),
         "home directory": home,
-        "Hugging Face cache path": lambda m: f"models--{ph.name('Hugging Face org', m[1])}--",
     }
+    return [
+        (HOME_WITH_DOMAIN, lambda m: f"/{m[1]}/<{ph.name('user', m[2].strip('<>'))}>"),
+        (MEDIA, lambda m: f"{m[1]}/<{ph.name('user', m[2])}>"),
+        (HF_MODEL, hf_model),
+        *((d, by_category[d.category]) for d in CAPTURE if d.category in by_category),
+        (HEX32, lambda m: same_case(ph.ipv6(IPv6Address(bytes.fromhex(m[0]))).packed.hex(), m[0])),
+        (HEX64, lambda m: same_case(ph.container_id(m[0].lower()), m[0])),
+        (DOTTED_MAC, dotted_mac),
+        (BRIDGE, lambda m: ph.virtual_interface(m[0])),
+        (VETH, lambda m: ph.virtual_interface(m[0])),
+        (VOLUME_ID, lambda m: ph.volume_id(m[0])),
+    ]
 
 
 def _sub_flagged(d: Detector, fix: Callable[[re.Match[str]], str], text: str) -> str:
@@ -615,9 +747,7 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
     rec, left_out = _minimize(rec)
     ph = Placeholders("\n".join(_surfaces(rec)).lower())
     originals = Spellings(_harvest(rec, facts, ph))
-    rewriters = _rewriters(ph)
-
-    passes = [(d, rewriters[d.category]) for d in CAPTURE if d.category in rewriters]
+    passes = _rewriters(ph)
 
     def plain_uuid(m: re.Match[str]) -> str:
         p = ph.uuid(m[0])
@@ -659,7 +789,7 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
 
 
 def _categories(text: str, binary: bool, originals: Spellings) -> set[str]:
-    found = {category for _, category in scan(text, CAPTURE, binary)}
+    found = {category for _, category in scan(text, GATE, binary)}
     if any(not m[0].lower().startswith(_UUID_PLACEHOLDER) for m in _UUID.finditer(text)):
         found.add("UUID")
     return found | originals.categories_in(text)

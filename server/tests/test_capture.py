@@ -113,6 +113,15 @@ def gb10_copy(tmp: Path) -> Path:
     return copy
 
 
+def with_version(copy: Path, text: str) -> Path:
+    release = copy / "root/usr/lib/os-release"
+    lines = release.read_text().splitlines()
+    release.write_text(
+        "".join(f"VERSION={text}\n" if line.startswith("VERSION=") else line + "\n" for line in lines)
+    )
+    return copy
+
+
 def planted(tmp: Path) -> Path:
     copy = gb10_copy(tmp)
     root = copy / "root"
@@ -141,7 +150,7 @@ def planted(tmp: Path) -> Path:
     (root / "sys/class/infiniband/rocep1s0f0/sys_image_guid").write_text(SYS_IMAGE_GUID + "\n")
     (root / "sys/class/net/enp1s0f0np0/phys_switch_id").write_text(SWITCH_ID + "\n")
     _append(root / "proc/cpuinfo", f"Serial\t\t: {CPU_SERIAL}\n")
-    _append(root / "usr/lib/os-release", f"X_ALICE={USER} {MACHINE_ID} {DMI_SERIAL} {PRODUCT_UUID}\n")
+    with_version(copy, f"{USER} {MACHINE_ID} {DMI_SERIAL} {PRODUCT_UUID}")
     gpu = root / "proc" / str(GPU_PID)
     gpu.mkdir()
     (gpu / "stat").write_text(_stat(GPU_PID, "python3"))
@@ -335,6 +344,41 @@ def test_one_identifier_keeps_one_placeholder_across_files_and_encodings(tmp_pat
     assert cgroup == f"0::/docker/{container['Id']}\n"
 
 
+BRIDGE = "br-1a2b3c4d5e6f"
+VETH = "veth1a2b3c4"
+
+
+def test_a_docker_interface_keeps_one_placeholder_across_paths_and_readings(tmp_path):
+    copy = gb10_copy(tmp_path)
+    root = copy / "root"
+    host = json.loads((copy / "host.json").read_text())
+    for name in (BRIDGE, VETH):
+        device = root / "sys/devices/virtual/net" / name
+        device.mkdir(parents=True)
+        (device / "operstate").write_text("up\n")
+        (root / "sys/class/net" / name).symlink_to(f"../../devices/virtual/net/{name}")
+        _append(root / "proc/self/net/dev", f"{name}: 100 1 0 0 0 0 0 0 200 2 0 0 0 0 0 0\n")
+        host["net_if_addrs"][name] = []
+    docker_net = hidden_from_guard("", "0000", "12AC")
+    _append(
+        root / "proc/self/net/route", f"{BRIDGE}\t{docker_net}\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+    )
+    (copy / "host.json").write_text(json.dumps(host))
+    out = tmp_path / "out"
+    capture_of(copy, out)
+    assert [n for _, data in surfaces(out) for n in (BRIDGE, VETH) if n.encode() in data] == []
+    names = {p.name for p in (out / "root/sys/class/net").iterdir()}
+    (bridge,) = [n for n in names if n.startswith("br-")]
+    (veth,) = [n for n in names if n.startswith("veth")]
+    readings = json.loads((out / "host.json").read_text())["net_if_addrs"]
+    dev = (out / "root/proc/self/net/dev").read_text()
+    for name in (bridge, veth):
+        assert (out / "root/sys/devices/virtual/net" / name / "operstate").exists()
+        assert f"{name}: 100 1" in dev
+        assert name in readings
+    assert f"{bridge}\t" in (out / "root/proc/self/net/route").read_text()
+
+
 GUARDED = {
     line: [m[0] for d in DETECTORS for m in d.pattern.finditer(line) if not d.ok(m)] for line in REAL_LOOKING
 }
@@ -343,7 +387,7 @@ GUARDED = {
 @pytest.mark.parametrize("line", REAL_LOOKING)
 def test_every_identifier_form_the_guard_knows_is_replaced_or_refused(line, tmp_path):
     copy = gb10_copy(tmp_path)
-    _append(copy / "root/usr/lib/os-release", f"X_PLANTED={line}\n")
+    with_version(copy, line)
     out = tmp_path / "out"
     try:
         capture_of(copy, out)
