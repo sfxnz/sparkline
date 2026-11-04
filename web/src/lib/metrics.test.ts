@@ -22,6 +22,13 @@ describe('flatten', () => {
     expect(got.has('temp.nvme.composite')).toBe(false);
     expect(got.has('fs.data_models.used_pct')).toBe(false); // total 0
   });
+
+  it('writes no mem.* keys for a reading with total 0, the agent\'s placeholder when memory could not be read', () => {
+    const zeros = Object.fromEntries(Object.keys(s.mem).map((k) => [k, 0])) as unknown as Sample['mem'];
+    const got = [...flatten({ ...s, mem: zeros }).keys()];
+    expect(got.filter((k) => k.startsWith('mem.'))).toEqual([]);
+    expect(got).toContain('cpu.util');
+  });
 });
 
 describe('mountKey', () => {

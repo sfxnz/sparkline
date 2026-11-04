@@ -28,10 +28,12 @@ export function flatten(s: Sample): Map<string, number> {
   }
 
   const m = s.mem;
-  for (const name of MEM_KEYS) put(`mem.${name}`, m[name]);
-  put('mem.psi_some', m.psi_some);
-  put('mem.psi_full', m.psi_full);
-  if (m.total) put('mem.used_pct', (100 * m.used) / m.total);
+  if (m.total) {
+    for (const name of MEM_KEYS) put(`mem.${name}`, m[name]);
+    put('mem.psi_some', m.psi_some);
+    put('mem.psi_full', m.psi_full);
+    put('mem.used_pct', (100 * m.used) / m.total);
+  }
 
   const c = s.cpu;
   put('cpu.util', c.util);

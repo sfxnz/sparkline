@@ -125,6 +125,19 @@ def test_a_degraded_box_without_pressure_or_network_files_serves_everything_else
     assert snap.errors == {}
 
 
+def test_a_memory_collector_that_cannot_start_writes_no_mem_keys(tmp_path):
+    info, sample, _ = start(gb10_without(tmp_path, "/proc/meminfo"), tmp_path)
+
+    gap = next(u for u in info.unsupported if u.metric == "mem")
+    assert (gap.kind, gap.reason) == (
+        "hardware",
+        "The memory collector could not start: /proc/meminfo: No such file or directory",
+    )
+    flat = flatten(sample)
+    assert not [k for k in flat if k.startswith("mem.")]
+    assert {k: v for k, v in GOLDEN["flat"].items() if not k.startswith("mem.")} == flat
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads files regardless of their mode")
 def test_a_collector_without_read_permission_is_declared_unsupported_for_access(offline, tmp_path):
     src = gb10_without(tmp_path)
