@@ -29,6 +29,7 @@ import socket
 import stat
 import sys
 import tarfile
+import threading
 import time
 import traceback
 from collections import Counter
@@ -703,6 +704,15 @@ def silence_logs_that_name_unredacted_paths() -> None:
     logging.disable(logging.CRITICAL)
 
 
+def print_no_traceback_from_python() -> None:
+    def failed(kind: type[BaseException]) -> None:
+        print(f"sparkline-capture failed with {kind.__name__} (message not shown).", file=sys.stderr)
+
+    sys.excepthook = lambda kind, _value, _traceback: failed(kind)
+    threading.excepthook = lambda args: failed(args.exc_type)
+    sys.unraisablehook = lambda _ignored: None
+
+
 def where_it_failed_without_the_message(e: BaseException) -> list[str]:
     return [
         f"  {Path(f.filename).name}:{f.lineno} in {f.name}" for f in traceback.extract_tb(e.__traceback__)
@@ -717,6 +727,7 @@ class _Arguments(argparse.ArgumentParser):
 
 
 def main(argv: list[str] | None = None) -> int:
+    print_no_traceback_from_python()
     try:
         return _run(argv)
     except KeyboardInterrupt:
