@@ -12,7 +12,7 @@ from typing import Any, Literal
 from ..common.identifiers import CAPTURE, PUBLIC_HF_ORGS, Detector, scan, text_of
 from .collectors.procs import container_id
 from .collectors.storage import REAL_FS
-from .readset import DOCKER_APIS, HOST_READINGS, NVML_CALLS, admits, leads_to, matching
+from .readset import DOCKER_APIS, HOST_READINGS, NVML_CALLS, admits, matching, starred
 
 
 @dataclass(frozen=True)
@@ -904,23 +904,65 @@ NOT_REVIEWED = "not in the reviewed read set"
 BINARY = "binary content"
 
 
-def _unreviewed(raw: str, node: Node) -> str | None:
-    if not isinstance(node, File):
-        return None if leads_to(raw) else NOT_REVIEWED
-    kinds = [holds for _, holds in matching(raw)]
-    if any(admits(k, node.data) for k in kinds):
-        return None
-    if posixpath.basename(raw) == ".keep" and not node.data and leads_to(posixpath.dirname(raw)):
-        return None
-    return BINARY if "text" in kinds else NOT_REVIEWED
+def _ancestors(path: str) -> list[str]:
+    parts = path.split("/")
+    return ["/".join(parts[:i]) or "/" for i in range(1, len(parts))]
 
 
-def _up_to_the_unreviewed_part(path: str, raw: str) -> str:
-    parts, raw_parts = path.split("/"), raw.split("/")
-    depth = next((i for i in range(2, len(raw_parts) + 1) if not leads_to("/".join(raw_parts[:i]))), None)
-    if depth is None or depth == len(parts):
-        return "root" + path
-    return "root" + "/".join(parts[:depth]) + "/..."
+def _resolve(tree: dict[str, Node], path: str, depth: int = 0) -> str | None:
+    cur = "/"
+    for part in [p for p in posixpath.normpath(path).split("/") if p]:
+        nxt = posixpath.join(cur, part)
+        node = tree.get(nxt)
+        if node is None or depth > 40:
+            return None
+        if isinstance(node, Link):
+            got = _resolve(tree, posixpath.join(cur, node.target), depth + 1)
+            if got is None:
+                return None
+            cur = got
+        else:
+            cur = nxt
+    return cur
+
+
+def _admitted(tree: dict[str, Node], raw_of: dict[str, str]) -> set[str]:
+    """Files and directories the read set names, and the directories and links on the way to them."""
+    named = {
+        p
+        for p, n in tree.items()
+        if (isinstance(n, File) and any(admits(holds, n.data) for _, holds in matching(raw_of[p])))
+        or (isinstance(n, Dir) and matching(raw_of[p]))
+    }
+    links = {p: n.target for p, n in tree.items() if isinstance(n, Link)}
+    while True:
+        on_the_way = {a for p in named for a in _ancestors(p)} & tree.keys()
+        reached = named | on_the_way | {"/"}
+        more = {
+            p
+            for p, target in links.items()
+            if p not in named and _resolve(tree, posixpath.join(posixpath.dirname(p), target)) in reached
+        }
+        if not more:
+            break
+        named |= more
+    kept_empty = {
+        p
+        for p, n in tree.items()
+        if posixpath.basename(p) == ".keep" and n == File(b"") and posixpath.dirname(p) in reached
+    }
+    return reached | kept_empty
+
+
+def _shown(path: str, raw: str, up_to_the_first_part_not_in: set[str] | None = None) -> str:
+    parts = path.split("/")
+    depth = len(parts)
+    if up_to_the_first_part_not_in is not None:
+        reviewed = up_to_the_first_part_not_in
+        depth = next((i for i in range(2, len(parts)) if "/".join(parts[:i]) not in reviewed), depth)
+    stars = starred(raw)
+    shown = ["*" if i - 1 in stars else part for i, part in enumerate(parts[:depth])]
+    return "root" + "/".join(shown) + ("/..." if depth < len(parts) else "")
 
 
 def _unreviewed_readings(rec: Recording, originals: Spellings) -> list[Leak]:
@@ -941,6 +983,7 @@ def _unreviewed_readings(rec: Recording, originals: Spellings) -> list[Leak]:
 
 def leaks(red: Redacted) -> list[Leak]:
     rec, originals = red.recording, red.originals
+    admitted = _admitted(rec.tree, red.read_at)
     out: list[Leak] = []
     clean: set[str] = set()
     for path in rec.tree:
@@ -949,11 +992,13 @@ def leaks(red: Redacted) -> list[Leak]:
         if not found:
             clean.add(path)
     for path, node in rec.tree.items():
+        raw = red.read_at[path]
         leaked = "a node in root/ whose path leaks"
-        where = f"root{path}" if path in clean else leaked
-        if reason := _unreviewed(red.read_at[path], node):
-            unreviewed = _up_to_the_unreviewed_part(path, red.read_at[path]) if path in clean else leaked
-            out.append(Leak(unreviewed if reason == NOT_REVIEWED else where, reason))
+        where = _shown(path, raw) if path in clean else leaked
+        if path not in admitted:
+            text_kind = isinstance(node, File) and any(holds == "text" for _, holds in matching(raw))
+            unreviewed = _shown(path, raw, admitted) if path in clean else leaked
+            out.append(Leak(where, BINARY) if text_kind else Leak(unreviewed, NOT_REVIEWED))
         if isinstance(node, Link):
             out += [
                 Leak(f"the link target of {where}", c)

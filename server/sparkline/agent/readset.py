@@ -9,7 +9,7 @@ Holds = Literal["text", "entry", "binary"]
 # The capture writes only what this list allows, so adding an entry is the privacy review when collectors
 # grow the read set (#21 to #28). No file an entry matches may hold an identifier that the redaction misses.
 PATHS: dict[str, Holds] = {
-    "/proc/*": "entry",
+    "/proc/[0-9]*": "entry",
     "/proc/[0-9]*/cgroup": "text",
     "/proc/[0-9]*/cmdline": "text",
     "/proc/[0-9]*/stat": "text",
@@ -40,7 +40,9 @@ PATHS: dict[str, Holds] = {
     "/sys/devices/system/cpu/cpufreq/policy[0-9]*/cpuinfo_max_freq": "text",
     "/sys/devices/system/cpu/cpufreq/policy[0-9]*/scaling_cur_freq": "text",
     "/sys/class/hwmon/hwmon*": "entry",
-    "/sys/devices/**/hwmon*/*": "entry",
+    "/sys/devices/**/hwmon*/device": "entry",
+    "/sys/devices/**/hwmon*/fan[0-9]*_input": "entry",
+    "/sys/devices/**/hwmon*/power[0-9]*_input": "entry",
     "/sys/devices/**/hwmon*/name": "text",
     "/sys/devices/**/hwmon*/temp*_crit": "text",
     "/sys/devices/**/hwmon*/temp*_input": "text",
@@ -66,6 +68,8 @@ PATHS: dict[str, Holds] = {
     "/sys/devices/**/infiniband/*/ports/1/hw_counters/packet_seq_err": "text",
     "/sys/block/*": "entry",
     "/sys/devices/**/nvme[0-9]*n[0-9]*/size": "text",
+    "/sys/devices/**/nvme[0-9]*n[0-9]*/nvme[0-9]*n[0-9]*p[0-9]*": "entry",
+    "/sys/devices/**/block/*/[a-z]*[0-9]": "entry",
     "/sys/devices/**/block/*/size": "text",
     "/sys/devices/**/nvme[0-9]*/model": "text",
     "/sys/devices/**/nvme-subsys[0-9]*/model": "text",
@@ -142,23 +146,38 @@ def _parts(path: str) -> tuple[str, ...]:
 _PATTERNS = [(pattern, _parts(pattern), holds) for pattern, holds in PATHS.items()]
 
 
-def _match(path: tuple[str, ...], pattern: tuple[str, ...], prefix: bool) -> bool:
+def _match(path: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
     if not path:
-        return prefix or all(p == "**" for p in pattern)
+        return all(p == "**" for p in pattern)
     if not pattern:
         return False
     if pattern[0] == "**":
-        return _match(path, pattern[1:], prefix) or _match(path[1:], pattern, prefix)
-    return fnmatchcase(path[0], pattern[0]) and _match(path[1:], pattern[1:], prefix)
+        return _match(path, pattern[1:]) or _match(path[1:], pattern)
+    return fnmatchcase(path[0], pattern[0]) and _match(path[1:], pattern[1:])
 
 
 @cache
 def matching(path: str) -> tuple[tuple[str, Holds], ...]:
     parts = _parts(path)
-    return tuple((pattern, holds) for pattern, pat, holds in _PATTERNS if _match(parts, pat, prefix=False))
+    return tuple((pattern, holds) for pattern, pat, holds in _PATTERNS if _match(parts, pat))
 
 
 @cache
-def leads_to(path: str) -> bool:
+def starred(path: str) -> frozenset[int]:
+    """Indexes of the parts of path that a bare * of some pattern matches, such as an interface name."""
     parts = _parts(path)
-    return any(_match(parts, pat, prefix=True) for _, pat, _ in _PATTERNS)
+    found: set[int] = set()
+
+    def walk(i: int, pattern: tuple[str, ...], stars: frozenset[int]) -> None:
+        found.update(stars)
+        if i == len(parts) or not pattern:
+            return
+        if pattern[0] == "**":
+            walk(i, pattern[1:], stars)
+            walk(i + 1, pattern, stars)
+        elif fnmatchcase(parts[i], pattern[0]):
+            walk(i + 1, pattern[1:], (stars | {i}) if pattern[0] == "*" else stars)
+
+    for _, pattern, _ in _PATTERNS:
+        walk(0, pattern, frozenset())
+    return frozenset(found)

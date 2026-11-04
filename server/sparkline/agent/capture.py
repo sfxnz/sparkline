@@ -44,7 +44,7 @@ from ..common.schema import NodeInfo, Sample
 from .collectors.gpu import GpuCollector
 from .config import AgentConfig
 from .info import AGENT_VERSION, Collectors
-from .readset import IDENTIFIER_FIELDS
+from .readset import IDENTIFIER_FIELDS, matching
 from .redact import (
     IN_A_READING,
     RENAME,
@@ -332,8 +332,7 @@ def ask_what_a_second_tick_asks(gpu: GpuCollector) -> None:
 def materialize(tape: Tape, inner: RootFs, gpu_pids: set[int]) -> tuple[dict[str, Node], set[int]]:
     tree: dict[str, Node] = {"/": Dir()}
     dropped: set[int] = set()
-    listed: set[str] = set()
-    resolved: dict[str, str | None] = {}
+    seen: dict[str, Node | None] = {}
 
     def kept(path: str) -> bool:
         if path == "/proc/thread-self" or path.startswith("/proc/thread-self/"):
@@ -344,43 +343,46 @@ def materialize(tape: Tape, inner: RootFs, gpu_pids: set[int]) -> tuple[dict[str
         return True
 
     def node_at(path: str) -> Node | None:
-        if path == THIS_PROCESS:
-            return Dir()
-        host = inner.host_path(path)
-        try:
-            st = os.lstat(host)
-        except OSError:
-            return None
-        if stat.S_ISLNK(st.st_mode):
-            target = os.readlink(host)
-            if posixpath.isabs(target):
-                target = posixpath.relpath(target, posixpath.dirname(path))
-            return Link(target)
-        return Dir() if stat.S_ISDIR(st.st_mode) else File(b"")
+        if path not in seen:
+            seen[path] = _node_at(inner, path)
+        return seen[path]
 
-    def resolve(path: str, depth: int = 0) -> str | None:
-        if path in resolved:
-            return resolved[path]
-        cur: str | None = "/"
+    def resolve(path: str, depth: int = 0) -> tuple[str, list[tuple[str, Node]]] | None:
+        cur = "/"
+        on_the_way: list[tuple[str, Node]] = []
         for part in [p for p in path.split("/") if p]:
-            assert cur is not None
             nxt = posixpath.join(cur, part)
             node = node_at(nxt) if kept(nxt) and depth < 40 else None
             if node is None:
-                cur = None
-                break
-            tree.setdefault(nxt, node)
+                return None
+            on_the_way.append((nxt, node))
             if isinstance(node, Link):
-                cur = resolve(posixpath.normpath(posixpath.join(cur, node.target)), depth + 1)
-                if cur is None:
-                    break
+                inner_path = resolve(posixpath.normpath(posixpath.join(cur, node.target)), depth + 1)
+                if inner_path is None:
+                    return None
+                cur, more = inner_path
+                on_the_way += more
             else:
                 cur = nxt
-        resolved[path] = cur
-        return cur
+        return cur, on_the_way
 
+    def record(path: str) -> str | None:
+        found = resolve(posixpath.normpath(path))
+        if found is None:
+            return None
+        for p, node in found[1]:
+            tree.setdefault(p, node)
+        return found[0]
+
+    for path in tape.needs:
+        record(path)
+    for path, data in tape.data.items():
+        r = record(path)
+        if r is not None and isinstance(tree.get(r), File):
+            tree[r] = File(data)
+    listed: set[str] = set()
     for path, needs in tape.needs.items():
-        r = resolve(posixpath.normpath(path))
+        r = record(path)
         if r is None or "listing" not in needs or not isinstance(tree.get(r), Dir):
             continue
         listed.add(r)
@@ -390,17 +392,29 @@ def materialize(tape: Tape, inner: RootFs, gpu_pids: set[int]) -> tuple[dict[str
             continue
         for name in names:
             child = posixpath.join(r, name)
-            if kept(child) and (node := node_at(child)) is not None:
-                tree.setdefault(child, node)
-    for path, data in tape.data.items():
-        r = resolve(posixpath.normpath(path))
-        if r is not None and isinstance(tree.get(r), File):
-            tree[r] = File(data)
+            if child not in tree and kept(child) and matching(child):
+                tree[child] = File(b"")
     parents = {posixpath.dirname(p) for p in tree if p != "/"}
     for p, node in list(tree.items()):
         if isinstance(node, Dir) and p not in parents and p not in listed:
             tree[posixpath.join(p, ".keep")] = File(b"")
     return tree, dropped
+
+
+def _node_at(inner: RootFs, path: str) -> Node | None:
+    if path == THIS_PROCESS:
+        return Dir()
+    host = inner.host_path(path)
+    try:
+        st = os.lstat(host)
+    except OSError:
+        return None
+    if stat.S_ISLNK(st.st_mode):
+        target = os.readlink(host)
+        if posixpath.isabs(target):
+            target = posixpath.relpath(target, posixpath.dirname(path))
+        return Link(target)
+    return Dir() if stat.S_ISDIR(st.st_mode) else File(b"")
 
 
 def _users(passwd: str) -> list[User]:

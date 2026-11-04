@@ -19,13 +19,16 @@ from test_capture import (
 from test_capture import hidden_from_guard as j
 
 from sparkline.agent.redact import (
+    IN_A_READING,
     CaptureRefused,
     Dir,
     Facts,
     File,
+    Leak,
     Link,
     Node,
     Recording,
+    Redacted,
     User,
     leaks,
     redact,
@@ -418,28 +421,52 @@ def gb10_host() -> dict:
     return json.loads((GB10 / "host.json").read_text())
 
 
-@pytest.mark.parametrize(
-    ("path", "node", "watch"),
-    [
-        (f"/sys/class/net/{HOST}-br", Link(f"../../devices/virtual/net/{HOST}-br"), HOST),
-        (
-            "/sys/class/net/enx" + MAC.replace(":", ""),
-            Link("../../devices/virtual/net/x"),
-            MAC.replace(":", ""),
-        ),
-        ("/sys/class/net/eth9", Link(f"../..{HOME}/x"), USER),
-    ],
-    ids=["hostname in a file name", "MAC in a file name", "home in a link target"],
-)
-def test_a_name_in_a_reviewed_path_or_link_target_is_replaced(path: str, node: Node, watch: str):
-    facts = Facts(hostnames=(HOST,), users=(User(USER, HOME),), macs=(MAC,))
-    red = redact(Recording("linux", {"left_out": {}}, {"/": Dir(), path: node}, {}, gb10_host()), facts)
-    assert leaks(red) == []
-    written = b"".join(
+FACTS = Facts(hostnames=(HOST,), users=(User(USER, HOME),), macs=(MAC,))
+ENX = "enx" + MAC.replace(":", "")
+
+
+def redacted_tree(*nodes: tuple[str, Node]) -> Redacted:
+    tree: dict[str, Node] = {"/": Dir()}
+    for path, _ in nodes:
+        parts = path.split("/")
+        tree |= {"/".join(parts[:i]): Dir() for i in range(2, len(parts))}
+    tree |= dict(nodes)
+    return redact(Recording("linux", {"left_out": {}}, tree, {}, gb10_host()), FACTS)
+
+
+def written(red: Redacted) -> bytes:
+    return b"".join(
         p.encode() + (n.target.encode() if isinstance(n, Link) else n.data if isinstance(n, File) else b"")
         for p, n in red.recording.tree.items()
     )
-    assert watch.lower().encode() not in written.lower()
+
+
+def test_a_mac_in_an_interface_name_is_replaced_in_the_path_and_the_link_target():
+    red = redacted_tree(
+        (f"/sys/class/net/{ENX}", Link(f"../../devices/virtual/net/{ENX}")),
+        (f"/sys/devices/virtual/net/{ENX}/operstate", File(b"up\n")),
+    )
+    assert leaks(red) == []
+    assert MAC.replace(":", "").encode() not in written(red).lower()
+
+
+def test_a_hostname_in_an_interface_name_refuses_as_a_word_of_what_the_agent_reads():
+    red = redacted_tree(
+        (f"/sys/class/net/{HOST}-br", Link(f"../../devices/virtual/net/{HOST}-br")),
+        (f"/sys/devices/virtual/net/{HOST}-br/operstate", File(b"up\n")),
+    )
+    assert red.collisions == [Leak(IN_A_READING, "hostname")]
+
+
+def test_a_link_into_a_home_directory_is_refused_without_showing_it():
+    red = redacted_tree(
+        ("/sys/class/net/eth0", Link("../../devices/virtual/net/eth0")),
+        ("/sys/devices/virtual/net/eth0/operstate", File(b"up\n")),
+        ("/sys/class/net/eth9", Link(f"../..{HOME}/x")),
+    )
+    found = leaks(red)
+    assert Leak("root/sys/class/net/*", "not in the reviewed read set") in found
+    assert [leak for leak in found if USER in leak.surface] == []
 
 
 def test_os_release_keeps_only_the_line_the_agent_reads(tmp_path):
