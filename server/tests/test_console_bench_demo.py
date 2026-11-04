@@ -16,9 +16,12 @@ from sparkline.common.schema import BenchRun, BenchSpec, Event, NodeBenchState
 from sparkline.console import demo_bench
 from sparkline.console.app import create_app
 from sparkline.console.bench import REGISTRY, params_key, validate_params
+from sparkline.console.bench_store import BenchStore
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel
-from sparkline.console.demo_bench import demo_catalog, demo_duration, make_results, validate
+from sparkline.console.demo_bench import demo_catalog, demo_duration, make_results, seed_history, validate
+from sparkline.console.demo_fleets import FLEETS
+from sparkline.console.store import Store
 
 T0 = 1_791_280_000.0
 
@@ -36,6 +39,24 @@ def test_demo_catalog_is_the_agents_catalog():
     desc = {s.id: s.description for s in s1}
     assert "fio is not installed, so the built-in O_DIRECT runner is used" in desc["storage-fio"]
     assert "torch.distributed (NCCL backend)" in desc["nccl-allreduce"]
+
+
+def test_a_node_without_rdma_cannot_run_multi_node_benchmarks_and_says_why():
+    info = FLEETS["mixed"]["ws1"](T0, 1.0).info
+    ws1 = {s.id: s.availability["ws1"] for s in demo_catalog("ws1", info)}
+    assert {k for k, p in ws1.items() if p} == {"nccl-allreduce", "rdma-bw-lat"}
+    assert {p.message for p in ws1.values() if p} == {"ws1 has no RDMA interconnect"}
+    assert all("ConnectX-7" not in p.cause for p in ws1.values() if p)
+
+
+def test_seeded_history_stays_on_the_dgx_cluster_in_the_mixed_fleet(tmp_path):
+    store = Store(tmp_path / "c.sqlite")
+    bench = BenchStore(store.db)
+    models = {nid: make(T0, 1.0) for nid, make in FLEETS["mixed"].items()}
+    seed_history(bench, models, 5.0, store.add_event, now=T0)
+    runs = bench.run_list(limit=100)
+    assert len(runs) == len(demo_bench._SEED) and all("ws1" not in r.nodes for r in runs)
+    assert models["ws1"].bench_windows == [] and models["ws1"].disk_windows == []
 
 
 def test_demo_durations_are_compressed():

@@ -87,12 +87,19 @@ SERVED_MODEL = {
     "spark1": "DeepSeek-V4.1-Flash-EXL3",
     "spark2": "DeepSeek-V4.1-Flash-EXL3",
     "spark3": "Qwen3-32B",
+    "ws1": "nvidia/Llama-3.3-70B-Instruct-FP8",
 }
 
 
 def _env(node: str, info: NodeInfo | None) -> probes.Env:
     env = probes.Env()
-    if rail_ip(info, "A") is None:
+    if info is not None and not any(n.rdma_device for n in info.net):
+        env.rdma = Problem(
+            message=f"{node} has no RDMA interconnect",
+            cause="None of its network interfaces has an RDMA device, so it cannot reach a peer over RDMA",
+            fix="Run this benchmark on two nodes linked by RDMA, such as spark1 + spark2",
+        )
+    elif rail_ip(info, "A") is None:
         env.rdma = Problem(
             message=f"{node} has no ConnectX-7 peer",
             cause="Its ConnectX-7 ports have no cable or address, so it cannot reach another Spark",
