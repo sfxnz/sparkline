@@ -163,8 +163,7 @@ def matching(path: str) -> tuple[tuple[str, Holds], ...]:
 
 
 @cache
-def starred(path: str) -> frozenset[int]:
-    """Indexes of the parts of path that a bare * of some pattern matches, such as an interface name."""
+def parts_a_bare_star_matches(path: str) -> frozenset[int]:
     parts = _parts(path)
     found: set[int] = set()
 

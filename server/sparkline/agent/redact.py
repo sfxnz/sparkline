@@ -13,7 +13,7 @@ from typing import Any, Literal
 from ..common.identifiers import CAPTURE, PUBLIC_HF_ORGS, Detector, scan, text_of
 from .collectors.procs import container_id
 from .collectors.storage import REAL_FS
-from .readset import DOCKER_APIS, HOST_READINGS, NVML_CALLS, admits, matching, starred
+from .readset import DOCKER_APIS, HOST_READINGS, NVML_CALLS, admits, matching, parts_a_bare_star_matches
 
 
 @dataclass(frozen=True)
@@ -958,7 +958,6 @@ def _resolve(tree: dict[str, Node], path: str, depth: int = 0) -> str | None:
 
 
 def _admitted(tree: dict[str, Node], raw_of: dict[str, str]) -> set[str]:
-    """Files and directories the read set names, and the directories and links on the way to them."""
     named = {
         p
         for p, n in tree.items()
@@ -991,7 +990,7 @@ def _shown(path: str, raw: str, up_to_the_first_part_not_in: set[str] | None = N
     if up_to_the_first_part_not_in is not None:
         reviewed = up_to_the_first_part_not_in
         depth = next((i for i in range(2, len(parts)) if "/".join(parts[:i]) not in reviewed), depth)
-    stars = starred(raw)
+    stars = parts_a_bare_star_matches(raw)
     shown = ["*" if i - 1 in stars else part for i, part in enumerate(parts[:depth])]
     return "root" + "/".join(shown) + ("/..." if depth < len(parts) else "")
 
