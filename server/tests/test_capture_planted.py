@@ -302,6 +302,10 @@ CASES = [
     Case("vfat volume id", "replaced", ("AB12-34CD",), "UUID=AB12-34CD"),
     Case("Docker id, 64 hex", "replaced", ("c0ffee" + "ab" * 29,), "c0ffee" + "ab" * 29),
     Case("hostname power", "replaced", (), hostname="power"),
+    Case("hostname GB10, a word of the GPU name", "refused", ("GB10",), hostname="GB10", because="hostname"),
+    Case("hostname acpitz, a sensor name", "refused", ("acpitz",), hostname="acpitz", because="hostname"),
+    Case("hostname cpu, a word of reviewed paths", "refused", (), hostname="cpu", because="hostname"),
+    Case("user max, a word of reviewed paths", "refused", (), plant=passwd("max"), because="user"),
     Case(
         "GPU process command line with --api-key",
         "replaced",

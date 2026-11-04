@@ -26,6 +26,7 @@ from sparkline.agent.redact import CaptureRefused, Dir, Facts, Leak, Recording, 
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.sources import NvmlReplay, RootFs, Sources, recorded
 from sparkline.common.identifiers import text_of
+from sparkline.common.metrics import flatten
 
 
 def hidden_from_guard(sep: str, *parts: str) -> str:
@@ -262,11 +263,11 @@ def test_a_capture_of_the_gb10_recording_loads_with_no_nvml_misses_and_the_same_
     report = capture(recorded(GB10), tmp_path / "out", Facts())
     assert report.differences == []
     replay = recorded(tmp_path / "out")
-    info, flat, _ = exercise(replay)
+    info, sample, _ = exercise(replay)
     assert isinstance(replay.nvml, NvmlReplay) and replay.nvml.misses == []
-    original, original_flat, _ = exercise(recorded(GB10))
+    original, original_sample, _ = exercise(recorded(GB10))
     assert shape(info.model_dump(mode="json")) == shape(original.model_dump(mode="json"))
-    assert sorted(flat) == sorted(original_flat)
+    assert sorted(flatten(sample)) == sorted(flatten(original_sample))
 
 
 def test_no_planted_identifier_survives_a_capture(tmp_path):
@@ -323,6 +324,64 @@ def test_a_cgroup_file_that_is_not_utf8_is_rewritten_like_a_utf8_one(tmp_path):
 def test_a_command_line_in_one_argument_records_only_its_first_word(title, program, tmp_path):
     capture_of(with_gpu_process(gb10_copy(tmp_path), title.encode() + b"\0"), tmp_path / "out")
     assert recorded_cmdline(tmp_path / "out") == program + b"\0"
+
+
+def with_a_live_os_name(monkeypatch: pytest.MonkeyPatch, os_name: str) -> None:
+    import sparkline.agent.capture as cli
+
+    exercise = cli.exercise
+    runs: list[str] = []
+
+    def live_first(src: Sources) -> Any:
+        info, sample, pids = exercise(src)
+        runs.append("live" if not runs else "replay")
+        return (info.model_copy(update={"os": os_name}) if runs[-1] == "live" else info), sample, pids
+
+    monkeypatch.setattr(cli, "exercise", live_first)
+
+
+def test_a_replay_difference_prints_its_field_path_and_no_value(tmp_path, monkeypatch):
+    with_a_live_os_name(monkeypatch, "Ubuntu zorbsecret")
+    report = capture(recorded(GB10), tmp_path / "out", Facts())
+    assert report.differences == ["node_info.os"]
+
+
+def test_a_replay_difference_that_holds_a_name_of_this_machine_refuses_and_removes_the_output(
+    tmp_path, monkeypatch
+):
+    with_a_live_os_name(monkeypatch, "Ubuntu zorbsecret")
+    out = tmp_path / "out"
+    with pytest.raises(CaptureRefused) as refused:
+        capture(recorded(GB10), out, Facts(hostnames=("zorbsecret",)))
+    assert not out.exists(), "the written recording is removed"
+    assert "node_info.os: hostname" in str(refused.value)
+    assert "zorbsecret" not in str(refused.value)
+    assert "sudo hostname" in str(refused.value), "it says what to do"
+
+
+def test_an_interface_labelled_with_its_own_name_replays_as_it_ran(tmp_path):
+    copy = gb10_copy(tmp_path)
+    root = copy / "root"
+    net = root / "sys/devices/pci000a:00/000a:00:00.0/000a:01:00.0/net" / IFACE
+    net.mkdir(parents=True)
+    (net / "operstate").write_text("up\n")
+    (root / "sys/class/net" / IFACE).symlink_to(
+        f"../../devices/pci000a:00/000a:00:00.0/000a:01:00.0/net/{IFACE}"
+    )
+    host = json.loads((copy / "host.json").read_text())
+    host["net_if_addrs"][IFACE] = [{"family": "AF_LINK", "address": MAC, "netmask": None}]
+    (copy / "host.json").write_text(json.dumps(host))
+    report = capture_of(copy, tmp_path / "out")
+    assert report.differences == []
+    assert not (tmp_path / "out/root/sys/class/net" / IFACE).exists(), "the interface is renamed"
+
+
+def test_a_name_that_is_a_word_of_a_reviewed_path_refuses_before_writing(tmp_path):
+    copy = gb10_copy(tmp_path)
+    (copy / "root/proc/sys/kernel/hostname").write_text("cpu\n")
+    message = refusal_of(copy, tmp_path / "out")
+    assert "reviewed path /sys/devices/system/cpu/cpufreq/policy[0-9]*/cpuinfo_max_freq: hostname" in message
+    assert "sudo hostname" in message, "it says what to do"
 
 
 def test_one_identifier_keeps_one_placeholder_across_files_and_encodings(tmp_path):

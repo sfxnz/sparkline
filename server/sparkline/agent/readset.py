@@ -107,6 +107,23 @@ NVML_CALLS = frozenset(
 )
 HOST_READINGS = frozenset({"net_if_addrs", "statvfs", "ethtool", "docker", "which"})
 DOCKER_APIS = frozenset({"/images/json", "/containers/json"})
+IDENTIFIER_FIELDS = frozenset(
+    {
+        "node_info.hostname",
+        "node_info.node_id",
+        "node_info.gpus[*].uuid",
+        "node_info.net[*].name",
+        "node_info.net[*].label",
+        "node_info.net[*].mac",
+        "node_info.net[*].ipv4",
+        "node_info.net[*].peer",
+        "node_info.disks[*].mounts",
+        "procs[*].user",
+        "procs[*].container",
+        "procs[*].model",
+        "procs[*].cmdline",
+    }
+)
 
 
 def admits(holds: Holds, data: bytes) -> bool:

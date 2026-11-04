@@ -66,13 +66,21 @@ class Leak:
 
 
 class CaptureRefused(Exception):
-    def __init__(self, found: list[Leak]) -> None:
+    def __init__(self, found: list[Leak], advice: str = "") -> None:
         self.leaks = found
         lines = [f"  {leak.surface}: {leak.category}" for leak in found]
         super().__init__(
             "The capture was refused and nothing was written. It cannot record these places safely "
-            "(values are not shown):\n" + "\n".join(lines)
+            "(values are not shown):\n" + "\n".join(lines) + (f"\n{advice}" if advice else "")
         )
+
+
+RENAME = (
+    "A name of this machine is also a word in what it reads, so replacing it would change a reading. "
+    "Give the machine, account or container a name that is not a word in these readings, then capture "
+    "again. For the hostname, run sudo hostname <name> and undo it after. For a container, run docker "
+    "rename. For a user, capture from another account. Or open an issue and paste these lines."
+)
 
 
 PUBLIC_IMAGES = ("nvcr.io/nvidia/",)
@@ -179,6 +187,10 @@ class Spellings:
 
     def categories_in(self, text: str) -> set[str]:
         return {self._spelling(m).category for m in self._rx.finditer(text)} if self._rx else set()
+
+    def names_in(self, text: str) -> set[str]:
+        found = (self._spelling(m) for m in self._rx.finditer(text)) if self._rx else ()
+        return {s.category for s in found if s.form in _WORDS}
 
     def categories_in_bytes(self, data: bytes) -> set[str]:
         low = data.lower()
@@ -833,6 +845,19 @@ def _unreviewed_readings(rec: Recording, originals: Spellings) -> list[Leak]:
         )
         for where, name, reviewed in named
         if name not in reviewed
+    ]
+
+
+def _admitting(raw: str, node: Node) -> list[str]:
+    if isinstance(node, File):
+        return [pattern for pattern, holds in matching(raw) if admits(holds, node.data)]
+    return [pattern for pattern, _ in matching(raw)]
+
+
+def name_collisions(red: Redacted) -> list[Leak]:
+    patterns = {p for path, node in red.recording.tree.items() for p in _admitting(red.read_at[path], node)}
+    return [
+        Leak(f"reviewed path {p}", c) for p in sorted(patterns) for c in sorted(red.originals.names_in(p))
     ]
 
 
