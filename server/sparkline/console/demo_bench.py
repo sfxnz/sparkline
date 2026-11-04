@@ -9,7 +9,9 @@ plausible GB10 numbers with small run-to-run noise. While a run is going,
 the node's demo telemetry carries the load (DemoNode.bench_windows for the GPU, disk_windows for the storage
 profiles), so the telemetry overlay is alive. fio is "not
 installed" on the demo nodes (built-in runner, noted), and spark3 has no ConnectX-7 peer, so 2-node
-benchmarks are unavailable there. Benchmarks whose results are GB10 numbers are unavailable on other hardware.
+benchmarks are unavailable there. On other hardware, the GPU, memory, CPU and storage benchmarks
+(GB10_RESULTS) are unavailable, and the thermal soak reports only the node's own clock, temperature and
+throttle telemetry, with no throughput.
 """
 
 from __future__ import annotations
@@ -123,11 +125,15 @@ DISK_LOAD = {
 
 
 # make_results reports numbers measured on a DGX Spark for these; no other demo hardware has modelled results
-GB10_RESULTS = ("gpu-matmul", "mem-bandwidth", "cpu-throughput")
+GB10_RESULTS = ("gpu-matmul", "mem-bandwidth", "cpu-throughput", "storage-fio")
+
+
+def _gb10(info: NodeInfo | None) -> bool:
+    return info is None or any(g.name == "NVIDIA GB10" for g in info.gpus)
 
 
 def _not_gb10(node: str, info: NodeInfo | None) -> Problem | None:
-    if info is None or any(g.name == "NVIDIA GB10" for g in info.gpus):
+    if _gb10(info):
         return None
     return Problem(
         message="Demo results are modelled on GB10 only",
@@ -456,8 +462,8 @@ def soak_point(model: DemoNode, t: float, rng: random.Random) -> dict[str, float
     g = model.sample_at(t).gpu[0]
     vals = [g.sm_mhz, g.temp_c, g.power_w, g.throttle_mask, g.util]
     pt = {k: float(v or 0.0) for k, v in zip(SOAK_KEYS, vals, strict=True)}
-    # measured 10 min soaks at 8192: 94.6 TFLOPS at 2149 MHz, 95.5 at 2181 MHz
-    pt["tflops"] = round(96.5 * min(1.0, (g.sm_mhz or 0.0) / 2200) * (1 + rng.gauss(0, 0.004)), 3)
+    if _gb10(model.info):  # measured 10 min soaks at 8192: 94.6 TFLOPS at 2149 MHz, 95.5 at 2181 MHz
+        pt["tflops"] = round(96.5 * min(1.0, (g.sm_mhz or 0.0) / 2200) * (1 + rng.gauss(0, 0.004)), 3)
     return pt
 
 
@@ -468,15 +474,24 @@ def soak_results(s: dict[str, list[float]]) -> list[BenchResult]:
         s.get("gpu0.throttle_mask", []),
         s.get("tflops", []),
     )
-    if len(clk) < 2 or not tf:
+    if len(clk) < 2:
         return []
-    k = max(1, len(tf) // 10)
-    first, last = statistics.fmean(tf[:k]), statistics.fmean(tf[-k:])
+    out = []
+    if tf:
+        k = max(1, len(tf) // 10)
+        first, last = statistics.fmean(tf[:k]), statistics.fmean(tf[-k:])
+        out = [
+            _r("tflops_first", "BF16 TFLOPS, first window", first, "TFLOPS"),
+            _r("tflops_last", "BF16 TFLOPS, last window", last, "TFLOPS"),
+            _r(
+                "tflops_change_pct",
+                "Throughput change, last vs first window",
+                (last - first) / first * 100,
+                "%",
+            ),
+        ]
     mean = statistics.fmean(clk)
-    return [
-        _r("tflops_first", "BF16 TFLOPS, first window", first, "TFLOPS"),
-        _r("tflops_last", "BF16 TFLOPS, last window", last, "TFLOPS"),
-        _r("tflops_change_pct", "Throughput change, last vs first window", (last - first) / first * 100, "%"),
+    return out + [
         _r("sm_mhz_mean", "Mean SM clock", mean, "MHz", samples=len(clk)),
         _r("sm_mhz_min", "Lowest SM clock", min(clk), "MHz", samples=len(clk)),
         _r("sm_clock_cv_pct", "Clock variation (CV)", statistics.pstdev(clk) / mean * 100, "%", "lower"),
