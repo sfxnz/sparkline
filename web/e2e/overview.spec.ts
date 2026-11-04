@@ -137,3 +137,37 @@ test('the ws1 card shows GPU 3 at slowdown in full on a phone and a laptop', asy
     }
   }
 });
+
+/** The visible " · " separators in `el` that start a line: each should share a line with the word before it. */
+const strandedSeparators = (el: Element) => {
+  const words: { text: string; top: number; block: Element | null }[] = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.parentElement?.checkVisibility() || n.parentElement.closest('.visually-hidden')) continue;
+    let block: Element | null = n.parentElement;
+    while (block && getComputedStyle(block).display.startsWith('inline')) block = block.parentElement;
+    for (const m of (n.textContent ?? '').matchAll(/\S+/g)) {
+      const range = document.createRange();
+      range.setStart(n, m.index);
+      range.setEnd(n, m.index + m[0].length);
+      words.push({ text: m[0], top: Math.round(range.getBoundingClientRect().top), block });
+    }
+  }
+  return words.flatMap((w, i) => {
+    const before = words[i - 1];
+    return w.text === '·' && before?.block === w.block && Math.abs(before.top - w.top) > 4 ? [`· after "${before.text}"`] : [];
+  });
+};
+
+for (const [state, temp] of [['heating up', 88], ['at slowdown', 94]] as const) {
+  test(`the ws1 card never starts a line with a separator while GPU 3 is ${state}`, async ({ page }) => {
+    await workstation(page, (g) => (g.index === 3 ? { ...g, temp_c: temp } : g));
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Node ws1' });
+    await expect(card).toContainText('GPU 3');
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => card.evaluate(strandedSeparators), { message: `separators starting a line at ${String(width)} px` }).toEqual([]);
+    }
+  });
+}
