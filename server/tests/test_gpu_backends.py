@@ -440,6 +440,21 @@ def test_close_waits_for_a_tick_still_reading_the_backend(monkeypatch):
     assert Closes.closed == ["blocks"]
 
 
+def test_two_backends_with_one_name_are_refused(monkeypatch):
+    twin = type("twin", (Opens,), {"name": "opens"})
+    monkeypatch.setitem(CHAINS, "linux", (Chain("amd", (Opens, twin)),))
+    with pytest.raises(ValueError, match="opens"):
+        GpuCollector(gb10())
+
+
+def test_a_recording_closes_cleanly(caplog):
+    collector = GpuCollector(gb10())
+    nvml = gb10().nvml
+    collector.close()
+    assert "closing the nvml backend failed" not in caplog.text
+    assert isinstance(nvml, NvmlReplay) and nvml.nvmlShutdown() is None
+
+
 class Flaky(AmdFake):
     name = "flaky"
     broken: ClassVar[set[str]] = set()
