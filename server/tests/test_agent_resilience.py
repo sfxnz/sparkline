@@ -103,10 +103,10 @@ def test_gpu_reads_recover_after_transient_nvml_errors(nvml):
     assert (again.util, again.temp_c, again.power_w) == (42, 55, 30.0)
 
 
-def test_unexpected_nvml_exception_is_isolated_by_the_sampler(nvml, tmp_path):
+def test_an_unexpected_nvml_exception_fails_only_that_tick_and_names_the_backend(nvml, tmp_path):
     g = GpuCollector(gb10(nvml=nvml))
     s = Sampler("n1", [g], 1000, ring_seconds=10)
-    nvml.fail = RuntimeError("ctypes blew up")  # not an NVMLError: escapes the collector
+    nvml.fail = RuntimeError("ctypes blew up")  # not an NVMLError: the collector isolates the backend
     s.collect_once()
     assert s.latest is not None and s.latest.gpu == [] and "RuntimeError" in s.latest.errors["gpu"]
     nvml.fail = None
@@ -440,3 +440,21 @@ def test_bench_probe_reports_docker_unreachable_instead_of_raising(tmp_path):
     env = probes.probe(info, "img:tag", str(tmp_path / "work"), sock_path=sock)
     t.join(5)
     assert env.docker is not None
+
+
+class _Returns:
+    def __init__(self, name: str, out: dict) -> None:
+        self.name, self.out = name, out
+
+    def caps(self) -> dict:
+        return {}
+
+    def collect(self) -> dict:
+        return dict(self.out)
+
+
+def test_a_collector_returning_errors_that_are_not_a_map_fails_alone():
+    cpu = Sampler("n1", [], 1000, ring_seconds=10).tick().cpu
+    collectors = [_Returns("gpu", {"gpu": [], "errors": "oops"}), _Returns("cpu", {"cpu": cpu})]
+    s = Sampler("n1", collectors, 1000, ring_seconds=10).tick()
+    assert s.errors["gpu"].startswith("TypeError") and "cpu" not in s.errors
