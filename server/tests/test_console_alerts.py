@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import re
 import sqlite3
+from pathlib import Path
 
 import pytest
 from platforms import gb10_without
@@ -8,8 +11,9 @@ from platforms import gb10_without
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors
 from sparkline.agent.sampler import Sampler
+from sparkline.common.metrics import flatten
 from sparkline.common.schema import AlertRule, ConsoleSettings, Event, Problem
-from sparkline.console.alerts import DEFAULT_RULES, AlertEngine, validate_rules
+from sparkline.console.alerts import DEFAULT_RULES, AlertEngine, fmt_value, validate_rules
 from sparkline.console.cluster import Cluster
 from sparkline.console.demo import DemoModel
 from sparkline.console.demo_fleets import FLEETS
@@ -234,8 +238,6 @@ def test_values_carry_units_and_throttle_reasons_read_as_a_phrase():
 
 
 def test_gpu_memory_values_read_in_gib_like_system_memory():
-    from sparkline.console.alerts import fmt_value
-
     gib = 1 << 30
     assert fmt_value("mem.used", 12.5 * gib) == "12.5 GiB"
     assert fmt_value("gpu0.vram_used", 41.3 * gib) == "41.3 GiB"
@@ -630,3 +632,28 @@ def test_an_empty_stored_settings_row_starts_the_console_on_its_configured_setti
     assert cluster.settings == ConsoleSettings(stale_after_s=7)
     assert side_rows(store, "settings") == {}
     assert [r for r in caplog.records if r.levelname == "WARNING"] == []
+
+
+UNIT_FIXTURE = Path(__file__).parents[2] / "web/src/test/fixtures/flatten.expected.json"
+SHOWN_AS = {
+    "celsius": {"°C"},
+    "gib": {"GiB"},
+    "percent": {"%"},
+    "watts": {"W"},
+    "mhz": {"MHz", "GHz"},
+    "mbit_s": {"b/s", "kb/s", "Mb/s", "Gb/s"},
+    "mbyte_s": {"MB/s"},
+    "kwh": {"kWh"},
+    "plain": {""},
+}
+
+
+def test_alert_text_uses_the_rule_editor_unit_for_every_demo_key():
+    editor_unit = json.loads(UNIT_FIXTURE.read_text())["unit_for"]
+    values: dict[str, float] = {}
+    for make in FLEETS["mixed"].values():
+        values.update(flatten(make(T0, 1.0).sample_at(T0)))
+    assert sorted(values) == sorted(editor_unit), "a demo key is missing from unit_for in the fixture"
+    shown = {k: re.sub(r"^-?[\d.e+-]+\s*", "", fmt_value(k, v)) for k, v in values.items()}
+    wrong = {k: (shown[k], editor_unit[k]) for k in values if shown[k] not in SHOWN_AS[editor_unit[k]]}
+    assert wrong == {}
