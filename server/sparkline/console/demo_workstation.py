@@ -146,13 +146,20 @@ class WorkstationModel:
         raw = self.raw_power(i, t)
         return POWER_LIMIT_W + (raw - POWER_LIMIT_W) * 0.1 if raw > POWER_LIMIT_W else raw
 
+    def driver_loaded(self, t: float) -> float:
+        """When the driver session holding t began: at boot, or for the session before it, PREV_SESSION_S
+        earlier."""
+        return self.boot if t >= self.boot else self.boot - self.PREV_SESSION_S
+
     def power_capped(self, i: int, t: float) -> bool:
         """Hysteresis on the noise-free draw, so noise near the limit never flips the bit for one sample: set
-        above CAP_ON_W, cleared below CAP_OFF_W once CAP_MIN_S has passed since it was last above, off at
-        boot. The scan back ends at the first decisive second, within a minute on this model's load."""
+        above CAP_ON_W, cleared below CAP_OFF_W once CAP_MIN_S has passed since it was last above, off when
+        the driver loads. The scan back ends at the first decisive second, within a minute on this model's
+        load."""
+        start = self.driver_loaded(t)
         low = None
         k = 0
-        while t - k >= self.boot:
+        while t - k >= start:
             p = self.raw_power(i, t - k, noise=False)
             if p > CAP_ON_W:
                 return True
@@ -164,11 +171,9 @@ class WorkstationModel:
         return False
 
     def energy_at(self, i: int, t: float) -> float:
-        """GPU i's energy counter (J): the integral of power_at since the driver loaded at boot."""
-        if t >= self.boot:
-            return self._integral("boot", i, self.boot, t)
-        origin = self.boot - self.PREV_SESSION_S
-        return self._integral("prev", i, origin, max(t, origin))
+        """GPU i's energy counter (J): the integral of power_at since the driver loaded."""
+        origin = self.driver_loaded(t)
+        return self._integral("boot" if origin == self.boot else "prev", i, origin, max(t, origin))
 
     def _integral(self, name: str, i: int, origin: float, t: float) -> float:
         step = self.ENERGY_STEP_S if name == "boot" else 4 * self.ENERGY_STEP_S
