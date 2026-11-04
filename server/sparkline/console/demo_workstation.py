@@ -39,13 +39,13 @@ from ..common.schema import (
 from .demo import Smooth, _clamp, _episode, _h
 
 GIB = 1 << 30
-MEM_TOTAL = 263_617_544 * 1024  # 251.4 GiB of 256 GiB DDR5 (MemTotal)
+MEM_TOTAL = 263_617_544 * 1024
 SWAP_TOTAL = 8 * GIB
 THREADS = 64  # cpu0-31 are the 32 cores' first threads, cpu32-63 their SMT siblings
 CPU_MODEL = "AMD Ryzen Threadripper PRO 7975WX 32-Cores"
 CPU_MAX_MHZ = 5300.0
 LAN_IP = "198.51.100.20"
-LAN, SPARE_PORT = "enp68s0f0", "enp68s0f1"  # dual-port 10GBASE-T, one port cabled
+LAN, SPARE_PORT = "enp68s0f0", "enp68s0f1"
 ROOT_DISK = ("nvme0n1", "Samsung SSD 990 PRO 2TB", 2_000_398_934_016)
 DATA_DISK = ("nvme1n1", "Samsung SSD 990 PRO 4TB", 4_000_787_030_016)
 FS_ROOT = 1_967_317_032_960
@@ -57,12 +57,12 @@ POWER_LIMIT_W = 300.0
 SM_MAX_MHZ = 3105.0
 MAX_OPERATING_C, SLOWDOWN_C, SHUTDOWN_C = 89.0, 93.0, 96.0
 IDLE_W = 24.0
-SLOT_HEAT = (1.0, 3.0, 6.0, 0.0)  # °C over the coolest card at equal power; GPU 2 sits between two cards
-POWER_SKEW = (0.0, 2.5, -2.0, 3.5)  # W: silicon spread between the four boards
+SLOT_HEAT_C = (1.0, 3.0, 6.0, 0.0)
+POWER_SKEW_W = (0.0, 2.5, -2.0, 3.5)
 EPISODE_GPU = 3
 BENCH_GPU = 0
-CCD_HEAT = (0.0, 1.5, -1.0, 2.0)  # °C per CCD around Tctl - 4
-WORKER_CPUS = (2, 10, 18, 26)  # one tensor-parallel worker per CCD
+CCD_HEAT_C = (0.0, 1.5, -1.0, 2.0)
+WORKER_CPUS = (2, 10, 18, 26)
 ENGINE_CPU, API_CPU = 5, 1
 MODEL_ID = "nvidia/Llama-3.3-70B-Instruct-FP8"
 
@@ -89,20 +89,17 @@ class WorkstationModel:
         self.core_noise = [Smooth(f"{node_id}core{i}", (20, 75)) for i in range(THREADS)]
         self.boot = t0 - 2.4 * 86400 - 3600 * (1 + _h(node_id, "boot"))
         self.info = self._info()
-        # (driver session, GPU index) -> cumulative energy at each ENERGY_STEP_S step (see energy_at)
         self._cum: dict[tuple[str, int], list[float]] = {}
         self.bench_windows: list[list[float]] = []
         self.disk_windows: list[list[float]] = []
 
     def bench_load(self, t: float) -> tuple[float, float]:
-        """(load, heat) of a demo benchmark at t: load is immediate, heat ramps up over ~45 s."""
         load = heat = 0.0
         for a, b, i in self.bench_windows:
             if a <= t < b:
                 load, heat = max(load, i), max(heat, i * min(1.0, (t - a) / 45))
         return load, heat
 
-    # -- scenario ------------------------------------------------------------------------------------
     def scen(self, t: float) -> float:
         return (t - self.t0) * self.speed
 
@@ -110,20 +107,17 @@ class WorkstationModel:
         return "ok"
 
     def thermal(self, t: float) -> float:
-        """0..1 envelope of GPU 3's overheating episode."""
         return _episode((self.scen(t) - 90) % 360, 12, 25, 15)
 
-    # -- workload ------------------------------------------------------------------------------------
     def diurnal(self, t: float) -> float:
         hour = time.localtime(t).tm_hour + time.localtime(t).tm_min / 60
         return 0.72 + 0.28 * math.cos((hour - 16) / 24 * 2 * math.pi)
 
     def busy(self, t: float) -> tuple[float, float]:
-        """(busy 0..1, active 0..1) of the TP=4 server, the same on every GPU."""
         b = _clamp(0.5 + 0.75 * self.waves(t), 0, 1) * self.diurnal(t)
         active = _clamp((self.valley(t) + 0.9) / 0.08, 0, 1)
         heat = self.thermal(t)
-        if heat:  # GPU 3 overheats under a burst of requests
+        if heat:
             b, active = max(b, heat), max(active, min(1.0, 4 * heat))
         return b, active
 
@@ -135,10 +129,9 @@ class WorkstationModel:
         return _clamp(u, 0, 100)
 
     def raw_power(self, i: int, t: float) -> float:
-        """Board power before the 300 W cap: ~24 W idle, ~200-300 W serving."""
-        p = IDLE_W + 2.8 * self.util(i, t) + POWER_SKEW[i] + 1.2 * _h(self.node_id, "p", i, int(t))
+        p = IDLE_W + 2.8 * self.util(i, t) + POWER_SKEW_W[i] + 1.2 * _h(self.node_id, "p", i, int(t))
         if i == EPISODE_GPU:
-            p += 12 * self.thermal(t)  # leakage rises with temperature
+            p += 12 * self.thermal(t)
         if i == BENCH_GPU:
             p += 25 * self.bench_load(t)[1]
         return p
@@ -158,25 +151,24 @@ class WorkstationModel:
         step = self.ENERGY_STEP_S if name == "boot" else 4 * self.ENERGY_STEP_S
         cum = self._cum.setdefault((name, i), [0.0])
         k = int((t - origin) // step)
-        while len(cum) <= k:  # extend lazily, midpoint rule per step
+        while len(cum) <= k:
             n = len(cum) - 1
             cum.append(cum[-1] + self.power_at(i, origin + (n + 0.5) * step) * step)
         return cum[k] + self.power_at(i, origin + (k + 0.5) * step) * (t - origin - k * step)
 
-    # -- sample --------------------------------------------------------------------------------------
     def _gpu(self, i: int, t: float) -> GpuSample:
-        j = lambda key: _h(self.node_id, key, i, int(t))  # noqa: E731 - per-second jitter in [-1, 1)
+        j = lambda key: _h(self.node_id, key, i, int(t))  # noqa: E731
         util = self.util(i, t)
         raw = self.raw_power(i, t)
         capped = _clamp((raw - (POWER_LIMIT_W - 4)) / 8 * 100, 0, 100)
         lag = (
             0.4 * self.power_at(i, t - 8) + 0.35 * self.power_at(i, t - 25) + 0.25 * self.power_at(i, t - 60)
         )
-        temp = 31 + SLOT_HEAT[i] + 0.165 * lag + 0.4 * j("t")  # ~35 °C idle, ~80-87 °C at the power cap
+        temp = 31 + SLOT_HEAT_C[i] + 0.165 * lag + 0.4 * j("t")
         if i == EPISODE_GPU:
             temp += self.thermal(t) * (94.4 + 0.4 * j("th") - temp)
         busy = util >= 5
-        mask = 0 if busy else 0x1  # gpu_idle, which a discrete card at rest reports
+        mask = 0 if busy else 0x1
         sm = 2490 + 50 * j("sm") if busy else 210.0
         if capped > 5:
             mask |= 0x4
@@ -206,7 +198,6 @@ class WorkstationModel:
         )
 
     def cpu_busy(self, c: int, b: float, active: float) -> float:
-        """Expected % of thread c: the TP workers and the engine busy-poll while serving."""
         if c in WORKER_CPUS:
             return 2 + 93 * active
         if c == ENGINE_CPU:
@@ -217,11 +208,10 @@ class WorkstationModel:
 
     def sample_at(self, t: float, seq: int = 0, procs: bool = False) -> Sample:
         nid = self.node_id
-        j = lambda key: _h(nid, key, int(t))  # noqa: E731 - per-second jitter in [-1, 1)
+        j = lambda key: _h(nid, key, int(t))  # noqa: E731
         b, active = self.busy(t)
         gpus = [self._gpu(i, t) for i in range(GPUS)]
 
-        # dedicated VRAM: no GPU memory inside system RAM; the page cache holds the model files
         anon = int(34 * GIB + 0.4 * GIB * self.slow(t + 900))
         shmem, kernel, other = (
             int(2.3 * GIB),
@@ -281,7 +271,7 @@ class WorkstationModel:
         ]
 
         rd_root, wr_root = 1.5e6 + 1e6 * j("dr"), 9e6 + 6e6 * j("dw")
-        for a, z, brd, bwr in self.disk_windows:  # the benchmark work dir is on the root drive
+        for a, z, brd, bwr in self.disk_windows:
             if a <= t < z:
                 rd_root, wr_root = rd_root + brd, wr_root + bwr
         rd_data = 0.4e6 + 0.3e6 * j("dd") + (3.1e9 * (disk_x - 0.75) / 0.25 if disk_x > 0.75 else 0.0)
@@ -330,7 +320,7 @@ class WorkstationModel:
         temps = [TempSample(id="k10temp.tctl", c=round(tctl, 1))]
         temps += [
             TempSample(id=f"k10temp.tccd{k + 1}", c=round(tctl - 4 + off + 0.5 * j(f"ccd{k}"), 1))
-            for k, off in enumerate(CCD_HEAT)
+            for k, off in enumerate(CCD_HEAT_C)
         ]
         for prefix, base in (("nvme", nvme), ("nvme1", nvme - 3)):
             temps += [

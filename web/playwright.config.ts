@@ -4,9 +4,8 @@ const PORT = Number(process.env.E2E_PORT ?? 5180);
 /** The demo console the flow tests run against (started below with a throwaway data dir). */
 const DEMO_PORT = Number(process.env.E2E_DEMO_PORT ?? 9702);
 const DEMO_DIR = '.e2e-demo'; // git-ignored; recreated on every run so acks and settings start clean
-/** The mixed-hardware demo console (a 4-GPU workstation beside a GB10), serving the built app itself. */
 const MIXED_PORT = Number(process.env.E2E_MIXED_PORT ?? 9703);
-const MIXED_DIR = '.e2e-mixed'; // git-ignored, like DEMO_DIR
+const MIXED_DIR = '.e2e-mixed';
 
 export default defineConfig({
   testDir: './e2e',
@@ -33,7 +32,6 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      // Reads dist on each request, so the preview server's build below covers it.
       command: [
         `rm -rf ${MIXED_DIR} && mkdir -p ${MIXED_DIR}`,
         `printf 'data_dir = "%s"\\n' "$PWD/${MIXED_DIR}/data" > ${MIXED_DIR}/demo.toml`,

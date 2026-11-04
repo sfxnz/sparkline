@@ -30,7 +30,6 @@ vi.mock('../../charts/TimeSeriesChart', async (importOriginal) => ({
 }));
 
 interface Platform { info: NodeInfo; sample: Sample }
-/** The fixtures are generated JSON: read them as the wire types, as the app does. */
 const platform = (info: unknown, sample: unknown): Platform => ({ info: info as NodeInfo, sample: sample as Sample });
 const workstation = platform(wsInfo, wsSample);
 const gb10 = platform(gb10Info, gb10Sample);

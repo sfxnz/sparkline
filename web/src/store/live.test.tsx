@@ -16,7 +16,6 @@ const mk = (ts: number, gpuUtil: number | null = 50, node = 'spark1'): Sample =>
 
 const netA = base.net[0] as NetSample;
 
-/** A large workstation: 256 threads, 8 GPUs, 6 NICs, 4 disks, 6 filesystems and 40 sensors. */
 function bigNode(ts: number): Sample {
   const n = (k: number) => Array.from({ length: k }, (_, i) => i);
   return {
@@ -99,7 +98,6 @@ describe('LiveStore ring buffers', () => {
     store.pushSample(big);
     const missing = [...flat].filter(([k, v]) => store.latestValue('ws8', k) !== v).map(([k]) => k);
     expect(missing).toEqual([]);
-    // History for a metric the live ticks have not carried yet (a chart back-filling it) is kept too.
     store.seed({ node_id: 'ws8', resolution_s: 1, ts: [0], series: { 'gpu7.thermal_capped_pct': [12] }, min: {}, max: {} });
     expect(store.window('ws8', ['gpu7.thermal_capped_pct']).values[0]).toEqual([12, null]);
   });

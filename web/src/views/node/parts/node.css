@@ -388,7 +388,6 @@
 @media (max-width: 860px) {
   .ngpu__charts { grid-template-columns: minmax(0, 1fr); }
 }
-/* Several GPUs: one section each, two per row, then the comparison charts. */
 .ngpu__sections { display: grid; gap: var(--space-5); grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 1180px) {
   .ngpu__sections { grid-template-columns: minmax(0, 1fr); }

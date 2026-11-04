@@ -2,11 +2,8 @@
 // null/undefined values are omitted so unsupported metrics never masquerade as 0. Keys must stay identical.
 import type { GpuSample, Sample } from './types';
 
-/** A numeric reading of one GPU in a Sample. */
 export type GpuReading = Exclude<keyof GpuSample, 'index'>;
-/** A per-GPU metric: a reading, or a NodeInfo figure that can be listed as not reported. */
 export type GpuField = GpuReading | 'power_limit_w';
-/** Flattened (and not-reported) key of one GPU's metric: gpuKey(2, 'power_w') is "gpu2.power_w". */
 export const gpuKey = (index: number, field: GpuField) => `gpu${index}.${field}`;
 
 export function mountKey(mount: string): string {

@@ -64,23 +64,16 @@ function tempThresholds(slowdown: number | null, shutdown: number | null): Thres
   return t;
 }
 
-/** The GPU a view is about, and what its stats need from the node. */
 interface GpuCtx {
   nodeId: string;
   index: number;
   gpu: GpuInfo | undefined;
   info: NodeInfo | null | undefined;
-  /** One section among several: the name is the section's subtitle, and power reads against this GPU's limit. */
   multi: boolean;
   currency: string;
   rate: number | null;
 }
 
-/**
- * One stat of a GPU: a live reading of its sample, or a figure NodeInfo fixes. Each derives "not reported" from its
- * own key (gpu{index}.{field}), so an unsupported entry lands on the right GPU only. Later fields (VRAM, fan, memory
- * clock, PCIe) are further entries.
- */
 type GpuStatSpec =
   | { label: string; reading: GpuReading; format: Formatter; footer?: (value: number | null) => ReactNode }
   | { label: string; field: GpuField; value: number | null; format: Formatter; missingFooter?: ReactNode };
@@ -247,11 +240,10 @@ function MultiGpu({ nodeId, info, gpus, currency, rate }: MultiProps) {
   const perGpu = (field: GpuReading): SeriesSpec[] => gpus.map((g) => ({ key: gpuKey(g.index, field), label: `GPU ${g.index}`, gpu: g.index }));
   const smMaxes = gpus.map((g) => g.sm_mhz_max);
   const smTop = smMaxes.every((m) => m != null) ? Math.max(...smMaxes) : null;
-  // One set of dashed lines is true for every series only when all GPUs share both points.
   const first = gpus[0];
-  const agree = gpus.every((g) => g.temp_slowdown_c === first?.temp_slowdown_c) && gpus.every((g) => g.temp_shutdown_c === first?.temp_shutdown_c);
-  const slowdown = agree ? (first?.temp_slowdown_c ?? null) : null;
-  const shutdown = agree ? (first?.temp_shutdown_c ?? null) : null;
+  const sharedThresholds = gpus.every((g) => g.temp_slowdown_c === first?.temp_slowdown_c) && gpus.every((g) => g.temp_shutdown_c === first?.temp_shutdown_c);
+  const slowdown = sharedThresholds ? (first?.temp_slowdown_c ?? null) : null;
+  const shutdown = sharedThresholds ? (first?.temp_shutdown_c ?? null) : null;
   const thresholds = useMemo(() => tempThresholds(slowdown, shutdown), [slowdown, shutdown]);
 
   return (
@@ -298,7 +290,6 @@ function MultiGpu({ nodeId, info, gpus, currency, rate }: MultiProps) {
   );
 }
 
-/** One GPU of several: its live stats and clock limits, or a notice when the latest sample has nothing for it. */
 function GpuSection({ c }: { c: GpuCtx }) {
   const { nodeId, index, gpu } = c;
   const present = useLatest(nodeId, gpuPresent(index));
@@ -330,7 +321,7 @@ function GpuSection({ c }: { c: GpuCtx }) {
             <GpuStats c={c} />
           </div>
           <div className="nclock ngpu-section__clock">
-            <ThrottleNow nodeId={nodeId} index={index} smMax={gpu?.sm_mhz_max ?? null} gap={gap(gpuKey(index, 'throttle_mask'))} rows="alerts" />
+            <ThrottleNow nodeId={nodeId} index={index} smMax={gpu?.sm_mhz_max ?? null} gap={gap(gpuKey(index, 'throttle_mask'))} showInfoReasons={false} />
             <CappedShare nodeId={nodeId} index={index} info={c.info} />
           </div>
         </>
@@ -339,7 +330,6 @@ function GpuSection({ c }: { c: GpuCtx }) {
   );
 }
 
-/** A section's compact status: its clock-limit badge, or the age of its values once the node stops reporting. */
 function GpuStatus({ nodeId, index }: { nodeId: string; index: number }) {
   const mask = useLatest(nodeId, gpuSelector(index, 'throttle_mask'));
   const { stale } = useFreshness(nodeId);
@@ -375,16 +365,14 @@ function GpuProcesses({ nodeId }: { nodeId: string }) {
   );
 }
 
-/** `rows="alerts"` (a section among several) lists only the warning and critical reasons: the headline already names
- *  the informational ones, and repeating them in every section buries the GPU that needs attention. */
-function ThrottleNow({ nodeId, index, smMax, gap, rows = 'all' }: { nodeId: string; index: number; smMax: number | null; gap: NotReported | null; rows?: 'all' | 'alerts' }) {
+function ThrottleNow({ nodeId, index, smMax, gap, showInfoReasons = true }: { nodeId: string; index: number; smMax: number | null; gap: NotReported | null; showInfoReasons?: boolean }) {
   const { waiting } = useFreshness(nodeId);
   const mask = useLatest(nodeId, gpuSelector(index, 'throttle_mask'));
   const clocks = useLatest(nodeId, (s) => clockLevel(s, smMax, index));
   const reasons = decodeThrottle(mask);
   const head = throttleHeadline(reasons, clocks);
   const meta = head.severity === 'ok' ? null : SEVERITY_META[head.severity];
-  const listed = rows === 'all' ? reasons : reasons.filter((r) => r.severity !== 'info');
+  const listed = showInfoReasons ? reasons : reasons.filter((r) => r.severity !== 'info');
   const Icon = meta?.icon ?? CircleCheck;
   if (mask === null && waiting && !gap) {
     return (

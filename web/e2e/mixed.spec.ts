@@ -1,6 +1,4 @@
 /// <reference lib="dom" />
-// The mixed-hardware demo console the Playwright config starts (a 4-GPU workstation, ws1, beside a GB10, spark1),
-// opened directly: it serves the built app itself, so nothing here goes through the preview proxy.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 

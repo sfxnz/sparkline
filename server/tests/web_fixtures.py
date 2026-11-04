@@ -18,7 +18,7 @@ OUT = Path(__file__).resolve().parents[2] / "web" / "src" / "test" / "fixtures" 
 COMMAND = "python tests/web_fixtures.py"
 T = 1_791_288_000.5
 T0 = T - 30
-PLATFORMS = {  # platform -> (node in the mixed fleet, notes)
+PLATFORMS = {
     "gb10": (
         "spark1",
         "NodeInfo mirrors what a real spark1 agent (GB10) reports; ids such as MACs and the GPU UUID are "
@@ -38,7 +38,6 @@ def _json(obj: Any) -> str:
 
 
 def build() -> dict[str, str]:
-    """Path relative to OUT -> file text, at the fixed instant T in UTC."""
     tz = os.environ.get("TZ")
     os.environ["TZ"] = "UTC"
     time.tzset()
@@ -47,7 +46,7 @@ def build() -> dict[str, str]:
         for platform, (node, notes) in PLATFORMS.items():
             model = FLEETS["mixed"][node](T0, 1.0)
             sample = model.sample_at(T, procs=True)
-            sample.procs_ts = T  # as DemoSource stamps a tick that refreshed the process list
+            sample.procs_ts = T
             meta = {"node": node, "generated_by": COMMAND, "synthesized": True, "notes": notes}
             out[f"{platform}/info.json"] = _json(model.info.model_dump(mode="json"))
             out[f"{platform}/sample.json"] = _json(sample.model_dump(mode="json"))

@@ -144,13 +144,11 @@ def _episode(p: float, ramp: float, hold: float, fall: float) -> float:
 
 
 class DemoNode(Protocol):
-    """What the demo console reads from a simulated node: DemoSource, demo_history and demo_bench."""
-
     node_id: str
     lan_ip: str
     info: NodeInfo
-    bench_windows: list[list[float]]  # [start, end, intensity 0..1] of demo GPU benchmark load
-    disk_windows: list[list[float]]  # [start, end, read B/s, write B/s] of demo storage benchmark load
+    bench_windows: list[list[float]]
+    disk_windows: list[list[float]]
 
     def link_state(self, t: float) -> str: ...
 
@@ -664,7 +662,7 @@ class DemoSource(NodeSource):
         super().__init__(model.node_id, f"http://{model.lan_ip}:9750", listener)
         self.model = model
         self.seq = 0
-        self.energy: dict[int, float] = {}  # GPU index -> live energy counter (J)
+        self.energy: dict[int, float] = {}
         self.procs_ts: float | None = None
         self.interval = 1.0
 
@@ -689,7 +687,7 @@ class DemoSource(NodeSource):
             if state == "stall":
                 continue
             s = self.model.sample_at(now, self.seq, procs=self.seq % 5 == 0)
-            for g in s.gpu:  # each energy counter integrates its GPU's live power
+            for g in s.gpu:
                 prev = self.energy.get(g.index)
                 e = (g.energy_j or 0.0) if prev is None else prev + (g.power_w or 0) * self.interval
                 self.energy[g.index] = e

@@ -18,7 +18,7 @@ from sparkline.console.hub import Hub
 from sparkline.console.store import Store
 
 T0 = 1_791_280_000.0
-THERMAL_BITS = 0x20 | 0x40  # sw_thermal, hw_thermal
+THERMAL_BITS = 0x20 | 0x40
 
 
 def ws1(t0: float = T0):
@@ -172,7 +172,7 @@ def test_workstation_samples_stay_plausible_over_a_long_span():
     assert gpu.power_limit_w == 300.0 and gpu.temp_shutdown_c is not None and gpu.temp_slowdown_c is not None
     last = [0.0] * 4
     bits = [0] * 4
-    for i in range(0, 2 * 3600, 3):  # 20 of GPU 3's episodes
+    for i in range(0, 2 * 3600, 3):
         s = m.sample_at(T0 + i, i, procs=i % 300 == 0)
         if i % 300 == 0:
             assert Sample.model_validate(json.loads(s.model_dump_json())) == s
@@ -186,16 +186,16 @@ def test_workstation_samples_stay_plausible_over_a_long_span():
             bits[g.index] |= g.throttle_mask
     assert bits[3] & THERMAL_BITS == THERMAL_BITS
     assert [b & THERMAL_BITS for b in bits[:3]] == [0, 0, 0]
-    hot = m.sample_at(T0 + 115).gpu  # inside the first episode, from 90 s
+    hot = m.sample_at(T0 + 115).gpu
     assert hot[3].temp_c > gpu.temp_slowdown_c and hot[3].sm_mhz < min(g.sm_mhz for g in hot[:3]) * 0.75
-    assert max(hot[:3], key=lambda g: g.temp_c).index == 2  # otherwise the sandwiched card runs hottest
+    assert max(hot[:3], key=lambda g: g.temp_c).index == 2
 
 
 def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
     m = ws1()
     keys = flatten(m.sample_at(T0, procs=True))
     assert {k.split(".")[0] for k in keys if k.startswith("gpu")} == {"gpu0", "gpu1", "gpu2", "gpu3"}
-    assert "mem.gpu" not in keys  # VRAM is not system RAM
+    assert "mem.gpu" not in keys
     assert not [n.name for n in m.info.net if n.rdma_device or n.role == "interconnect"]
     assert {u.metric for u in m.info.unsupported} == {"fan", "system.power_w"}
     assert len(m.info.cores) == 64 and {c.cluster for c in m.info.cores} == {0, 1, 2, 3}

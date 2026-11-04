@@ -111,8 +111,6 @@
   --chart-2: #c5c9d2;
   --chart-3: #7c8190;
   --chart-4: #b4a4f5;
-  /* One colour per GPU index, the same on every chart and section swatch. Adjacent slots stay apart under colour-vision
-     deficiency, and every slot clears 3:1 against every surface (contrast.test.ts). */
   --gpu-0: #3987e5; --gpu-1: #d95926; --gpu-2: #199e70; --gpu-3: #c98500; --gpu-4: #d55181; --gpu-5: #008300; --gpu-6: #9085e9; --gpu-7: #e66767;
   /* Sequential ramp (CPU heatmap): one hue, lightness rising with the value, stops at 0 / 20 / 45 / 70 / 100 %.
      From the 20 % stop on, cells clear 3:1 against every surface (contrast.test.ts). */

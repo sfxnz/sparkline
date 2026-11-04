@@ -145,7 +145,7 @@ def test_demo_mixed_implies_demo_and_runs_the_mixed_fleet(tmp_path, monkeypatch,
     monkeypatch.setattr(console_main, "create_app", fake_app)
     monkeypatch.setattr(console_main, "lock_data_dir", lambda d: -1)
     p = tmp_path / "console.toml"
-    p.write_text("")  # no tokens and no nodes: only a demo starts
+    p.write_text("")
     monkeypatch.setenv("SPARKLINE_CONFIG", str(p))
     console_main.main(["--demo-mixed", "--data-dir", str(tmp_path / "d")])
     assert (captured["demo"], captured["fleet"]) == (True, "mixed")
