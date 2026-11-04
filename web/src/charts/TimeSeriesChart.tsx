@@ -573,9 +573,31 @@ export function TimeSeriesChart({
     };
   }, [node, keys, labels, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
 
+  const swatches = stack
+    ? series.map((s) => `tschart__swatch--area ${s.className}${s.hatched ? ' tschart__swatch--hatched' : ''}`)
+    : series.map((_, i) => `tschart__swatch--${i % 4}`);
+  const legend = (
+    <ul className="tschart__legend" aria-label={`${title} series`}>
+      {series.map((s, i) => (
+        <li key={s.key} className="tschart__legend-item">
+          <span className={`tschart__swatch ${swatches[i] ?? ''}`} aria-hidden="true" />
+          <span className="tschart__legend-label">{s.label}</span>
+          <span className="tschart__legend-value num" ref={isUnsupported ? undefined : (r) => { legendRefs.current[i] = r; }}>—</span>
+        </li>
+      ))}
+      {thresholds?.map((t) => (
+        <li key={`${t.label}${t.value}`} className={`tschart__legend-item tschart__threshold tone-${t.tone}`}>
+          <span className="tschart__swatch tschart__swatch--dashed" aria-hidden="true" />
+          <span className="tschart__legend-label">{t.label}</span>
+        </li>
+      ))}
+    </ul>
+  );
+
   if (unsupported) {
     return (
       <figure className="tschart" aria-label={title}>
+        <figcaption className="tschart__head">{legend}</figcaption>
         <div className="tschart__plot tschart__plot--empty" style={{ height }}>
           <Unsupported gap={unsupported} block />
         </div>
@@ -585,28 +607,11 @@ export function TimeSeriesChart({
 
   const waiting = load === 'loading' || (live && load === 'empty' && (connStatus !== 'live' || nodeStatus === 'connecting' || !nodeStatus));
   const overlay = waiting ? 'loading' : load === 'empty' ? 'empty' : load === 'error' ? 'error' : null;
-  const swatches = stack
-    ? series.map((s) => `tschart__swatch--area ${s.className}${s.hatched ? ' tschart__swatch--hatched' : ''}`)
-    : series.map((_, i) => `tschart__swatch--${i % 4}`);
 
   return (
     <figure className={`tschart${nodeStale && live ? ' tschart--stale' : ''}`}>
       <figcaption className="tschart__head">
-        <ul className="tschart__legend" aria-label={`${title} series`}>
-          {series.map((s, i) => (
-            <li key={s.key} className="tschart__legend-item">
-              <span className={`tschart__swatch ${swatches[i] ?? ''}`} aria-hidden="true" />
-              <span className="tschart__legend-label">{s.label}</span>
-              <span className="tschart__legend-value num" ref={(r) => { legendRefs.current[i] = r; }}>—</span>
-            </li>
-          ))}
-          {thresholds?.map((t) => (
-            <li key={`${t.label}${t.value}`} className={`tschart__legend-item tschart__threshold tone-${t.tone}`}>
-              <span className="tschart__swatch tschart__swatch--dashed" aria-hidden="true" />
-              <span className="tschart__legend-label">{t.label}</span>
-            </li>
-          ))}
-        </ul>
+        {legend}
         <div className="tschart__actions">
           {/* Which moment the legend values are ("now", or the time under the cursor): at the row's end, so it never
               wraps the legend onto a second line. */}
