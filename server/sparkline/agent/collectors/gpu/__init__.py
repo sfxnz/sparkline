@@ -37,7 +37,7 @@ def _failure(backend: str, e: Exception, root: str) -> _Failure:
         return _Failure(backend, e.reason, e.kind, isinstance(e, NoDevice))
     if isinstance(e, OSError):
         path = str(e.filename).removeprefix(root) if e.filename else None
-        if isinstance(e, PermissionError):  # EACCES or EPERM
+        if isinstance(e, PermissionError):
             reason = f"Needs access to {path}" if path else f"Not permitted ({e.strerror or e})"
             return _Failure(backend, reason, "access", False)
         if path:
@@ -45,8 +45,7 @@ def _failure(backend: str, e: Exception, root: str) -> _Failure:
     return _Failure(backend, f"Failed unexpectedly ({type(e).__name__}: {e})", "hardware", False)
 
 
-def _known_versions(backend: GpuBackend) -> Mapping[str, str]:
-    """What a backend that did not open still knows, such as the driver version of a GPU it could not open."""
+def _versions_after_failed_open(backend: GpuBackend) -> Mapping[str, str]:
     try:
         return backend.versions()
     except Exception as e:
@@ -103,7 +102,7 @@ class GpuCollector:
                             raise CannotOpen(f"open() numbered GPU {i} as {g.index}", "agent")
                 except Exception as e:
                     failures.append(_failure(make.name, e, src.fs.root))
-                    self.versions |= _labelled(chain.vendor, _known_versions(backend))
+                    self.versions |= _labelled(chain.vendor, _versions_after_failed_open(backend))
                     _close(backend)
                     continue
                 self._adopt(chain.vendor, backend, gpus, caps)
@@ -162,8 +161,6 @@ class GpuCollector:
         return self._caps
 
     def collect(self) -> dict[str, Any]:
-        """One tick. A backend that raises sends no GPU samples this tick, as a whole collector that raises
-        would, and names itself in the sample's `errors["gpu"]`; the other backends report as usual."""
         out: list[GpuSample] = []
         proc_mem: dict[int, int] = {}
         reported = False

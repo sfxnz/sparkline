@@ -10,7 +10,6 @@ export interface BackendInUse {
   gpus: string[];
 }
 
-/** A backend the agent tried and did not use. `backend` is null for a node-wide reason that names no backend. */
 export interface SkippedBackend {
   backend: string | null;
   gap: NotReported;
@@ -24,7 +23,6 @@ export interface VersionGroup {
 export interface PlatformSheet {
   platform: string;
   backends: BackendInUse[];
-  /** With no backend in use: what the node lacks. Null while a backend is in use. */
   missing: 'No GPU backend opened' | 'No GPU found' | 'No GPU data' | 'No GPUs reported' | null;
   skipped: SkippedBackend[];
   versions: VersionGroup[];
@@ -69,8 +67,6 @@ export function platformSheet(info: NodeInfo): PlatformSheet {
   return { platform: platformLabel(info.platform ?? 'linux'), backends, missing, skipped, versions };
 }
 
-/** `gpu.backend` is set only when a GPU may be here but no backend opened. Without it, backend entries alone mean
- *  every vendor was absent. An agent older than backends sends only `gpu*`. */
 function whyNoBackend(info: NodeInfo, inUse: boolean): Pick<PlatformSheet, 'missing' | 'skipped'> {
   const tried = skippedBackends(info);
   if (inUse) return { missing: null, skipped: tried };
@@ -81,7 +77,6 @@ function whyNoBackend(info: NodeInfo, inUse: boolean): Pick<PlatformSheet, 'miss
   return older ? { missing: 'No GPU data', skipped: [{ backend: null, gap: older }] } : { missing: 'No GPUs reported', skipped: [] };
 }
 
-/** The meta row's word for a node with no GPU in its info, or null when it has GPUs or gives no reason. */
 export function noGpuLabel(info: NodeInfo): string | null {
   if (info.gpus.length) return null;
   const { missing } = whyNoBackend(info, false);
