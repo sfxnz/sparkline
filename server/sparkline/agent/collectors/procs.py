@@ -136,7 +136,7 @@ def scan_procs(fs: RootFs) -> dict[int, tuple[str, int, int, int]]:
     for d in fs.listdir("/proc"):
         if d.isdigit():
             try:
-                fd = os.open(fs.path(f"/proc/{d}/stat"), os.O_RDONLY)  # ~35% cheaper than open() per file
+                fd = os.open(fs.host_path(f"/proc/{d}/stat"), os.O_RDONLY)  # ~35% cheaper than open()
                 try:
                     out[int(d)] = parse_pid_stat(os.read(fd, 4096))
                 finally:
@@ -181,7 +181,7 @@ class ProcsCollector:
 
     def _user(self, pid: int) -> str | None:
         try:
-            uid = os.stat(self.fs.path(f"/proc/{pid}")).st_uid
+            uid = os.stat(self.fs.host_path(f"/proc/{pid}")).st_uid
         except OSError:
             return None
         if uid not in self._users:

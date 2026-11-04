@@ -65,6 +65,8 @@ def probe_tools(src: Sources) -> dict[str, bool]:
 
 
 class Collectors:
+    """Builds the real collectors in tick order (GPU first: memory and procs reuse its per-process data)."""
+
     def __init__(self, cfg: AgentConfig, src: Sources) -> None:
         self.fs = src.fs
         self.gpu = GpuCollector(src)

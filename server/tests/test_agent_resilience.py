@@ -283,9 +283,9 @@ def test_hwmon_sensor_vanishing_reports_none_and_the_rest_keep_reading(tmp_path,
             self.gone: set[str] = set()
 
         def read(self, p: str) -> str:
-            if any(self.path(p).startswith(g) for g in self.gone):
+            if any(self.host_path(p).startswith(g) for g in self.gone):
                 raise OSError(19, "No such device")
-            with open(self.path(p)) as f:
+            with open(self.host_path(p)) as f:
                 return f.read()
 
     read = GoneOnRead()
@@ -311,7 +311,7 @@ class CountingFs(RootFs):
 
     def read(self, p: str) -> str:
         self.reads.append(os.path.basename(os.path.dirname(p)))
-        with open(self.path(p)) as f:
+        with open(self.host_path(p)) as f:
             return f.read()
 
 
