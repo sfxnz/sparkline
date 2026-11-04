@@ -148,28 +148,25 @@ export function drawShareCard(canvas: HTMLCanvasElement, run: BenchRun, spec: Be
     ctx.fillText('No results', pad, 210);
   }
 
-  // Footer: environment.
+  // Footer: environment, and beneath it the note for a modelled figure's mark (the rule moves up to make room).
+  const marked = modelledResults(heads);
+  const rule = marked ? 268.5 : 278.5;
+  const envY = marked ? 292 : 306;
   ctx.strokeStyle = c.sep;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(pad, 278.5);
-  ctx.lineTo(CARD_W - pad, 278.5);
+  ctx.moveTo(pad, rule);
+  ctx.lineTo(CARD_W - pad, rule);
   ctx.stroke();
   const f = runFacts(run);
   const env = [f.gpu, f.driver ? `Driver ${f.driver}` : null, f.cuda ? `CUDA ${f.cuda}` : null].filter(Boolean).join('  ·  ') || 'Environment not recorded';
-  const footW = CARD_W - pad * 2 - 120;
-  const marked = modelledResults(heads);
   ctx.fillStyle = c.text2;
   ctx.font = `500 12px ${font}`;
-  let foot = env;
-  if (marked) {
-    const note = modelledNote(marked, `figures marked ${MODELLED_MARK}`);
-    foot = ctx.measureText(`${note}  ·  ${env}`).width <= footW ? `${note}  ·  ${env}` : note;
-  }
-  ctx.fillText(fit(ctx, foot, footW), pad, 306);
+  ctx.fillText(fit(ctx, env, CARD_W - pad * 2 - 120), pad, envY);
+  if (marked) ctx.fillText(fit(ctx, modelledNote(marked, `figures marked ${MODELLED_MARK}`), CARD_W - pad * 2), pad, envY + 18);
   ctx.fillStyle = c.text3;
   ctx.textAlign = 'right';
-  ctx.fillText(`Run ${run.id.slice(0, 8)}`, CARD_W - pad, 306);
+  ctx.fillText(`Run ${run.id.slice(0, 8)}`, CARD_W - pad, envY);
   ctx.textAlign = 'left';
 }
 
