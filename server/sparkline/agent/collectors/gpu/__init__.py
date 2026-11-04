@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import get_args
@@ -9,6 +10,8 @@ from ...sources import Sources
 from .. import Caps, GpuField
 from .backend import CannotOpen, Chain, Gap, GpuBackend, NoDevice
 from .nvml import Nvml
+
+log = logging.getLogger(__name__)
 
 CHAINS: dict[str, tuple[Chain, ...]] = {"linux": (Chain("nvidia", (Nvml,)),), "darwin": ()}
 
@@ -36,6 +39,19 @@ def _failure(backend: str, e: Exception) -> _Failure:
     return _Failure(backend, f"{type(e).__name__}: {e}", kind, False)
 
 
+def _known_versions(backend: GpuBackend) -> Mapping[str, str]:
+    """What a backend that did not open still knows, such as the driver version of a GPU it could not open."""
+    try:
+        return backend.versions()
+    except Exception as e:
+        log.debug("%s versions after a failed open: %s", backend.name, e)
+        return {}
+
+
+def _labelled(vendor: Vendor, versions: Mapping[str, str]) -> dict[str, str]:
+    return {f"{vendor}.{label}": v for label, v in versions.items()}
+
+
 def _joined(metric: str, failures: list[_Failure]) -> Unsupported:
     return Unsupported(
         metric=metric,
@@ -60,6 +76,10 @@ class GpuCollector:
             for make in chain.backends:
                 try:
                     backend = make(src)
+                except Exception as e:
+                    failures.append(_failure(make.name, e))
+                    continue
+                try:
                     gpus = backend.open()
                     if not gpus:
                         raise NoDevice("Opened, but found no GPU")
@@ -70,9 +90,10 @@ class GpuCollector:
                             raise CannotOpen(f"open() numbered GPU {i} as {g.index}", "agent")
                 except Exception as e:
                     failures.append(_failure(make.name, e))
+                    self.versions |= _labelled(chain.vendor, _known_versions(backend))
                     continue
                 self._adopt(chain.vendor, backend, gpus, caps)
-                self.versions |= {f"{chain.vendor}.{label}": v for label, v in versions.items()}
+                self.versions |= _labelled(chain.vendor, versions)
                 break
         if self.info:
             procs = [self._caps[f"gpu{g.index}.proc_mem"] for g in self.info]

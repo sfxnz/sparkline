@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, ClassVar, NamedTuple
+from typing import Any, ClassVar, NamedTuple, get_args
 
 from ....common.schema import GpuInfo, GpuSample
 from ...sources import Sources
@@ -143,6 +143,7 @@ class Nvml:
         self.gpus: list[_Gpu] = []
         self._caps: dict[int, dict[GpuField, Gap | None]] = {}
         self._versions: dict[str, str] = {}
+        self._lost: list[int] = []
 
     def _driver_loaded(self) -> bool:
         return self.fs.exists("/proc/driver/nvidia")
@@ -172,17 +173,27 @@ class Nvml:
         }
         self._versions = {label: v for label, v in versions.items() if v}
         info = []
+        lost: dict[int, str] = {}
         for i in range(n):
             try:
-                g = _Gpu(len(self.gpus), nv.nvmlDeviceGetHandleByIndex(i))
+                g = _Gpu(i, nv.nvmlDeviceGetHandleByIndex(i))
             except Exception as e:
                 log.warning("GPU %d handle failed: %s", i, e)
+                lost[i] = _reason(e)
                 continue
             self.gpus.append(g)
             info.append(self._probe(g))
         if not self.gpus:
+            if lost:
+                why = "; ".join(dict.fromkeys(lost.values()))
+                seen = "1 GPU but could not open it" if n == 1 else f"{n} GPUs but could not open any"
+                raise CannotOpen(f"NVML sees {seen} ({why})")
             raise NoDevice("NVML found no NVIDIA GPU")
-        return info
+        for i, why in lost.items():
+            info.append(GpuInfo(index=i, name=f"GPU {i}"))
+            self._caps[i] = dict.fromkeys(get_args(GpuField), Gap(f"NVML could not open GPU {i} ({why})"))
+        self._lost = sorted(lost)
+        return sorted(info, key=lambda g: g.index)
 
     def caps(self) -> dict[int, dict[GpuField, Gap | None]]:
         return self._caps
@@ -287,7 +298,8 @@ class Nvml:
                     thermal_capped_pct=g.caps.get(nv.NVML_PERF_POLICY_THERMAL),
                 )
             )
-        return out
+        out += [GpuSample(index=i) for i in self._lost]
+        return sorted(out, key=lambda s: s.index)
 
     def proc_mem(self) -> dict[int, dict[int, int]]:
         out: dict[int, dict[int, int]] = {}
