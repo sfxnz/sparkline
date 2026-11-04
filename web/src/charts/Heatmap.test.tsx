@@ -43,6 +43,50 @@ describe('Heatmap', () => {
   });
 });
 
+describe('Heatmap group labels', () => {
+  const core = (id: number, kind: CoreInfo['kind'], model: string | null = null): CoreInfo => ({ id, kind, model, max_mhz: null, cluster: null });
+  let drawn: string[] = [];
+
+  beforeEach(() => {
+    drawn = [];
+    const ctx = new Proxy({}, { get: (_, key) => (key === 'fillText' ? (text: string) => { drawn.push(text); } : () => undefined), set: () => true });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as CanvasRenderingContext2D);
+    vi.stubGlobal('ResizeObserver', class {
+      private readonly cb: ResizeObserverCallback;
+      constructor(cb: ResizeObserverCallback) { this.cb = cb; }
+      observe() { this.cb([{ contentRect: { width: 600 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      disconnect() {}
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const groupLabels = () => [...new Set(drawn.filter((t) => !/^\d+$/.test(t)))];
+
+  it('labels a lone group of unknown cores "All cores", never "Other"', () => {
+    render(<Heatmap node="spark1" cores={[core(0, 'unknown'), core(1, 'unknown'), core(2, 'unknown')]} store={new LiveStore(16)} />);
+    expect(groupLabels()).toEqual(['All cores']);
+  });
+
+  it('keeps "Other" for unknown cores beside a performance/efficiency split, performance first', () => {
+    render(<Heatmap node="spark1" cores={[core(0, 'unknown'), core(1, 'efficiency'), core(2, 'performance')]} store={new LiveStore(16)} />);
+    expect(groupLabels()).toEqual(['Performance', 'Efficiency', 'Other']);
+  });
+
+  it('reads a core out by its group, without the product name its cores report', () => {
+    const cpu = 'AMD Ryzen 9 7950X 16-Core Processor';
+    const store = new LiveStore(16);
+    store.pushSample(mk(Date.now() / 1000 - 1, 35));
+    store.flush();
+    render(<Heatmap node="spark1" cores={[0, 1, 2].map((id) => core(id, 'unknown', cpu))} cpuModel={cpu} store={store} />);
+    const img = screen.getByRole('img');
+    fireEvent.keyDown(img, { key: 'ArrowDown' });
+    expect(img.parentElement?.querySelector('[aria-live="polite"]')).toHaveTextContent(/^Core 0 · All cores: 35% now/);
+  });
+});
+
 describe('cellEdges', () => {
   const xAt = (t: number) => t * 1.37; // 1.37 px per second: edges land between pixels
 

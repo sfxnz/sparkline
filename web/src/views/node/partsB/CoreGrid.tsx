@@ -5,10 +5,11 @@ import { Tooltip } from '../../../design/components/Tooltip';
 import { formatFreq } from '../../../lib/format';
 import type { CoreInfo } from '../../../lib/types';
 import { useLastKnown } from './hooks';
-import { groupCores, groupDetail } from './cores';
+import type { CoreLayout } from '../../../lib/cores';
+import { groupDetail } from './cores';
 
-export function CoreGrid({ node, cores }: { node: string; cores: readonly CoreInfo[] }) {
-  const groups = groupCores(cores);
+export function CoreGrid({ node, layout }: { node: string; layout: CoreLayout }) {
+  const { groups } = layout;
   const flat = groups.flatMap((g) => g.cores);
   const [active, setActive] = useState(0);
   const refs = useRef<(HTMLSpanElement | null)[]>([]);
@@ -31,10 +32,10 @@ export function CoreGrid({ node, cores }: { node: string; cores: readonly CoreIn
   return (
     <div className="nb-cores">
       {groups.map((g) => (
-        <section key={g.kind} className="nb-cores__group" aria-label={`${g.name} cores`}>
+        <section key={g.kind} className="nb-cores__group" aria-label={g.label}>
           <h3 className="nb-cores__head">
             <span className="nb-cores__name">{g.name}</span>
-            <span className="nb-cores__detail">{groupDetail(g)}</span>
+            <span className="nb-cores__detail">{groupDetail(layout, g)}</span>
           </h3>
           <ul className="nb-cores__cells">
             {g.cores.map((c) => {
