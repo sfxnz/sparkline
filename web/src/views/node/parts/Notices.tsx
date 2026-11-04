@@ -37,7 +37,6 @@ export const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).
 const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
   notReported(info, COLLECTORS[name]?.metric ?? name) !== null && !(name === 'gpu' && lostGpu(info, 0));
 
-
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
  *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. While
  *  some GPUs still report, a GPU failure is one note per backend that went silent, naming its GPUs. */
