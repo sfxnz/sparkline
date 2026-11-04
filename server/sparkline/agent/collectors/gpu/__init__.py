@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import get_args
+from typing import Any, get_args
 
 from ....common.schema import LEGACY_VERSION_KEYS, GpuInfo, GpuSample, Unsupported, UnsupportedKind, Vendor
 from ...sources import Sources
@@ -155,20 +155,31 @@ class GpuCollector:
     def caps(self) -> Caps:
         return self._caps
 
-    def collect(self) -> dict[str, list[GpuSample]]:
-        out = []
+    def collect(self) -> dict[str, Any]:
+        """One tick. A backend that raises sends no GPU samples this tick, as a whole collector that raises
+        would, and names itself in the sample's `errors["gpu"]`; the other backends report as usual."""
+        out: list[GpuSample] = []
         proc_mem: dict[int, int] = {}
         reported = False
+        failed: list[str] = []
         for live in self._live:
-            for s in live.backend.sample():
-                out.append(s if live.base == 0 else s.model_copy(update={"index": live.base + s.index}))
-            for pids in live.backend.proc_mem().values():
+            try:
+                samples = live.backend.sample()
+                procs = live.backend.proc_mem()
+            except Exception as e:
+                log.debug("%s backend failed a tick", live.backend.name, exc_info=True)
+                failed.append(f"{live.backend.name}: {type(e).__name__}: {e}")
+                continue
+            out += [
+                s if live.base == 0 else s.model_copy(update={"index": live.base + s.index}) for s in samples
+            ]
+            for pids in procs.values():
                 reported = True
                 for pid, used in pids.items():
                     proc_mem[pid] = proc_mem.get(pid, 0) + used
         self.proc_mem = proc_mem
         self.proc_mem_total = sum(proc_mem.values()) if reported else None
-        return {"gpu": out}
+        return {"gpu": out, "errors": {"gpu": "; ".join(failed)}} if failed else {"gpu": out}
 
     def close(self) -> None:
         live, self._live = self._live, []
@@ -178,6 +189,11 @@ class GpuCollector:
     def process_util(self) -> dict[int, float]:
         acc: dict[int, list[float]] = {}
         for live in self._live:
-            for pid, util in (live.backend.proc_util() or {}).items():
+            try:
+                utils = live.backend.proc_util() or {}
+            except Exception as e:
+                log.debug("%s backend process utilisation failed: %s", live.backend.name, e)
+                continue
+            for pid, util in utils.items():
                 acc.setdefault(pid, []).append(util)
         return {pid: sum(v) / len(v) for pid, v in acc.items()}
