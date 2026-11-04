@@ -182,9 +182,14 @@ class Store:
                 self.db.execute(
                     f"CREATE TABLE IF NOT EXISTS {t} (ts INTEGER PRIMARY KEY, data TEXT NOT NULL)"
                 )
-            for t in COVERED.values():
+            for t, c in zip(TABLES.values(), COVERED.values(), strict=True):
                 self.db.execute(
-                    f"CREATE TABLE IF NOT EXISTS {t} (ts INTEGER PRIMARY KEY, covered_s REAL NOT NULL)"
+                    f"CREATE TABLE IF NOT EXISTS {c} (ts INTEGER PRIMARY KEY, covered_s REAL NOT NULL)"
+                )
+                # In the file, so it also clears a row's seconds when an older agent replaces the row
+                self.db.execute(
+                    f"CREATE TRIGGER IF NOT EXISTS {t}_row_replaced AFTER INSERT ON {t}"
+                    f" BEGIN DELETE FROM {c} WHERE ts = NEW.ts; END"
                 )
         return self.db
 
