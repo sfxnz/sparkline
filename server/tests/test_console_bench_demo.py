@@ -401,6 +401,19 @@ def test_ws1_llm_results_describe_ws1_and_say_which_figures_are_modelled_on_gb10
     assert res and all(x.label.endswith(" · modelled on GB10") for x in res.values())
 
 
+@pytest.mark.parametrize(
+    ("bench", "timed"),
+    [("llm-showcase", None), ("tool-eval", {"median_turn_ms", "responsiveness", "deployability"})],
+)
+def test_ws1_marks_every_speed_figure_of_a_demo_llm_benchmark_as_modelled_on_gb10(mixed, bench, timed):
+    r = mixed.post("/api/v1/bench/runs", json={"bench_id": bench, "nodes": ["ws1"], "confirm": True})
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(_wait(mixed, r.json()["id"]))
+    assert run.status == "succeeded", run.error
+    marked = {x.metric for x in run.results if x.label.endswith(" · modelled on GB10")}
+    assert marked == (timed or {x.metric for x in run.results})
+
+
 def test_spark1_llm_results_keep_their_gb10_labels_and_serving_process(mixed):
     res = {x.metric: x for x in _llm_run(mixed, "spark1", False).results}
     assert res["mem_used_delta_gib"].label == "Unified memory growth during run"
