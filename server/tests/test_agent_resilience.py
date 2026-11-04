@@ -15,9 +15,10 @@ from types import SimpleNamespace
 import pytest
 from platforms import gb10
 
-from sparkline.agent.collectors import gpu as gpu_mod
 from sparkline.agent.collectors import procs as procs_mod
 from sparkline.agent.collectors import thermal as thermal_mod
+from sparkline.agent.collectors.gpu import GpuCollector
+from sparkline.agent.collectors.gpu import nvml as nvml_mod
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.sources import RootFs
 
@@ -86,8 +87,8 @@ def nvml():
 
 
 def test_gpu_reads_recover_after_transient_nvml_errors(nvml):
-    g = gpu_mod.GpuCollector(gb10(nvml=nvml))
-    assert len(g.gpus) == 1
+    g = GpuCollector(gb10(nvml=nvml))
+    assert len(g.info) == 1
     healthy = g.collect()["gpu"][0]
     assert (healthy.util, healthy.temp_c, healthy.power_w) == (42, 55, 30.0)
     assert g.proc_mem == {1234: 2**30}
@@ -100,11 +101,10 @@ def test_gpu_reads_recover_after_transient_nvml_errors(nvml):
     nvml.fail = None  # transient: nothing was disabled, the next tick reads everything again
     again = g.collect()["gpu"][0]
     assert (again.util, again.temp_c, again.power_w) == (42, 55, 30.0)
-    assert g.gpus[0].disabled == set()
 
 
 def test_unexpected_nvml_exception_is_isolated_by_the_sampler(nvml, tmp_path):
-    g = gpu_mod.GpuCollector(gb10(nvml=nvml))
+    g = GpuCollector(gb10(nvml=nvml))
     s = Sampler("n1", [g], 1000, ring_seconds=10)
     nvml.fail = RuntimeError("ctypes blew up")  # not an NVMLError: escapes the collector
     s.collect_once()
@@ -121,9 +121,10 @@ def test_nvml_init_failure_leaves_an_empty_gpu_list():
         raise NVMLError("Driver Not Loaded")
 
     fake.nvmlInit = broken_init  # type: ignore[attr-defined]
-    g = gpu_mod.GpuCollector(gb10(nvml=fake))
+    g = GpuCollector(gb10(nvml=fake))
     assert g.collect() == {"gpu": []}
-    assert "NVML unavailable" in g.caps()["gpu*"].reason
+    gap = g.caps()["gpu*"]
+    assert (gap.kind, gap.reason) == ("hardware", "nvml: NVML unavailable (NVML: Driver Not Loaded)")
 
 
 def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missing(nvml):
@@ -131,7 +132,7 @@ def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missi
         "nvmlDeviceGetPowerManagementLimit": NVMLError_NoPermission("Insufficient Permissions"),
         "nvmlDeviceGetFanSpeed": NVMLError_NotSupported("Not Supported"),
     }
-    gaps = {k: u for k, u in gpu_mod.GpuCollector(gb10(nvml=nvml)).caps().items() if u}
+    gaps = {k: u for k, u in GpuCollector(gb10(nvml=nvml)).caps().items() if u}
     assert set(gaps) == {"gpu0.power_limit_w", "gpu0.fan_pct"}
     limit = gaps["gpu0.power_limit_w"]
     assert limit.kind == "access"
@@ -154,11 +155,11 @@ def test_a_gpu_reading_declared_unsupported_at_startup_is_never_reported_later(r
         "thermal_capped_pct": "nvmlDeviceGetViolationStatus",
     }
     nvml.fail_on = {fn: refusal for fn in per_tick.values()}
-    g = gpu_mod.GpuCollector(gb10(nvml=nvml))
+    g = GpuCollector(gb10(nvml=nvml))
     assert {f"gpu0.{f}" for f in per_tick} <= {k for k, u in g.caps().items() if u}
     nvml.fail_on = {}
-    clock = itertools.count(1000.0, gpu_mod.VIOLATION_EVERY_S + 1)
-    monkeypatch.setattr(gpu_mod.time, "monotonic", lambda: next(clock))
+    clock = itertools.count(1000.0, nvml_mod.VIOLATION_EVERY_S + 1)
+    monkeypatch.setattr(nvml_mod.time, "monotonic", lambda: next(clock))
     g.collect()
     sample = g.collect()["gpu"][0]
     assert {f: getattr(sample, f) for f in per_tick} == dict.fromkeys(per_tick)
@@ -166,17 +167,17 @@ def test_a_gpu_reading_declared_unsupported_at_startup_is_never_reported_later(r
 
 def test_nvml_refusing_access_at_startup_says_a_privilege_is_missing(nvml):
     nvml.fail_on = {"nvmlInit": NVMLError_NoPermission("Insufficient Permissions")}
-    gap = gpu_mod.GpuCollector(gb10(nvml=nvml)).caps()["gpu*"]
+    gap = GpuCollector(gb10(nvml=nvml)).caps()["gpu*"]
     assert (gap.metric, gap.kind) == ("gpu*", "access")
-    assert gap.reason == "Permission denied to the agent's user (NVML: Insufficient Permissions)"
+    assert gap.reason == "nvml: Permission denied to the agent's user (NVML: Insufficient Permissions)"
 
 
 def test_missing_nvidia_ml_py_says_what_to_install():
-    g = gpu_mod.GpuCollector(gb10(nvml=None))
+    g = GpuCollector(gb10(nvml=None))
     assert g.collect() == {"gpu": []}
     gap = g.caps()["gpu*"]
     assert (gap.metric, gap.kind) == ("gpu*", "dependency")
-    assert gap.reason == "Install nvidia-ml-py to read NVIDIA GPU metrics"
+    assert gap.reason == "nvml: Install nvidia-ml-py to read NVIDIA GPU metrics"
 
 
 async def test_sampling_loop_keeps_running_through_collector_failures(tmp_path):

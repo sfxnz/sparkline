@@ -10,9 +10,9 @@ Conventions:
 
 from __future__ import annotations
 
-from typing import Any, Literal, get_args
+from typing import Any, Literal, Self, get_args
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 SCHEMA_VERSION = 1
 
@@ -23,6 +23,10 @@ SCHEMA_VERSION = 1
 
 
 UnsupportedKind = Literal["hardware", "access", "dependency", "agent"]
+Platform = Literal["linux", "darwin"]
+Vendor = Literal["nvidia", "amd", "apple"]
+
+LEGACY_VERSION_KEYS = {"driver": "nvidia.Driver", "cuda": "nvidia.CUDA", "nvml": "nvidia.NVML"}
 
 
 class Unsupported(BaseModel):
@@ -57,6 +61,8 @@ class GpuInfo(BaseModel):
     temp_shutdown_c: float | None = None
     temp_max_c: float | None = None
     power_limit_w: float | None = None  # None on GB10
+    vendor: Vendor | str = "nvidia"
+    backend: str = "nvml"
 
 
 class NetIfInfo(BaseModel):
@@ -94,6 +100,8 @@ class NodeInfo(BaseModel):
     agent_version: str
     os: str
     kernel: str
+    platform: Platform | str = "linux"
+    versions: dict[str, str] = Field(default_factory=dict)
     driver: str | None = None
     cuda: str | None = None
     nvml: str | None = None
@@ -109,6 +117,12 @@ class NodeInfo(BaseModel):
     tools: dict[str, bool]  # docker, fio, perftest, nccl_tests, nvcc, pytorch_image
     sample_interval_ms: int
     boot_time: float
+
+    @model_validator(mode="after")
+    def _versions_from_an_older_agent(self) -> Self:
+        if not self.versions:
+            self.versions = {k: v for f, k in LEGACY_VERSION_KEYS.items() if (v := getattr(self, f))}
+        return self
 
 
 # ---------------------------------------------------------------------------

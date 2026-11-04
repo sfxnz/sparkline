@@ -1,0 +1,271 @@
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+from typing import ClassVar, get_args
+
+import pytest
+from platforms import GB10, gb10, gb10_without
+from test_capabilities import assert_every_metric_is_reported_or_declared, warm
+
+from sparkline.agent.collectors import GpuField
+from sparkline.agent.collectors.gpu import CHAINS, GpuCollector
+from sparkline.agent.collectors.gpu.backend import CannotOpen, Chain, Gap, NoDevice
+from sparkline.agent.collectors.gpu.nvml import Nvml
+from sparkline.agent.sources import NvmlReplay, Sources
+from sparkline.common.metrics import flatten
+from sparkline.common.schema import GpuInfo, GpuSample, Unsupported
+
+
+class Opens:
+    name: ClassVar[str] = "opens"
+    gpus: ClassVar[tuple[str, ...]] = ("Fake GPU",)
+    gaps: ClassVar[dict[GpuField, Gap]] = {}
+    labels: ClassVar[dict[str, str]] = {}
+    mem: ClassVar[dict[int, dict[int, int]]] = {}
+    util: ClassVar[dict[int, float] | None] = None
+
+    def __init__(self, src: Sources) -> None:
+        pass
+
+    def open(self) -> list[GpuInfo]:
+        return [GpuInfo(index=i, name=n, power_limit_w=300.0) for i, n in enumerate(self.gpus)]
+
+    def caps(self) -> dict[int, dict[GpuField, Gap | None]]:
+        return {i: {**dict.fromkeys(get_args(GpuField)), **self.gaps} for i in range(len(self.gpus))}
+
+    def versions(self) -> dict[str, str]:
+        return self.labels
+
+    def sample(self) -> list[GpuSample]:
+        return [
+            GpuSample(
+                index=i,
+                util=50.0,
+                sm_mhz=1500.0,
+                temp_c=60.0,
+                power_w=100.0,
+                energy_j=1000.0,
+                throttle_mask=0,
+                power_capped_pct=0.0,
+                thermal_capped_pct=0.0,
+            )
+            for i in range(len(self.gpus))
+        ]
+
+    def proc_mem(self) -> dict[int, dict[int, int]]:
+        return self.mem
+
+    def proc_util(self) -> dict[int, float] | None:
+        return self.util
+
+
+class NvidiaFake(Opens):
+    name = "nvidia-fake"
+    labels = {"Driver": "999.0"}
+    mem = {0: {100: 1000, 200: 5}}
+    util = {100: 10.0}
+
+
+class AmdFake(Opens):
+    name = "amd-fake"
+    gpus = ("AMD A", "AMD B")
+    gaps = {"fan_pct": Gap("No fan on this card")}
+    labels = {"Driver": "1.2.3"}
+    mem = {0: {100: 24}, 1: {300: 7}}
+    util = {100: 30.0}
+
+
+def fails(backend: str, error: Exception) -> type[Opens]:
+    def open_(self: Opens) -> list[GpuInfo]:
+        raise error
+
+    return type(backend, (Opens,), {"name": backend, "open": open_})
+
+
+class KfdDenied(Opens):
+    name = "kfd"
+
+    def __init__(self, src: Sources) -> None:
+        raise PermissionError(13, "Permission denied", "/dev/kfd")
+
+
+def nvml_init_fails(text: str) -> Sources:
+    calls = json.loads((GB10 / "nvml.json").read_text())
+    return gb10(nvml=NvmlReplay({**calls, "nvmlInit": {"[]": {"__error__": 18, "str": text}}}))
+
+
+def test_two_vendor_chains_concatenate_their_gpus_under_node_wide_indexes(monkeypatch):
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (NvidiaFake,)), Chain("amd", (AmdFake,))))
+    info, sample, collectors = warm(monkeypatch, gb10())
+
+    assert [(g.index, g.name, g.vendor, g.backend) for g in info.gpus] == [
+        (0, "Fake GPU", "nvidia", "nvidia-fake"),
+        (1, "AMD A", "amd", "amd-fake"),
+        (2, "AMD B", "amd", "amd-fake"),
+    ]
+    assert [s.index for s in sample.gpu] == [0, 1, 2]
+    assert {k for k in flatten(sample) if k.endswith(".util") and k.startswith("gpu")} == {
+        "gpu0.util",
+        "gpu1.util",
+        "gpu2.util",
+    }
+    assert [u for u in info.unsupported if u.metric.startswith("gpu")] == [
+        Unsupported(metric="gpu1.fan_pct", reason="No fan on this card"),
+        Unsupported(metric="gpu2.fan_pct", reason="No fan on this card"),
+    ]
+    assert info.versions == {"nvidia.Driver": "999.0", "amd.Driver": "1.2.3"}
+    assert (info.driver, info.cuda) == ("999.0", None)
+    assert sample.mem.gpu == 1000 + 5 + 24 + 7
+    assert collectors.gpu is not None
+    assert collectors.gpu.proc_mem == {100: 1024, 200: 5, 300: 7}
+    assert collectors.gpu.process_util() == {100: 20.0}
+    assert_every_metric_is_reported_or_declared(info, sample)
+
+
+def test_a_backend_that_cannot_open_is_named_in_gpu_backend_and_hides_no_gpu_that_opened(monkeypatch):
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (Nvml,)), Chain("amd", (AmdFake,))))
+    info, sample, _ = warm(monkeypatch, nvml_init_fails("Driver/library version mismatch"))
+
+    gaps = {u.metric: u for u in info.unsupported}
+    assert gaps["gpu.backend"] == Unsupported(
+        metric="gpu.backend",
+        reason="nvml: NVML unavailable (NVML: Driver/library version mismatch)",
+        kind="hardware",
+    )
+    assert "gpu*" not in gaps and "mem.gpu" not in gaps
+    assert [(g.index, g.vendor) for g in info.gpus] == [(0, "amd"), (1, "amd")]
+    assert {"gpu0.util", "gpu0.power_w", "gpu0.temp_c"} <= set(flatten(sample))
+    assert info.versions == {"amd.Driver": "1.2.3"} and info.driver is None
+    assert_every_metric_is_reported_or_declared(info, sample)
+
+
+HW = fails("amd-hw", RuntimeError("ioctl failed"))
+AGENT = fails("amd-agent", CannotOpen("Reads GFX9+ only", "agent"))
+DEP = fails("amd-dep", CannotOpen("Install amdsmi", "dependency"))
+
+
+@pytest.mark.parametrize(
+    ("before", "reason", "kind"),
+    [
+        ((HW, AGENT), "amd-hw: RuntimeError: ioctl failed; amd-agent: Reads GFX9+ only", "agent"),
+        (
+            (HW, AGENT, DEP),
+            "amd-hw: RuntimeError: ioctl failed; amd-agent: Reads GFX9+ only; amd-dep: Install amdsmi",
+            "dependency",
+        ),
+        (
+            (DEP, KfdDenied, HW),
+            "amd-dep: Install amdsmi; kfd: PermissionError: [Errno 13] Permission denied: '/dev/kfd'; "
+            "amd-hw: RuntimeError: ioctl failed",
+            "access",
+        ),
+    ],
+    ids=["agent over hardware", "dependency over agent", "access over all"],
+)
+def test_gpu_backend_lists_every_fallback_and_takes_the_most_actionable_kind(
+    before, reason, kind, monkeypatch
+):
+    monkeypatch.setitem(
+        CHAINS,
+        "linux",
+        (
+            Chain("nvidia", (fails("nvidia-absent", NoDevice("No NVIDIA GPU here")),)),
+            Chain("amd", (*before, AmdFake)),
+        ),
+    )
+    info, sample, _ = warm(monkeypatch, gb10())
+
+    (gap,) = [u for u in info.unsupported if u.metric.startswith("gpu.")]
+    assert gap == Unsupported(metric="gpu.backend", reason=reason, kind=kind)
+    assert [g.backend for g in info.gpus] == ["amd-fake", "amd-fake"]
+    assert_every_metric_is_reported_or_declared(info, sample)
+
+
+def test_a_vendor_that_is_absent_leaves_no_gpu_backend_entry_once_a_gpu_opened(monkeypatch, tmp_path):
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (Nvml,)), Chain("amd", (AmdFake,))))
+    info, _, _ = warm(monkeypatch, replace(gb10_without(tmp_path, "/proc/driver/nvidia"), nvml=None))
+
+    assert [u.metric for u in info.unsupported if u.metric.startswith("gpu")] == [
+        "gpu0.fan_pct",
+        "gpu1.fan_pct",
+    ]
+
+
+NO_GPU = ("gpu*", "mem.gpu", "gpu.backend")
+NO_DRIVER = "nvml: No NVIDIA driver is loaded (/proc/driver/nvidia is missing)"
+
+
+@pytest.mark.parametrize(
+    ("src", "chains", "reason", "kind"),
+    [
+        (
+            lambda tmp: gb10(nvml=None),
+            None,
+            "nvml: Install nvidia-ml-py to read NVIDIA GPU metrics",
+            "dependency",
+        ),
+        (
+            lambda tmp: replace(gb10_without(tmp, "/proc/driver/nvidia"), nvml=None),
+            None,
+            NO_DRIVER,
+            "hardware",
+        ),
+        (
+            lambda tmp: replace(gb10_without(tmp, "/proc/driver/nvidia"), nvml=None),
+            (Chain("nvidia", (Nvml,)), Chain("amd", (fails("amdgpu", NoDevice("No AMD GPU")),))),
+            f"{NO_DRIVER}; amdgpu: No AMD GPU",
+            "hardware",
+        ),
+        (lambda tmp: replace(gb10(), platform="darwin"), None, "No GPU backend reads darwin yet", "agent"),
+    ],
+    ids=["nvidia-ml-py missing", "no NVIDIA driver", "neither vendor present", "darwin"],
+)
+def test_with_no_gpu_opened_every_gpu_gap_gives_the_same_reason(
+    src, chains, reason, kind, monkeypatch, tmp_path
+):
+    if chains is not None:
+        monkeypatch.setitem(CHAINS, "linux", chains)
+    info, sample, _ = warm(monkeypatch, src(tmp_path))
+
+    assert {u.metric: (u.reason, u.kind) for u in info.unsupported if u.metric in NO_GPU} == dict.fromkeys(
+        NO_GPU, (reason, kind)
+    )
+    assert info.gpus == [] and sample.gpu == [] and info.versions == {}
+    assert_every_metric_is_reported_or_declared(info, sample)
+
+
+def test_an_agent_on_darwin_says_so_in_node_info(monkeypatch):
+    info, _, _ = warm(monkeypatch, replace(gb10(), platform="darwin"))
+    assert info.platform == "darwin"
+
+
+class LeavesOutEcc(Opens):
+    name = "partial"
+
+    def caps(self) -> dict[int, dict[GpuField, Gap | None]]:
+        return {0: {f: None for f in get_args(GpuField) if f != "ecc"}}
+
+
+def test_a_field_a_backend_does_not_mention_is_declared_not_reported_by_that_backend(monkeypatch):
+    monkeypatch.setitem(CHAINS, "linux", (Chain("nvidia", (LeavesOutEcc,)),))
+    gaps = {k: u for k, u in GpuCollector(gb10()).caps().items() if u}
+    assert gaps == {
+        "gpu0.ecc": Unsupported(metric="gpu0.ecc", reason="Not reported by the partial backend", kind="agent")
+    }
+
+
+class OpensNothing(Opens):
+    name = "empty"
+    gpus = ()
+
+
+def test_a_backend_that_opens_with_no_gpu_counts_as_absent_and_the_chain_moves_on(monkeypatch):
+    monkeypatch.setitem(CHAINS, "linux", (Chain("amd", (OpensNothing, AmdFake)),))
+    g = GpuCollector(gb10())
+    assert [(i.index, i.backend) for i in g.info] == [(0, "amd-fake"), (1, "amd-fake")]
+    assert g.caps()["gpu.backend"] is None
+
+    monkeypatch.setitem(CHAINS, "linux", (Chain("amd", (OpensNothing,)),))
+    gap = GpuCollector(gb10()).caps()["gpu*"]
+    assert (gap.reason, gap.kind) == ("empty: Opened, but found no GPU", "hardware")
