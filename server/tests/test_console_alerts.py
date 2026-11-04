@@ -394,3 +394,81 @@ def test_a_saved_rule_the_user_pointed_at_gpu0_under_its_own_id_still_watches_gp
         "ws1", ws1_sample(WS1_QUIET_T + 1, temps=(90.0, 60.0, 60.0, 90.0)), WS1.info
     )
     assert fired(cluster.store.list_events()) == [("gpu0_hot", "gpu0.temp_c", "GPU 0 hot on ws1 · GPU 0")]
+
+
+def restart(cluster: Cluster) -> Cluster:
+    return Cluster(cluster.store, Hub(), ConsoleSettings())
+
+
+def edited(rules: list[AlertRule], rule_id: str, **fields) -> list[AlertRule]:
+    return [r.model_copy(update=fields) if r.id == rule_id else r for r in rules]
+
+
+def test_a_default_rule_the_user_points_at_gpu_0_still_watches_gpu_0_only_after_restarts(tmp_path):
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    mine = edited(
+        edited(DEFAULT_RULES, "gpu_temp_high", metric="gpu0.temp_c"),
+        "gpu_throttle",
+        metric="gpu0.throttle_mask",
+    )
+    cluster.update_rules(mine)
+    cluster = restart(restart(cluster))
+    assert cluster.alerts.rules == mine
+    for i in range(31):
+        s = ws1_sample(WS1_QUIET_T + i, temps=(60.0, 60.0, 60.0, 82.0), masks=(0, 0, 0, 0x20))
+        cluster.alerts.evaluate_sample("ws1", s, WS1.info)
+    assert fired(cluster.store.list_events()) == []
+    for i in range(31, 62):
+        s = ws1_sample(WS1_QUIET_T + i, temps=(82.0, 60.0, 60.0, 60.0), masks=(0x20, 0, 0, 0))
+        cluster.alerts.evaluate_sample("ws1", s, WS1.info)
+    assert fired(cluster.store.list_events()) == [
+        ("gpu_throttle", "gpu0.throttle_mask", "GPU throttling on ws1 · GPU 0"),
+        ("gpu_temp_high", "gpu0.temp_c", "GPU temperature high on ws1 · GPU 0"),
+    ]
+
+
+def test_defaults_the_user_never_touched_still_watch_every_gpu_after_a_save_and_a_restart(tmp_path):
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    mine = edited(DEFAULT_RULES, "mem_pressure", threshold=20.0)
+    cluster.update_rules(mine)
+    assert restart(cluster).alerts.rules == mine
+
+
+def test_an_older_console_reads_each_saved_throttle_default_as_a_key_it_can_watch(tmp_path):
+    """Older consoles read a throttle rule's metric as one literal key and glob only threshold rules."""
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    cluster.update_rules(DEFAULT_RULES)
+    stored = {r["id"]: r["metric"] for r in cluster.store.kv_get("alert_rules")}
+    assert {i: stored[i] for i in GPU0_METRICS} == {
+        "gpu_temp_high": "gpu*.temp_c",
+        "gpu_temp_critical": "gpu*.temp_c",
+        "gpu_throttle": "gpu0.throttle_mask",
+        "gpu_power_cap": "gpu0.throttle_mask",
+    }
+    assert {r.id: r.metric for r in cluster.alerts.rules if r.kind == "throttle"} == {
+        "gpu_throttle": "gpu*.throttle_mask",
+        "gpu_power_cap": "gpu*.throttle_mask",
+    }
+
+
+def test_rules_an_older_console_saved_after_a_downgrade_keep_this_consoles_choices_and_the_older_edits(
+    tmp_path,
+):
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    cluster.update_rules(edited(DEFAULT_RULES, "gpu_temp_high", metric="gpu0.temp_c"))
+    older = cluster.store.kv_get("alert_rules")
+    for r in older:
+        if r["id"] == "mem_pressure":
+            r["threshold"] = 20.0
+        if r["id"] == "gpu_temp_critical":
+            r["metric"] = "gpu0.temp_c"  # "GPU temperature" picked in the older console's editor
+    cluster.store.kv_set("alert_rules", older)  # an older console's save writes only this key
+
+    loaded = {r.id: r for r in restart(cluster).alerts.rules}
+    assert {i: loaded[i].metric for i in GPU0_METRICS} == {
+        "gpu_temp_high": "gpu0.temp_c",
+        "gpu_temp_critical": "gpu0.temp_c",
+        "gpu_throttle": "gpu*.throttle_mask",
+        "gpu_power_cap": "gpu*.throttle_mask",
+    }
+    assert loaded["mem_pressure"].threshold == 20.0
