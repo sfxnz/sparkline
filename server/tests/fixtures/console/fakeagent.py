@@ -82,6 +82,9 @@ BENCH_SPECS: list[dict[str, Any]] = [
 ]
 
 
+GPU_BENCHES = ("gpu-matmul", "nccl-allreduce")
+
+
 def bench_defaults() -> dict[str, Any]:
     """Per-agent knobs for the fake bench runner (app.state.bench)."""
     return {
@@ -96,7 +99,10 @@ def bench_defaults() -> dict[str, Any]:
     }
 
 
-def make_fake_agent(token: str, interval: float = 0.2, info: dict | None = None) -> FastAPI:
+def make_fake_agent(
+    token: str, interval: float = 0.2, info: dict | None = None, gpu_options: list[dict] | None = None
+) -> FastAPI:
+    """``gpu_options``: the GPUs a node with two or more NVIDIA GPUs offers its GPU benchmarks."""
     app = FastAPI()
     app.state.paused = False
     app.state.ts_offset = 0.0  # simulated agent clock skew
@@ -193,6 +199,8 @@ def make_fake_agent(token: str, interval: float = 0.2, info: dict | None = None)
             off = spec.pop("unavailable", False)
             problem = {"message": "fio missing", "cause": "not installed", "fix": "apt install fio"}
             spec["availability"] = {info_doc["node_id"]: problem if off else None}
+            if gpu_options and spec["id"] in GPU_BENCHES:
+                spec["gpu_options"] = {info_doc["node_id"]: gpu_options}
             out.append(spec)
         return out
 

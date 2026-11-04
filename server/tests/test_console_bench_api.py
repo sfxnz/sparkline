@@ -27,7 +27,7 @@ from sparkline.console import bench as bench_mod  # noqa: E402
 from sparkline.console.app import create_app  # noqa: E402
 from sparkline.console.config import ConsoleConfig  # noqa: E402
 
-N1, N2, CONSOLE, N3, CONSOLE2, N4 = free_ports(6)
+N1, N2, CONSOLE, N3, CONSOLE2, N4, WS1, SPARK, CONSOLE3 = free_ports(9)
 BROWSER = {"Authorization": "Bearer browser-tok"}
 
 
@@ -442,3 +442,101 @@ def test_console_restart_recovers_or_fails_runs(tmp_path):
             console.stop()
         http.close()
         agent.stop()
+
+
+LOST = {
+    "message": "GPU 0 on ws1 is not responding",
+    "cause": "NVML: Unknown Error",
+    "fix": "Check nvidia-smi",
+}
+WS1_OPTIONS = [{"index": 0, "name": "RTX", "problem": LOST}] + [
+    {"index": i, "name": "RTX", "problem": None} for i in (1, 2, 3)
+]
+
+
+@pytest.fixture(scope="module")
+def gpus(tmp_path_factory):
+    """A workstation whose agent knows itself as ws1 (the console calls it w1) and a single-GPU node s1."""
+    apps = {
+        "w1": make_fake_agent(
+            "agent-tok", info=info_for("ws1", "203.0.113.5", "192.0.2.5"), gpu_options=WS1_OPTIONS
+        ),
+        "s1": make_fake_agent("agent-tok", info=info_for("spark1", "203.0.113.6", "192.0.2.6")),
+    }
+    threads = [ServerThread(apps["w1"], WS1).start(), ServerThread(apps["s1"], SPARK).start()]
+    tmp = tmp_path_factory.mktemp("gpus")
+    app = create_app(console_cfg(tmp, {"w1": WS1, "s1": SPARK}), tmp / "data")
+    console = ServerThread(app, CONSOLE3).start()
+    http = httpx.Client(base_url=f"http://127.0.0.1:{CONSOLE3}", headers=BROWSER, timeout=15)
+    wait_for(
+        lambda: all(n["status"] == "online" for n in http.get("/api/v1/cluster").json()["nodes"]),
+        10,
+        "online",
+    )
+    for a in apps.values():
+        a.state.bench["duration"] = 0.3
+    yield {"apps": apps, "http": http}
+    http.close()
+    console.stop()
+    for t in threads:
+        t.stop()
+
+
+def gpu_run(gpus, nodes: list[str], gpu_index: dict | None = None, bench_id: str = "gpu-matmul"):
+    for a in gpus["apps"].values():
+        a.state.bench_starts.clear()
+    body = {"bench_id": bench_id, "nodes": nodes, "confirm": True}
+    return gpus["http"].post(
+        "/api/v1/bench/runs", json=body | ({"gpu_index": gpu_index} if gpu_index else {})
+    )
+
+
+def test_catalog_offers_a_nodes_gpus_under_the_consoles_name_for_it(gpus):
+    specs = {s["id"]: s for s in gpus["http"].get("/api/v1/bench/catalog").json()}
+    assert specs["gpu-matmul"]["gpu_options"] == {"w1": WS1_OPTIONS}
+    assert specs["nccl-allreduce"]["gpu_options"] == {"w1": WS1_OPTIONS}
+    assert specs["rdma-bw-lat"]["gpu_options"] == {} and specs["storage-fio"]["gpu_options"] == {}
+
+
+def test_a_run_on_a_chosen_gpu_sends_it_to_that_agent_and_compares_only_with_that_gpu(gpus):
+    r = gpu_run(gpus, ["w1", "s1"], {"w1": 3})
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(r.json())
+    assert run.gpu_index == {"w1": 3}
+    assert json.loads(run.params_key) == {**run.params, "@gpu_index": {"w1": 3}}
+    ((_, w1),), ((_, s1),) = gpus["apps"]["w1"].state.bench_starts, gpus["apps"]["s1"].state.bench_starts
+    assert (w1["gpu_index"], s1["gpu_index"]) == (3, None)
+    assert finished(gpus, run.id)["gpu_index"] == {"w1": 3}
+
+
+def test_a_run_without_a_choice_goes_to_the_first_gpu_that_responds(gpus):
+    r = gpu_run(gpus, ["w1"])
+    assert r.status_code == 201, r.json()
+    assert r.json()["gpu_index"] == {"w1": 1}
+    ((_, req),) = gpus["apps"]["w1"].state.bench_starts
+    assert req["gpu_index"] == 1
+    finished(gpus, r.json()["id"])
+    nccl = gpu_run(gpus, ["w1", "s1"], bench_id="nccl-allreduce")
+    assert nccl.status_code == 201 and nccl.json()["gpu_index"] == {"w1": 1}, nccl.json()
+    assert [s["gpu_index"] for _, s in gpus["apps"]["w1"].state.bench_starts] == [1]
+    finished(gpus, nccl.json()["id"])
+
+
+@pytest.mark.parametrize(
+    ("gpu_index", "message"),
+    [
+        ({"zz": 1}, "A GPU was chosen for zz, which this run does not include"),
+        ({"s1": 0}, "s1 offers no GPU to choose for GPU matmul"),
+        ({"w1": 9}, "GPU 9 is not offered on w1"),
+        ({"w1": 0}, "GPU 0 on ws1 is not responding"),
+    ],
+)
+def test_a_gpu_the_run_cannot_use_is_refused_before_any_agent_hears_of_it(gpus, gpu_index, message):
+    r = gpu_run(gpus, ["w1", "s1"], gpu_index)
+    assert r.status_code == 400 and r.json()["problem"]["message"] == message
+    assert all(not a.state.bench_starts for a in gpus["apps"].values())
+
+
+def test_a_node_without_a_gpu_choice_says_to_update_its_agent(gpus):
+    fix = gpu_run(gpus, ["s1"], {"s1": 0}).json()["problem"]["fix"]
+    assert fix == "Leave out the GPU for s1, or update sparkline-agent on s1"
