@@ -428,6 +428,21 @@ def test_ws1_marks_every_speed_figure_of_a_demo_llm_benchmark_as_modelled_on_gb1
     assert run.metadata["nodes"]["ws1"]["modelled_on"] == "GB10"
 
 
+def test_the_showcase_story_on_ws1_gives_no_sensor_reading_and_spark1_keeps_its_own(mixed):
+    body = {"bench_id": "llm-showcase", "params": {"streams": 1, "prompt_type": "text"}, "confirm": True}
+    told = {}
+    for node in ("ws1", "spark1"):
+        r = mixed.post("/api/v1/bench/runs", json={**body, "nodes": [node]})
+        assert r.status_code == 201, r.json()
+        st = BenchRun.model_validate(_wait(mixed, r.json()["id"])).node_states[node]
+        [story] = st.detail["showcase"]["streams"]
+        assert story["prompt"].startswith("Write a short story about a DGX Spark")
+        told[node] = " ".join([story["text"], *(s["text"] for s in st.live["streams"])])
+    assert "The Spark checked its sensors:" in told["ws1"]
+    assert "degrees" not in told["ws1"]
+    assert "The Spark checked its sensors: 41 degrees," in told["spark1"]
+
+
 @pytest.mark.parametrize("bench", ["llm-inference", "llm-showcase", "tool-eval"])
 def test_ws1_says_its_speeds_are_modelled_from_its_first_state_through_a_cancelled_run(mixed, bench):
     r = mixed.post("/api/v1/bench/runs", json={"bench_id": bench, "nodes": ["ws1"], "confirm": True})
