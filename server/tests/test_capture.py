@@ -4,9 +4,12 @@ import gzip
 import io
 import json
 import os
+import platform
 import pwd
 import re
 import shutil
+import signal
+import subprocess
 import sys
 import tarfile
 import threading
@@ -464,6 +467,19 @@ def with_pretty_name(text: str) -> Callable[[Path], None]:
     return plant
 
 
+def without_nvml(copy: Path) -> None:
+    (copy / "nvml.json").write_text(
+        json.dumps({"nvmlInit": {"[]": {"__error__": 9, "str": "Driver Not Loaded"}}})
+    )
+
+
+def mounted_at(point: str) -> Callable[[Path], None]:
+    def plant(copy: Path) -> None:
+        _append(copy / "root/proc/self/mounts", f"/dev/nvme0n1p3 {point} ext4 rw 0 0\n")
+
+    return plant
+
+
 def placeholders_outside_their_place(out: Path) -> list[str]:
     found = []
     for name, data in surfaces(out):
@@ -503,6 +519,14 @@ NAMES_THAT_ARE_WORDS = {
         in_a_container("vllm", "python3", b"/usr/local/bin/vllm\0serve\0")
     ],
     "container vllm, the process name": [in_a_container("vllm", "vllm", b"/usr/local/bin/vllm\0serve\0")],
+    "hostname cortex, a word of the CPU description on a machine without NVML": [
+        named("hostname", "cortex"),
+        without_nvml,
+    ],
+    "hostname in a mount point below a dotted /media name": [
+        named("hostname", "zorbhost"),
+        mounted_at("/media/Family.Photos/zorbhost-backup"),
+    ],
 }
 
 
@@ -857,7 +881,18 @@ def test_a_user_named_like_a_word_of_the_printed_text_leaves_that_text_alone(tmp
     cli, home = as_user("sparkline", tmp_path, monkeypatch)
     assert cli.main([str(home / "out")]) == 0
     printed = capsys.readouterr().out
-    assert f"Attach recording.tgz from /home/<user1>/out to a new issue: {cli.ISSUE_URL}" in printed
+    assert f"Attach recording.tgz from that directory to a new issue: {cli.ISSUE_URL}" in printed
+
+
+def test_the_summary_names_no_directory_that_the_tester_chose(tmp_path, monkeypatch, capsys):
+    cli, home = as_user("zorbuser", tmp_path, monkeypatch)
+    (home / "AcmeCorp-merger-eval").mkdir()
+    assert cli.main([str(home / "AcmeCorp-merger-eval" / "rec")]) == 0
+    assert cli.main([]) == 0
+    printed = capsys.readouterr().out
+    assert "AcmeCorp" not in printed and "rec" not in printed.replace("recording", "").replace("Recorded", "")
+    default = f"sparkline-{sys.platform}-{platform.machine()}"
+    assert f"Attach recording.tgz from {default} to a new issue" in printed
 
 
 def test_a_refusal_names_an_unreviewed_path_up_to_its_first_unreviewed_part(tmp_path, monkeypatch):
@@ -1042,3 +1077,96 @@ def test_an_error_python_ignores_or_one_in_a_thread_prints_no_traceback(tmp_path
     err = capsys.readouterr().err
     assert "Traceback" not in err and ".py" not in err and USER not in err
     assert not out.exists()
+
+
+def test_a_link_target_that_passes_through_an_unread_name_records_it_without_that_name(tmp_path):
+    copy = gb10_copy(tmp_path)
+    link = copy / "root/etc/os-release"
+    link.unlink()
+    (copy / "root/etc/zorbimage").mkdir()
+    link.symlink_to("zorbimage/../../usr/lib/os-release")
+    out = tmp_path / "out"
+    capture_of(copy, out)
+    assert [name for name, data in surfaces(out) if b"zorb" in data] == []
+
+
+def test_ctrl_c_while_python_loads_the_capture_prints_no_traceback():
+    stop_on_import = (
+        "import importlib.abc, sys\n"
+        "class Stop(importlib.abc.MetaPathFinder):\n"
+        "    def find_spec(self, name, path, target=None):\n"
+        "        if name == 'sparkline.agent.redact':\n"
+        "            raise KeyboardInterrupt\n"
+        "sys.meta_path.insert(0, Stop())\n"
+        "from sparkline.agent.capture_entry import main\n"
+        "sys.exit(main())\n"
+    )
+    run = subprocess.run([sys.executable, "-c", stop_on_import], capture_output=True, text=True, check=False)
+    assert run.returncode == 130
+    assert run.stderr == "sparkline-capture stopped. It keeps no partial recording.\n"
+
+
+def test_a_second_ctrl_c_while_cleaning_up_still_leaves_nothing(tmp_path, monkeypatch):
+    import sparkline.agent.capture as cli
+
+    raising_on_the_replay(monkeypatch, KeyboardInterrupt())
+    rmtree = shutil.rmtree
+
+    def interrupted(path: Path, *args: Any, **kwargs: Any) -> None:
+        os.kill(os.getpid(), signal.SIGINT)
+        rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(cli.shutil, "rmtree", interrupted)
+    out = tmp_path / "out"
+    with pytest.raises(KeyboardInterrupt):
+        capture(recorded(GB10), out, Facts())
+    assert not out.exists()
+
+
+def test_only_the_ngc_pytorch_image_tags_the_agent_looks_for_are_kept(tmp_path):
+    copy = gb10_copy(tmp_path)
+    host = json.loads((copy / "host.json").read_text())
+    host["docker"]["/images/json"]["result"] += [
+        {"RepoTags": ["nvcr.io/nvidia/acme-skunkworks-llm:customer-zorbcorp"]},
+        {"RepoTags": ["nvcr.io/nvidia/pytorch:zorbcorp-build"]},
+    ]
+    (copy / "host.json").write_text(json.dumps(host))
+    out = tmp_path / "out"
+    report = capture_of(copy, out)
+    assert report.differences == []
+    assert json.loads((out / "host.json").read_text())["docker"]["/images/json"]["result"] == [
+        {"RepoTags": ["nvcr.io/nvidia/pytorch:26.07-py3"]},
+        {"RepoTags": ["nvcr.io/nvidia/pytorch:<tag>"]},
+    ]
+
+
+def test_a_route_metric_that_reads_as_a_cgnat_address_in_hex_is_kept(tmp_path):
+    copy = gb10_copy(tmp_path)
+    route = f"enP7s7\t00000000\t00000000\t0001\t0\t0\t{CGNAT_IN_HEX[0]}\t00000000\t0\t0\t0\n"
+    _append(copy / "root/proc/self/net/route", route)
+    capture_of(copy, tmp_path / "out")
+    assert f"\t{CGNAT_IN_HEX[0]}\t" in (tmp_path / "out/root/proc/self/net/route").read_text()
+
+
+def with_nvme_serial(serial: str) -> Callable[[Path], None]:
+    def plant(copy: Path) -> None:
+        nvme = copy / "root/sys/class/nvme/nvme0"
+        nvme.mkdir(parents=True)
+        (nvme / "serial").write_text(serial + "\n")
+
+    return plant
+
+
+@pytest.mark.parametrize(
+    ("plant", "what"),
+    [
+        ([with_nvme_serial("00000000")], "an all-zero serial"),
+        ([named("hostname", "zorbhost.home"), mounted_at("/home")], "a hostname under the home domain"),
+    ],
+    ids=["all-zero serial", "home domain"],
+)
+def test_a_name_that_names_nothing_does_not_refuse(plant, what, tmp_path):
+    copy = gb10_copy(tmp_path)
+    for step in plant:
+        step(copy)
+    capture_of(copy, tmp_path / "out")
