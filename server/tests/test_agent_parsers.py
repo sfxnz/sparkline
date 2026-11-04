@@ -20,7 +20,7 @@ from sparkline.agent.collectors.cpu import (
     parse_loadavg,
     parse_proc_stat,
 )
-from sparkline.agent.collectors.gpu import monotonic_energy, violation_pct
+from sparkline.agent.collectors.gpu.nvml import monotonic_energy, violation_pct
 from sparkline.agent.collectors.memory import build_mem, parse_meminfo
 from sparkline.agent.collectors.net import (
     NetCollector,

@@ -8,7 +8,7 @@ import platform
 from collections.abc import Callable
 from typing import TypeVar
 
-from ..common.schema import NodeInfo, Unsupported, UnsupportedKind
+from ..common.schema import NodeInfo, Platform, Unsupported, UnsupportedKind
 from .collectors import VOCABULARY, Collector, declares
 from .collectors.cpu import CpuCollector
 from .collectors.gpu import GpuCollector
@@ -91,8 +91,9 @@ class Collectors:
 
     def __init__(self, cfg: AgentConfig, src: Sources) -> None:
         self.fs = src.fs
+        self.platform: Platform = "darwin" if src.platform == "darwin" else "linux"
         self.failed: list[Unsupported] = []
-        self.gpu = self._start("gpu", ["gpu*", "mem.gpu"], lambda: GpuCollector(src))
+        self.gpu = self._start("gpu", list(GpuCollector.prefixes), lambda: GpuCollector(src))
         self.memory = self._start("memory", ["mem"], lambda: MemoryCollector(src, self._gpu_mem))
         self.cpu = self._start("cpu", ["cpu"], lambda: CpuCollector(src))
         self.net = self._start("net", ["net"], lambda: NetCollector(src, cfg.peers, cfg.include_virtual))
@@ -136,6 +137,8 @@ class Collectors:
             agent_version=AGENT_VERSION,
             os=os_name(self.fs),
             kernel=self.fs.read("/proc/sys/kernel/osrelease").strip(),
+            platform=self.platform,
+            versions=self.gpu.versions if self.gpu else {},
             driver=self.gpu.driver if self.gpu else None,
             cuda=self.gpu.cuda if self.gpu else None,
             nvml=self.gpu.nvml if self.gpu else None,

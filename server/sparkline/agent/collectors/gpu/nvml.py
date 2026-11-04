@@ -1,15 +1,14 @@
-"""GPU via NVML (nvidia-ml-py). Only fields that probe as supported are read each tick."""
-
 from __future__ import annotations
 
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import Any, ClassVar, NamedTuple
 
-from ...common.schema import GpuInfo, GpuSample, Unsupported, UnsupportedKind
-from ..sources import Sources
-from . import Caps, counter_delta
+from ....common.schema import GpuInfo, GpuSample
+from ...sources import Sources
+from .. import GpuField, counter_delta
+from .backend import CannotOpen, Gap, NoDevice
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +60,7 @@ def _denied(e: Exception) -> str:
 
 
 class _Probe(NamedTuple):
-    key: str
+    key: GpuField
     label: str
     retried: bool  # read every tick, so only Not Supported or No Permission at startup is a gap
     call: Callable[[], Any]
@@ -108,12 +107,12 @@ def _probes(nv: Any, h: Any) -> list[_Probe]:
     ]
 
 
-def _gap(nv: Any, e: Exception, metric: str, what: str, retried: bool, note: str = "") -> Unsupported | None:
+def _gap(nv: Any, e: Exception, what: str, retried: bool, note: str = "") -> Gap | None:
     if _no_permission(nv, e):
-        return Unsupported(metric=metric, reason=_denied(e), kind="access")
+        return Gap(_denied(e), "access")
     if retried and not isinstance(e, nv.NVMLError_NotSupported):
         return None
-    return Unsupported(metric=metric, reason=f"{what} ({_reason(e)}){note}")
+    return Gap(f"{what} ({_reason(e)}){note}")
 
 
 class _Gpu:
@@ -132,53 +131,64 @@ class _Gpu:
         self.last_proc_ts = 0
 
 
-class GpuCollector:
-    name = "gpu"
+NO_DRIVER = "No NVIDIA driver is loaded (/proc/driver/nvidia is missing)"
+
+
+class Nvml:
+    name: ClassVar[str] = "nvml"
 
     def __init__(self, src: Sources) -> None:
-        self.nv = nv = src.nvml
+        self.nv = src.nvml
+        self.fs = src.fs
         self.gpus: list[_Gpu] = []
-        self.info: list[GpuInfo] = []
-        self._caps: dict[str, Unsupported | None] = {}
-        self.driver = self.cuda = self.nvml = None
-        self.proc_mem: dict[int, int] = {}  # pid -> bytes, refreshed every tick
-        self.proc_mem_total: int | None = None
+        self._caps: dict[int, dict[GpuField, Gap | None]] = {}
+        self._versions: dict[str, str] = {}
+
+    def _driver_loaded(self) -> bool:
+        return self.fs.exists("/proc/driver/nvidia")
+
+    def open(self) -> list[GpuInfo]:
+        nv = self.nv
         if nv is None:
-            self._no_gpus("Install nvidia-ml-py to read NVIDIA GPU metrics", "dependency")
-            return
+            if self._driver_loaded():
+                raise CannotOpen("Install nvidia-ml-py to read NVIDIA GPU metrics", "dependency")
+            raise NoDevice(NO_DRIVER)
         try:
             nv.nvmlInit()
             n = nv.nvmlDeviceGetCount()
         except Exception as e:
             if _no_permission(nv, e):
-                self._no_gpus(_denied(e), "access")
-            else:
-                self._no_gpus(f"NVML unavailable ({_reason(e)})", "hardware")
-            return
-        self.driver = self._try(nv.nvmlSystemGetDriverVersion)
+                raise CannotOpen(_denied(e), "access") from e
+            # Tried before the driver check: WSL runs NVML without /proc/driver/nvidia.
+            if self._driver_loaded():
+                raise CannotOpen(f"NVML unavailable ({_reason(e)})", "hardware") from e
+            raise NoDevice(NO_DRIVER) from e
+        driver = self._try(nv.nvmlSystemGetDriverVersion)
         cuda = self._try(nv.nvmlSystemGetCudaDriverVersion_v2)
-        self.cuda = f"{cuda // 1000}.{cuda % 1000 // 10}" if cuda else None
-        self.nvml = self._try(nv.nvmlSystemGetNVMLVersion)
+        versions = {
+            "Driver": driver,
+            "CUDA": f"{cuda // 1000}.{cuda % 1000 // 10}" if cuda else None,
+            "NVML": self._try(nv.nvmlSystemGetNVMLVersion),
+        }
+        self._versions = {label: v for label, v in versions.items() if v}
+        info = []
         for i in range(n):
             try:
-                g = _Gpu(i, nv.nvmlDeviceGetHandleByIndex(i))
+                g = _Gpu(len(self.gpus), nv.nvmlDeviceGetHandleByIndex(i))
             except Exception as e:
                 log.warning("GPU %d handle failed: %s", i, e)
                 continue
             self.gpus.append(g)
-            self.info.append(self._probe(g))
+            info.append(self._probe(g))
         if not self.gpus:
-            self._no_gpus("NVML found no NVIDIA GPU", "hardware")
-            return
-        procs = [self._caps[f"gpu{g.index}.proc_mem"] for g in self.gpus]
-        first = procs[0]
-        self._caps["mem.gpu"] = (
-            first.model_copy(update={"metric": "mem.gpu"}) if first and all(procs) else None
-        )
+            raise NoDevice("NVML found no NVIDIA GPU")
+        return info
 
-    def _no_gpus(self, reason: str, kind: UnsupportedKind) -> None:
-        for metric in ("gpu*", "mem.gpu"):
-            self._caps[metric] = Unsupported(metric=metric, reason=reason, kind=kind)
+    def caps(self) -> dict[int, dict[GpuField, Gap | None]]:
+        return self._caps
+
+    def versions(self) -> dict[str, str]:
+        return self._versions
 
     @staticmethod
     def _try(fn: Callable[..., Any], *args: Any) -> Any:
@@ -189,7 +199,7 @@ class GpuCollector:
 
     def _probe(self, g: _Gpu) -> GpuInfo:
         nv = self.nv
-        h, p = g.h, f"gpu{g.index}."
+        h = g.h
         cc = self._try(nv.nvmlDeviceGetCudaComputeCapability, h)
         info = GpuInfo(
             index=g.index,
@@ -209,6 +219,7 @@ class GpuCollector:
                 nv.nvmlDeviceGetTemperatureThreshold, h, nv.NVML_TEMPERATURE_THRESHOLD_GPU_MAX
             ),
         )
+        caps = self._caps[g.index] = {}
         for key, label, retried, call in _probes(nv, h):
             try:
                 v = call()
@@ -216,12 +227,12 @@ class GpuCollector:
                     info.power_limit_w = v / 1000
             except Exception as e:
                 note = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
-                gap = _gap(nv, e, p + key, f"{label} not reported by {info.name}", retried, note)
-                self._caps[p + key] = gap
+                gap = _gap(nv, e, f"{label} not reported by {info.name}", retried, note)
+                caps[key] = gap
                 if gap:
                     g.disabled.add(key)
             else:
-                self._caps[p + key] = None
+                caps[key] = None
         return info
 
     def _read(self, g: _Gpu, field: str, fn: Callable[..., Any], *args: Any) -> Any:
@@ -235,14 +246,9 @@ class GpuCollector:
             log.debug("gpu%d %s: %s", g.index, field, e)
         return None
 
-    def caps(self) -> Caps:
-        return self._caps
-
-    def collect(self) -> dict:
+    def sample(self) -> list[GpuSample]:
         nv = self.nv
         out = []
-        proc_mem: dict[int, int] = {}
-        any_procs = False
         for g in self.gpus:
             now = time.monotonic()
             util = self._read(g, "util", nv.nvmlDeviceGetUtilizationRates)
@@ -281,15 +287,19 @@ class GpuCollector:
                     thermal_capped_pct=g.caps.get(nv.NVML_PERF_POLICY_THERMAL),
                 )
             )
-            procs = self._read(g, "proc_mem", nv.nvmlDeviceGetComputeRunningProcesses)
-            if procs is not None:
-                any_procs = True
-                for pr in procs:
-                    if isinstance(pr.usedGpuMemory, int):
-                        proc_mem[pr.pid] = proc_mem.get(pr.pid, 0) + pr.usedGpuMemory
-        self.proc_mem = proc_mem
-        self.proc_mem_total = sum(proc_mem.values()) if any_procs else None
-        return {"gpu": out}
+        return out
+
+    def proc_mem(self) -> dict[int, dict[int, int]]:
+        out: dict[int, dict[int, int]] = {}
+        for g in self.gpus:
+            procs = self._read(g, "proc_mem", self.nv.nvmlDeviceGetComputeRunningProcesses)
+            if procs is None:
+                continue
+            mem = out[g.index] = {}
+            for pr in procs:
+                if isinstance(pr.usedGpuMemory, int):
+                    mem[pr.pid] = mem.get(pr.pid, 0) + pr.usedGpuMemory
+        return out
 
     def _update_energy(self, g: _Gpu, now: float, power_w: float | None) -> None:
         if now - g.energy_t >= ENERGY_EVERY_S:
@@ -301,7 +311,7 @@ class GpuCollector:
         if g.energy_base is not None:
             g.energy_j = monotonic_energy(g.energy_j, g.energy_base + g.energy_integ)
 
-    def process_util(self) -> dict[int, float]:
+    def proc_util(self) -> dict[int, float]:
         """pid -> mean SM % over samples since the last call (best effort; empty if none)."""
         nv = self.nv
         acc: dict[int, list[int]] = {}

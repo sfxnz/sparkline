@@ -43,3 +43,31 @@ def test_web_types_list_the_same_unsupported_kinds():
     m = re.search(r"UNSUPPORTED_KINDS = \[([^\]]*)\] as const", WEB_TYPES.read_text())
     assert m, f"UNSUPPORTED_KINDS not found in {WEB_TYPES}"
     assert re.findall(r"'([^']+)'", m.group(1)) == list(typing.get_args(UnsupportedKind))
+
+
+def test_node_info_from_an_agent_that_predates_gpu_backends_reads_with_defaults_and_its_versions():
+    info = json.loads((Path(__file__).parent / "fixtures/console/node_info.json").read_text())
+    assert not {"platform", "versions"} & set(info) and not {"vendor", "backend"} & set(info["gpus"][0])
+    info |= {"driver": "999.0", "cuda": "1.2", "nvml": "1.2.3"}
+    parsed = NodeInfo.model_validate(info)
+    assert parsed.platform == "linux"
+    assert parsed.versions == {"nvidia.Driver": "999.0", "nvidia.CUDA": "1.2", "nvidia.NVML": "1.2.3"}
+    assert [(g.vendor, g.backend) for g in parsed.gpus] == [("nvidia", "nvml")]
+
+
+def test_versions_an_agent_sends_are_kept_as_sent():
+    info = json.loads((Path(__file__).parent / "fixtures/console/node_info.json").read_text())
+    info |= {"driver": None, "cuda": None, "nvml": None}
+    assert NodeInfo.model_validate(info).versions == {}
+    info |= {"driver": "999.0", "versions": {"amd.Driver": "1.2.3"}}
+    assert NodeInfo.model_validate(info).versions == {"amd.Driver": "1.2.3"}
+
+
+def test_a_vendor_or_platform_this_console_predates_keeps_the_hello_and_is_kept_as_sent():
+    info = json.loads((Path(__file__).parent / "fixtures/console/node_info.json").read_text())
+    info["platform"] = "freebsd"
+    info["gpus"][0] |= {"vendor": "intel", "backend": "level-zero"}
+    parsed = NodeInfo.model_validate(info)
+    assert parsed.platform == "freebsd"
+    assert [(g.vendor, g.backend) for g in parsed.gpus] == [("intel", "level-zero")]
+    assert NodeInfo.model_validate_json(parsed.model_dump_json()) == parsed
