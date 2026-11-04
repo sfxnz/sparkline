@@ -164,18 +164,18 @@ describe('Stat / AnimatedNumber', () => {
     expect(why).toHaveAccessibleDescription('Not reported by GB10 (NVML: Not Supported)');
   });
 
-  it('says which privilege a metric needs when the agent may not read it', () => {
-    const why = powerLimit({ reason: 'Needs root (NVML: Insufficient Permissions)', kind: 'access' });
-    expect(screen.getByText('Needs root (NVML: Insufficient Permissions)')).toBeInTheDocument();
+  it('says the agent has no access, with the agent reason in the tooltip', () => {
+    const why = powerLimit({ reason: "Permission denied to the agent's user (NVML: Insufficient Permissions)", kind: 'access' });
+    expect(screen.getByText('No access')).toBeInTheDocument();
     expect(screen.queryByText('Not reported by this hardware')).toBeNull();
-    expect(why).toHaveAccessibleDescription(/lacks the privilege/);
+    expect(why).toHaveAccessibleDescription("Permission denied to the agent's user (NVML: Insufficient Permissions)");
   });
 
-  it('says what to install when a helper tool is missing', () => {
+  it('says a helper tool is missing, with what to install in the tooltip', () => {
     const why = powerLimit({ reason: 'Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' });
-    expect(screen.getByText('Install nvidia-ml-py to read NVIDIA GPU metrics')).toBeInTheDocument();
+    expect(screen.getByText('Helper tool missing')).toBeInTheDocument();
     expect(screen.queryByText('Not reported by this hardware')).toBeNull();
-    expect(why).toHaveAccessibleDescription(/installing it unlocks/);
+    expect(why).toHaveAccessibleDescription('Install nvidia-ml-py to read NVIDIA GPU metrics');
   });
 
   it('writes the final value immediately under reduced motion', () => {
