@@ -43,7 +43,7 @@ import psutil
 
 from ..common.metrics import flatten
 from ..common.schema import NodeInfo, Sample
-from .capture_entry import STOPPED, STOPPED_LINE, print_no_traceback_from_python
+from .capture_entry import STOP_SIGNALS, print_no_traceback_from_python, stopped
 from .collectors.gpu import GpuCollector
 from .config import AgentConfig
 from .info import AGENT_VERSION, Collectors
@@ -626,12 +626,13 @@ class Report:
 
 
 @contextmanager
-def _ctrl_c_held() -> Iterator[None]:
-    previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+def _stop_signals_held() -> Iterator[None]:
+    previous = {s: signal.signal(s, signal.SIG_IGN) for s in STOP_SIGNALS}
     try:
         yield
     finally:
-        signal.signal(signal.SIGINT, previous)
+        for s, handler in previous.items():
+            signal.signal(s, handler)
 
 
 def _remove(out: Path, created: bool) -> None:
@@ -667,7 +668,7 @@ def capture(src: Sources, out: Path, facts: Facts) -> Report:
             raise CaptureRefused(collided, RENAME)
         archive = write_archive(out)
     except BaseException:
-        with _ctrl_c_held():
+        with _stop_signals_held():
             _remove(out, created)
         raise
     return Report(
@@ -733,9 +734,8 @@ def main(argv: list[str] | None = None) -> int:
     print_no_traceback_from_python()
     try:
         return _run(argv)
-    except KeyboardInterrupt:
-        print(STOPPED_LINE, file=sys.stderr)
-        return STOPPED
+    except KeyboardInterrupt as e:
+        return stopped(e)
 
 
 def _run(argv: list[str] | None) -> int:
