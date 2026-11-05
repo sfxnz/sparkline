@@ -68,9 +68,9 @@ is how Linux holds an internationalized hostname, is also found in Unicode.
 | Hostname, with any domain after it, also written with `_` for `-` or, from 8 characters, inside a longer word | `host1` |
 | Domain of the hostname, each parent domain down to the organization's, the organization, and each label of 4 or more characters outside a public suffix, on their own, also written with `_` for `-` or, from 8 characters, inside a longer word | `domain1` |
 | User name, the home directory, and a disk mounted under `/media/<user>` | `user1`, `/home/<user1>`, `/media/<user1>` |
-| Full name of an account in `/etc/passwd`, each word in that account's comment field that has a letter and 4 or more characters, also with every accent and other mark removed, in any script, when 4 or more characters are left, and each number there of 6 or more digits, such as a phone number, as written and as its digits alone | `person1` |
-| IPv4 address, private ranges included | `198.51.100.1`, then `203.0.113.x` and `192.0.2.x` |
-| IPv6 address | `2001:db8::1` |
+| Full name of an account in `/etc/passwd`, each word in that account's comment field that has a letter and 4 or more characters, also with every combining mark removed, in any script, when 4 or more characters are left, and each number there of 6 or more digits, such as a phone number, as written and as its digits alone | `person1` |
+| IPv4 address, private ranges included, apart from the shared addresses listed below | `198.51.100.1`, then `203.0.113.x` and `192.0.2.x` |
+| IPv6 address, apart from the shared addresses listed below | `2001:db8::1` |
 | Link-local IPv6 address, which holds the MAC | `fe80::ff:fe00:1`, or `fe80::200:0:0:1` |
 | IPv6 address or other id written as 32 hex digits, as in `/proc/net/if_inet6` | `20010db8000000000000000000000001` |
 | MAC address, also inside an interface name such as `enx…` | `02:00:00:00:00:01` |
@@ -92,6 +92,28 @@ else the label before the top-level domain. A public suffix here is `ts.net`, `k
 `biz`, `co`, `com`, `edu`, `go`, `gob`, `gov`, `govt`, `info`, `ltd`, `me`, `mil`, `ne`, `net`, `nhs`,
 `nom`, `or`, `org`, `plc` and `sch`. So the organization of `zrb.lancs.sch.uk` is `zrb`, and that of `org.ch`
 is `org`.
+
+A comment-field word in Latin letters is also found written in ASCII. That spelling removes the combining
+marks, writes ł, ø, đ and ı as l, o, d and i, and writes ß, æ, œ and þ as ss, ae, oe and th. It leaves out
+any other letter that it cannot write in ASCII, such as Icelandic ð, Maltese ħ, Azerbaijani ə, and Hausa ɓ,
+ɗ, ƙ and ƴ. So a word that holds one of those letters is not found where an ASCII letter stands in its place,
+such as `Horbina` for `Ħorbina`.
+
+The recording keeps these addresses as written, because every machine has the same ones or they belong to no
+host:
+
+- `127.0.0.0/8`, the loopback range, and `0.0.0.0/8`, which is never a host's address.
+- A netmask, such as `255.255.255.0`.
+- `172.17.0.0`, `172.17.0.1` and `172.17.0.2`, which are Docker's default bridge network, its gateway and
+  its first container on every Docker host.
+- `100.100.100.100`, Tailscale's MagicDNS resolver on every tailnet.
+- `169.254.169.254`, the cloud metadata service.
+- `8.8.8.8` and `1.1.1.1`, the public DNS servers of Google and Cloudflare.
+- `2001:4860::1`, an address in Google's public IPv6 range.
+- `::1` and `::`, the IPv6 loopback and unspecified addresses, and a kept IPv4 address written as IPv6, such
+  as `::ffff:172.17.0.1`.
+- `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` and `2001:db8::/32`, the documentation ranges that
+  the placeholders come from.
 
 The recording leaves out the processes that use no GPU, the rest of each command line, the mounts that are not
 on a local disk, the mount options, the os-release lines other than `PRETTY_NAME`, the names in a directory
