@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tarfile
 import threading
+import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
@@ -1057,6 +1058,7 @@ def python_hooks_restored(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "excepthook", sys.excepthook)
     monkeypatch.setattr(sys, "unraisablehook", sys.unraisablehook)
     monkeypatch.setattr(threading, "excepthook", threading.excepthook)
+    monkeypatch.setattr(warnings, "showwarning", warnings.showwarning)
 
 
 def test_an_error_python_ignores_or_one_in_a_thread_prints_no_traceback(tmp_path, monkeypatch, capsys):
