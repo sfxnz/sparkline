@@ -153,6 +153,7 @@ class BenchWindow:
 
 
 def bench_load(windows: list[BenchWindow], t: float, gpu: int) -> tuple[float, float]:
+    """(load, heat) of the demo benchmarks on GPU `gpu` at t: load is immediate, heat ramps up over ~45 s."""
     load = heat = 0.0
     for w in windows:
         if w.gpu == gpu and w.start <= t < w.end:
