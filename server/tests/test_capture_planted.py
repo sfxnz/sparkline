@@ -725,6 +725,18 @@ def test_the_final_check_passes_a_name_only_in_a_fixed_word_and_refuses_it_anywh
     assert {"hostname", "user"} <= {leak.category for leak in leaks(red)}
 
 
+def test_a_fixed_word_in_a_key_is_kept_by_the_rewrite_as_the_name_check_keeps_it():
+    host = gb10_host()
+    host["docker"]["/images/json"] = {"result": {"RepoTags": {"nvcr.io/nvidia/pytorch:26.07-py3": 1}}}
+    tree: dict[str, Node] = {"/": Dir()}
+    red = redact(Recording("linux", {"left_out": {}}, tree, {}, host), Facts(hostnames=("pytorch",)))
+    assert red.collisions == []
+    assert red.recording.host["docker"]["/images/json"]["result"]["RepoTags"] == {
+        "nvcr.io/nvidia/pytorch:26.07-py3": 1
+    }
+    assert leaks(red) == []
+
+
 def test_a_link_into_a_home_directory_is_refused_without_showing_it():
     red = redacted_tree(
         ("/sys/class/net/eth0", Link("../../devices/virtual/net/eth0")),

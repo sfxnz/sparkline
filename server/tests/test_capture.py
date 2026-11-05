@@ -616,6 +616,7 @@ FIXED_WORDS = {
     "hostname pytorch, the NGC image name": ("hostname", "pytorch", "zorbhost"),
     "container pytorch, the NGC image name": ("container", "pytorch", "zorbcontainer"),
     "user max, a word of the cpuinfo_max_freq files": ("user", "max", "zorbuser"),
+    "hostname computer, inside an NVML call name": ("hostname", "computer", "zorbhost"),
 }
 
 
@@ -635,6 +636,20 @@ def test_a_name_that_is_only_a_fixed_word_of_the_recording_records_as_a_name_tha
     kind, name, no_word, tmp_path
 ):
     assert captured_with(kind, name, tmp_path) == captured_with(kind, no_word, tmp_path)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
+def test_a_fixed_word_name_in_the_list_of_unreadable_files_records_as_a_name_that_is_no_word(tmp_path):
+    def captured(hostname: str) -> dict[str, bytes]:
+        copy = gb10_copy(tmp_path / hostname)
+        named("hostname", hostname)(copy)
+        (copy / "root/proc/self/net/dev").chmod(0)
+        capture_of(copy, tmp_path / hostname / "out")
+        return tree(tmp_path / hostname / "out")
+
+    recorded_with_dev = captured("dev")
+    assert "/proc/self/net/dev" in json.loads(recorded_with_dev["platform.json"])["unreadable"]
+    assert recorded_with_dev == captured("zorbhost")
 
 
 STILL_A_WORD = {
