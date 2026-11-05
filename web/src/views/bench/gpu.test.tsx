@@ -239,6 +239,8 @@ describe('measuring memory bandwidth from the CPU side of a multi-GPU node', () 
     side('CPU');
     review();
     expect(screen.getByText('Runs Unified memory bandwidth on ws1.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Nothing to compete with' })).toBeInTheDocument();
+    expect(screen.getByText('ws1 CPUs are mostly idle (11%).')).toBeInTheDocument();
     expect(baseElement.textContent).not.toMatch(GPU_NUMBER);
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
     expect(onRun).toHaveBeenCalledWith(['ws1'], { side: 'cpu', iterations: 20 }, {});

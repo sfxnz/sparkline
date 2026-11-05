@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BenchCompare, BenchParam, BenchSpec, NodeStatus, Sample } from '../../lib/types';
 import { boundRuns, mergeRun } from '../../store/bench';
-import { CATALOG, LLM, MATMUL, RDMA, SOAK, WS_MATMUL, result, run, wsGpuOptions } from './fixtures';
+import { CATALOG, LLM, MATMUL, RDMA, SOAK, WS_MATMUL, WS_MEMBW, result, run, wsGpuOptions } from './fixtures';
 import { LIVE_4, llmRun, nodeState } from './streams/fixtures';
 import {
   aboutDuration,
@@ -721,6 +721,15 @@ describe('competition on a node with a choice of GPU', () => {
       });
     }
     expect(on(ws({ 0: 86 }), 2, 'error')).toStrictEqual({ node: 'ws1', busy: false, stale: true, text: 'ws1 is not reporting, so the current load of GPU 2 is unknown.' });
+  });
+  it('judges a run that uses no GPU by the CPUs on a node with several GPUs, and by the GPU on a GB10', () => {
+    const spark = { ...ws({ 0: 0 }), node_id: 'spark1' };
+    const cpuSide = (s: Sample) => competition(WS_MEMBW, ['spark1', 'ws1'], (n) => (n === 'ws1' ? s : spark), undefined, undefined, {}, undefined, false);
+    expect(cpuSide(ws({ 0: 86, 2: 3 }, vllm))).toStrictEqual([
+      { node: 'spark1', busy: false, text: 'spark1 GPU is idle (0%).' },
+      { node: 'ws1', busy: false, text: 'ws1 CPUs are mostly idle (5%).' },
+    ]);
+    expect(cpuSide({ ...ws({ 0: 86 }), cpu: { util: 60 } } as Sample)[1]).toStrictEqual({ node: 'ws1', busy: true, text: 'ws1 CPUs are 60% busy right now; results will be lower and the workload will slow down.' });
   });
   it('keeps the GB10 sentence for a node without a choice in the same run', () => {
     const spark = { ...ws({ 0: 0 }), node_id: 'spark1' };
