@@ -332,8 +332,11 @@ export interface BenchImpact {
 
 /** A GPU a GPU benchmark can run on, offered on nodes with two or more NVIDIA GPUs. */
 export interface GpuOption {
+  /** The GPU number the UI shows (GpuInfo.index). */
   index: number;
   name: string;
+  /** GpuInfo.uuid: the agent pins the container to it. */
+  uuid: string | null;
   /** Why the benchmark cannot run on this GPU, e.g. it is not responding. */
   problem: Problem | null;
 }
@@ -352,6 +355,8 @@ export interface BenchSpec {
   availability: Record<string, Problem | null>;
   /** Node -> the GPUs a run can choose from. Absent for single-GPU nodes and older agents. */
   gpu_options?: Record<string, GpuOption[]>;
+  /** Nodes whose agent gives no duration estimate (its rates are GB10's and the node is not one). Absent from older consoles. */
+  no_estimate?: string[];
 }
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';

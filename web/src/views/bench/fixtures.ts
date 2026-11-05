@@ -83,7 +83,7 @@ export const LLM: BenchSpec = {
 export const CATALOG: BenchSpec[] = [MATMUL, RDMA, SOAK, LLM];
 
 export const WS1 = wsInfo as unknown as NodeInfo;
-export const wsGpuOptions = (lost: Record<number, Problem> = {}): GpuOption[] => WS1.gpus.map((g) => ({ index: g.index, name: g.name, problem: lost[g.index] ?? null }));
+export const wsGpuOptions = (lost: Record<number, Problem> = {}): GpuOption[] => WS1.gpus.map((g) => ({ index: g.index, name: g.name, uuid: g.uuid ?? null, problem: lost[g.index] ?? null }));
 export const WS_MATMUL: BenchSpec = { ...MATMUL, availability: { spark1: null, ws1: null }, gpu_options: { ws1: wsGpuOptions() } };
 export const WS_SOAK: BenchSpec = { ...SOAK, availability: { spark1: null, ws1: null }, gpu_options: { ws1: wsGpuOptions() } };
 

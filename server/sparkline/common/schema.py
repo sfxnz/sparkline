@@ -370,8 +370,9 @@ class BenchImpact(BaseModel):
 class GpuOption(BaseModel):
     """A GPU a GPU benchmark can run on, offered on nodes with two or more NVIDIA GPUs."""
 
-    index: int  # GpuInfo.index, passed to Docker as --gpus device=<index>
+    index: int  # GpuInfo.index: the GPU number the UI shows
     name: str
+    uuid: str | None = None  # GpuInfo.uuid: Docker pins the container to it (--gpus device=<uuid>)
     problem: Problem | None = None  # why the benchmark cannot run on this GPU, e.g. it is not responding
 
 
@@ -388,6 +389,8 @@ class BenchSpec(BaseModel):
     requires: list[str] = Field(default_factory=list)  # NodeInfo.tools keys
     availability: dict[str, Problem | None] = Field(default_factory=dict)  # node_id -> None if runnable
     gpu_options: dict[str, list[GpuOption]] = Field(default_factory=dict)  # node_id -> GPUs to choose from
+    # Nodes whose agent gives no duration estimate: its rates are GB10 figures and the node is not a GB10.
+    no_estimate: list[str] = Field(default_factory=list)
 
 
 RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
