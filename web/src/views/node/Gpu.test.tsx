@@ -442,6 +442,12 @@ describe('Summary and Thermals on a four-GPU workstation (ws1, slowdown 93 °C)'
     if (View === Summary) expect(stat('GPU utilisation')).toHaveTextContent(/^GPU utilisation87%Time the GPU was busy · 3 of 4 GPUs$/);
   });
 
+  it("marks the Summary's GPU utilisation chart while it reads 3 of 4 GPUs", () => {
+    const info = { ...workstation.info, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
+    showWs1(Summary, withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null }), info);
+    expect(charts.findLast((c) => c.title === 'GPU utilisation')?.series.map((s) => s.label)).toEqual(['Utilisation (3 of 4 GPUs)']);
+  });
+
   it('gives the GPU count alone under the temperature when the GPUs declare no slowdown', () => {
     const info = { ...workstation.info, gpus: workstation.info.gpus.map((g) => ({ ...g, temp_slowdown_c: null, temp_shutdown_c: null })), unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
     showWs1(Summary, withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, throttle_mask: null }), info);
