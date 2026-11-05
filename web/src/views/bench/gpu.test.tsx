@@ -76,7 +76,7 @@ describe('choosing the GPU on a multi-GPU node', () => {
     ]);
 
     fireEvent.change(picker, { target: { value: '2' } });
-    expect(screen.getByText('serving vllm-llama70b · GPU 2 3%')).toBeInTheDocument();
+    expect(screen.getByText('serving vllm-llama70b · GPU 2 at 3%').textContent).toMatch(/GPU\u00a02\u00a0at\u00a03%$/);
     review();
     expect(screen.getByText('Runs GPU matmul on ws1 GPU 2.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
