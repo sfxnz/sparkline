@@ -1,8 +1,9 @@
 import gb10Info from '../test/fixtures/platforms/gb10/info.json';
+import gb10Sample from '../test/fixtures/platforms/gb10/sample.json';
 import wsInfo from '../test/fixtures/platforms/workstation/info.json';
 import wsSample from '../test/fixtures/platforms/workstation/sample.json';
 import { notReported } from './capabilities';
-import { gpuSetGap, nodeGpuKey, totalFrom, totalGap } from './gpu';
+import { gpuSetGap, nodeGpuKey, nodeTotalGap, totalFrom, totalGap } from './gpu';
 import type { GpuSample, NodeInfo, Sample, Unsupported } from './types';
 
 const gb10 = gb10Info as unknown as NodeInfo;
@@ -83,9 +84,8 @@ describe('totalFrom', () => {
 });
 
 describe('totalGap', () => {
-  it('is null while every GPU reports, and on a one-GPU node', () => {
+  it('is null while every GPU reports', () => {
     for (const field of ['util', 'temp_c', 'power_w'] as const) expect(totalGap(ws1, sample, field)).toBeNull();
-    expect(totalGap(gb10, { ...sample, gpu: [] }, 'power_w')).toBeNull();
   });
 
   it('names the GPU whose power reading is missing, since a sum without it would understate', () => {
@@ -114,5 +114,47 @@ describe('totalGap', () => {
     const s = withGpu(sample, 0, { util: null, temp_c: null, power_w: null });
     expect(totalGap(info, s, 'power_w')).toBeNull();
     expect(notReported(info, nodeGpuKey(info, 'power_w'))).toEqual({ kind: 'hardware', label: 'No total', detail: `GPU 0: ${LOST}` });
+  });
+});
+
+describe('the gap of a node figure that reads less than every GPU the node lists', () => {
+  const NVML_DOWN = 'NVMLError_Unknown: Unknown Error';
+  const gb10Reading = gb10Sample as unknown as Sample;
+  const backendDown = (s: Sample): Sample => ({ ...s, gpu: [], errors: { gpu: `nvml: ${NVML_DOWN}` } });
+  const lostReason = (i: number) => `NVML could not open GPU ${String(i)} (NVML: GPU is lost)`;
+
+  it('says a GB10 whose GPU is missing from the sample is not responding, with its backend error', () => {
+    for (const field of ['util', 'temp_c', 'power_w'] as const) {
+      expect(totalGap(gb10, backendDown(gb10Reading), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: NVML_DOWN });
+    }
+  });
+
+  it('says a GB10 whose GPU sends no power reading has no total, with no sum to understate', () => {
+    expect(totalGap(gb10, withGpu(gb10Reading, 0, { power_w: null }), 'power_w')).toEqual({ kind: 'hardware', label: 'No total', detail: 'GPU 0 sent no power reading this tick.' });
+    expect(totalGap(gb10, gb10Reading, 'power_w')).toBeNull();
+  });
+
+  it('says ws1 is not responding, not that it has no total, while none of its GPUs is in the sample', () => {
+    for (const field of ['util', 'temp_c', 'power_w'] as const) {
+      expect(nodeTotalGap(ws1, backendDown(sample), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPUs 0, 1, 2 and 3 not responding (${NVML_DOWN}).` });
+    }
+  });
+
+  it('names the lost GPU first while GPU 0 is lost and its backend drops the other three', () => {
+    const info = lostGpu0({ metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' });
+    for (const field of ['util', 'power_w'] as const) {
+      expect(nodeTotalGap(info, backendDown(sample), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPU 0: ${LOST}; GPUs 1, 2 and 3 not responding (${NVML_DOWN}).` });
+    }
+  });
+
+  it('says ws1 is not responding while every GPU is lost, though the agent declares its totals', () => {
+    const info = ws1With(
+      ...[0, 1, 2, 3].map((i): Unsupported => ({ metric: `gpu${String(i)}`, reason: lostReason(i), kind: 'hardware' })),
+      ...(['util', 'temp_c', 'power_w'] as const).map((f): Unsupported => ({ metric: `gpu.${f}`, reason: `GPU 0: ${lostReason(0)}`, kind: 'hardware' })),
+    );
+    const s = { ...sample, gpu: [0, 1, 2, 3].map((index) => ({ index })) } as Sample;
+    for (const field of ['util', 'temp_c', 'power_w'] as const) {
+      expect(nodeTotalGap(info, s, field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `${[0, 1, 2, 3].map((i) => `GPU ${String(i)}: ${lostReason(i)}`).join('; ')}.` });
+    }
   });
 });

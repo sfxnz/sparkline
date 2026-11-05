@@ -79,4 +79,9 @@ describe('the wall says why it cannot read a node', () => {
     show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
     for (const label of ['GPU utilisation', 'GPU temperature', 'GPU power']) expect(value('spark2', label)).toHaveTextContent('Not responding');
   });
+
+  it('names a GB10 whose GPU sends nothing beside the GPU power', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/·24\.5 W GPU power · excl\. spark2$/);
+  });
 });

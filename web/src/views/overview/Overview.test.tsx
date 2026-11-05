@@ -673,6 +673,12 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
   const ring = (scope: HTMLElement) => within(scope).getByRole('img', { name: /^GPU utilisation/ });
   const stat = (scope: HTMLElement, label: string) => within(scope).getByText(label, { selector: '.ov-stat__label' }).parentElement as HTMLElement;
   const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+  const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+  const hero = () => document.querySelector('.ov-hero__numbers');
+  const energyHistory = () => {
+    vi.mocked(globalThis.fetch).mockImplementation(() => Promise.resolve(Response.json({ node_id: 'n', resolution_s: 60, ts: [now - 120, now - 60], series: { 'gpu0.energy_j': [7_000_000, 7_010_000] }, min: {}, max: {} })));
+    historyCache.clear();
+  };
 
   it('reads Not responding in the ring, the temperature and the power of a GB10 whose GPU sends nothing', () => {
     show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
@@ -689,5 +695,23 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
     show([[noNvml('n1'), noNvmlReading('n1')]]);
     expect(ring(card('n1'))).toHaveAccessibleName('GPU utilisation helper tool missing');
     expect(ring(card('n1'))).toHaveTextContent('Helper tool missing');
+  });
+
+  it("names a GB10 whose GPU sends nothing beside the hero's and the cluster totals' GPU numbers", async () => {
+    energyHistory();
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    expect(hero()).toHaveTextContent(/GPU 62% \(1 of 2 GPUs\) at 24\.5 W · excl\. spark2$/);
+    expect(tile('Cluster compute')).toHaveTextContent('Mean GPU utilisation (1 of 2 GPUs) · excl. spark2');
+    expect(await within(tile('GPU power')).findByText(/^Now excl\. spark2 · Today \d/)).toBeInTheDocument();
+  });
+
+  it('reads Not responding, not No total, on ws1 while none of its four GPUs is in the sample', () => {
+    show([[wsInfo as unknown as NodeInfo, backendDown({ ...(wsSample as unknown as Sample), ts: now })]]);
+    const c = card('ws1');
+    expect(ring(c)).toHaveAccessibleName('GPU utilisation not responding');
+    for (const label of ['GPU temp', 'GPU power']) {
+      expect(stat(c, label)).toHaveTextContent('Not responding');
+      expect(why(stat(c, label))).toHaveAccessibleDescription(`GPUs 0, 1, 2 and 3 not responding (${NVML_DOWN}).`);
+    }
   });
 });
