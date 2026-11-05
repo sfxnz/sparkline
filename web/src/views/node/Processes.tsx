@@ -46,7 +46,7 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const summary = useMemo(() => {
     if (!procs) return null;
     const cannotTell = gap ? <CannotTellGpuProcesses nodeId={nodeId} gap={gap} /> : null;
-    if (!procs.length) return cannotTell;
+    if (!procs.length) return cannotTell ?? 'No processes reported';
     // The agent sends the biggest consumers (top by GPU memory, memory and CPU), not every process on the node.
     const listed = `The ${procs.length} biggest ${procs.length === 1 ? 'consumer' : 'consumers'}`;
     if (cannotTell) return <>{listed} · {cannotTell}</>;
