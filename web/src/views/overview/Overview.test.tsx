@@ -560,4 +560,34 @@ describe('the pill and the cluster sentence while GPUs send nothing', () => {
     expect(heroPill()).toHaveTextContent('Needs attention');
     expect(cardPill('spark1')).toHaveAttribute('data-status', 'warning');
   });
+
+  const ws1 = wsInfo as unknown as NodeInfo;
+  const wsReading = wsSample as unknown as Sample;
+  const gpu3At = (temp_c: number): Sample => ({ ...wsReading, gpu: wsReading.gpu.map((g) => (g.index === 3 ? { ...g, temp_c } : g)) });
+  const openAlert = (node_id: string, severity: 'warning' | 'critical', rule_id: string, metric: string) => ({
+    id: 1, ts: now, node_id, severity, kind: 'alert' as const, rule_id, title: rule_id, detail: '', metric, value: null, resolved_ts: null, acked: false,
+  });
+
+  it.each([
+    ['memory', 'mem_low', 'mem.available'],
+    ['GPU 0', 'gpu_temp_high', 'gpu0.temp_c'],
+  ])('still says ws1 has GPU 3 heating up while a warning on %s is open', (_, rule, metric) => {
+    useEvents.setState({ events: [openAlert('ws1', 'warning', rule, metric)] });
+    show(ws1, [gpu3At(89)]);
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 3 heating up · 1 warning' })).toBeInTheDocument();
+  });
+
+  it("lets GPU 3's own temperature warning say it is heating up, and still counts the warning", () => {
+    useEvents.setState({ events: [openAlert('ws1', 'warning', 'gpu_temp_high', 'gpu3.temp_c')] });
+    show(ws1, [gpu3At(89)]);
+    expect(screen.getByRole('heading', { name: 'ws1 is online · 1 warning' })).toBeInTheDocument();
+    expect(cardPill('ws1')).toHaveAttribute('data-status', 'warning');
+  });
+
+  it('lets a critical temperature alert say a GB10 is at its slowdown temperature, as before', () => {
+    useEvents.setState({ events: [openAlert('spark1', 'critical', 'gpu_temp_critical', 'gpu0.temp_c')] });
+    show(gb10, [{ ...gb10Reading, gpu: gb10Reading.gpu.map((g) => ({ ...g, temp_c: 87 })) }]);
+    expect(screen.getByRole('heading', { name: 'spark1 is online · 1 critical alert' })).toBeInTheDocument();
+    expect(heroPill()).toHaveAttribute('data-status', 'critical');
+  });
 });
