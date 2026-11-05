@@ -1343,9 +1343,10 @@ def signalled_while_archiving(signum: int, *, while_cleaning_up: bool = False) -
     [
         (signal.SIGTERM, 143, False),
         (signal.SIGHUP, 129, False),
+        (signal.SIGQUIT, 131, False),
         (signal.SIGTERM, 143, True),
     ],
-    ids=["SIGTERM", "SIGHUP", "a second SIGTERM while cleaning up"],
+    ids=["SIGTERM", "SIGHUP", "SIGQUIT", "a second SIGTERM while cleaning up"],
 )
 def test_sigterm_or_a_closed_terminal_keeps_nothing_like_ctrl_c(signum, code, while_cleaning_up, tmp_path):
     out = tmp_path / "out"
@@ -1353,6 +1354,22 @@ def test_sigterm_or_a_closed_terminal_keeps_nothing_like_ctrl_c(signum, code, wh
     assert run.returncode == code
     assert run.stderr == "sparkline-capture stopped. It keeps no partial recording.\n"
     assert not out.exists()
+
+
+def test_a_stop_after_the_recording_is_complete_lets_the_command_finish(tmp_path):
+    late = (
+        "import os, signal\n"
+        "summary = cli._summary\n"
+        "def stopped(*args):\n"
+        "    os.kill(os.getpid(), signal.SIGTERM)\n"
+        "    return summary(*args)\n"
+        "cli._summary = stopped\n"
+    )
+    out = tmp_path / "out"
+    run = run_the_command(out, late)
+    assert run.returncode == 0
+    assert "Replay check: the recording replays as this machine ran." in run.stdout
+    assert (out / "recording.tgz").exists()
 
 
 def test_a_hangup_ignored_before_the_command_started_stays_ignored(tmp_path):
