@@ -536,3 +536,28 @@ describe('GPU processes a node cannot tell, on the Overview', () => {
     expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/^· GPU 62% at 24\.5 W$/);
   });
 });
+
+describe('the pill and the cluster sentence while GPUs send nothing', () => {
+  const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+  const gb10 = gb10Info as unknown as NodeInfo;
+  const gb10Reading = gb10Sample as unknown as Sample;
+  const show = (info: NodeInfo, samples: Sample[]) => {
+    useCluster.getState().setHello(cluster([node(info.node_id, { info })]));
+    act(() => {
+      liveStore.removeNode(info.node_id);
+      samples.forEach((s, i) => { liveStore.pushSample({ ...s, node_id: info.node_id, ts: now - samples.length + 1 + i }); });
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const pill = (scope: Element | null) => scope?.querySelector('[data-status]');
+  const heroPill = () => pill(document.querySelector('.ov-hero'));
+  const cardPill = (id: string) => pill(screen.getByRole('region', { name: `Node ${id}` }));
+
+  it('raises the pill and names a one-GPU node whose GPU is lost, at once', () => {
+    show({ ...gb10, unsupported: [...gb10.unsupported, { metric: 'gpu0', reason: LOST, kind: 'hardware' }] }, [{ ...gb10Reading, gpu: [{ index: 0 }] as Sample['gpu'] }]);
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(heroPill()).toHaveTextContent('Needs attention');
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'warning');
+  });
+});

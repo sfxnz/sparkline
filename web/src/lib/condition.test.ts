@@ -42,7 +42,7 @@ describe('tempRoom', () => {
 
 type Reading = { temp_c: number | null; throttle_mask: number | null };
 const oneGpu = (gpu: Reading | null, slowdown: number | null) =>
-  nodeCondition({ gpus: [{ index: 0, temp_slowdown_c: slowdown }] } as unknown as NodeInfo, { gpu: gpu ? [{ index: 0, ...gpu }] : [] } as unknown as Sample);
+  nodeCondition({ gpus: [{ index: 0, temp_slowdown_c: slowdown }], unsupported: [] } as unknown as NodeInfo, { gpu: gpu ? [{ index: 0, ...gpu }] : [] } as unknown as Sample);
 
 describe('nodeCondition on a one-GPU node', () => {
   it('is null for a calm GPU and when nothing is known', () => {
@@ -63,9 +63,9 @@ describe('nodeCondition on a one-GPU node', () => {
     expect(oneGpu({ temp_c: 70, throttle_mask: 0x24 | 0x40 }, 86)).toEqual({ level: 'critical', text: 'has GPU clocks limited by overheating' });
   });
 
-  it('stays calm for its one lost GPU, which has a notice of its own', () => {
+  it('raises a warning for its one lost GPU at once', () => {
     const info = { gpus: [{ index: 0, temp_slowdown_c: 86 }], unsupported: [{ metric: 'gpu0', reason: 'NVML could not open GPU 0 (NVML: GPU is lost)', kind: 'hardware' }] } as unknown as NodeInfo;
-    expect(nodeCondition(info, { gpu: [{ index: 0 }] } as unknown as Sample)).toBeNull();
+    expect(nodeCondition(info, { gpu: [{ index: 0 }] } as unknown as Sample)).toMatchObject({ level: 'warning', text: 'has a GPU not responding' });
   });
 });
 
