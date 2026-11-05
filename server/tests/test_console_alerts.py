@@ -519,3 +519,15 @@ def test_a_rule_save_that_fails_part_way_leaves_the_saved_rules_as_they_were(tmp
         cluster.update_rules(DEFAULT_RULES)
     assert cluster.store.kv_get("alert_rule_metrics") == metrics_before
     assert restart(cluster).alerts.rules == mine
+
+
+@pytest.mark.parametrize("key", ["settings", "alert_rules", "alert_rule_metrics", "session_token_fp"])
+def test_a_stored_row_that_is_not_json_starts_the_console_as_if_the_row_were_absent(tmp_path, caplog, key):
+    store = Store(tmp_path / "console.sqlite")
+    store.kv_set("alert_rules", [r.model_dump() for r in DEFAULT_RULES])
+    store.db.execute("INSERT OR REPLACE INTO kv VALUES (?,?)", (key, "{not json"))
+    cluster = Cluster(store, Hub(), ConsoleSettings(stale_after_s=7))
+    assert cluster.settings == ConsoleSettings(stale_after_s=7)
+    assert cluster.alerts.rules == DEFAULT_RULES
+    assert store.bind_sessions_to_token("t") is False
+    assert f"Ignoring the stored {key!r} row: it is not valid JSON" in caplog.text
