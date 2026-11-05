@@ -106,9 +106,12 @@ class Store:
         return self.db.execute("SELECT 1 FROM kv WHERE key=?", (key,)).fetchone() is not None
 
     def kv_set_aside(self, key: str) -> str:
-        # Kept for good: a newer console may have written the row, and the next save here overwrites it.
-        aside = f"{key}.unreadable"
-        self.db.execute("INSERT OR REPLACE INTO kv SELECT ?, value FROM kv WHERE key=?", (aside, key))
+        # A newer console may have written this row, and the next save here overwrites it. Each distinct
+        # text keeps its own side row, which nothing here overwrites or deletes. The key names the text, so
+        # a restart on the same text adds no row.
+        (text,) = self.db.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
+        aside = f"{key}.unreadable.{hashlib.sha256(text.encode()).hexdigest()[:12]}"
+        self.db.execute("INSERT OR IGNORE INTO kv VALUES (?,?)", (aside, text))
         return aside
 
     def kv_set(self, key: str, value: Any) -> None:
