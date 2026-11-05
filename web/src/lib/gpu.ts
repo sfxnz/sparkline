@@ -59,20 +59,45 @@ export function gpuSetGap(info: NodeInfo | null | undefined, field: GpuField, mo
 
 const READING: Record<NodeTotal, string> = { util: 'utilisation', temp_c: 'temperature', power_w: 'power', mem_used: 'memory' };
 
-/** Why the node's total of `field` is missing from this sample although the node is reporting. Null when it is
- *  present, when the node reads one GPU's own key instead (nodeGpuKey), or when a declared gap already explains it. */
+const silentClauses = (info: NodeInfo | null | undefined, s: Sample) =>
+  silentBackends(info, s.errors.gpu, s.gpu.map((g) => g.index)).map((b) => {
+    const who = gpuList(b.gpus.map((g) => g.index));
+    return b.message ? `${who} not responding (${b.message})` : `${who} sent no reading this tick`;
+  });
+
+/** Why no GPU the node lists sent a reading this tick: each one is lost, or missing from the sample. Null while any of
+ *  them reports, and on a node that lists none. */
+export function everyGpuSilent(info: NodeInfo | null | undefined, s: Sample | null): NotReported | null {
+  const gpus = info?.gpus ?? [];
+  if (!s || !gpus.length || gpus.some((g) => gpuAt(s.gpu, g.index) && !lostGpu(info, g.index))) return null;
+  const lost = gpus.flatMap((g) => {
+    const gap = lostGpu(info, g.index);
+    return gap ? [`GPU ${String(g.index)}: ${gap.detail}`] : [];
+  });
+  return { kind: 'hardware', label: 'Not responding', detail: sentence([...lost, ...silentClauses(info, s)].join('; ')) };
+}
+
+/** Why the node's figure of `field` (nodeGpuKey) is missing from this sample, when no declared gap explains it. Read
+ *  from one GPU's own key: that GPU not responding, or "No total" while it sends no `field`, so a cluster sum names the
+ *  node it leaves out. A node total: not responding while no GPU reports, else "No total" naming what a sum misses. */
 export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
-  if (!s || !info || nodeGpuKey(info, field) !== `gpu.${field}` || notReported(info, `gpu.${field}`) || gpuTotals(s)[field] !== null) return null;
-  const reporting = s.gpu.map((g) => g.index);
+  if (!s || !info) return null;
+  const key = nodeGpuKey(info, field);
+  if (notReported(info, key)) return null;
+  if (key !== `gpu.${field}`) {
+    const [only = 0] = gpuIndexes(info);
+    const reading = gpuAt(s.gpu, only);
+    if (!reading) return notResponding(info, s, only);
+    return gpuValue(reading, field) === null ? { kind: 'hardware', label: 'No total', detail: `GPU ${String(only)} sent no ${READING[field]} reading this tick.` } : null;
+  }
+  if (gpuTotals(s)[field] !== null) return null;
+  const silent = everyGpuSilent(info, s);
+  if (silent) return silent;
   const empty = info.gpus.filter((g) => {
     const reading = gpuAt(s.gpu, g.index);
     return reading && gpuValue(reading, field) === null;
   }).map((g) => g.index);
-  const clauses = empty.length ? [`${gpuList(empty)} sent no ${READING[field]} reading this tick`] : [];
-  for (const b of silentBackends(info, s.errors.gpu, reporting)) {
-    const who = gpuList(b.gpus.map((g) => g.index));
-    clauses.push(b.message ? `${who} not responding (${b.message})` : `${who} sent no reading this tick`);
-  }
+  const clauses = [...(empty.length ? [`${gpuList(empty)} sent no ${READING[field]} reading this tick`] : []), ...silentClauses(info, s)];
   if (!clauses.length) {
     if (!s.errors.gpu) return null;
     clauses.push(`A GPU backend failed this tick (${s.errors.gpu})`);
@@ -81,10 +106,18 @@ export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, fi
   return { kind: 'hardware', label: 'No total', detail: `${clauses.join('; ')}${why}.` };
 }
 
-/** Why the node's GPU `field` has no value: the agent declares it not reported, or (several GPUs) the total dropped
- *  out of this sample. */
+/** Why the node's GPU `field` has no value: the agent declares it not reported, or it dropped out of this sample
+ *  (totalGap). On a node total, no GPU reporting comes first: a declared total (a lost GPU's) is not what holds now. */
 export function nodeTotalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
-  return notReported(info, nodeGpuKey(info, field)) ?? totalGap(info, s, field);
+  const key = nodeGpuKey(info, field);
+  return (key === `gpu.${field}` ? everyGpuSilent(info, s) : null) ?? notReported(info, key) ?? totalGap(info, s, field);
+}
+
+/** Why the node's own stat of `field` has no value. One GPU: that GPU's gap (declared, or not responding while it is
+ *  missing), never "No total", which only names the node a cluster sum leaves out. Several: nodeTotalGap. */
+export function nodeGpuGap(info: NodeInfo | null | undefined, s: Sample | null, field: ReadingTotal): NotReported | null {
+  const [only = 0, ...more] = gpuIndexes(info);
+  return more.length ? nodeTotalGap(info, s, field) : (notReported(info, gpuKey(only, field)) ?? notResponding(info, s, only));
 }
 
 /** How many of the GPUs a node lists a node total read this tick. */

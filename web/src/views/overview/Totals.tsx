@@ -5,7 +5,7 @@ import { Stat } from '../../design/components/Stat';
 import { gapAcross, notReported, type NotReported } from '../../lib/capabilities';
 import { formatBytes, formatPercent, percentParts, wattsParts, type Formatter } from '../../lib/format';
 import { memoryLayout } from '../../lib/memoryLayout';
-import { gpuSetGap, nodeGpuKey, totalGap } from '../../lib/gpu';
+import { gpuSetGap, nodeGpuKey, nodeTotalGap } from '../../lib/gpu';
 import type { NodeTotal } from '../../lib/metrics';
 import type { NodeState } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
@@ -28,7 +28,7 @@ function leftOut(ids: readonly string[], gapOf: (id: string) => NotReported | nu
 }
 
 const droppedOut = (ids: readonly string[], nodes: Record<string, NodeState>, field: NodeTotal) =>
-  ids.filter((id) => totalGap(nodes[id]?.info, liveStore.latest(id), field)).join('\n');
+  ids.filter((id) => nodeTotalGap(nodes[id]?.info, liveStore.latest(id), field)).join('\n');
 const exclText = (excl: readonly string[]) => (excl.length ? ` · excl. ${listNodes(excl)}` : '');
 
 export function Totals() {
@@ -84,10 +84,8 @@ export function Totals() {
   const of = stale ? 'No node is reporting live data' : `${online.length === order.length ? 'All' : `${online.length} of`} ${order.length} ${order.length === 1 ? 'node' : 'nodes'} reporting`;
   const memMissing = totals.memMissing ? totals.memMissing.split('\n') : [];
   const memGap = !stale && ids.length === 1 && memMissing.length === 1 ? notReported(infos[ids[0] ?? '']?.info, 'mem') : null;
-  const totalOut = (field: NodeTotal, dropped: string) => (id: string) => {
-    const info = infos[id]?.info;
-    return notReported(info, nodeGpuKey(info, field)) ?? (dropped.split('\n').includes(id) ? totalGap(info, liveStore.latest(id), field) : null);
-  };
+  const totalOut = (field: NodeTotal, dropped: string) => (id: string) =>
+    dropped.split('\n').includes(id) ? nodeTotalGap(infos[id]?.info, liveStore.latest(id), field) : null;
   const util = leftOut(ids, totalOut('util', totals.utilDropped));
   const power = leftOut(ids, totalOut('power_w', totals.powerDropped));
   const gpuProcs = leftOut(ids, (id) => gpuSetGap(infos[id]?.info, 'proc_mem', 'any'));
