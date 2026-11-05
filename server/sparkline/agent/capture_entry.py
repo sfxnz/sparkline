@@ -1,5 +1,5 @@
 """The sparkline-capture command. Before it imports the capture, whose imports take long enough for a Ctrl-C
-to land in them, it quiets Python and makes SIGHUP and SIGTERM stop the capture as Ctrl-C does."""
+to land in them, it quiets Python and makes SIGHUP, SIGQUIT and SIGTERM stop the capture as Ctrl-C does."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import warnings
 
 STOPPED = 130
 STOPPED_LINE = "sparkline-capture stopped. It keeps no partial recording."
-STOP_SIGNALS = (signal.SIGINT, signal.SIGHUP, signal.SIGTERM)
+STOP_SIGNALS = (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT, signal.SIGTERM)
 
 
 class Stopped(KeyboardInterrupt):
