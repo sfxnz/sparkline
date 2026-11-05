@@ -1,19 +1,20 @@
-"""The sparkline-capture command. Before it imports the capture, whose imports take long enough for a Ctrl-C
-to land in them, it quiets Python and makes SIGHUP, SIGQUIT and SIGTERM stop the capture as Ctrl-C does."""
+"""The sparkline-capture command. Before it imports anything, so that a Ctrl-C cannot land in an import first,
+it quiets Python's error output and makes SIGHUP, SIGQUIT and SIGTERM stop the capture as Ctrl-C does. Then it
+turns off core dumps and imports the capture."""
 
-from __future__ import annotations
-
-import faulthandler
-import signal
 import sys
-import threading
-import warnings
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    import signal as _signal
+else:
+    import _signal  # signal.py imports enum first, which a Ctrl-C can land in; _signal is loaded at startup
 
 STOPPED = 130
 FAILED = 4
 PR_SET_DUMPABLE = 4
 STOPPED_LINE = "sparkline-capture stopped. It keeps no partial recording."
-STOP_SIGNALS = (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT, signal.SIGTERM)
+STOP_SIGNALS = (_signal.SIGINT, _signal.SIGHUP, _signal.SIGQUIT, _signal.SIGTERM)
 
 
 class Stopped(KeyboardInterrupt):
@@ -31,24 +32,32 @@ def failed(kind: type[BaseException]) -> None:
     print(f"sparkline-capture failed with {kind.__name__} (message not shown).", file=sys.stderr)
 
 
-def print_no_traceback_from_python() -> None:
+def _print_no_traceback_from_sys() -> None:
     sys.excepthook = lambda kind, _value, _traceback: failed(kind)
-    threading.excepthook = lambda args: failed(args.exc_type)
     sys.unraisablehook = lambda _ignored: None
+
+
+def print_no_traceback_from_python() -> None:
+    import threading
+    import warnings
+
+    _print_no_traceback_from_sys()
+    threading.excepthook = lambda args: failed(args.exc_type)
     warnings.showwarning = lambda _message, category, *_where: print(
         f"sparkline-capture: {category.__name__} (message not shown).", file=sys.stderr
     )
 
 
-def stop_like_ctrl_c_on_a_hangup_or_terminate() -> None:
-    def stop(signum: int, _frame: object) -> None:
-        for s in STOP_SIGNALS:
-            signal.signal(s, signal.SIG_IGN)
-        raise Stopped(signum)
-
+def _stop(signum: int, _frame: object) -> None:
     for s in STOP_SIGNALS:
-        if signal.getsignal(s) in (signal.SIG_DFL, signal.default_int_handler):
-            signal.signal(s, stop)
+        _signal.signal(s, _signal.SIG_IGN)
+    raise Stopped(signum)
+
+
+def stop_like_ctrl_c_on_a_hangup_or_terminate() -> None:
+    for s in STOP_SIGNALS:
+        if _signal.getsignal(s) in (_signal.SIG_DFL, _signal.default_int_handler):
+            _signal.signal(s, _stop)
 
 
 def no_core_dumps() -> None:
@@ -64,16 +73,18 @@ def no_core_dumps() -> None:
 
 
 def main() -> int:
-    print_no_traceback_from_python()
-    try:
-        no_core_dumps()
-    except Exception as e:
-        failed(type(e))
-        return FAILED
-    faulthandler.disable()
+    _print_no_traceback_from_sys()
     stop_like_ctrl_c_on_a_hangup_or_terminate()
     try:
+        no_core_dumps()
+        print_no_traceback_from_python()
+        import faulthandler
+
+        faulthandler.disable()
         from .capture import main as capture
     except KeyboardInterrupt as e:
         return stopped(e)
+    except Exception as e:
+        failed(type(e))
+        return FAILED
     return capture()
