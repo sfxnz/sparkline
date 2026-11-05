@@ -436,7 +436,7 @@ def _users(passwd: str) -> list[User]:
         if len(f) < 6 or not f[2].isdigit():
             continue
         if 1000 <= int(f[2]) < 60000 or f[5].startswith(("/home/", "/Users/")):  # login.defs UID_MIN..UID_MAX
-            users.append(User(f[0], f[5], f[4].split(",")[0]))
+            users.append(User(f[0], f[5], f[4]))
     return users
 
 
@@ -480,14 +480,13 @@ def facts_of(src: Sources) -> Facts:
 
 def _session_facts(facts: Facts) -> Facts:
     me = pwd.getpwuid(os.getuid())
-    full_name = me.pw_gecos.split(",")[0]
     return replace(
         facts,
         hostnames=(*facts.hostnames, socket.gethostname()),
         users=(
             *facts.users,
-            User(me.pw_name, me.pw_dir, full_name),
-            User(me.pw_name, str(Path.home()), full_name),
+            User(me.pw_name, me.pw_dir, me.pw_gecos),
+            User(me.pw_name, str(Path.home()), me.pw_gecos),
         ),
     )
 
