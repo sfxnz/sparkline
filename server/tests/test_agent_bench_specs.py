@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -15,10 +17,11 @@ from sparkline.agent.bench.specs import (
     bench_params,
     check_base_url,
     levels,
+    mem_growth_label,
     nccl_sizes,
     validation_message,
 )
-from sparkline.common.schema import Problem
+from sparkline.common.schema import GpuInfo, MemoryModel, NodeInfo, Problem, Unsupported
 
 IDS = [
     "gpu-matmul",
@@ -242,3 +245,45 @@ def test_cpu_quota_reads_own_cgroup(tmp_path):
     (cg / "cpu.max").write_text("max 100000\n")
     assert probes.cpu_quota(str(tmp_path), str(tmp_path / "cg")) is None
     assert probes.cpu_quota(str(tmp_path / "nope"), str(tmp_path / "cg")) is None
+
+
+NODE = (Path(__file__).parent / "fixtures/console/node_info.json").read_text()
+
+
+def _node(*gpus: tuple[MemoryModel, bool]) -> NodeInfo:
+    """A node whose GPUs have these (memory model, lost) pairs; the agent names a lost GPU as gpu<i>."""
+    info = NodeInfo.model_validate_json(NODE)
+    lost = [
+        Unsupported(metric=f"gpu{i}", reason="NVML could not open it")
+        for i, (_, gone) in enumerate(gpus)
+        if gone
+    ]
+    listed = [GpuInfo(index=i, name=f"GPU {i}", memory=memory) for i, (memory, _) in enumerate(gpus)]
+    return info.model_copy(update={"gpus": listed, "unsupported": lost})
+
+
+@pytest.mark.parametrize(
+    ("info", "label"),
+    [
+        (None, "Unified"),
+        (_node(("unified", False)), "Unified"),
+        (_node(("dedicated", False)), "System"),
+        (_node(("carveout", False)), "System"),
+        (_node(("unified", False), ("dedicated", False)), "System"),
+        (_node(), "System"),
+        (_node(("unified", True)), "System"),
+        (_node(("dedicated", False), ("unified", True)), "System"),
+    ],
+    ids=[
+        "no info",
+        "GB10",
+        "discrete",
+        "carve-out",
+        "iGPU beside a discrete GPU",
+        "no GPU",
+        "every GPU lost",
+        "a discrete GPU beside a lost one",
+    ],
+)
+def test_memory_growth_is_unified_only_when_every_gpu_that_answers_shares_system_memory(info, label):
+    assert mem_growth_label(info) == f"{label} memory growth during run"

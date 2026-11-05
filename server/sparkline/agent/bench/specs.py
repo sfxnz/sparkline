@@ -35,8 +35,11 @@ def _unique(v: list) -> list:
 
 
 def mem_growth_label(info: NodeInfo | None) -> str:
-    """GB10's GPU shares system memory, so growth there is unified memory; a discrete GPU has its own."""
-    unified = info is None or any(g.name == "NVIDIA GB10" for g in info.gpus)
+    """Unified memory when every GPU that answers shares system RAM (GB10), else system memory. A lost GPU
+    carries only the default model, so it has no say."""
+    lost = {u.metric for u in info.unsupported} if info else set()
+    gpus = [g for g in info.gpus if f"gpu{g.index}" not in lost] if info else []
+    unified = info is None or (bool(gpus) and all(g.memory == "unified" for g in gpus))
     return f"{'Unified' if unified else 'System'} memory growth during run"
 
 
