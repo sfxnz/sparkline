@@ -176,7 +176,7 @@ describe('Thermals tab while the GPU backend fails a tick', () => {
     show({ gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } });
     expect(energy()).toHaveTextContent(/^GPU energy todayNot responding/);
     expect(energy()).not.toHaveTextContent('kWh');
-    expect(within(energy()).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(NV_ERROR);
+    expect(within(energy()).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0 not responding (${NV_ERROR}).`);
     expect(notes()).toHaveTextContent(`GPU 0 (NVIDIA GB10) not responding: ${NV_ERROR}.`);
   });
 
@@ -184,7 +184,7 @@ describe('Thermals tab while the GPU backend fails a tick', () => {
     const gpus = [0, 1].map((index) => ({ ...(gpuAt(info.gpus, 0) as GpuInfo), index, name: 'NVIDIA RTX 6000 Ada Generation' }));
     show({ gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } }, { ...info, node_id: 'ttest2', gpus });
     expect(energy()).toHaveTextContent(/^GPU energy todayNot responding/);
-    expect(within(energy()).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0: ${NV_ERROR}`);
+    expect(within(energy()).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0 not responding (${NV_ERROR}).`);
     expect(notes()).toHaveTextContent('GPUs 0 and 1 (NVIDIA RTX 6000 Ada Generation) not responding');
   });
 
