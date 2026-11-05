@@ -897,6 +897,23 @@ CASES = [
             ("Latin given name in capitals without its accent", "Zorbína Quuxley", "ZORBINA"),
         )
     ),
+    *(
+        Case(
+            f"Turkish given name with İ alone in free text, {spelling}",
+            "refused",
+            (word,),
+            f"{word} lab",
+            full_name("İzorbina Quuxley"),
+            because="full name",
+        )
+        for spelling, word in (
+            ("as written", "İzorbina"),
+            ("written decomposed (NFD), as macOS writes names", "I\u0307zorbina"),
+            ("as str.lower writes it, i and a combining dot", "i\u0307zorbina"),
+            ("in capitals without the dot", "IZORBINA"),
+            ("in Turkish lower case", "izorbina"),
+        )
+    ),
     Case(
         "dotted MAC after an accented letter",
         "replaced",
