@@ -617,6 +617,14 @@ FIXED_WORDS = {
     "container pytorch, the NGC image name": ("container", "pytorch", "zorbcontainer"),
     "user max, a word of the cpuinfo_max_freq files": ("user", "max", "zorbuser"),
     "hostname computer, inside an NVML call name": ("hostname", "computer", "zorbhost"),
+    "hostname topology, a directory of the CPU topology files": ("hostname", "topology", "zorbhost"),
+    "hostname cpufreq, a directory of the CPU clock files": ("hostname", "cpufreq", "zorbhost"),
+    "hostname system, a directory above the CPU files": ("hostname", "system", "zorbhost"),
+    "hostname devices, a directory of /sys and a word of the links into it": (
+        "hostname",
+        "devices",
+        "zorbhost",
+    ),
 }
 
 
@@ -661,6 +669,9 @@ STILL_A_WORD = {
         in_free_text("pytorch rig"),
     ],
     "container pytorch, also its process name": [in_a_container("pytorch", "pytorch", b"pytorch\0")],
+    "hostname platform, a directory where the reviewed paths take any device name": [
+        named("hostname", "platform")
+    ],
 }
 
 
