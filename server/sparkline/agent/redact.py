@@ -775,8 +775,19 @@ def _idna_forms(value: str) -> list[str]:
     return forms
 
 
-# Combining marks stay in the word: an accent with no composed form, as on Yoruba vowels, stays a mark.
-_WORD = re.compile(r"(?:[^\W_][\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]*)+")
+def _words(text: str) -> list[str]:
+    """Runs of letters and digits with the combining marks that follow them, so that a Devanagari or Thai
+    vowel sign, a Hebrew point, an Arabic haraka or a Yoruba accent does not split a name."""
+    words: list[str] = []
+    word = ""
+    for ch in text:
+        if ch.isalnum() or (word and unicodedata.category(ch).startswith("M")):
+            word += ch
+        else:
+            words.append(word)
+            word = ""
+    return [w for w in [*words, word] if w]
+
 
 _NUMBER = re.compile(r"\+?\d[\d ().-]*\d")
 
@@ -785,7 +796,7 @@ def _full_name_spellings(user: User) -> list[str]:
     gecos = unicodedata.normalize("NFC", user.gecos)
     full_name = gecos.split(",")[0].strip()
     whole = [full_name] if len(full_name.split()) > 1 else []
-    parts = [p for p in _WORD.findall(gecos) if len(p) >= NAME_PART and re.search(r"[^\W\d_]", p)]
+    parts = [p for p in _words(gecos) if len(p) >= NAME_PART and re.search(r"[^\W\d_]", p)]
     names = [n for n in whole + parts if n.lower() != user.name.lower()]
     numbers = [
         spelled

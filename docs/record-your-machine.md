@@ -57,7 +57,10 @@ first word of the command line.
 
 The recording replaces each of these values with a placeholder. One value gets the same placeholder in every
 file, so the recording still reads as one machine. A name with accents is found whether its accents are
-written composed (NFC, as Linux usually writes them) or decomposed (NFD, as macOS writes them).
+written composed (NFC, as Linux usually writes them) or decomposed (NFD, as macOS writes them). A word of a
+name keeps the combining marks that follow its letters, such as accents, the vowel signs of Devanagari, Bengali
+or Thai, and the points of Hebrew or Arabic. Each mark that does not compose into one letter counts as a
+character.
 
 | Value | Placeholder |
 | --- | --- |
