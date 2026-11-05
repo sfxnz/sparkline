@@ -928,6 +928,26 @@ CASES = [
             ("given name in capitals", "GÜLİZAR QUUXLEY", "güli̇zar"),
         )
     ),
+    *(
+        Case(
+            f"{part} with {letter} alone in free text in ASCII",
+            "refused",
+            (word,),
+            f"{word} lab",
+            full_name(name),
+            because="full name",
+        )
+        for part, letter, name, word in (
+            ("given name", "Ǿ", "Ǿrsted Quuxley", "Orsted"),
+            ("given name", "Ǿ written decomposed (NFD)", "Ø\u0301rsted Quuxley", "Orsted"),
+            ("given name in capitals", "Ǿ", "ǾRSTED QUUXLEY", "ORSTED"),
+            ("given name", "Ǽ", "Ǽlfrida Quuxley", "Aelfrida"),
+            ("given name", "Ǣ", "Ǣzorbina Quuxley", "Aezorbina"),
+            ("surname", "ǿ", "Zorbina Quuxlǿy", "Quuxloy"),
+            ("surname", "ǽ", "Zorbina Quuxlǽy", "Quuxlaey"),
+            ("surname", "ǣ", "Zorbina Quuxlǣy", "Quuxlaey"),
+        )
+    ),
     Case(
         "dotted MAC after an accented letter",
         "replaced",
