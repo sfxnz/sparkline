@@ -312,13 +312,13 @@ describe('a run on a chosen GPU', () => {
     useBench.setState({ runs: { [r.id]: r } });
     return render(<RunView id={r.id} />);
   };
-  const subLine = () => [...(document.querySelector('.bench-run__sub')?.querySelectorAll('span:not([aria-hidden])') ?? [])].map((x) => x.textContent);
+  const subLine = () => (document.querySelector('.bench-run__sub')?.textContent ?? '').split(/\s*·\s*/).filter(Boolean);
   const live = (p: Partial<BenchRun> & Pick<BenchRun, 'id'>) => run({ status: 'running', progress: 0.01, created_ts: now() - 30, started_ts: now() - 30, finished_ts: null, ...p });
   const metaOf = (node: string, metadata: Record<string, unknown>) => ({ [node]: nodeState({ node_id: node, bench_id: 'gpu-matmul', metadata }) });
 
   it('names the GPU in the header, from the run metadata, and lists its index with the metadata', () => {
     show(run({ id: 'r-ws1', nodes: ['ws1'], gpu_index: { ws1: 2 }, metadata: { nodes: { ws1: { gpu_index: 2, gpu_name: RTX } } } }));
-    expect(subLine().slice(0, 3)).toEqual(['ws1', `GPU 2 · ${RTX}`, expect.stringMatching(/^Started /)]);
+    expect(subLine().slice(0, 4)).toEqual(['ws1', 'GPU 2', RTX, expect.stringMatching(/^Started /)]);
     const meta = screen.getByRole('region', { name: 'Metadata' });
     expect(within(meta).getByText('GPU index').nextElementSibling).toHaveTextContent(/^2$/);
   });
