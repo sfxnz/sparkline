@@ -96,6 +96,8 @@
 .bench-config__estimate { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-callout); color: var(--text-2); }
 .bench-config__estimate svg { width: 1.15em; height: 1.15em; color: var(--text-3); }
 .bench-config__estimate strong { color: var(--text-1); font-weight: 600; }
+.bench-config__estimate:has(.bench-config__estimate-why) { flex-wrap: wrap; row-gap: 0; }
+.bench-config__estimate-why { flex-basis: 100%; padding-left: calc(1.15em + 6px); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 .bench-config__back { margin-right: auto; }
 .bench-config__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); }
 .bench-config__body > * { min-width: 0; }

@@ -251,6 +251,16 @@ export function estimateDuration(spec: BenchSpec, values: Partial<ParamValues>):
   return Math.max(1, (spec.est_duration_s + extra) * factor);
 }
 
+/** Nodes whose agent gives no duration estimate: the benchmark is timed on DGX Spark rates and the node is not one. */
+export const unestimated = (spec: Pick<BenchSpec, 'no_estimate'>, nodes: readonly string[]): string[] => nodes.filter((n) => spec.no_estimate?.includes(n));
+
+/** The estimate for a run on these nodes, or null when one of them has none. */
+export const estimateOn = (spec: BenchSpec, nodes: readonly string[], values: Partial<ParamValues>): number | null =>
+  unestimated(spec, nodes).length ? null : estimateDuration(spec, values);
+
+/** "ws1 is not a DGX Spark", "ws1 and ws2 are not DGX Sparks". */
+export const notDgxSpark = (nodes: readonly string[]) => `${listNodes(nodes)} ${nodes.length === 1 ? 'is not a DGX Spark' : 'are not DGX Sparks'}`;
+
 const CHOICE_TEXT: Record<string, string> = {
   both: 'Both',
   gpu: 'GPU',
@@ -376,7 +386,7 @@ export function projectedTotal(run: Pick<BenchRun, 'created_ts' | 'started_ts' |
 
 export function runEstimate(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states' | 'params'>, spec: BenchSpec | undefined): number | null {
   const metas = Object.values(nodeMeta(run));
-  if (metas.some((m) => m.est_duration_s === null)) return null;
+  if (metas.some((m) => m.est_duration_s === null) || (spec && unestimated(spec, run.nodes).length)) return null;
   const agent = Math.max(0, ...metas.map((m) => (typeof m.est_duration_s === 'number' ? m.est_duration_s : 0)));
   return agent > 0 ? agent : spec ? estimateDuration(spec, run.params as Partial<ParamValues>) : 60;
 }

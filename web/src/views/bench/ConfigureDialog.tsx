@@ -19,15 +19,17 @@ import {
   splitDescription,
   type Competition,
   type LinkTraffic,
-  estimateDuration,
+  estimateOn,
   gpuOptions,
   gpuPick,
   type GpuIndex,
   paramText,
+  notDgxSpark,
   railLabel,
   runnableNodes,
   runSentence,
   toForm,
+  unestimated,
   usesGpu,
   validateParams,
   type FormValue,
@@ -99,7 +101,8 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
     const d = defaultParams(spec);
     return Object.fromEntries(spec.params.map((p) => [p.name, validateParams({ ...spec, params: [p] }, { [p.name]: form[p.name] ?? '' }).values?.[p.name] ?? d[p.name]])) as ParamValues;
   }, [spec, form]);
-  const estimate = estimateDuration(spec, values ?? partial);
+  const estimate = estimateOn(spec, nodes, values ?? partial);
+  const unknownOn = unestimated(spec, nodes);
   const gpuOn = usesGpu(spec, values ?? partial);
   const gpuIndex = gpuOn ? gpuPick(spec, nodes, gpuChoice) : {};
 
@@ -152,6 +155,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
               <span>
                 Estimated <strong className="num">{aboutDuration(estimate)}</strong>
               </span>
+              {estimate === null ? <span className="bench-config__estimate-why">{notDgxSpark(unknownOn)}</span> : null}
             </span>
             <span className="visually-hidden" role="status">{invalidNote}</span>
             <Button variant="secondary" onClick={close}>Cancel</Button>
@@ -199,7 +203,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
           ) : null}
         </div>
       ) : (
-        <Review spec={spec} nodes={nodes} gpuIndex={gpuIndex} values={values ?? {}} estimate={estimate} />
+        <Review spec={spec} nodes={nodes} gpuIndex={gpuIndex} values={values ?? {}} estimate={estimate} unknownOn={unknownOn} />
       )}
     </Dialog>
   );
@@ -314,7 +318,7 @@ function recentTraffic(node: string, rails: readonly NetIfInfo[]): LinkTraffic[]
   return rails.map((r, i) => ({ name: r.name, label: railLabel(r), rx: peak(2 * i), tx: peak(2 * i + 1) }));
 }
 
-function Review({ spec, nodes, gpuIndex, values, estimate }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; values: ParamValues; estimate: number }) {
+function Review({ spec, nodes, gpuIndex, values, estimate, unknownOn }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; values: ParamValues; estimate: number | null; unknownOn: readonly string[] }) {
   useNow(1000); // live: what it competes with is re-read every second
   const infos = useCluster((s) => s.nodes);
   const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => infos[n]?.status ?? 'online');
@@ -331,7 +335,10 @@ function Review({ spec, nodes, gpuIndex, values, estimate }: { spec: BenchSpec; 
       <dl className="bench-review__facts">
         <div>
           <dt>Estimated duration</dt>
-          <dd className="num">{aboutDuration(estimate)}</dd>
+          <dd className="num">
+            {aboutDuration(estimate)}
+            {estimate === null ? <p className="bench-review__note">Sparkline estimates this from DGX Spark rates, and {notDgxSpark(unknownOn)}.</p> : null}
+          </dd>
         </div>
         <div>
           <dt>Parameters</dt>
