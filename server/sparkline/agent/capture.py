@@ -99,7 +99,9 @@ class OutputUnusable(Exception):
 
 NOT_A_DIRECTORY = "The output path exists and is not a directory. Give a new or empty directory."
 NOT_EMPTY = "The output directory already exists and is not empty. Choose another directory."
-NO_PARENT = "The directory that would hold the output does not exist. Create it, or give another path."
+NO_PARENT = (
+    "The directory that would hold the output does not exist or is not a directory. Give another path."
+)
 NOT_WRITABLE = "sparkline-capture cannot write there. Give a directory that you can write to."
 
 

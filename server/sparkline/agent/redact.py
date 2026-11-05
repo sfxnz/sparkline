@@ -840,7 +840,7 @@ READING_META = ("device", "unreadable")
 _HOME_SLOT = re.compile(
     r"(?<![\w.])/(?:home/((?:[\w-]+\.)+[\w-]+/[\w.-]+)|(?:home|Users|media|run/media)/([\w.-]+(?:@[\w.-]+)?))"
 )
-_SERIAL_LINE = re.compile(r"^Serial[ \t]*:[ \t]*(\S.*)$", re.MULTILINE)
+_SERIAL_LINE = re.compile(r"^Serial[ \t]*:[ \t]*(\S[^\n\r\v\f\x1c-\x1e\x85\u2028\u2029]*)", re.MULTILINE)
 
 
 MOUNTS = "/proc/self/mounts"
