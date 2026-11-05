@@ -624,6 +624,27 @@ def test_a_hostname_in_an_interface_name_refuses_as_a_word_of_what_the_agent_rea
     assert red.collisions == [Leak(IN_A_READING, "hostname")]
 
 
+def test_the_final_check_passes_a_name_only_in_a_fixed_word_and_refuses_it_anywhere_else():
+    facts = Facts(hostnames=("dev",), users=(User("pytorch", j("/", "", "home", "pytorch")),))
+    mounts = b"/dev/nvme0n1p2 / ext4 rw 0 0\n"
+    tree: dict[str, Node] = {
+        "/": Dir(),
+        "/proc": Dir(),
+        "/proc/self": Dir(),
+        "/proc/self/mounts": File(mounts),
+        "/proc/self/net": Dir(),
+        "/proc/self/net/dev": File(b"Inter-|\n"),
+    }
+    red = redact(Recording("linux", {"left_out": {}}, tree, {}, gb10_host()), facts)
+    assert red.collisions == []
+    assert red.recording.tree["/proc/self/mounts"] == File(mounts)
+    assert "/proc/self/net/dev" in red.recording.tree
+    assert leaks(red) == []
+    red.recording.tree["/proc/self/mounts"] = File(b"/dev/nvme0n1p2 /mnt/dev ext4 rw 0 0\n")
+    red.recording.host["which"]["nvidia-smi"] = "/opt/pytorch/nvidia-smi"
+    assert {"hostname", "user"} <= {leak.category for leak in leaks(red)}
+
+
 def test_a_link_into_a_home_directory_is_refused_without_showing_it():
     red = redacted_tree(
         ("/sys/class/net/eth0", Link("../../devices/virtual/net/eth0")),
