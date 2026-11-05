@@ -4,6 +4,7 @@ const COPIES = new Set(['filter', 'map', 'flatMap', 'slice', 'concat', 'toRevers
 const POSITIONAL = new Set(['at', 'pop', 'shift', 'next', 'splice', 'toSpliced', 'with', 'entries', 'keys']);
 const FUNCTIONS = new Set(['ArrowFunctionExpression', 'FunctionExpression']);
 const COLLECTIONS = new Set(['Map', 'Set']);
+const ERROR_TEXT_OWNERS = new Set(['errors']);
 const INDEX_PARAM = new Map([
   ...['find', 'findIndex', 'findLast', 'findLastIndex', 'filter', 'some', 'every', 'map', 'flatMap', 'forEach'].map((m) => [m, 1]),
   ['reduce', 2],
@@ -30,8 +31,7 @@ const nameOf = (node) => {
   return node?.type === 'Identifier' ? node.name : node?.type === 'MemberExpression' ? staticKey(node.property, node.computed) : '';
 };
 
-// `errors.gpu` is the GPU collector's error string, not a GPU list.
-const listKey = (key, owner) => GPU.test(key) && nameOf(owner) !== 'errors';
+const listKey = (key, owner) => GPU.test(key) && !ERROR_TEXT_OWNERS.has(nameOf(owner));
 
 const destructured = ({ parent }) => (parent.type === 'VariableDeclarator' ? parent.init : parent.type === 'AssignmentExpression' ? parent.right : null);
 

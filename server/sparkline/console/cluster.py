@@ -41,8 +41,6 @@ def _stored_metric(r: AlertRule) -> str | None:
 
 
 def _saved_rule_metrics(row: object) -> dict[str, str | None] | None:
-    """RULE_METRICS_KEY as load_rules reads it. A hand edit or another tool can leave any JSON there, so a row
-    that is not an object counts as absent, and an entry that is not a metric as no entry for its rule."""
     if not isinstance(row, dict):
         return None
     return {k: v for k, v in row.items() if v is None or isinstance(v, str)}
@@ -118,7 +116,7 @@ class Cluster:
         self.hub.broadcast({"type": "settings", "settings": s.model_dump(mode="json")})
 
     def update_rules(self, rules: list[AlertRule]) -> None:
-        self.store.kv_set_many(
+        self.store.kv_set_atomically(
             {
                 RULE_METRICS_KEY: {r.id: r.metric for r in rules},
                 RULES_KEY: [{**r.model_dump(), "metric": _stored_metric(r)} for r in rules],

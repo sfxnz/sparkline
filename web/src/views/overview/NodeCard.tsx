@@ -282,20 +282,18 @@ function Temperature() {
     ) : null;
   const headroom = room && !flag ? <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</> : null;
   const name = flag && gpu.name ? gpu.name : null;
-  // On a narrow card the flag, the GPU it names and a headroom line sharing the footer with the GPU count move to a
-  // row under both stats, so the count stays under the temperature it qualifies.
-  const moves = !!flag || (!!headroom && !!from);
+  const toRowWhenNarrow = !!flag || (!!headroom && !!from);
   const footer = flag || headroom || from ? (
     <>
-      {flag ?? (headroom && moves ? <span className="ov-stat__moves">{headroom}</span> : headroom)}
-      {name ? <span className="ov-stat__who ov-stat__moves">{name}</span> : null}
+      {flag ?? (headroom && toRowWhenNarrow ? <span className="ov-stat__to-row">{headroom}</span> : headroom)}
+      {name ? <span className="ov-stat__who ov-stat__to-row">{name}</span> : null}
       {from ? <span className="ov-stat__who">{from}</span> : null}
     </>
   ) : null;
   return (
     <>
       <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />
-      {moves && !gap ? <p className="ov-card__flag">{flag ?? headroom}{name ? <span className="ov-stat__who">{name}</span> : null}</p> : null}
+      {toRowWhenNarrow && !gap ? <p className="ov-card__flag">{flag ?? headroom}{name ? <span className="ov-stat__who">{name}</span> : null}</p> : null}
     </>
   );
 }

@@ -88,8 +88,7 @@ class Store:
     def kv_set(self, key: str, value: Any) -> None:
         self.db.execute("INSERT OR REPLACE INTO kv VALUES (?,?)", (key, json.dumps(value)))
 
-    def kv_set_many(self, rows: dict[str, Any]) -> None:
-        """Writes every row in one transaction, so a failed write leaves them all as they were."""
+    def kv_set_atomically(self, rows: dict[str, Any]) -> None:
         values = [(key, json.dumps(value)) for key, value in rows.items()]
         self.db.execute("BEGIN")
         try:

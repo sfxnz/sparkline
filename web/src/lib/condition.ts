@@ -11,8 +11,7 @@ export interface LiveCondition {
   level: 'warning' | 'critical';
   /** Clause after the node name: "spark1 is at its GPU slowdown temperature". */
   text: string;
-  /** What it says of the GPUs no alert rule watches (not responding), on its own: an open alert never says it. */
-  unwatched?: LiveCondition | null;
+  outsideAlertRules?: LiveCondition;
 }
 
 const HEADROOM_WARN_C = 6;
@@ -142,10 +141,10 @@ function worstOf(info: NodeInfo | null | undefined, s: Sample | null, all: reado
 export function nodeCondition(info: NodeInfo | null | undefined, s: Sample | null): LiveCondition | null {
   const all = gpuConditions(info, s);
   const worst = worstOf(info, s, all);
-  const unwatched = worstOf(info, s, all.filter((c) => c.what === NOT_RESPONDING));
-  return worst && unwatched ? { ...worst, unwatched } : worst;
+  const outsideAlertRules = worstOf(info, s, all.filter((c) => c.what === NOT_RESPONDING));
+  return worst && outsideAlertRules ? { ...worst, outsideAlertRules } : worst;
 }
 
 /** Stable identity for equality checks (useLatest re-renders only when this changes). */
 export const sameCondition = (a: LiveCondition | null, b: LiveCondition | null) =>
-  a === b || (!!a && !!b && a.level === b.level && a.text === b.text && a.unwatched?.text === b.unwatched?.text);
+  a === b || (!!a && !!b && a.level === b.level && a.text === b.text && a.outsideAlertRules?.text === b.outsideAlertRules?.text);

@@ -97,10 +97,10 @@ describe('nodeCondition on a multi-GPU node (ws1, slowdown 93 °C)', () => {
   const empty = { util: null, temp_c: null, power_w: null, throttle_mask: null };
 
   it('raises a warning naming a lost GPU, which a GPU at its slowdown temperature outranks', () => {
-    const unwatched = { level: 'warning', text: 'has GPU 0 not responding' };
-    expect(nodeCondition(lost(0), withGpus({ 0: empty }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding', unwatched });
-    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 89 } }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding and GPU 3 heating up', unwatched });
-    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 94 } }))).toEqual({ level: 'critical', text: 'has GPU 3 at its slowdown temperature', unwatched });
+    const outsideAlertRules = { level: 'warning', text: 'has GPU 0 not responding' };
+    expect(nodeCondition(lost(0), withGpus({ 0: empty }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding', outsideAlertRules });
+    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 89 } }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding and GPU 3 heating up', outsideAlertRules });
+    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 94 } }))).toEqual({ level: 'critical', text: 'has GPU 3 at its slowdown temperature', outsideAlertRules });
   });
 
   it('still names the GPU before the node info arrives, from the clock limit the sample shows', () => {

@@ -64,10 +64,9 @@
   .ov-stat .unsupported { display: block; }
   .ov-stat .unsupported__info { display: inline-grid; vertical-align: middle; }
 }
-/* The flag moves under both stats once the temperature column is narrower than "⚠ 6 °C headroom" (about 6.5rem). */
 @container ov-stats (width < 14.5rem) {
   .ov-card__flag { display: block; }
-  .ov-stat .ov-flag, .ov-stat .ov-stat__moves { display: none; }
+  .ov-stat .ov-flag, .ov-stat .ov-stat__to-row { display: none; }
 }
 .ov-card__panel { flex: 1; position: relative; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
 .ov-card:hover .ov-card__panel { border-color: var(--separator-strong); }
@@ -150,7 +149,6 @@
 .ov-ring__gap { max-width: 72px; text-align: center; font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 600; color: var(--text-2); }
 
 .ov-stat { display: grid; gap: 2px; min-width: 0; }
-/* A gap sits under its label, not halfway down beside a taller neighbour. */
 .ov-stat:has(> .unsupported) { align-content: start; }
 .ov-stat__label { font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 500; color: var(--text-2); overflow-wrap: anywhere; }
 .ov-stat__value { display: flex; align-items: baseline; gap: 3px; min-height: var(--lh-title2); }
@@ -158,7 +156,6 @@
 .ov-stat__unit { font-size: var(--fs-subheadline); font-weight: 500; color: var(--text-2); }
 /* Wraps (two lines at most) rather than clipping, on narrow cards and at large user font sizes. */
 .ov-stat__footer { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-/* A flag, the GPU it names and the GPU count. */
 .ov-stat__footer:has(.ov-stat__who + .ov-stat__who) { -webkit-line-clamp: 3; }
 
 .ov-mem { display: grid; gap: var(--space-2); }

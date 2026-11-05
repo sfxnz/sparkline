@@ -82,7 +82,7 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   const stale = by('stale');
   const connecting = nodes.filter((n) => n.status === 'connecting' || n.status === undefined).map((n) => n.id);
   const flagged = nodes.flatMap((n) => {
-    const c = n.status === 'online' && n.condition ? (alertCovers(n.alert, n.condition.level) ? n.condition.unwatched : n.condition) : null;
+    const c = n.status === 'online' && n.condition ? (alertCovers(n.alert, n.condition.level) ? n.condition.outsideAlertRules : n.condition) : null;
     return c ? [{ id: n.id, condition: c }] : [];
   });
 
