@@ -670,6 +670,22 @@ CASES = [
         because="domain name",
     ),
     Case(
+        "accented last name in free text written decomposed, as macOS writes names (NFD)",
+        "refused",
+        ("Quuxle\u0301e", "Quuxlée"),
+        "Quuxle\u0301e lab",
+        full_name("Zorbina Quuxlée"),
+        because="full name",
+    ),
+    Case(
+        "accented last name in the comment field written decomposed (NFD), composed in free text",
+        "refused",
+        ("Quuxle\u0301e", "Quuxlée"),
+        "Quuxlée lab",
+        full_name("Zorbina Quuxle\u0301e"),
+        because="full name",
+    ),
+    Case(
         "dotted MAC after an accented letter",
         "replaced",
         (j(".", "4caa", "bbcc", "ddee"),),
