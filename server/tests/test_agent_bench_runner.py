@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import types
+from itertools import pairwise
 from pathlib import Path
 
 import psutil
@@ -1319,34 +1320,47 @@ def test_builtin_io_payload_small_file_removed(tmp_path):
 
 
 GIL_BOUND_IO = """
-import ctypes, os, sys
+import ctypes, os, sys, time
 import builtin_io as b
-usleep = ctypes.PyDLL(None).usleep  # PyDLL calls keep the GIL; sleeping uses no CPU, so load cannot skew it
+usleep = ctypes.PyDLL(None).usleep  # PyDLL calls keep the GIL
+sys.setswitchinterval(1000)  # a thread drops the GIL only in os.write, never between a span's two clock reads
+spans = os.open(sys.argv[2], os.O_WRONLY | os.O_APPEND)
 def held(*a):  # 1 ms holding the GIL, like Python's own work around each real I/O
+    t = time.perf_counter()
     usleep(1000)
+    os.write(spans, f"{os.getpid()} {t} {time.perf_counter()}\\n".encode())
     return b.RAND_BS
 os.preadv = held
-nbytes, el, ops, lat, direct = b.rand_io(sys.argv[1], 2**20, 0.5, 4, False)
-print(ops, el, b.p99(lat))
+t = time.perf_counter()
+ops = b.rand_io(sys.argv[1], 2**20, 0.5, 4, False)[2]
+print(t, ops)
 """
 
 
 def test_builtin_io_random_workers_do_not_share_a_gil(tmp_path):
     """Real hardware: with threads, Python's per-I/O work queued on one GIL, so at 32 threads the runner
     reported 94 k IOPS where a C reference got 165 k, with p99 latency inflated 1.9x."""
-    f = tmp_path / "io.test"
+    f, log = tmp_path / "io.test", tmp_path / "spans.log"
     f.write_bytes(bytes(2**20))
+    log.touch()
     r = subprocess.run(
-        [sys.executable, "-c", GIL_BOUND_IO, str(f)],
+        [sys.executable, "-c", GIL_BOUND_IO, str(f), str(log)],
         capture_output=True,
         text=True,
         timeout=30,
         env={**os.environ, "PYTHONPATH": PAYLOAD_DIR},
     )
     assert r.returncode == 0, r.stderr[-2000:]
-    ops, el, p99_us = map(float, r.stdout.split())
-    assert ops / el > 2.5 / 0.001  # 4 workers x 1 ms: one shared GIL would give at most 1000/s
-    assert p99_us < 3000  # ... and every op would wait ~3 ms for the other three
+    t, ops = r.stdout.split()
+    rows = [ln.split() for ln in log.read_text().splitlines()]
+    starts: dict[str, list[float]] = {}
+    for pid, start, _ in rows:
+        starts.setdefault(pid, []).append(float(start))
+    assert int(ops) == len(rows) and len(starts) == 4
+    # a worker stops on its first I/O at or after stop_at = (a clock read after t) + runtime
+    assert all(max(s) >= float(t) + 0.5 for s in starts.values())
+    spans = sorted((float(start), float(end)) for _, start, end in rows)
+    assert any(nxt[0] < cur[1] for cur, nxt in pairwise(spans))
 
 
 def test_builtin_io_sigterm_removes_file(tmp_path):
@@ -2031,10 +2045,14 @@ def test_llm_showcase_sends_a_rejected_request_again_without_the_fill_fields(fak
     msgs = run_payload(
         "llm_showcase.py", "--base-url", url, "--streams", "2", "--max-tokens", "64", "--fill-to-max"
     )
-    assert len(bodies) == 4 and all("ignore_eos" in b for b in bodies[:2])
-    for b in bodies[2:]:  # the same request without ignore_eos, min_tokens and stop
-        assert not {"ignore_eos", "min_tokens", "stop"} & set(b) and b["temperature"] == 0.7
-        assert b["messages"][0]["content"].endswith(" never wrap up.")
+    fill = {"ignore_eos", "min_tokens", "stop"}
+    per_stream: dict[str, list[dict]] = {}
+    for b in bodies:
+        per_stream.setdefault(b["messages"][0]["content"], []).append(b)
+    assert len(bodies) == 4 and len(per_stream) == 2
+    for first, again in per_stream.values():
+        assert fill <= set(first) and again == {k: v for k, v in first.items() if k not in fill}
+        assert again["temperature"] == 0.7 and again["messages"][0]["content"].endswith(" never wrap up.")
     rejected = [m["log"] for m in msgs if "log" in m and "rejected" in m["log"]]
     assert rejected == [
         "The server rejected ignore_eos, min_tokens or stop (HTTP 400: unknown field ignore_eos); sent again "
