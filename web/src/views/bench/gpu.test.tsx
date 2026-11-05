@@ -11,7 +11,7 @@ import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
 import { ConfigureDialog } from './ConfigureDialog';
-import { LLM, MAC_GPU, MATMUL, SOAK, WS1, WS_MATMUL, WS_MEMBW, run, wsGpuOptions } from './fixtures';
+import { LLM, MAC_GPU, MATMUL, MEMBW, SOAK, WS1, WS_MATMUL, WS_MEMBW, run, wsGpuOptions } from './fixtures';
 import { Home } from './Home';
 import { Availability } from './parts';
 import type { ChartSeries } from './RunChart';
@@ -244,6 +244,21 @@ describe('measuring memory bandwidth from the CPU side of a multi-GPU node', () 
     expect(baseElement.textContent).not.toMatch(GPU_NUMBER);
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
     expect(onRun).toHaveBeenCalledWith(['ws1'], { side: 'cpu', iterations: 20 }, {});
+  });
+});
+
+describe('judging what the CPU side of memory bandwidth competes with', () => {
+  const side = (choice: string) => { fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Measure from' })).getByRole('radio', { name: choice })); };
+
+  it('judges the CPUs on a node with one discrete GPU, and the GPU that shares the memory on a GB10', () => {
+    const one = { ...WS1, node_id: 'ws2', hostname: 'ws2', gpus: WS1.gpus.filter((g) => g.index === 0) };
+    const s = wsWith({});
+    cluster([{ info: GB10, sample: GB10_SAMPLE }, { info: one, sample: { ...s, node_id: 'ws2', gpu: s.gpu.filter((g) => g.index === 0) } }]);
+    render(<ConfigureDialog spec={{ ...MEMBW, availability: { spark1: null, ws2: null } }} open onClose={noop} onRun={noop} initialNodes={['spark1', 'ws2']} />);
+    side('CPU');
+    review();
+    expect(screen.getByText('ws2 CPUs are mostly idle (11%).')).toBeInTheDocument();
+    expect(screen.getByText('spark1 is currently serving DeepSeek-V4.1-Flash-EXL3 at 62% GPU; results will be lower and the workload will slow down.')).toBeInTheDocument();
   });
 });
 
