@@ -368,3 +368,45 @@ describe('Node page', () => {
     });
   });
 });
+
+describe('the NVIDIA versions in the header meta row', () => {
+  const nvidiaLeftOver = {
+    hostname: 'spark2', agent_version: '9.9.9', boot_time: 0, os: 'Test OS 99', kernel: '9.99.0-test', platform: 'linux',
+    driver: '580.95.05', cuda: '13.0', nvml: '13.580.95.05', versions: { 'nvidia.Driver': '580.95.05', 'nvidia.CUDA': '13.0' },
+    net: [], cores: [], disks: [], sensors: [],
+  };
+  const noNvidia = { metric: 'gpu.backend.nvml', reason: 'NVML found no NVIDIA GPU', kind: 'hardware' };
+  const show = (more: Partial<NodeInfo>) => {
+    const info = { ...nvidiaLeftOver, gpus: [], unsupported: [], ...more } as unknown as NodeInfo;
+    setConn('live');
+    useCluster.getState().setHello({
+      nodes: [{ ...base, url: 'http://agent.test:9750', info }],
+      settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 },
+      demo: true, version: '0', server_time: now,
+    });
+    render(
+      <Router hook={memoryLocation({ path: '/node/spark2' }).hook}>
+        <Route path="/node/:id/:tab?" component={Node} />
+      </Router>,
+    );
+    return screen.getByRole('list', { name: 'spark2 details' });
+  };
+  const amd = { index: 0, name: 'Radeon RX 7900 XTX', vendor: 'amd', backend: 'amdgpu-sysfs' } as GpuInfo;
+
+  it.each([
+    ['lists only an AMD GPU', { gpus: [amd], unsupported: [noNvidia] }],
+    ['lists no GPU', { unsupported: [noNvidia, { metric: 'gpu*', reason: 'nvml: NVML found no NVIDIA GPU', kind: 'hardware' }] }],
+  ] as [string, Partial<NodeInfo>][])('leaves the NVIDIA driver and CUDA out of the meta row when the node %s, and keeps them in its details', async (_, more) => {
+    const meta = show(more);
+    expect(meta).not.toHaveTextContent(/Driver|CUDA/);
+    await userEvent.click(screen.getByRole('button', { name: 'Details' }));
+    expect(screen.getByText('Driver').nextSibling).toHaveTextContent('580.95.05');
+  });
+
+  it.each([
+    ['an NVIDIA GPU', { index: 0, name: 'NVIDIA GB10', vendor: 'nvidia', backend: 'nvml' }],
+    ['a GPU with no vendor, from an older agent', { index: 0, name: 'Test GPU' }],
+  ] as [string, GpuInfo][])('keeps the NVIDIA driver and CUDA in the meta row of a node that lists %s', (_, gpu) => {
+    expect(show({ gpus: [gpu, amd].map((g, index) => ({ ...g, index })) })).toHaveTextContent(/Driver 580\.95\.05CUDA 13\.0/);
+  });
+});
