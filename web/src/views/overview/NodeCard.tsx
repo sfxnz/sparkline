@@ -280,17 +280,22 @@ function Temperature() {
     ) : room?.level === 'warn' ? (
       <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>
     ) : null;
-  const second = flag ? gpu.name : from;
-  const footer = room || second ? (
+  const headroom = room && !flag ? <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</> : null;
+  const name = flag && gpu.name ? gpu.name : null;
+  // On a narrow card the flag, the GPU it names and a headroom line sharing the footer with the GPU count move to a
+  // row under both stats, so the count stays under the temperature it qualifies.
+  const moves = !!flag || (!!headroom && !!from);
+  const footer = flag || headroom || from ? (
     <>
-      {flag ?? (room ? <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</> : null)}
-      {second ? <span className={`ov-stat__who${flag || room ? ' ov-stat__who--second' : ''}`}>{second}</span> : null}
+      {flag ?? (headroom && moves ? <span className="ov-stat__moves">{headroom}</span> : headroom)}
+      {name ? <span className="ov-stat__who ov-stat__moves">{name}</span> : null}
+      {from ? <span className="ov-stat__who">{from}</span> : null}
     </>
   ) : null;
   return (
     <>
       <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />
-      {flag && !gap ? <p className="ov-card__flag">{flag}{gpu.name ? <span className="ov-stat__who">{gpu.name}</span> : null}</p> : null}
+      {moves && !gap ? <p className="ov-card__flag">{flag ?? headroom}{name ? <span className="ov-stat__who">{name}</span> : null}</p> : null}
     </>
   );
 }
