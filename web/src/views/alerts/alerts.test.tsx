@@ -107,3 +107,36 @@ describe('RulesEditor', () => {
     expect(within(row as HTMLElement).getByText(/The console rejected this rule/)).toBeInTheDocument();
   });
 });
+
+describe('RulesEditor after the console reset the rules', () => {
+  const NOTE = 'Alert rules were reset because the saved ones could not be read';
+  const serve = (reset: boolean) =>
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) =>
+      Promise.resolve(
+        init?.method === 'PUT'
+          ? json(JSON.parse(init.body as string))
+          : url === '/api/v1/alerts/rules/status'
+            ? json({ reset })
+            : json(RULES),
+      ),
+    );
+
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('says so until the rules are saved, and saves them unedited', async () => {
+    const fetchSpy = serve(true);
+    render(<RulesEditor />);
+    expect(await screen.findByText(NOTE)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => { expect(screen.queryByText(NOTE)).not.toBeInTheDocument(); });
+    const put = fetchSpy.mock.calls.find(([, init]) => init?.method === 'PUT');
+    expect(JSON.parse(put?.[1]?.body as string)).toEqual(RULES);
+  });
+
+  it('says nothing when the console read the saved rules', async () => {
+    serve(false);
+    render(<RulesEditor />);
+    await screen.findByRole('textbox', { name: /Memory running low: threshold in GiB/ });
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
+  });
+});
