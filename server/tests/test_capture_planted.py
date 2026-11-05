@@ -67,6 +67,14 @@ def os_release_line(line: str) -> Plant:
     return plant
 
 
+def cpuinfo_lines(text: str) -> Plant:
+    def plant(copy: Path, _: pytest.MonkeyPatch) -> None:
+        cpuinfo = copy / "root/proc/cpuinfo"
+        cpuinfo.write_text(cpuinfo.read_text() + text)
+
+    return plant
+
+
 def an_interface_with_this_mac(copy: Path, _: pytest.MonkeyPatch) -> None:
     root = copy / "root"
     net = root / "sys/devices/pci000a:00/000a:00:00.0/000a:01:00.0/net/enxq"
@@ -421,6 +429,20 @@ CASES = [
         "refused",
         ("otherbox9",),
         plant=a_collector_reads(GPU_METRICS, blob(b"otherbox9")),
+    ),
+    Case(
+        "hostname on the line after an empty cpuinfo Serial",
+        "refused",
+        (HOST,),
+        plant=cpuinfo_lines(f"Serial\t\t: \nHardware\t: {HOST} board\n"),
+        because="hostname",
+    ),
+    Case(
+        "hostname in the CPU model after an empty cpuinfo Serial",
+        "refused",
+        (HOST,),
+        plant=cpuinfo_lines(f"Serial\t\t:\nmodel name\t: {HOST} CPU\n"),
+        because="hostname",
     ),
 ]
 
