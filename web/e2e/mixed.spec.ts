@@ -441,4 +441,29 @@ test.describe.serial('figures ws1 shows from the GB10 model', () => {
       await walkWidths(page, gb10?.id ?? '', /^spark1/);
     }
   });
+
+  test('llm-inference on ws1 gives no duration estimate and says why, while spark1 keeps its own', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`${MIXED}/benchmarks?configure=llm-inference`);
+    const dialog = page.getByRole('dialog', { name: 'Configure LLM inference' });
+    const estimate = dialog.locator('.bench-config__estimate');
+    await expect(dialog.getByRole('checkbox', { name: /^spark1/ })).toBeChecked({ timeout: 15_000 });
+    await expect(estimate).toContainText(/^Estimated ≈/);
+    await dialog.getByRole('checkbox', { name: /^ws1/ }).check();
+    await dialog.getByRole('checkbox', { name: /^spark1/ }).uncheck();
+    await expect(estimate).toHaveText('Estimated —ws1 is not a DGX Spark');
+    const box = await estimate.boundingBox();
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(375);
+    await dialog.getByRole('button', { name: /Review & run/ }).click();
+    const confirm = page.getByRole('dialog', { name: 'Run LLM inference?' });
+    await expect(confirm.getByText('Sparkline estimates this from DGX Spark rates, and ws1 is not a DGX Spark.')).toBeVisible();
+    await expect(confirm.getByText(/≈/)).toHaveCount(0);
+    await confirm.getByRole('button', { name: 'Run benchmark' }).click();
+    await expect.poll(() => page.url(), { timeout: 15_000 }).toMatch(/\/benchmarks\/runs\/(?!pending-)/);
+    const progress = page.getByRole('region', { name: 'Progress' });
+    await expect(progress.getByText('Remaining').locator('xpath=following-sibling::dd')).toHaveText('—');
+    await expect(progress.getByText('Expected total').locator('xpath=following-sibling::dd')).toHaveText('—');
+    await succeeded(page, decodeURIComponent(page.url().split('/').pop() ?? ''));
+  });
 });
