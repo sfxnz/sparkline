@@ -28,6 +28,7 @@ import {
   runnableNodes,
   runSentence,
   toForm,
+  usesGpu,
   validateParams,
   type FormValue,
   type FormValues,
@@ -69,7 +70,6 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
   const [form, setForm] = useState<FormValues>(() => toForm(spec, { ...defaultParams(spec), ...(initialParams as ParamValues | undefined) }));
   const [nodes, setNodes] = useState<string[]>(() => initialPick(spec, known, initialNodes));
   const [gpuChoice, setGpuChoice] = useState<GpuIndex>(() => initialGpuIndex ?? {});
-  const gpuIndex = gpuPick(spec, nodes, gpuChoice);
   const [touched, setTouched] = useState(false);
   const [step, setStep] = useState<'configure' | 'review'>('configure');
   const backRef = useRef<HTMLButtonElement>(null);
@@ -100,6 +100,8 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
     return Object.fromEntries(spec.params.map((p) => [p.name, validateParams({ ...spec, params: [p] }, { [p.name]: form[p.name] ?? '' }).values?.[p.name] ?? d[p.name]])) as ParamValues;
   }, [spec, form]);
   const estimate = estimateDuration(spec, values ?? partial);
+  const gpuOn = usesGpu(spec, values ?? partial);
+  const gpuIndex = gpuOn ? gpuPick(spec, nodes, gpuChoice) : {};
 
   const pair = spec.min_nodes === 2 && spec.max_nodes === 2;
   const maxNodes = spec.max_nodes ?? Infinity;
@@ -181,7 +183,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
             ) : (
               <NodeList spec={spec} known={known} statuses={nodeStates} nodes={nodes} gpuIndex={gpuIndex} single={spec.max_nodes === 1} onChange={setNodes} />
             )}
-            {nodes.filter((n) => gpuOptions(spec, n).length).map((n) => (
+            {nodes.filter((n) => gpuOn && gpuOptions(spec, n).length).map((n) => (
               <GpuPicker key={n} spec={spec} node={n} value={gpuIndex[n]} onChange={(i) => { setGpuChoice((c) => ({ ...c, [n]: i })); }} />
             ))}
             {pair && railParam ? (

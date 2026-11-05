@@ -319,6 +319,10 @@ export type GpuIndex = Readonly<Record<string, number>>;
 
 export const gpuOptions = (spec: Pick<BenchSpec, 'gpu_options'>, node: string): readonly GpuOption[] => spec.gpu_options?.[node] ?? [];
 
+/** Whether a GPU benchmark run with these parameters uses a GPU, as the agent's `Bench.uses_gpu` decides: memory
+ *  bandwidth measured from the CPU side uses none. */
+export const usesGpu = (spec: Pick<BenchSpec, 'id'>, values: Partial<ParamValues>): boolean => spec.id !== 'mem-bandwidth' || values.side !== 'cpu';
+
 export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly string[], prev: GpuIndex = {}): Record<string, number> {
   const out: Record<string, number> = {};
   for (const n of nodes) {
