@@ -7,7 +7,10 @@ import contextlib
 import json
 import logging
 import time
+from collections.abc import Callable
 from importlib.metadata import version as pkg_version
+
+from pydantic import TypeAdapter, ValidationError
 
 from ..common.schema import AlertRule, ClusterState, ConsoleSettings, Event, NodeState, Problem, Sample
 from .alerts import DEFAULT_RULES, AlertEngine
@@ -32,6 +35,7 @@ RULES_KEY = "alert_rules"
 # Each rule's metric as this console saved it. Older consoles read and write RULES_KEY only, so a rule whose
 # stored metric still matches its entry here was last saved by a console that knows the gpu* defaults.
 RULE_METRICS_KEY = "alert_rule_metrics"
+_ROWS = TypeAdapter(list[object])
 
 
 def _stored_metric(r: AlertRule) -> str | None:
@@ -44,6 +48,14 @@ def _saved_rule_metrics(row: object) -> dict[str, str | None] | None:
     if not isinstance(row, dict):
         return None
     return {k: v for k, v in row.items() if v is None or isinstance(v, str)}
+
+
+def _well_formed[T](key: str, parse: Callable[[], T]) -> T | None:
+    try:
+        return parse()
+    except ValidationError:
+        log.warning("Ignoring the stored %r row: it does not match what this console expects", key)
+        return None
 
 
 def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> list[AlertRule]:
@@ -67,13 +79,16 @@ class Cluster:
         self.hub = hub
         self.demo = demo
         saved = store.kv_get("settings")
-        self.settings = ConsoleSettings.model_validate(saved) if saved else default_settings
+        settings = _well_formed("settings", lambda: ConsoleSettings.model_validate(saved)) if saved else None
+        self.settings = settings or default_settings
         saved_rules = store.kv_get(RULES_KEY)
+        metrics = _saved_rule_metrics(store.kv_get(RULE_METRICS_KEY)) if saved_rules is not None else None
         rules = (
-            load_rules(saved_rules, _saved_rule_metrics(store.kv_get(RULE_METRICS_KEY)))
+            _well_formed(RULES_KEY, lambda: load_rules(_ROWS.validate_python(saved_rules), metrics))
             if saved_rules is not None
-            else DEFAULT_RULES
+            else None
         )
+        rules = DEFAULT_RULES if rules is None else rules
         self.alerts = AlertEngine(rules, self.add_event, self.resolve_event)
         self.sources: dict[str, NodeSource] = {}
         self._tasks: list[asyncio.Task] = []
