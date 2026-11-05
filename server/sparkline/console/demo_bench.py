@@ -602,12 +602,14 @@ def node_metadata(
     info: NodeInfo | None, model: DemoNode, t0: float, t1: float, extra: dict, gpu: probes.GpuTarget | None
 ) -> dict:
     """The keys the real agent records (agent/bench/metadata.py), with telemetry snapshots at start/end."""
-    index = metadata.gpu_index(gpu)
 
     def snap(t: float) -> dict:
         s = model.sample_at(t)
-        x = metadata.gpu_sample(s, index) or GpuSample(index=index)
-        return {"ts": t, "mem_used": s.mem.used, "sm_mhz": x.sm_mhz, "temp_c": x.temp_c, "power_w": x.power_w}
+        out: dict = {"ts": t, "mem_used": s.mem.used}
+        if (index := metadata.named_gpu(len(s.gpu), gpu)) is not None:
+            x = metadata.gpu_sample(s, index) or GpuSample(index=index)
+            out.update(sm_mhz=x.sm_mhz, temp_c=x.temp_c, power_w=x.power_w)
+        return out
 
     return {
         "hostname": info.hostname if info else model.node_id,
