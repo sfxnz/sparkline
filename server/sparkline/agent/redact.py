@@ -832,9 +832,9 @@ def _full_name_spellings(user: User) -> list[str]:
         if len(digits := re.sub(r"\D", "", m[0])) >= GECOS_NUMBER
         for spelled in dict.fromkeys((m[0], digits))
     ]
-    lowered = {n.lower() for n in names}
-    plainer = {p.lower(): p for n in names for p in (_unmarked(n), n.casefold(), _ascii(n))}
-    return names + [p for low, p in plainer.items() if low not in lowered and len(p) >= NAME_PART] + numbers
+    keys = {_ignorecase_key(n) for n in names}
+    plainer = {_ignorecase_key(p): p for n in names for p in (_unmarked(n), n.casefold(), _ascii(n))}
+    return names + [p for key, p in plainer.items() if key not in keys and len(p) >= NAME_PART] + numbers
 
 
 _NO_DECOMPOSITION = str.maketrans(
