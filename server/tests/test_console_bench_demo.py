@@ -174,6 +174,9 @@ async def test_the_cpu_side_takes_and_loads_no_gpu_in_the_demo_as_on_an_agent(mi
             mixed, node, BenchStartRequest(run_id=f"c-{node}", bench_id="mem-bandwidth", params=cpu)
         )
         assert st.status == "succeeded" and "gpu_index" not in st.metadata, node
+        gpu_keys = {k for k in ("gpu_name", "gpu_uuid", "gpu_cc") if k in st.metadata}
+        assert gpu_keys == (set() if node == "ws1" else {"gpu_name", "gpu_uuid", "gpu_cc"}), node
+        assert ("sm_mhz" in st.metadata["start"]) == (node == "spark1"), node
         assert st.started_ts is not None
         windows, mid = sources[node].model.bench_windows, st.started_ts + 0.5
         assert all(bench_load(windows, mid, g.index) == (0.0, 0.0) for g in sources[node].state.info.gpus), (

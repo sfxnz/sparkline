@@ -706,14 +706,17 @@ async def test_a_gpu_container_sees_the_chosen_gpu_on_a_workstation_and_every_gp
     assert argv.count("--gpus") == 1 and argv[argv.index("--gpus") + 1] == gpus
 
 
+GPU_KEYS = {"gpu_index", "gpu_name", "gpu_uuid", "gpu_cc"}
+GPU_SNAPSHOT = {"sm_mhz", "temp_c", "power_w", "throttle_mask", "util"}
+
+
 async def test_the_cpu_side_of_mem_bandwidth_takes_no_gpu_on_a_workstation_whose_first_gpu_is_lost(tmp_path):
     seen: list[list[dict]] = []
     info = workstation_info({0: "NVML: Unknown Error"})
     r = make_runner(tmp_path, {"mem-bandwidth": capturing("mem-bandwidth", seen)}, info=lambda: info)
     md = (await finish(r, req(bench_id="mem-bandwidth", params={"side": "cpu"}))).metadata
     assert "--gpus" not in seen[0][0]["argv"]
-    first = next(g for g in info.gpus if g.index == 0)
-    assert "gpu_index" not in md and (md["gpu_uuid"], md["gpu_name"]) == (first.uuid, first.name)
+    assert not GPU_KEYS & md.keys()
 
 
 async def test_a_workstation_run_records_its_gpu_and_that_gpus_telemetry(tmp_path):
@@ -732,8 +735,36 @@ async def test_only_a_gpu_benchmark_on_a_node_with_a_choice_records_gpu_index(tm
     gb10 = make_runner(tmp_path, {"thermal-soak": fake("ok")})
     assert "gpu_index" not in (await finish(gb10, req(bench_id="thermal-soak"))).metadata
     ws = make_runner(tmp_path, {"cpu-throughput": fake("ok")}, info=workstation_info)
-    md = (await finish(ws, req(bench_id="cpu-throughput"))).metadata
-    assert "gpu_index" not in md and md["gpu_uuid"] == ws_uuid(0)
+    assert "gpu_index" not in (await finish(ws, req(bench_id="cpu-throughput"))).metadata
+
+
+NO_GPU_RUNS = [
+    ("cpu-throughput", {}),
+    ("mem-bandwidth", {"side": "cpu"}),
+    ("storage-fio", {}),
+    ("llm-inference", {}),
+]
+
+
+@pytest.mark.parametrize(("bench_id", "params"), NO_GPU_RUNS)
+async def test_a_run_on_no_gpu_of_a_multi_gpu_node_records_no_single_gpu(tmp_path, bench_id, params):
+    r = make_runner(
+        tmp_path,
+        {bench_id: fake("ok")},
+        info=workstation_info,
+        latest=lambda: workstation_sample(time.time()),
+    )
+    md = (await finish(r, req(bench_id=bench_id, params=params))).metadata
+    assert not GPU_KEYS & md.keys()
+    assert md["start"] and not GPU_SNAPSHOT & (md["start"].keys() | md["end"].keys())
+
+
+@pytest.mark.parametrize(("bench_id", "params"), NO_GPU_RUNS)
+async def test_a_run_on_no_gpu_of_a_gb10_still_records_its_gpu(tmp_path, bench_id, params):
+    r = make_runner(tmp_path, {bench_id: fake("ok")}, latest=lambda: sample(time.time()))
+    md = (await finish(r, req(bench_id=bench_id, params=params))).metadata
+    assert (md["gpu_name"], md["gpu_uuid"], md["gpu_cc"]) == ("NVIDIA GB10", "GPU-abc", None)
+    assert md["start"]["sm_mhz"] == md["end"]["sm_mhz"] == 2000.0 and "gpu_index" not in md
 
 
 async def test_start_refuses_a_gpu_the_benchmark_cannot_run_on(tmp_path):
