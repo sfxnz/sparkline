@@ -21,9 +21,10 @@ const META: Record<Status, { label: string; icon: LucideIcon; tone: 'ok' | 'warn
  * Map a console NodeStatus to a display status. An open alert on the node raises 'online' to warning/critical, and
  * while the browser has lost the console (`consoleLive` false) the last NodeState is not current, so it shows 'stale'.
  */
+export const shownNodeStatus = (status: NodeStatus | undefined, consoleLive: boolean): NodeStatus | undefined => (status && !consoleLive ? 'stale' : status);
+
 export function nodeDisplayStatus(status: NodeStatus | undefined, alert: 'warning' | 'critical' | null = null, consoleLive = true): Status {
-  if (status && !consoleLive) return 'stale';
-  switch (status) {
+  switch (shownNodeStatus(status, consoleLive)) {
     case 'online':
       return alert ?? 'healthy';
     case 'stale':

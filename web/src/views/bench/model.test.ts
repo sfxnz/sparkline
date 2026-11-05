@@ -46,7 +46,7 @@ import {
   soakStats,
   splitDescription,
   toForm,
-  unestimatedRun,
+  unestimatedRunNodes,
   unitText,
   validateParams,
   valueWithUnit,
@@ -674,8 +674,8 @@ describe('run estimate', () => {
   it('names the nodes it has no estimate for, from their agents or the catalog', () => {
     const spec = { ...WS_MATMUL, no_estimate: ['ws2'] };
     const states = { spark1: st('spark1', { est_duration_s: 120 }), ws1: st('ws1', { est_duration_s: null }) };
-    expect(unestimatedRun(run({ id: 'h', status: 'running', nodes: ['spark1', 'ws1', 'ws2'], node_states: states }), spec)).toEqual(['ws1', 'ws2']);
-    expect(unestimatedRun(run({ id: 'i', status: 'running', node_states: { spark1: states.spark1 } }), spec)).toEqual([]);
+    expect(unestimatedRunNodes(run({ id: 'h', status: 'running', nodes: ['spark1', 'ws1', 'ws2'], node_states: states }), spec)).toEqual(['ws1', 'ws2']);
+    expect(unestimatedRunNodes(run({ id: 'i', status: 'running', node_states: { spark1: states.spark1 } }), spec)).toEqual([]);
   });
   it('is unknown from the start on a node the catalog gives no estimate for, and kept on the others', () => {
     const spec = { ...WS_MATMUL, no_estimate: ['ws1'] };
@@ -722,9 +722,9 @@ describe('competition on a node with a choice of GPU', () => {
     }
     expect(on(ws({ 0: 86 }), 2, 'error')).toStrictEqual({ node: 'ws1', busy: false, stale: true, text: 'ws1 is not reporting, so the current load of GPU 2 is unknown.' });
   });
-  it('judges a run that uses no GPU by the CPUs on a node with several GPUs, and by the GPU on a GB10', () => {
+  it('judges the nodes it is told to by their CPUs, never by one of their GPUs', () => {
     const spark = { ...ws({ 0: 0 }), node_id: 'spark1' };
-    const cpuSide = (s: Sample) => competition(WS_MEMBW, ['spark1', 'ws1'], (n) => (n === 'ws1' ? s : spark), undefined, undefined, {}, undefined, false);
+    const cpuSide = (s: Sample) => competition(WS_MEMBW, ['spark1', 'ws1'], (n) => (n === 'ws1' ? s : spark), undefined, undefined, {}, undefined, (n) => n === 'ws1');
     expect(cpuSide(ws({ 0: 86, 2: 3 }, vllm))).toStrictEqual([
       { node: 'spark1', busy: false, text: 'spark1 GPU is idle (0%).' },
       { node: 'ws1', busy: false, text: 'ws1 CPUs are mostly idle (5%).' },

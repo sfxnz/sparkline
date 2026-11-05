@@ -54,7 +54,7 @@ import {
   runGpuParts,
   runLog,
   stopwatch,
-  unestimatedRun,
+  unestimatedRunNodes,
   valueWithUnit,
 } from './model';
 import { BetterHint, DeltaBadge, ModelledNote, RunStatusPill } from './parts';
@@ -234,7 +234,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
       {active ? (
         <Panel title="Progress" className="bench-run__progress">
-          <Progress run={run} now={now} estimate={estimate} noEstimate={unestimatedRun(run, spec)} cancelling={cancelling} />
+          <Progress run={run} now={now} estimate={estimate} noEstimate={unestimatedRunNodes(run, spec)} cancelling={cancelling} />
         </Panel>
       ) : run.status === 'succeeded' ? (
         <Completion run={run} celebrate={celebrate} regressionPct={regressionPct} />

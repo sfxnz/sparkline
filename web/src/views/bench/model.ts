@@ -4,7 +4,7 @@
 import type { Status } from '../../design/components/StatusPill';
 import { formatBytes, formatDuration, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
 import { decodeThrottle } from '../../lib/throttle';
-import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, NodeStatus, ProcSample, RunStatus, Sample } from '../../lib/types';
+import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, NodeInfo, NodeStatus, ProcSample, RunStatus, Sample } from '../../lib/types';
 import { gpuProcesses, isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
 import { gpuAt } from '../../lib/gpu';
 
@@ -328,6 +328,8 @@ export type GpuIndex = Readonly<Record<string, number>>;
 
 export const gpuOptions = (spec: Pick<BenchSpec, 'gpu_options'>, node: string): readonly GpuOption[] => spec.gpu_options?.[node] ?? [];
 
+export const gpuSharesMemory = (info: Pick<NodeInfo, 'gpus'> | null | undefined): boolean => !info || info.gpus.some((g) => g.name === 'NVIDIA GB10');
+
 export const usesGpu = (spec: Pick<BenchSpec, 'id'>, values: Partial<ParamValues>): boolean => spec.id !== 'mem-bandwidth' || values.side !== 'cpu';
 
 export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly string[], prev: GpuIndex = {}): Record<string, number> {
@@ -380,8 +382,7 @@ export function projectedTotal(run: Pick<BenchRun, 'created_ts' | 'started_ts' |
   return elapsed(run, now) + (eta(run, now, estimate) ?? 0);
 }
 
-/** The run's nodes with no duration estimate: their agent reports none, or the catalog lists them in no_estimate. */
-export function unestimatedRun(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states'>, spec: Pick<BenchSpec, 'no_estimate'> | undefined): string[] {
+export function unestimatedRunNodes(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states'>, spec: Pick<BenchSpec, 'no_estimate'> | undefined): string[] {
   const meta = nodeMeta(run);
   const none = new Set([...Object.keys(meta).filter((n) => meta[n]?.est_duration_s === null), ...(spec ? unestimated(spec, run.nodes) : [])]);
   return run.nodes.filter((n) => none.has(n));
@@ -389,7 +390,7 @@ export function unestimatedRun(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_
 
 export function runEstimate(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states' | 'params'>, spec: BenchSpec | undefined): number | null {
   const metas = Object.values(nodeMeta(run));
-  if (unestimatedRun(run, spec).length) return null;
+  if (unestimatedRunNodes(run, spec).length) return null;
   const agent = Math.max(0, ...metas.map((m) => (typeof m.est_duration_s === 'number' ? m.est_duration_s : 0)));
   return agent > 0 ? agent : spec ? estimateDuration(spec, run.params as Partial<ParamValues>) : 60;
 }
@@ -941,20 +942,18 @@ function latestTraffic(s: Sample, rails: readonly NetIfInfo[]): LinkTraffic[] {
 
 const gbps = (bytesPerS: number) => `${((bytesPerS * 8) / 1e9).toFixed(1)} Gb/s`;
 
-/** The node's top GPU workload and the GPU memory its processes hold; the wire does not say on which GPU (#20). */
-function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: string; what: string; mem: number } | null {
+function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: string; what: string; nodeMem: number } | null {
   const top = topGpuProcess(procs);
   if (!top) return null;
   const what = workloadName(top);
-  const mem = gpuProcesses(procs).filter((p) => workloadName(p) === what).reduce((sum, p) => sum + (p.gpu_mem ?? 0), 0);
-  return { verb: isServing(top) ? 'serving' : 'running', what, mem };
+  const nodeMem = gpuProcesses(procs).filter((p) => workloadName(p) === what).reduce((sum, p) => sum + (p.gpu_mem ?? 0), 0);
+  return { verb: isServing(top) ? 'serving' : 'running', what, nodeMem };
 }
 
-/** "ws1 is serving vllm-llama70b, which holds 161.7 GiB of GPU memory.", or null when no GPU process holds any. */
 export function gpuMemoryHeld(node: string, procs: readonly ProcSample[] | null | undefined, live: boolean): string | null {
   const work = gpuWorkload(procs);
-  if (!work?.mem) return null;
-  const mem = formatBytes(work.mem);
+  if (!work?.nodeMem) return null;
+  const mem = formatBytes(work.nodeMem);
   return live ? `${node} is ${work.verb} ${work.what}, which holds ${mem} of GPU memory.` : `When ${node} last reported, it was ${work.verb} ${work.what}, which held ${mem} of GPU memory.`;
 }
 
@@ -974,7 +973,7 @@ function chosenGpu(node: string, index: number, util: number | null, procs: read
   const busyAt = util !== null && util >= GPU_BUSY_PCT ? pct(util) : null;
   const work = gpuWorkload(procs);
   if (!work) return busyAt ? { node, busy: true, text: `${which} is ${busyAt} busy; ${consequence}.` } : { node, busy: false, text: `${which} is idle${util !== null ? ` (${pct(util)})` : ''}.` };
-  const mem = work.mem;
+  const mem = work.nodeMem;
   const doing = `${node} is ${work.verb} ${work.what}${mem > 0 ? `, which holds ${formatBytes(mem)} of GPU memory` : ''}`;
   const oom = mem > 0 ? 'the run may run out of GPU memory' : null;
   if (busyAt) return { node, busy: true, text: `${which} is ${busyAt} busy while ${doing}; ${oom ? `results will be lower, the workload will slow down and ${oom}` : consequence}.` };
@@ -995,7 +994,7 @@ export function competition(
   linkTraffic?: (node: string, rails: readonly NetIfInfo[]) => LinkTraffic[],
   gpuIndex: GpuIndex = {},
   status: (node: string) => NodeStatus = () => 'online',
-  gpuOn = true,
+  byCpu: (node: string) => boolean = () => false,
 ): Competition[] {
   return nodes.map((node) => {
     const s = latest(node);
@@ -1027,10 +1026,8 @@ export function competition(
         return { node, busy: false, text: `${node} ConnectX-7 link is quiet.` };
       }
       default: {
+        if (byCpu(node)) return cpuLoad(node, s);
         if (chosen !== undefined) return chosenGpu(node, chosen, util, s.procs, status(node) === 'online');
-        // A run on none of several GPUs has no one GPU to judge, so its CPUs are judged. A node with one GPU keeps
-        // the GB10 verdict: on a GB10 that GPU shares the memory the CPU side measures.
-        if (!gpuOn && s.gpu.length > 1) return cpuLoad(node, s);
         const busy = (util ?? 0) >= GPU_BUSY_PCT || work !== null;
         if (!busy) return { node, busy, text: `${node} GPU is idle${util !== null ? ` (${pct(util)})` : ''}.` };
         const at = util !== null ? ` at ${pct(util)} GPU` : '';

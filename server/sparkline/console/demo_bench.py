@@ -606,7 +606,7 @@ def node_metadata(
     def snap(t: float) -> dict:
         s = model.sample_at(t)
         out: dict = {"ts": t, "mem_used": s.mem.used}
-        if (index := metadata.named_gpu(len(s.gpu), gpu)) is not None:
+        if (index := metadata.described_gpu(len(s.gpu), gpu)) is not None:
             x = metadata.gpu_sample(s, index) or GpuSample(index=index)
             out.update(sm_mhz=x.sm_mhz, temp_c=x.temp_c, power_w=x.power_w)
         return out

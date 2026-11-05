@@ -6,6 +6,7 @@ import type { NetIfInfo } from '../../lib/types';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '../../design/components/Button';
 import { Dialog } from '../../design/components/Dialog';
+import { shownNodeStatus } from '../../design/components/StatusPill';
 import { useNow } from '../../design/useNow';
 import type { BenchSpec, NodeStatus } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
@@ -23,6 +24,7 @@ import {
   estimateOn,
   gpuMemoryHeld,
   gpuOptions,
+  gpuSharesMemory,
   gpuPick,
   type GpuIndex,
   paramText,
@@ -67,11 +69,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
   const order = useCluster((s) => s.order);
   const nodeStates = useCluster((s) => s.nodes);
   const consoleLive = useConnection((s) => s.status === 'live');
-  // While the browser has lost the console every node reads as not reporting, as in the nav (nodeDisplayStatus).
-  const statusOf = (n: string): NodeStatus | undefined => {
-    const st = nodeStates[n]?.status;
-    return st && !consoleLive ? 'stale' : st;
-  };
+  const statusOf = (n: string) => shownNodeStatus(nodeStates[n]?.status, consoleLive);
   const known = useMemo(() => {
     const ids = [...order];
     for (const id of Object.keys(spec.availability)) if (!ids.includes(id)) ids.push(id);
@@ -301,7 +299,6 @@ function GpuPicker({ spec, node, online, value, onChange }: { spec: BenchSpec; n
   const id = useId();
   const s = liveStore.latest(node);
   const options = gpuOptions(spec, node);
-  // Said once beside the picker, not in each option: the memory is the node's, not one GPU's (#20).
   const held = gpuMemoryHeld(node, s?.procs, online);
   return (
     <div className="bench-field bench-gpu">
@@ -339,9 +336,8 @@ function recentTraffic(node: string, rails: readonly NetIfInfo[]): LinkTraffic[]
 function Review({ spec, nodes, gpuIndex, gpuOn, values, estimate, unknownOn, statusOf }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; gpuOn: boolean; values: ParamValues; estimate: number | null; unknownOn: readonly string[]; statusOf: (n: string) => NodeStatus | undefined }) {
   useNow(1000); // live: what it competes with is re-read every second
   const infos = useCluster((s) => s.nodes);
-  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => statusOf(n) ?? 'online', gpuOn);
-  // Once a node has been shown busy it stays busy while the review is open: the verdict must not flip while it is read.
-  // A stale reading still replaces it, since a busy verdict from before is no longer live.
+  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => statusOf(n) ?? 'online', (n) => !gpuOn && !gpuSharesMemory(infos[n]?.info));
+  // Once a node has been shown busy it stays busy while its reading is live: the verdict must not flip while it is read.
   const [seenBusy, setSeenBusy] = useState<Record<string, Competition>>({});
   const fresh = live.filter((c) => c.busy && seenBusy[c.node]?.text !== c.text);
   if (fresh.length) setSeenBusy((s) => ({ ...s, ...Object.fromEntries(fresh.map((c) => [c.node, c])) }));

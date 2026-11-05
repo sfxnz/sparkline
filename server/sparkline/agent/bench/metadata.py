@@ -52,10 +52,10 @@ def gpu_index(target: GpuTarget | None) -> int:
     return target.gpu.index if target else 0
 
 
-def named_gpu(count: int, target: GpuTarget | None) -> int | None:
-    """The GPU a run's metadata describes: its target, else the GPU of a node with one. A run that uses no GPU
-    on a node with several describes none of them."""
-    return target.gpu.index if target else 0 if count <= 1 else None
+def described_gpu(count: int, target: GpuTarget | None) -> int | None:
+    if target:
+        return target.gpu.index
+    return 0 if count <= 1 else None
 
 
 def gpu_sample(s: Sample, index: int) -> GpuSample | None:
@@ -63,7 +63,7 @@ def gpu_sample(s: Sample, index: int) -> GpuSample | None:
 
 
 def gpu(gpus: list[GpuInfo], target: GpuTarget | None) -> dict[str, Any]:
-    i = named_gpu(len(gpus), target)
+    i = described_gpu(len(gpus), target)
     if i is None:
         return {}
     g = next((x for x in gpus if x.index == i), None)
@@ -79,7 +79,7 @@ def telemetry(s: Sample | None, target: GpuTarget | None) -> dict[str, Any]:
     if s is None:
         return {}
     out: dict[str, Any] = {"ts": s.ts, "mem_used": s.mem.used, "mem_gpu": s.mem.gpu}
-    i = named_gpu(len(s.gpu), target)
+    i = described_gpu(len(s.gpu), target)
     if i is not None and (g := gpu_sample(s, i)) is not None:
         out.update(
             sm_mhz=g.sm_mhz, temp_c=g.temp_c, power_w=g.power_w, throttle_mask=g.throttle_mask, util=g.util
