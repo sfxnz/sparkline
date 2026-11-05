@@ -130,9 +130,8 @@ GENERIC_NAMES = {
     "home",
     "sparkline-capture",
 }
-# A domain's organization is the label before the longest of these public suffixes that leaves a label
-# before it. Each registry label is a suffix under any two-letter country code, as in co.uk or edu.cn. This
-# is a short list, not the Public Suffix List.
+# A short list of public suffixes, not the Public Suffix List. docs/record-your-machine.md states the whole
+# list, so change both together.
 REGISTRY_LABELS = {
     "ac",
     "biz",
@@ -156,7 +155,7 @@ REGISTRY_LABELS = {
     "plc",
     "sch",
 }
-PUBLIC_SUFFIXES = {
+SUFFIX_PATTERNS = {
     "ts.net",
     "k12.[a-z][a-z].us",
     "*.sch.uk",
@@ -756,7 +755,7 @@ class _Harvest:
 def _public_suffix_labels(labels: list[str]) -> int:
     for n in (3, 2):
         end = ".".join(labels[-n:]).lower()
-        if len(labels) > n and any(fnmatchcase(end, suffix) for suffix in PUBLIC_SUFFIXES):
+        if len(labels) > n and any(fnmatchcase(end, suffix) for suffix in SUFFIX_PATTERNS):
             return n
     return 0
 
@@ -803,8 +802,6 @@ def _unicode_spelling(value: str) -> list[str]:
 
 
 def _words(text: str) -> list[str]:
-    """Runs of letters and digits with the combining marks that follow them, so that a Devanagari or Thai
-    vowel sign, a Hebrew point, an Arabic haraka or a Yoruba accent does not split a name."""
     words: list[str] = []
     word = ""
     for ch in text:
