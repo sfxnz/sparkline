@@ -392,6 +392,34 @@ def test_a_replay_difference_prints_its_field_path_and_no_value(tmp_path, monkey
     assert report.differences == ["node_info.os"]
 
 
+def test_a_replay_difference_whose_field_path_holds_a_fixed_word_name_prints_no_placeholder(
+    tmp_path, monkeypatch, capsys
+):
+    import sparkline.agent.capture as cli
+
+    copy = gb10_copy(tmp_path)
+    named("hostname", "model")(copy)
+    exercise = cli.exercise
+    runs: list[str] = []
+
+    def live_first(src: Sources) -> Any:
+        info, sample, pids = exercise(src)
+        runs.append("live" if not runs else "replay")
+        return (
+            (info.model_copy(update={"cpu_model": "another CPU"}) if runs[-1] == "live" else info),
+            sample,
+            pids,
+        )
+
+    monkeypatch.setattr(cli, "exercise", live_first)
+    monkeypatch.setattr(cli, "live", lambda: recorded(copy))
+    monkeypatch.setattr(cli.logging, "disable", lambda _level: None)
+    assert cli.main([str(tmp_path / "out")]) == 1
+    printed = capsys.readouterr().out
+    assert "host1" not in printed, "a placeholder in the field path would show the name by its place"
+    assert "not shown" in printed
+
+
 def left_as_found(out: Path, made_before: bool) -> bool:
     return list(out.iterdir()) == [] if made_before else not out.exists()
 
