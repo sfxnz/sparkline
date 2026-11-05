@@ -598,6 +598,17 @@ CASES = [
         hostname=f"{HOST}.zrb.co.uk",
         because="domain name",
     ),
+    *(
+        Case(
+            f"three-letter organization under {suffix}",
+            "refused",
+            ("zrb",),
+            "zrb vpn",
+            hostname=f"{HOST}.cs.zrb.{suffix}",
+            because="domain name",
+        )
+        for suffix in ("edu.cn", "edu.tw", "ac.at", "com.pl")
+    ),
     Case(
         "three-letter organization under a Japanese public suffix",
         "refused",
@@ -869,7 +880,14 @@ def test_a_domain_label_shorter_than_four_characters_is_not_taken_for_the_name(t
 
 
 @pytest.mark.parametrize(
-    "domain", ["zorbcorp.co.uk", "zorbcorp.com.au", "zorbcorp.co.jp", j(".", "tail7f3a9c", "ts", "net")]
+    "domain",
+    [
+        "zorbcorp.co.uk",
+        "zorbcorp.com.au",
+        "zorbcorp.co.jp",
+        "zorbcorp.edu.cn",
+        j(".", "tail7f3a9c", "ts", "net"),
+    ],
 )
 def test_the_labels_of_a_public_suffix_are_not_taken_for_the_name(domain, tmp_path):
     registry = domain.split(".")[1]
