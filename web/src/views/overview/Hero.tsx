@@ -7,8 +7,9 @@ import { gpuProcessesGap } from '../../lib/gpu';
 import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
+import { excl } from '../shared/totalGap';
 import { clusterGpuNow, shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './hooks';
-import { listNodes, workloadSentence } from './model';
+import { workloadSentence } from './model';
 
 const intText = (n: number) => n.toFixed(0);
 const wattsText = (n: number) => wattsParts(n, 'W').value;
@@ -69,7 +70,7 @@ function Activity() {
           {a.power !== null ? (
             <>
               {' '}at <AnimatedNumber value={a.power} format={wattsText} />{' '}W
-              {a.dropped ? ` · excl. ${listNodes(a.dropped.split('\n'))}` : null}
+              {a.dropped ? ` · ${excl(a.dropped.split('\n'))}` : null}
             </>
           ) : null}
         </span>

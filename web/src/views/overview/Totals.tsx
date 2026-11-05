@@ -5,9 +5,10 @@ import { Stat } from '../../design/components/Stat';
 import { gapAcross, notReported, type NotReported } from '../../lib/capabilities';
 import { formatBytes, formatPercent, percentParts, wattsParts, type Formatter } from '../../lib/format';
 import { memoryLayout } from '../../lib/memoryLayout';
-import { gpuSetGap, nodeGpuKey, nodeTotalGap } from '../../lib/gpu';
+import { gpuProcessesGap, gpuSetGap, nodeGpuKey, nodeTotalGap } from '../../lib/gpu';
 import type { NodeTotal } from '../../lib/metrics';
 import type { NodeState } from '../../lib/types';
+import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { formatEnergyCost, formatKwh } from '../shared/energy';
@@ -39,6 +40,7 @@ export function Totals() {
   // Nothing live: keep showing the last known totals, dimmed with their age (Stat's stale state).
   const stale = !online.length;
   const ids = stale ? order : online;
+  const procsGap = (id: string) => gpuProcessesGap(infos[id]?.info, liveStore.latest(id), quietGpusOf(id, infos[id]?.info));
   const totals = useAcross(
     ids,
     () => {
@@ -51,7 +53,8 @@ export function Totals() {
           psi: liveStore.latestValue(id, 'mem.psi_some'),
         })),
       );
-      const counted = ids.filter((id) => !gpuSetGap(infos[id]?.info, 'proc_mem', 'any'));
+      const procsOut = ids.filter((id) => procsGap(id));
+      const counted = ids.filter((id) => !procsOut.includes(id));
       const procs = counted.flatMap((id) => gpuProcesses(liveStore.latest(id)?.procs).map((p) => ({ id, p })));
       // A container is per node: the same name on two nodes (a TP=2 job) is two containers.
       const containers = new Set(procs.filter(({ p }) => p.container).map(({ id, p }) => `${id}/${p.container ?? ''}`)).size;
@@ -70,6 +73,7 @@ export function Totals() {
         memMissing: memMissing.join('\n'),
         procs: known ? procs.length : null,
         containers,
+        procsOut: procsOut.join('\n'),
         utilDropped: droppedOut(ids, infos, 'util'),
         utilFrom: utilGpusRead(ids, infos),
         powerDropped: droppedOut(ids, infos, 'power_w'),
@@ -90,7 +94,7 @@ export function Totals() {
     dropped.split('\n').includes(id) ? nodeTotalGap(infos[id]?.info, liveStore.latest(id), field) : null;
   const util = leftOut(ids, totalOut('util', totals.utilDropped));
   const power = leftOut(ids, totalOut('power_w', totals.powerDropped));
-  const gpuProcs = leftOut(ids, (id) => gpuSetGap(infos[id]?.info, 'proc_mem', 'any'));
+  const gpuProcs = leftOut(ids, (id) => (totals.procsOut.split('\n').includes(id) ? procsGap(id) : null));
   const energyGaps = leftOut(ids, (id) => gpuSetGap(infos[id]?.info, 'energy_j', 'every'));
   const energyExcl = [...new Set([...energyGaps.excl, ...energy.missing])];
   const powerOnly = power.excl.filter((id) => !energyExcl.includes(id));
