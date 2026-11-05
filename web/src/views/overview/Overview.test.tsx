@@ -322,14 +322,14 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     expect(tile('Cluster compute')).not.toHaveTextContent('excl.');
   });
 
-  it("reads utilisation and temperature from GPUs 1 to 3 while GPU 0 is lost, keeps counting ws1's processes and gives the lost GPU as the power gap", () => {
+  it("reads utilisation and temperature from GPUs 1 to 3 while GPU 0 is lost, counts ws1's processes without GPU 0 and gives the lost GPU as the power gap", () => {
     const lost = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
     const card = show(withGpus({ 0: { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null } }), lost);
     expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 87%, from 3 of 4 GPUs');
     expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C/);
     expect(stat(card, 'GPU power')).toHaveTextContent('No total');
     expect(why(stat(card, 'GPU power'))).toHaveAccessibleDescription(`GPU 0: ${LOST}`);
-    expect(tile('Active GPU processes')).toHaveTextContent(/^Active GPU processes4In 1 container$/);
+    expect(tile('Active GPU processes')).toHaveTextContent(/^Active GPU processes4In 1 container · excl\. ws1: GPU 0$/);
   });
 
   it("names ws1 beside the hero's GPU power while GPU 0 is lost and ws1 has no power total", () => {
@@ -971,5 +971,24 @@ describe("GPU processes while some or all of a node's GPUs send nothing", () => 
     const ws4Why = `GPUs 0, 1, 2 and 3 not responding (${UNKNOWN}).`;
     expect(why(tile('Active GPU processes'))).toHaveAccessibleDescription(`spark1: NVMLError_GpuIsLost: GPU is lost\nws4: ${ws4Why}`);
     expect(why(workloadLine('ws4'))).toHaveAccessibleDescription(ws4Why);
+  });
+
+  const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+  const ws4Lost = { ...ws4, unsupported: [...ws4.unsupported, { metric: 'gpu0', reason: LOST, kind: 'hardware' as const }] };
+  const gpu0Lost = (s: Sample): Sample => ({ ...s, gpu: s.gpu.map((g) => (g.index === 0 ? ({ index: 0 } as Sample['gpu'][number]) : g)) });
+  const idle = (s: Sample): Sample => ({ ...s, procs: s.procs?.filter((p) => !p.gpu_mem && !p.gpu_util) ?? [] });
+  const workload = () => document.querySelector('.ov-hero__workload');
+  const footer = (label: string) => tile(label).querySelector('.stat__footer')?.textContent;
+
+  it('says what ws4 serves from 3 of 4 GPUs while GPU 0 is lost', () => {
+    show([[ws4Lost, gpu0Lost(reading(ws4))]]);
+    expect(workload()).toHaveTextContent(/^Serving vllm-llama70b on ws4 \(3 of 4 GPUs\)$/);
+  });
+
+  it('counts the GPUs of the nodes it names under "No GPU workloads", and leaves the GPU out of the active processes by name', () => {
+    const spark2 = { ...gb10, node_id: 'spark2', hostname: 'spark2' };
+    show([[gb10, idle(reading(gb10))], [spark2, failing(idle(reading(spark2)), UNKNOWN)], [ws4Lost, idle(gpu0Lost(reading(ws4)))]]);
+    expect(workload()).toHaveTextContent(/^No GPU workloads on spark1 and ws4 \(4 of 5 GPUs\)$/);
+    expect(footer('Active GPU processes')).toBe('No containers · excl.\u00a0spark2 and ws4: GPU 0');
   });
 });

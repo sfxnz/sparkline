@@ -1,6 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import sampleJson from '../../../test/fixtures/sample.json';
+import { gpuAt } from '../../../lib/gpu';
 import type { MemoryModel, NodeInfo, NodeState, ProcSample, Sample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useConnection } from '../../../store/connection';
@@ -168,5 +169,42 @@ describe('Processes tab with an empty process list', () => {
     expect(within(said).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(NO_NVML);
     expect(screen.queryByText(/biggest/)).not.toBeInTheDocument();
     expect(screen.getByText(refreshes)).toBeInTheDocument();
+  });
+});
+
+describe('Processes tab while some of the GPUs send nothing', () => {
+  const gpu = (index: number, name: string, vendor: string, backend: string) => ({ index, name, vendor, backend, memory: 'dedicated' });
+  const reading = (index: number) => ({ ...gpuAt(base.gpu, 0), index }) as Sample['gpu'][number];
+  const show = (info: NodeInfo, sample: Partial<Sample>, ticks: number) => {
+    sessionStorage.clear();
+    liveStore.removeNode(NODE);
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { ...node, info } } });
+    act(() => {
+      for (let i = 0; i < ticks; i++) {
+        ts += 1;
+        liveStore.pushSample({ ...base, node_id: NODE, ts, procs: PROCS, ...sample });
+      }
+      liveStore.flush();
+    });
+    render(<Processes nodeId={NODE} />);
+  };
+  const subtitle = () => screen.getByText(/^The \d+ biggest/);
+  const quad = { gpus: [0, 1, 2, 3].map((i) => gpu(i, 'NVIDIA RTX PRO 6000', 'nvidia', 'nvml')), mem_total: 128 * GiB, unsupported: [] } as unknown as NodeInfo;
+  const hybrid = { gpus: [gpu(0, 'NVIDIA RTX 4090', 'nvidia', 'nvml'), gpu(1, 'Radeon RX 7900 XTX', 'amd', 'amdgpu-sysfs')], mem_total: 128 * GiB, unsupported: [] } as unknown as NodeInfo;
+
+  it('counts the processes on the GPU from 3 of 4 GPUs while GPU 0 is lost', () => {
+    const lost = { ...quad, unsupported: [{ metric: 'gpu0', reason: 'NVML could not open GPU 0 (NVML: GPU is lost)', kind: 'hardware' }] } as NodeInfo;
+    show(lost, { gpu: [{ index: 0 } as Sample['gpu'][number], ...[1, 2, 3].map(reading)] }, 1);
+    expect(subtitle()).toHaveTextContent(/^The 3 biggest consumers · 2 on the GPU using 84\.0 GiB \(3 of 4 GPUs\)$/);
+  });
+
+  it('counts the processes on the GPU from 1 of 2 GPUs once the NVIDIA GPU of a hybrid node has sent nothing for 5 s', () => {
+    show(hybrid, { gpu: [reading(1)], errors: { gpu: 'nvml: NVMLError_Unknown: Unknown Error' } }, 6);
+    expect(subtitle()).toHaveTextContent(/^The 3 biggest consumers · 2 on the GPU using 84\.0 GiB \(1 of 2 GPUs\)$/);
+  });
+
+  it('marks nothing while all four GPUs report', () => {
+    show(quad, { gpu: [0, 1, 2, 3].map(reading) }, 1);
+    expect(subtitle()).toHaveTextContent(/^The 3 biggest consumers · 2 on the GPU using 84\.0 GiB$/);
   });
 });
