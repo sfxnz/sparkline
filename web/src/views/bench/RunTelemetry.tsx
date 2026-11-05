@@ -167,12 +167,11 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
 
   // Finished without saved telemetry for these charts: the console's history for the run's span.
   const needHistory = !active && !saved && !inLive;
-  // Keys from NodeInfo (disks, cores, rails) are unknown until the console's hello brings it: nothing to ask for yet.
-  const waiting = !hello && run.nodes.some((n) => charts.some((c) => !c.keys(infos(n), runGpu(run, n) ?? 0).length));
+  const infoPending = !hello && run.nodes.some((n) => charts.some((c) => !c.keys(infos(n), runGpu(run, n) ?? 0).length));
   const keys = run.nodes.map((n) => allKeys(charts, infos(n), runGpu(run, n) ?? 0).join(',')).join('|');
   const span = `${run.id}|${start}|${run.finished_ts ?? ''}|${charts.map((c) => c.id).join(',')}|${keys}`;
   useEffect(() => {
-    if (!needHistory || waiting) return;
+    if (!needHistory || infoPending) return;
     let cancelled = false;
     const to = (run.finished_ts ?? serverNow()) + LEAD_S;
     Promise.all(
@@ -190,7 +189,7 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
     }, () => undefined);
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needHistory, waiting, span]);
+  }, [needHistory, infoPending, span]);
 
   const now = serverNow();
   const data: Data = active ? fromLive(run, charts, infos, start - LEAD_S) : (saved ?? (inLive ? recent : history.id === span ? history.data : null));

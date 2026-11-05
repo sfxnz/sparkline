@@ -251,14 +251,11 @@ export function estimateDuration(spec: BenchSpec, values: Partial<ParamValues>):
   return Math.max(1, (spec.est_duration_s + extra) * factor);
 }
 
-/** Nodes whose agent gives no duration estimate: the benchmark is timed on DGX Spark rates and the node is not one. */
 export const unestimated = (spec: Pick<BenchSpec, 'no_estimate'>, nodes: readonly string[]): string[] => nodes.filter((n) => spec.no_estimate?.includes(n));
 
-/** The estimate for a run on these nodes, or null when one of them has none. */
 export const estimateOn = (spec: BenchSpec, nodes: readonly string[], values: Partial<ParamValues>): number | null =>
   unestimated(spec, nodes).length ? null : estimateDuration(spec, values);
 
-/** "ws1 is not a DGX Spark", "ws1 and ws2 are not DGX Sparks". */
 export const notDgxSpark = (nodes: readonly string[]) => `${listNodes(nodes)} ${nodes.length === 1 ? 'is not a DGX Spark' : 'are not DGX Sparks'}`;
 
 const CHOICE_TEXT: Record<string, string> = {
@@ -309,8 +306,6 @@ export function paramText(p: BenchParam | undefined, v: unknown): string {
   return p?.unit ? `${s} ${p.unit}` : s;
 }
 
-/** The params that differ from the defaults, one entry each ("Precisions BF16, FP8", "Matrix size 16384"), or
- *  ["Default parameters"]. */
 export function paramParts(spec: BenchSpec | undefined, params: Record<string, unknown>, max = 3): string[] {
   if (!spec) {
     const raw = Object.entries(params).slice(0, max).map(([k, v]) => `${k} ${paramText(undefined, v)}`);
@@ -333,8 +328,6 @@ export type GpuIndex = Readonly<Record<string, number>>;
 
 export const gpuOptions = (spec: Pick<BenchSpec, 'gpu_options'>, node: string): readonly GpuOption[] => spec.gpu_options?.[node] ?? [];
 
-/** Whether a GPU benchmark run with these parameters uses a GPU, as the agent's `Bench.uses_gpu` decides: memory
- *  bandwidth measured from the CPU side uses none. */
 export const usesGpu = (spec: Pick<BenchSpec, 'id'>, values: Partial<ParamValues>): boolean => spec.id !== 'mem-bandwidth' || values.side !== 'cpu';
 
 export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly string[], prev: GpuIndex = {}): Record<string, number> {
@@ -349,7 +342,6 @@ export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly st
 
 export const runGpu = (run: Pick<BenchRun, 'gpu_index'>, node: string): number | undefined => run.gpu_index?.[node];
 
-/** For the run header, the GPU of each node that had a choice: ["GPU 2", "NVIDIA RTX 6000 Ada Generation"]. */
 export function runGpuParts(run: Pick<BenchRun, 'gpu_index' | 'nodes' | 'metadata' | 'node_states'>): string[] {
   const meta = nodeMeta(run);
   return run.nodes.flatMap((n) => {
@@ -909,7 +901,6 @@ export interface Competition {
   text: string;
   /** Something is running that the benchmark will compete with. */
   busy: boolean;
-  /** The reading is from when the node last reported (it is not online now), so it is neither busy nor idle. */
   stale?: boolean;
 }
 
@@ -949,8 +940,6 @@ function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: s
   return { verb: isServing(top) ? 'serving' : 'running', what: workloadName(top) };
 }
 
-/** The chosen GPU of a node with several. The wire has no per-GPU memory or process placement, so any GPU process on
- *  the node may hold memory on this GPU: it is idle only when nothing on the node uses a GPU. */
 function chosenGpu(node: string, index: number, util: number | null, procs: readonly ProcSample[] | null | undefined, online: boolean): Competition {
   const pct = (v: number) => `${Math.round(v)}%`;
   if (!online) {

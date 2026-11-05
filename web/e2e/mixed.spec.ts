@@ -286,7 +286,6 @@ const heights = (scopes: Locator, label: string) =>
     label,
   );
 
-/** Lines of the run header whose first or last visible glyph is a "·", as "<width> px: <line>". */
 async function danglingSeparators(page: Page, width: number): Promise<{ lines: string[]; seen: number }> {
   await page.setViewportSize({ width, height: 900 });
   return page.locator('.bench-run__sub').evaluate((el, w) => {
@@ -301,8 +300,8 @@ async function danglingSeparators(page: Page, width: number): Promise<{ lines: s
         r.setEnd(n, i + 1);
         const box = r.getBoundingClientRect();
         if (!box.width || !box.height) continue;
-        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-        if (!hit || hit !== n.parentElement) continue; // clipped or covered: not visible
+        const unclipped = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === n.parentElement;
+        if (!unclipped) continue;
         glyphs.push({ c: text.charAt(i), top: box.top, left: box.left });
       }
     }

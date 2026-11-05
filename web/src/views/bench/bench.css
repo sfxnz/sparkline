@@ -195,8 +195,7 @@
 .bench-run__titles { display: grid; gap: var(--space-1); min-width: 0; }
 .bench-run__title-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 /* Each part after the first carries its "·" in a leading gutter. A line is shifted left by one gutter and clipped
-   there, so the part that starts a visual line has its "·" cut off and no line starts or ends with one. Items get a
-   wide gutter, the parts within an item ("Trials 4 · Seed 42") a narrow one. */
+   there, so the part that starts a visual line has its "·" cut off and no line starts or ends with one. */
 .bench-run__sub, .bench-run__item { display: flex; flex-wrap: wrap; margin-left: calc(-1 * var(--sep)); clip-path: inset(0 0 0 var(--sep)); }
 .bench-run__sub { --sep: calc(2 * var(--space-2) + 0.28em); font-size: var(--fs-callout); color: var(--text-2); }
 .bench-run__item { --sep: 0.84em; }
