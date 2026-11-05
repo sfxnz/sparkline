@@ -7,6 +7,7 @@ import os
 import platform
 import pwd
 import re
+import resource
 import shutil
 import signal
 import subprocess
@@ -1111,6 +1112,59 @@ def test_ctrl_c_while_python_loads_the_capture_prints_no_traceback():
     run = subprocess.run([sys.executable, "-c", stop_on_import], capture_output=True, text=True, check=False)
     assert run.returncode == 130
     assert run.stderr == "sparkline-capture stopped. It keeps no partial recording.\n"
+
+
+def run_the_command(
+    out: Path, before: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    script = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "import sparkline.agent.capture as cli\n"
+        "from sparkline.agent.sources import recorded\n"
+        f"cli.live = lambda: recorded(Path({str(GB10)!r}))\n"
+        f"{before}"
+        "from sparkline.agent.capture_entry import main\n"
+        f"sys.argv = ['sparkline-capture', {str(out)!r}]\n"
+        "sys.exit(main())\n"
+    )
+
+    def no_core_file() -> None:
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+    return subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, **(env or {})},
+        preexec_fn=no_core_file,
+    )
+
+
+@pytest.mark.parametrize(
+    "env", [{"PYTHONWARNINGS": "always"}, {"PYTHONDEVMODE": "1"}], ids=["always", "dev mode"]
+)
+def test_a_warning_prints_only_its_category(env, tmp_path):
+    warns = (
+        "import warnings\n"
+        "live = cli.live\n"
+        "def warned():\n"
+        f"    warnings.warn('could not parse {HOME}/zorbsecret')\n"
+        "    return live()\n"
+        "cli.live = warned\n"
+    )
+    run = run_the_command(tmp_path / "out", warns, env)
+    assert run.returncode == 0
+    assert "sparkline-capture: UserWarning (message not shown)." in run.stderr.splitlines()
+    assert USER not in run.stderr and "zorbsecret" not in run.stderr
+
+
+def test_a_crash_prints_nothing_when_python_was_asked_for_faulthandler(tmp_path):
+    crashes = "import os, signal\ncli.live = lambda: os.kill(os.getpid(), signal.SIGSEGV)\n"
+    run = run_the_command(tmp_path / "out", crashes, {"PYTHONFAULTHANDLER": "1"})
+    assert run.returncode == -signal.SIGSEGV
+    assert run.stderr == ""
 
 
 def test_a_second_ctrl_c_while_cleaning_up_still_leaves_nothing(tmp_path, monkeypatch):
