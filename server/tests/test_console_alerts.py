@@ -566,6 +566,11 @@ def stored_text(store: Store, key: str) -> str | None:
     return row[0] if row else None
 
 
+def side_rows(store: Store, key: str) -> dict[str, str]:
+    rows = store.db.execute("SELECT key, value FROM kv").fetchall()
+    return {k: v for k, v in rows if k.startswith(f"{key}.unreadable")}
+
+
 def started_with_text(tmp_path, key: str, text: str) -> Cluster:
     store = Store(tmp_path / "console.sqlite")
     store.kv_set("alert_rules", [r.model_dump() for r in DEFAULT_RULES])
@@ -578,8 +583,9 @@ def test_a_stored_row_this_console_cannot_read_is_copied_to_a_side_key_and_the_l
     tmp_path, caplog, key, text
 ):
     cluster = started_with_text(tmp_path, key, text)
-    assert stored_text(cluster.store, f"{key}.unreadable") == text
-    assert [r.levelname for r in caplog.records if f"'{key}.unreadable'" in r.getMessage()] == ["WARNING"]
+    [(side, kept)] = side_rows(cluster.store, key).items()
+    assert kept == text
+    assert [r.levelname for r in caplog.records if f"{side!r}" in r.getMessage()] == ["WARNING"]
 
 
 @pytest.mark.parametrize(("key", "text"), UNREADABLE_ROWS)
@@ -589,13 +595,22 @@ def test_saves_and_restarts_after_an_unreadable_row_keep_its_text_on_the_side_ke
     cluster.update_rules(edited(DEFAULT_RULES, "mem_pressure", threshold=20.0))
     cluster = restart(cluster)
     assert stored_text(cluster.store, key) != text
-    assert stored_text(cluster.store, f"{key}.unreadable") == text
+    assert list(side_rows(cluster.store, key).values()) == [text]
 
 
-def test_the_side_key_holds_the_latest_unreadable_text(tmp_path):
+def test_each_unreadable_text_keeps_its_own_side_row_after_this_console_saves_over_it(tmp_path):
+    first, later = '{"v2": "rules a newer console saved"}', '{"v2": "rules it saved later"}'
+    cluster = started_with_text(tmp_path, "alert_rules", first)
+    cluster.update_rules(edited(DEFAULT_RULES, "mem_pressure", threshold=20.0))
+    cluster.store.db.execute("INSERT OR REPLACE INTO kv VALUES ('alert_rules', ?)", (later,))
+    cluster = restart(cluster)
+    assert sorted(side_rows(cluster.store, "alert_rules").values()) == sorted([first, later])
+
+
+def test_the_same_unreadable_text_on_two_starts_keeps_one_side_row(tmp_path):
     started_with_text(tmp_path, "alert_rules", "7")
-    cluster = started_with_text(tmp_path, "alert_rules", "{not json")
-    assert stored_text(cluster.store, "alert_rules.unreadable") == "{not json"
+    cluster = started_with_text(tmp_path, "alert_rules", "7")
+    assert list(side_rows(cluster.store, "alert_rules").values()) == ["7"]
 
 
 def test_rows_this_console_can_read_get_no_side_key_and_no_warning(tmp_path, caplog):
@@ -604,7 +619,7 @@ def test_rows_this_console_can_read_get_no_side_key_and_no_warning(tmp_path, cap
     cluster.update_rules(edited(DEFAULT_RULES, "gpu_temp_high", metric="gpu0.temp_c"))
     cluster = restart(cluster)
     assert cluster.settings == ConsoleSettings(stale_after_s=9)
-    assert cluster.store.db.execute("SELECT key FROM kv WHERE key LIKE '%.unreadable'").fetchall() == []
+    assert cluster.store.db.execute("SELECT key FROM kv WHERE key LIKE '%.unreadable%'").fetchall() == []
     assert [r for r in caplog.records if r.levelname == "WARNING"] == []
 
 
@@ -613,5 +628,5 @@ def test_an_empty_stored_settings_row_starts_the_console_on_its_configured_setti
     store.kv_set("settings", {})
     cluster = Cluster(store, Hub(), ConsoleSettings(stale_after_s=7))
     assert cluster.settings == ConsoleSettings(stale_after_s=7)
-    assert store.kv_get("settings.unreadable") is None
+    assert side_rows(store, "settings") == {}
     assert [r for r in caplog.records if r.levelname == "WARNING"] == []
