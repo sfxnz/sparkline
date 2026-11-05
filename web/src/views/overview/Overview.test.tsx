@@ -416,4 +416,22 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     show(withGpus({ 0: { temp_c: 88 }, 3: { temp_c: 94 } }));
     expect(screen.getByRole('heading', { name: 'ws1 has GPU 3 at its slowdown temperature · 1 warning' })).toBeInTheDocument();
   });
+
+  const alert = (severity: 'warning' | 'critical', rule_id: string, metric: string) => ({
+    id: 1, ts: now, node_id: 'ws1', severity, kind: 'alert' as const, rule_id, title: rule_id, detail: '', metric, value: 95, resolved_ts: null, acked: false,
+  });
+  const lostGpu0 = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
+  const gpu0Silent = { 0: { util: null, temp_c: null, power_w: null, throttle_mask: null } };
+
+  it('still says GPU 0 is not responding while an unrelated warning is open on ws1', () => {
+    useEvents.setState({ events: [alert('warning', 'disk_full', 'fs.root.used_pct')] });
+    show(withGpus(gpu0Silent), lostGpu0);
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 0 not responding · 1 warning' })).toBeInTheDocument();
+  });
+
+  it("still says GPU 0 is not responding while GPU 3's critical temperature alert is open", () => {
+    useEvents.setState({ events: [alert('critical', 'gpu_temp_critical', 'gpu3.temp_c')] });
+    show(withGpus({ ...gpu0Silent, 3: { temp_c: 94 } }), lostGpu0);
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 0 not responding · 1 critical alert' })).toBeInTheDocument();
+  });
 });
