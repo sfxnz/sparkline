@@ -48,7 +48,7 @@ def test_demo_hardware_mirrors_discovery():
     assert info.gpus[0].name == "NVIDIA GB10" and info.gpus[0].power_limit_w is None
     assert {s.id for s in info.sensors} >= {"acpitz.6", "nvme.composite", "nvme.sensor_2", "mlx5.3"}
     # same keys the real agent reports on GB10 (checked live on spark1/spark2)
-    gpu = {f"gpu0.{k}" for k in ("power_limit_w", "mem_mhz", "fan_pct", "fb_memory", "ecc", "pcie_bps")}
+    gpu = {f"gpu0.{k}" for k in ("power_limit_w", "mem_mhz", "fan_pct", "vram_used", "ecc", "pcie_bps")}
     assert {u.metric for u in info.unsupported} == gpu | {"cpu.temp", "fan", "system.power_w"}
     hidden = {n.name for n in info.net if n.role in ("virtual", "wireless")}
     assert hidden == {"docker0", "tailscale0", "wlP9s9"}
@@ -350,11 +350,24 @@ def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
         "fan",
         "system.power_w",
         "mem.gpu",
+        *(f"gpu{i}.shared_used" for i in range(4)),
     }
     assert len(m.info.cores) == 64 and {c.cluster for c in m.info.cores} == {0, 1, 2, 3}
     assert {"temp.k10temp.tctl", "temp.nvme.composite", "temp.nvme1.composite"} <= set(keys)
     procs = m.sample_at(T0, procs=True).procs or []
     assert sorted(p.gpu_mem for p in procs if p.gpu_mem) == pytest.approx([43.4e9] * 4, rel=0.01)
+
+
+def test_each_workstation_gpu_holds_its_tp_workers_memory_and_a_fixed_reserve_of_its_own_vram():
+    m = ws1()
+    assert {(g.memory, g.vram_total) for g in m.info.gpus} == {("dedicated", 48 * 2**30)}
+    for t in range(0, 3600, 97):
+        s = m.sample_at(T0 + t, procs=True)
+        workers = {p.cmdline: p.gpu_mem or 0 for p in s.procs or [] if p.name == "VLLM::Worker_TP"}
+        reserve = {g.vram_used - workers[f"VLLM::Worker_TP{g.index}"] for g in s.gpu if g.vram_used}
+        assert len(reserve) == 1 and 0 < reserve.pop() < 2**30, t
+        assert all(g.shared_used is None for g in s.gpu) and s.mem.gpu is None
+        assert max(g.vram_used or 0 for g in s.gpu) < 48 * 2**30
 
 
 def test_demo_history_works_for_the_workstation():

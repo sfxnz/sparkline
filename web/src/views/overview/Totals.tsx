@@ -1,9 +1,10 @@
-// Cluster totals: compute, GPU power + energy today, unified memory pressure, active GPU work.
+// Cluster totals: compute, GPU power + energy today, memory in use and pressure, active GPU work.
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
 import { gapAcross, notReported, type NotReported } from '../../lib/capabilities';
 import { formatBytes, formatPercent, percentParts, wattsParts, type Formatter } from '../../lib/format';
+import { memoryLayout } from '../../lib/memoryLayout';
 import { gpuSetGap, nodeGpuKey, totalGap } from '../../lib/gpu';
 import type { NodeTotal } from '../../lib/metrics';
 import type { NodeState } from '../../lib/types';
@@ -94,6 +95,7 @@ export function Totals() {
   const energyExcl = [...new Set([...energyGaps.excl, ...energy.missing])];
   const powerOnly = power.excl.filter((id) => !energyExcl.includes(id));
   const nowExcl = powerOnly.length ? `Now excl. ${listNodes(powerOnly)} · ` : '';
+  const unified = ids.every((id) => memoryLayout(infos[id]?.info).name === 'Unified memory');
 
   return (
     <Panel label="Cluster totals" className="ov-totals">
@@ -122,7 +124,7 @@ export function Totals() {
           }
         />
         <Stat
-          label="Unified memory in use"
+          label={unified ? 'Unified memory in use' : 'System memory in use'}
           size="lg"
           value={totals.memPct}
           format={percentParts}

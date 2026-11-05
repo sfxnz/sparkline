@@ -415,12 +415,14 @@ async def _procs_sample(job: Job, seen: Sample | None) -> Sample | None:
 
 async def llm_inference(job: Job, p: LlmInferenceParams) -> None:
     before = job.runner.latest()
-    peak = {"used": 0, "gpu": 0}
+    peak_used, peak_gpu = 0, None
     with_procs: list[Sample] = [before] if before is not None and before.procs is not None else []
 
     def track(s: Sample) -> None:
-        peak["used"] = max(peak["used"], s.mem.used)
-        peak["gpu"] = max(peak["gpu"], s.mem.gpu or 0)
+        nonlocal peak_used, peak_gpu
+        peak_used = max(peak_used, s.mem.used)
+        if s.mem.gpu is not None:
+            peak_gpu = max(peak_gpu or 0, s.mem.gpu)
         if s.procs is not None:
             with_procs[:] = [s]
 
@@ -459,19 +461,19 @@ async def llm_inference(job: Job, p: LlmInferenceParams) -> None:
             better="lower",
             extras={**labels, "source": how},
         )
-    if before is not None and peak["used"]:
+    if before is not None and peak_used:
         job.add_result(
             metric="mem_used_delta_gib",
             label=mem_growth_label(job.info),
-            value=(peak["used"] - before.mem.used) / GIB,
+            value=(peak_used - before.mem.used) / GIB,
             unit="GiB",
             better="lower",
             extras={
                 **labels,
                 "mem_used_before_gib": before.mem.used / GIB,
-                "mem_used_peak_gib": peak["used"] / GIB,
-                "gpu_alloc_before_gib": (before.mem.gpu or 0) / GIB,
-                "gpu_alloc_peak_gib": peak["gpu"] / GIB,
+                "mem_used_peak_gib": peak_used / GIB,
+                "gpu_alloc_before_gib": before.mem.gpu / GIB if before.mem.gpu is not None else None,
+                "gpu_alloc_peak_gib": peak_gpu / GIB if peak_gpu is not None else None,
                 "serving_gpu_mem_note": None if serving is not None else how,
             },
         )

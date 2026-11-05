@@ -116,6 +116,13 @@ describe('notReported for a node GPU total', () => {
     expect(notReported(info, 'gpu.util')).toBeNull();
   });
 
+  it('reads No total for GPU memory when another GPU reports either of its parts', () => {
+    const info = { gpus, unsupported: [{ metric: 'gpu*.shared_used', reason: 'dedicated VRAM', kind: 'hardware' }, { metric: 'gpu2', reason: lost, kind: 'hardware' }, { metric: 'gpu.mem_used', reason: `GPU 2: ${lost}`, kind: 'hardware' }] } as unknown as NodeInfo;
+    expect(notReported(info, 'gpu.mem_used')).toEqual({ kind: 'hardware', label: 'No total', detail: `GPU 2: ${lost}` });
+    const neither = { ...info, unsupported: [...info.unsupported, { metric: 'gpu*.vram_used', reason: 'no VRAM', kind: 'hardware' as const }] };
+    expect(notReported(neither, 'gpu.mem_used')?.label).toBe(HARDWARE);
+  });
+
   it('reads as declared when no GPU reports the field', () => {
     const reason = 'GPU 0: Not reported by this board';
     const info = { gpus, unsupported: [{ metric: 'gpu*.power_w', reason: 'Not reported by this board', kind: 'hardware' }, { metric: 'gpu.power_w', reason, kind: 'hardware' }] } as unknown as NodeInfo;

@@ -23,12 +23,14 @@
   "fs.root.total": 3800000000000.0,
   "fs.root.used": 3116000000000.0,
   "fs.root.used_pct": 86.17256637168141,
+  "gpu.mem_used": 92341796864.0,
   "gpu.power_w": 32.4,
   "gpu.temp_c": 71.0,
   "gpu.util": 91.0,
   "gpu0.energy_j": 123456789.0,
   "gpu0.power_capped_pct": 12.5,
   "gpu0.power_w": 32.4,
+  "gpu0.shared_used": 92341796864.0,
   "gpu0.sm_mhz": 2171.0,
   "gpu0.temp_c": 71.0,
   "gpu0.throttle_mask": 4.0,
@@ -56,6 +58,37 @@
   "net.enp1s0f1np1.up": 1.0,
   "temp.acpitz.0": 63.5,
   "temp.mlx5.0": 66.0
+ },
+ "gpu_total_rules": {
+  "mem_used": {
+   "every": true,
+   "parts": [
+    "vram_used",
+    "shared_used"
+   ],
+   "reduce": "sum"
+  },
+  "power_w": {
+   "every": true,
+   "parts": [
+    "power_w"
+   ],
+   "reduce": "sum"
+  },
+  "temp_c": {
+   "every": false,
+   "parts": [
+    "temp_c"
+   ],
+   "reduce": "max"
+  },
+  "util": {
+   "every": false,
+   "parts": [
+    "util"
+   ],
+   "reduce": "mean"
+  }
  },
  "gpu_totals": [
   {
@@ -266,6 +299,255 @@
      "util": 0.3
     }
    ]
+  },
+  {
+   "case": "four dedicated GPUs report VRAM",
+   "errors": {},
+   "flatten": {
+    "gpu.mem_used": 188039036928.0,
+    "gpu.power_w": 999.5,
+    "gpu.temp_c": 91.0,
+    "gpu.util": 47.75,
+    "gpu0.power_w": 250.5,
+    "gpu0.temp_c": 70.0,
+    "gpu0.util": 90.0,
+    "gpu0.vram_used": 47244640256.0,
+    "gpu1.power_w": 248.25,
+    "gpu1.temp_c": 82.5,
+    "gpu1.util": 60.5,
+    "gpu1.vram_used": 46707769344.0,
+    "gpu2.power_w": 251.0,
+    "gpu2.temp_c": 64.0,
+    "gpu2.util": 30.25,
+    "gpu2.vram_used": 46976204800.0,
+    "gpu3.power_w": 249.75,
+    "gpu3.temp_c": 91.0,
+    "gpu3.util": 10.25,
+    "gpu3.vram_used": 47110422528.0
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 250.5,
+     "temp_c": 70.0,
+     "util": 90.0,
+     "vram_used": 47244640256
+    },
+    {
+     "index": 1,
+     "power_w": 248.25,
+     "temp_c": 82.5,
+     "util": 60.5,
+     "vram_used": 46707769344
+    },
+    {
+     "index": 2,
+     "power_w": 251.0,
+     "temp_c": 64.0,
+     "util": 30.25,
+     "vram_used": 46976204800
+    },
+    {
+     "index": 3,
+     "power_w": 249.75,
+     "temp_c": 91.0,
+     "util": 10.25,
+     "vram_used": 47110422528
+    }
+   ]
+  },
+  {
+   "case": "GPU 2 sent no VRAM reading",
+   "errors": {},
+   "flatten": {
+    "gpu.power_w": 999.5,
+    "gpu.temp_c": 91.0,
+    "gpu.util": 47.75,
+    "gpu0.power_w": 250.5,
+    "gpu0.temp_c": 70.0,
+    "gpu0.util": 90.0,
+    "gpu0.vram_used": 47244640256.0,
+    "gpu1.power_w": 248.25,
+    "gpu1.temp_c": 82.5,
+    "gpu1.util": 60.5,
+    "gpu1.vram_used": 46707769344.0,
+    "gpu2.power_w": 251.0,
+    "gpu2.temp_c": 64.0,
+    "gpu2.util": 30.25,
+    "gpu3.power_w": 249.75,
+    "gpu3.temp_c": 91.0,
+    "gpu3.util": 10.25,
+    "gpu3.vram_used": 47110422528.0
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 250.5,
+     "temp_c": 70.0,
+     "util": 90.0,
+     "vram_used": 47244640256
+    },
+    {
+     "index": 1,
+     "power_w": 248.25,
+     "temp_c": 82.5,
+     "util": 60.5,
+     "vram_used": 46707769344
+    },
+    {
+     "index": 2,
+     "power_w": 251.0,
+     "temp_c": 64.0,
+     "util": 30.25,
+     "vram_used": null
+    },
+    {
+     "index": 3,
+     "power_w": 249.75,
+     "temp_c": 91.0,
+     "util": 10.25,
+     "vram_used": 47110422528
+    }
+   ]
+  },
+  {
+   "case": "a unified GPU reports the system memory it holds",
+   "errors": {},
+   "flatten": {
+    "gpu.mem_used": 92341796864.0,
+    "gpu.power_w": 32.4,
+    "gpu.temp_c": 71.0,
+    "gpu.util": 91.0,
+    "gpu0.power_w": 32.4,
+    "gpu0.shared_used": 92341796864.0,
+    "gpu0.temp_c": 71.0,
+    "gpu0.util": 91.0
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 32.4,
+     "shared_used": 92341796864,
+     "temp_c": 71.0,
+     "util": 91.0
+    }
+   ]
+  },
+  {
+   "case": "a carve-out GPU adds its VRAM and the system memory it holds",
+   "errors": {},
+   "flatten": {
+    "gpu.mem_used": 43486543872.0,
+    "gpu.power_w": 80.0,
+    "gpu.temp_c": 55.0,
+    "gpu.util": 40.0,
+    "gpu0.power_w": 80.0,
+    "gpu0.shared_used": 42949672960.0,
+    "gpu0.temp_c": 55.0,
+    "gpu0.util": 40.0,
+    "gpu0.vram_used": 536870912.0
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 80.0,
+     "shared_used": 42949672960,
+     "temp_c": 55.0,
+     "util": 40.0,
+     "vram_used": 536870912
+    }
+   ]
+  },
+  {
+   "case": "a failed backend dropped its GPUs, so no memory total",
+   "errors": {
+    "gpu": "amd: RuntimeError: read failed"
+   },
+   "flatten": {
+    "gpu.temp_c": 82.5,
+    "gpu.util": 75.25,
+    "gpu0.power_w": 250.5,
+    "gpu0.temp_c": 70.0,
+    "gpu0.util": 90.0,
+    "gpu0.vram_used": 47244640256.0,
+    "gpu1.power_w": 248.25,
+    "gpu1.temp_c": 82.5,
+    "gpu1.util": 60.5,
+    "gpu1.vram_used": 46707769344.0
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 250.5,
+     "temp_c": 70.0,
+     "util": 90.0,
+     "vram_used": 47244640256
+    },
+    {
+     "index": 1,
+     "power_w": 248.25,
+     "temp_c": 82.5,
+     "util": 60.5,
+     "vram_used": 46707769344
+    }
+   ]
+  },
+  {
+   "case": "an idle unified GPU holds no system memory",
+   "errors": {},
+   "flatten": {
+    "gpu.mem_used": 0.0,
+    "gpu.power_w": 5.4,
+    "gpu.temp_c": 45.0,
+    "gpu.util": 0.0,
+    "gpu0.power_w": 5.4,
+    "gpu0.shared_used": 0.0,
+    "gpu0.temp_c": 45.0,
+    "gpu0.util": 0.0
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 5.4,
+     "shared_used": 0,
+     "temp_c": 45.0,
+     "util": 0.0
+    }
+   ]
+  },
+  {
+   "case": "a unified iGPU beside a dedicated GPU adds the memory each reports",
+   "errors": {},
+   "flatten": {
+    "gpu.mem_used": 23622320128.0,
+    "gpu.power_w": 305.0,
+    "gpu.temp_c": 76.0,
+    "gpu.util": 50.0,
+    "gpu0.power_w": 15.0,
+    "gpu0.shared_used": 2147483648.0,
+    "gpu0.temp_c": 48.0,
+    "gpu0.util": 12.0,
+    "gpu1.power_w": 290.0,
+    "gpu1.temp_c": 76.0,
+    "gpu1.util": 88.0,
+    "gpu1.vram_used": 21474836480.0
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 15.0,
+     "shared_used": 2147483648,
+     "temp_c": 48.0,
+     "util": 12.0
+    },
+    {
+     "index": 1,
+     "power_w": 290.0,
+     "temp_c": 76.0,
+     "util": 88.0,
+     "vram_used": 21474836480
+    }
+   ]
   }
  ],
  "mem_placeholder": {
@@ -293,12 +575,14 @@
    "fs.root.total": 3800000000000.0,
    "fs.root.used": 3116000000000.0,
    "fs.root.used_pct": 86.17256637168141,
+   "gpu.mem_used": 92341796864.0,
    "gpu.power_w": 32.4,
    "gpu.temp_c": 71.0,
    "gpu.util": 91.0,
    "gpu0.energy_j": 123456789.0,
    "gpu0.power_capped_pct": 12.5,
    "gpu0.power_w": 32.4,
+   "gpu0.shared_used": 92341796864.0,
    "gpu0.sm_mhz": 2171.0,
    "gpu0.temp_c": 71.0,
    "gpu0.throttle_mask": 4.0,

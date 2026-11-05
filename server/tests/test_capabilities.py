@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from platforms import GB10, gb10, gb10_without
+from platforms import GB10, gb10, gb10_without, workstation
 
 from sparkline.agent.collectors import VOCABULARY, covers, declares
 from sparkline.agent.collectors.gpu.nvml import VIOLATION_EVERY_S
@@ -18,14 +18,14 @@ from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors, catch_all
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.sources import NvmlReplay, Sources, recorded
-from sparkline.common.metrics import GPU_TOTALS, flatten
-from sparkline.common.schema import NodeInfo, Sample, UnsupportedKind
+from sparkline.common.metrics import flatten
+from sparkline.common.schema import NodeInfo, Sample, Unsupported, UnsupportedKind
 from sparkline.console.demo import UNSUPPORTED
 from sparkline.console.demo_fleets import FLEETS
 
 WEB = Path(__file__).resolve().parents[2] / "web" / "src"
 T0 = 1_791_280_000.0
-PROBED_ONLY = ("mem_mhz", "fan_pct", "fb_memory", "ecc", "pcie_bps", "cpu.temp")
+PROBED_ONLY = ("mem_mhz", "fan_pct", "ecc", "pcie_bps", "cpu.temp")
 
 
 def vocabulary_keys(info: NodeInfo) -> list[str]:
@@ -45,10 +45,12 @@ def reported(key: str, info: NodeInfo, sample: Sample, flat: dict[str, float]) -
         return None
     if m := re.fullmatch(r"gpu(\d+)\.power_limit_w", key):
         return next(g.power_limit_w for g in info.gpus if g.index == int(m.group(1))) is not None
-    if key.endswith(".proc_mem"):
-        if sample.procs and any(p.gpu_mem is not None for p in sample.procs):
-            return True
-        return "mem.gpu" in flat if "mem.used" in flat else None
+    if m := re.fullmatch(r"gpu(\d+)\.proc_mem", key):
+        gpu = next(g for g in info.gpus if g.index == int(m.group(1)))
+        if gpu.memory != "dedicated":
+            return f"gpu{gpu.index}.shared_used" in flat
+        # A process table with GPU memory says some GPU read its list; per GPU it cannot say until #20.
+        return True if sample.procs and any(p.gpu_mem is not None for p in sample.procs) else None
     if key == "procs":
         return sample.procs is not None
     return any(covers(key, k) for k in flat)
@@ -139,6 +141,7 @@ ZERO_INSTANCES = {
 
 RECORDED = {
     "gb10": lambda tmp: gb10(),
+    "4-GPU discrete workstation": workstation,
     **ZERO_INSTANCES,
     "degraded box without pressure or network files": lambda tmp: gb10_without(
         tmp, "/proc/pressure", "/sys/class/net", "/proc/self/net/dev"
@@ -176,11 +179,28 @@ def assert_the_node_totals_match_the_per_gpu_values(sample: Sample) -> None:
     def readings(field: str) -> list[float]:
         return [flat[k] for g in sample.gpu if (k := f"gpu{g.index}.{field}") in flat]
 
+    def every(values: list[float]) -> bool:
+        return bool(sample.gpu) and len(values) == len(sample.gpu) and "gpu" not in sample.errors
+
     util, temp, power = readings("util"), readings("temp_c"), readings("power_w")
-    every_power = bool(sample.gpu) and len(power) == len(sample.gpu) and "gpu" not in sample.errors
+    mem = [
+        sum(parts)
+        for g in sample.gpu
+        if (parts := [flat[k] for f in ("vram_used", "shared_used") if (k := f"gpu{g.index}.{f}") in flat])
+    ]
     assert flat.get("gpu.util") == (pytest.approx(sum(util) / len(util)) if util else None)
     assert flat.get("gpu.temp_c") == (max(temp) if temp else None)
-    assert flat.get("gpu.power_w") == (pytest.approx(sum(power)) if every_power else None)
+    assert flat.get("gpu.power_w") == (pytest.approx(sum(power)) if every(power) else None)
+    assert flat.get("gpu.mem_used") == (sum(mem) if every(mem) else None)
+
+
+def assert_mem_gpu_counts_only_shared_gpu_memory(sample: Sample) -> None:
+    flat = flatten(sample)
+    shared = [flat[k] for g in sample.gpu if (k := f"gpu{g.index}.shared_used") in flat]
+    if "mem.used" not in flat:
+        assert "mem.gpu" not in flat
+    else:
+        assert flat.get("mem.gpu") == (min(sum(shared), flat["mem.used"]) if shared else None)
 
 
 @pytest.mark.parametrize("platform", RECORDED)
@@ -196,9 +216,34 @@ def test_the_node_gpu_totals_on_a_demo_node_match_its_per_gpu_values(node):
         assert_the_node_totals_match_the_per_gpu_values(model.sample_at(T0 + t))
 
 
+@pytest.mark.parametrize("platform", RECORDED)
+def test_mem_gpu_on_a_recorded_platform_counts_only_the_memory_its_gpus_share(
+    platform, monkeypatch, tmp_path
+):
+    _, sample, _ = warm(monkeypatch, RECORDED[platform](tmp_path))
+    assert_mem_gpu_counts_only_shared_gpu_memory(sample)
+
+
+@pytest.mark.parametrize("node", list(FLEETS["mixed"]))
+def test_mem_gpu_on_a_demo_node_counts_only_the_memory_its_gpus_share(node):
+    model = FLEETS["mixed"][node](T0, 1.0)
+    for t in range(0, 360, 5):
+        assert_mem_gpu_counts_only_shared_gpu_memory(model.sample_at(T0 + t))
+
+
 def test_the_demo_declares_what_the_gb10_recording_declares():
     golden = json.loads((GB10 / "golden.json").read_text())["node_info"]["unsupported"]
     assert [u.model_dump(mode="json") for u in UNSUPPORTED] == golden
+
+
+def test_the_demo_workstation_declares_the_gpu_and_memory_gaps_the_workstation_recording_declares(
+    monkeypatch, tmp_path
+):
+    def memory_gaps(info: NodeInfo) -> list[Unsupported]:
+        return [u for u in info.unsupported if u.metric.startswith(("gpu", "mem."))]
+
+    recorded_info, _, _ = warm(monkeypatch, workstation(tmp_path))
+    assert memory_gaps(FLEETS["mixed"]["ws1"](T0, 1.0).info) == memory_gaps(recorded_info)
 
 
 def test_a_box_without_pressure_files_declares_psi_unsupported(tmp_path):
@@ -260,9 +305,9 @@ MISSING_PSI = (
 
 
 def test_a_key_no_collector_speaks_for_is_declared_not_collected(monkeypatch):
-    monkeypatch.setitem(VOCABULARY, "gpu*.vram_used", "gpu")
+    monkeypatch.setitem(VOCABULARY, "gpu*.encoder_util", "gpu")
     info, sample, _ = warm(monkeypatch, gb10())
-    (gap,) = [u for u in info.unsupported if u.metric == "gpu*.vram_used"]
+    (gap,) = [u for u in info.unsupported if u.metric == "gpu*.encoder_util"]
     assert (gap.kind, gap.reason) == ("agent", "Not reported by the gpu collector")
     with pytest.raises(AssertionError, match="left part of its vocabulary to the catch-all"):
         assert_every_metric_is_reported_or_declared(info, sample)
@@ -320,11 +365,3 @@ def test_every_key_the_web_asks_about_is_one_the_agent_declares():
     }
     assert asked, "no notReported(info, '<key>') lookups found under web/src"
     assert sorted((f, k) for f, k in asked if not any(declares(k, v) for v in VOCABULARY)) == []
-
-
-def test_the_node_totals_the_web_reads_are_the_ones_the_agent_declares():
-    web = re.search(r"export type NodeTotal = ([^;]+);", (WEB / "lib" / "metrics.ts").read_text())
-    assert web, "NodeTotal not found in web/src/lib/metrics.ts"
-    fields = set(re.findall(r"'([^']+)'", web[1]))
-    assert fields == set(GPU_TOTALS)
-    assert {f"gpu.{f}" for f in fields} <= set(VOCABULARY)

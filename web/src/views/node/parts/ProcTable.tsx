@@ -4,6 +4,7 @@ import { Table, type Column } from '../../../design/components/Table';
 import { Unsupported } from '../../../design/components/Unsupported';
 import { gpuSetGap } from '../../../lib/gpu';
 import { formatBytes } from '../../../lib/format';
+import { memoryLayout } from '../../../lib/memoryLayout';
 import type { ProcSample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
@@ -66,20 +67,22 @@ const totalCol: Column<ProcSample> = {
 };
 
 const MEM_COLUMNS = [nameCol, containerCol, modelCol, totalCol, gpuMemCol, rssCol];
+const SYSTEM_COLUMNS = [nameCol, containerCol, modelCol, rssCol, gpuMemCol];
 
 /** Processes holding GPU memory, largest first. */
 export const gpuProcs = (list: readonly ProcSample[]) => list.filter((p) => p.gpu_mem != null && p.gpu_mem > 0);
 
-/** Top memory consumers: resident set plus GPU allocations (unified memory), largest first, at most `n`. */
-export function topMemoryProcs(list: readonly ProcSample[], n = 10): ProcSample[] {
-  return [...list].sort((a, b) => b.rss + (b.gpu_mem ?? 0) - (a.rss + (a.gpu_mem ?? 0))).slice(0, n);
+/** Top memory consumers, largest first, at most `n`: resident set plus GPU allocations where the GPU keeps its
+ *  memory in system RAM (unified memory), else resident set only. */
+export function topMemoryProcs(list: readonly ProcSample[], sharesRam: boolean, n = 10): ProcSample[] {
+  const size = (p: ProcSample) => p.rss + (sharesRam ? (p.gpu_mem ?? 0) : 0);
+  return [...list].sort((a, b) => size(b) - size(a)).slice(0, n);
 }
 
 export function ProcTable({ nodeId, mode }: { nodeId: string; mode: 'gpu' | 'memory' }) {
   const list = useLatest(nodeId, selectProcs);
   const { stale } = useFreshness(nodeId);
   const info = useCluster((s) => s.nodes[nodeId]?.info);
-  const memTotal = info?.mem_total ?? null;
   const [sort, setSort] = useState<ProcSort>({ id: 'gpu_mem', dir: 'desc' });
   if (!list) {
     // Processes refresh every few seconds; until the first list arrives, hold the table's shape.
@@ -94,21 +97,22 @@ export function ProcTable({ nodeId, mode }: { nodeId: string; mode: 'gpu' | 'mem
           rows={sortProcs(gpuProcs(list), sort)}
           sort={sort}
           onSort={setSort}
-          memTotal={memTotal}
+          info={info}
           empty={gap ? <Unsupported gap={gap} /> : <span className="nmuted">No processes are using the GPU right now.</span>}
         />
       </div>
     );
   }
-  const rows = topMemoryProcs(list);
+  const { sharesRam } = memoryLayout(info);
+  const rows = topMemoryProcs(list, sharesRam);
   return (
     <div className={stale ? 'ntable--stale' : undefined}>
       <Table
         caption={`Top memory consumers on ${nodeId}`}
-        columns={MEM_COLUMNS}
+        columns={sharesRam ? MEM_COLUMNS : SYSTEM_COLUMNS}
         rows={rows}
         rowKey={(p) => p.pid}
-        initialSort={{ id: 'total', dir: 'desc' }}
+        initialSort={{ id: sharesRam ? 'total' : 'rss', dir: 'desc' }}
         empty="No processes reported."
       />
     </div>

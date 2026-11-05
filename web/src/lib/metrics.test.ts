@@ -2,7 +2,7 @@
 // on the same fixture (src/test/fixtures/flatten.expected.json).
 import expected from '../test/fixtures/flatten.expected.json';
 import sample from '../test/fixtures/sample.json';
-import { flatten, mountKey } from './metrics';
+import { flatten, GPU_TOTALS, mountKey } from './metrics';
 import type { Sample } from './types';
 
 const s = sample as unknown as Sample;
@@ -22,6 +22,10 @@ describe('flatten', () => {
     expect(got.has('cpu.core1.mhz')).toBe(false);
     expect(got.has('temp.nvme.composite')).toBe(false);
     expect(got.has('fs.data_models.used_pct')).toBe(false); // total 0
+  });
+
+  it('totals the GPUs by the same rules as the Python GPU_TOTALS', () => {
+    expect(GPU_TOTALS).toEqual(expected.gpu_total_rules);
   });
 
   it.each(gpuTotals)('writes the node GPU totals like the Python flatten(): $case', ({ gpu, errors, flatten: want }) => {

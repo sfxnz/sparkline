@@ -173,7 +173,9 @@
       "temp_max_c": 99.0,
       "power_limit_w": null,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "unified",
+      "vram_total": null
     }
   ],
   "net": [
@@ -386,7 +388,7 @@
       "kind": "hardware"
     },
     {
-      "metric": "gpu0.fb_memory",
+      "metric": "gpu0.vram_used",
       "reason": "Dedicated GPU memory (FB) not reported by NVIDIA GB10 (NVML: Not Supported) — unified memory is reported under Memory instead",
       "kind": "hardware"
     },

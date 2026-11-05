@@ -105,7 +105,8 @@ def fmt_value(key: str, v: float) -> str:
     """A metric value with its unit, as the rule editor shows it (web/src/views/alerts/rules.ts unitFor)."""
     if key.endswith("temp_c") or key.startswith("temp."):
         return f"{v:.0f} °C"
-    if key.startswith("mem.") and not key.startswith("mem.psi") and not key.endswith("_pct"):
+    memory = key.startswith("mem.") and not key.startswith("mem.psi") and not key.endswith("_pct")
+    if memory or key.endswith((".vram_used", ".shared_used", ".mem_used")):
         return f"{v / GIB:.1f} GiB"
     if key.endswith(("_pct", ".util")) or ".psi" in key:
         return f"{v:.1f} %"

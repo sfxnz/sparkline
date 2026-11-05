@@ -94,7 +94,7 @@ def node_info() -> NodeInfo:
 
 
 def sample(
-    ts: float, used: int = 10 * 2**30, gpu: int = 5 * 2**30, sm: float = 2000.0, mask: int = 0
+    ts: float, used: int = 10 * 2**30, gpu: int | None = 5 * 2**30, sm: float = 2000.0, mask: int = 0
 ) -> Sample:
     return Sample(
         node_id="n1",
@@ -1457,19 +1457,26 @@ async def test_llm_inference_end_to_end(tmp_path, fake_llm):
 
 
 @pytest.mark.parametrize(
-    ("gpu", "label"),
+    ("gpu", "shared", "label"),
     [
-        ("NVIDIA GB10", "Unified memory growth during run"),
-        ("NVIDIA RTX 6000 Ada Generation", "System memory growth during run"),
+        (GpuInfo(index=0, name="NVIDIA GB10", uuid="GPU-abc"), 5 * GIB, "Unified memory growth during run"),
+        (
+            GpuInfo(index=0, name="NVIDIA RTX 6000 Ada Generation", uuid="GPU-abc", memory="dedicated"),
+            None,
+            "System memory growth during run",
+        ),
     ],
+    ids=["unified", "dedicated"],
 )
-async def test_llm_inference_names_memory_growth_for_the_nodes_gpu(tmp_path, fake_llm, gpu, label):
-    info = node_info().model_copy(update={"gpus": [GpuInfo(index=0, name=gpu, uuid="GPU-abc")]})
+async def test_llm_inference_names_memory_growth_and_shared_gpu_memory_by_the_nodes_memory_model(
+    tmp_path, fake_llm, gpu, shared, label
+):
+    info = node_info().model_copy(update={"gpus": [gpu]})
     t = [time.time()]
 
     def latest() -> Sample:
         t[0] += 0.5
-        return sample(t[0], used=int((10 + t[0] % 1) * 2**30))
+        return sample(t[0], used=int((10 + t[0] % 1) * 2**30), gpu=shared)
 
     r = make_runner(tmp_path, latest=latest, info=lambda: info)
     params = {
@@ -1483,7 +1490,12 @@ async def test_llm_inference_names_memory_growth_for_the_nodes_gpu(tmp_path, fak
     await r.current.task
     st = r.get("r1")
     assert st.status == "succeeded", st.error
-    assert {x.metric: x.label for x in st.results}["mem_used_delta_gib"] == label
+    growth = {x.metric: x for x in st.results}["mem_used_delta_gib"]
+    assert growth.label == label
+    alloc = shared / GIB if shared is not None else None
+    assert (growth.extras["gpu_alloc_before_gib"], growth.extras["gpu_alloc_peak_gib"]) == (alloc, alloc), (
+        "no shared GPU memory reported reads as none, not 0 GiB"
+    )
 
 
 def test_serving_gpu_mem_falls_back_to_gpu_processes_when_the_pid_is_hidden(monkeypatch):

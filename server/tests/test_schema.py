@@ -5,7 +5,7 @@ import re
 import typing
 from pathlib import Path
 
-from sparkline.common.schema import NodeInfo, Unsupported, UnsupportedKind
+from sparkline.common.schema import MemoryModel, NodeInfo, Unsupported, UnsupportedKind
 
 WEB_TYPES = Path(__file__).resolve().parents[2] / "web" / "src" / "lib" / "types.ts"
 
@@ -71,3 +71,16 @@ def test_a_vendor_or_platform_this_console_predates_keeps_the_hello_and_is_kept_
     assert parsed.platform == "freebsd"
     assert [(g.vendor, g.backend) for g in parsed.gpus] == [("intel", "level-zero")]
     assert NodeInfo.model_validate_json(parsed.model_dump_json()) == parsed
+
+
+def test_a_gpu_from_an_agent_that_predates_memory_models_or_sends_an_unknown_one_reads_as_unified():
+    info = json.loads((Path(__file__).parent / "fixtures/console/node_info.json").read_text())
+    assert not {"memory", "vram_total"} & set(info["gpus"][0])
+    old = NodeInfo.model_validate(info).gpus[0]
+    assert (old.memory, old.vram_total) == ("unified", None)
+    info["gpus"][0] |= {"memory": "stacked-hbm", "vram_total": 2**30}
+    newer = NodeInfo.model_validate(info).gpus[0]
+    assert (newer.memory, newer.vram_total) == ("unified", 2**30)
+    for model in typing.get_args(MemoryModel):
+        info["gpus"][0]["memory"] = model
+        assert NodeInfo.model_validate(info).gpus[0].memory == model

@@ -481,7 +481,9 @@
       "temp_max_c": 89.0,
       "power_limit_w": 300.0,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "dedicated",
+      "vram_total": 51539607552
     },
     {
       "index": 1,
@@ -496,7 +498,9 @@
       "temp_max_c": 89.0,
       "power_limit_w": 300.0,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "dedicated",
+      "vram_total": 51539607552
     },
     {
       "index": 2,
@@ -511,7 +515,9 @@
       "temp_max_c": 89.0,
       "power_limit_w": 300.0,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "dedicated",
+      "vram_total": 51539607552
     },
     {
       "index": 3,
@@ -526,7 +532,9 @@
       "temp_max_c": 89.0,
       "power_limit_w": 300.0,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "dedicated",
+      "vram_total": 51539607552
     }
   ],
   "net": [
@@ -655,6 +663,31 @@
   ],
   "unsupported": [
     {
+      "metric": "gpu0.shared_used",
+      "reason": "NVML does not report the system memory this GPU uses; its memory is dedicated VRAM",
+      "kind": "hardware"
+    },
+    {
+      "metric": "gpu1.shared_used",
+      "reason": "NVML does not report the system memory this GPU uses; its memory is dedicated VRAM",
+      "kind": "hardware"
+    },
+    {
+      "metric": "gpu2.shared_used",
+      "reason": "NVML does not report the system memory this GPU uses; its memory is dedicated VRAM",
+      "kind": "hardware"
+    },
+    {
+      "metric": "gpu3.shared_used",
+      "reason": "NVML does not report the system memory this GPU uses; its memory is dedicated VRAM",
+      "kind": "hardware"
+    },
+    {
+      "metric": "mem.gpu",
+      "reason": "NVML does not report the system memory this GPU uses; its memory is dedicated VRAM",
+      "kind": "hardware"
+    },
+    {
       "metric": "cpu.perf_util",
       "reason": "This CPU has no performance/efficiency core split",
       "kind": "hardware"
@@ -672,11 +705,6 @@
     {
       "metric": "system.power_w",
       "reason": "Whole-system power is not exposed; only GPU board power (NVML) is",
-      "kind": "hardware"
-    },
-    {
-      "metric": "mem.gpu",
-      "reason": "These GPUs use dedicated memory (VRAM), not system memory",
       "kind": "hardware"
     }
   ],

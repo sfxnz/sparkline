@@ -1,4 +1,4 @@
-"""Unified memory: /proc/meminfo + NVML per-process GPU allocations + PSI."""
+"""System memory: /proc/meminfo, the part of it the GPUs hold (their shared_used), and PSI."""
 
 from __future__ import annotations
 

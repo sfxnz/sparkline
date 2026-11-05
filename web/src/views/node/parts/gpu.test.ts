@@ -63,6 +63,9 @@ describe('process lists', () => {
     expect(gpuProcs([p(1, 5, null), p(2, 5, 0), p(3, 5, 10)]).map((x) => x.pid)).toEqual([3]);
   });
   it('top memory consumers rank by RSS plus GPU allocation', () => {
-    expect(topMemoryProcs([p(1, 50, null), p(2, 5, 100), p(3, 20, 10)], 2).map((x) => x.pid)).toEqual([2, 1]);
+    expect(topMemoryProcs([p(1, 50, null), p(2, 5, 100), p(3, 20, 10)], true, 2).map((x) => x.pid)).toEqual([2, 1]);
+  });
+  it('top memory consumers rank by RSS alone where GPU memory sits on the cards', () => {
+    expect(topMemoryProcs([p(1, 50, null), p(2, 5, 100), p(3, 20, 10)], false, 2).map((x) => x.pid)).toEqual([1, 3]);
   });
 });

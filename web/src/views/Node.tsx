@@ -16,6 +16,7 @@ import { useNow } from '../design/useNow';
 import { api } from '../lib/api';
 import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
+import { memoryLayout } from '../lib/memoryLayout';
 import { sentence } from '../lib/gpu';
 import { gpuHeadline } from '../lib/platform';
 import type { NodeInfo, NodeState } from '../lib/types';
@@ -56,7 +57,7 @@ export default function Node() {
       <NodeNotice id={id} />
       <Tabs label={`${id} sections`} items={NODE_TABS} value={tab} onChange={(t) => { navigate(paths.node(id, t)); }}>
         {exists ? (
-          <Suspense fallback={<TabSkeleton label={tabLabel} tab={tab} />}>
+          <Suspense fallback={<TabSkeleton label={tabLabel} tab={tab} info={info} />}>
             <ErrorBoundary what={`The ${tabLabel} tab`} resetKey={`${id}/${tab}`}>
               {gap ? (
                 <div className="view">
@@ -70,15 +71,15 @@ export default function Node() {
             </ErrorBoundary>
           </Suspense>
         ) : (
-          <TabSkeleton label={tabLabel} tab={tab} />
+          <TabSkeleton label={tabLabel} tab={tab} info={info} />
         )}
       </Tabs>
     </div>
   );
 }
 
-function TabSkeleton({ label, tab }: { label: string; tab: NodeTab }) {
-  if (tab === 'summary') return <SummarySkeleton />;
+function TabSkeleton({ label, tab, info }: { label: string; tab: NodeTab; info: NodeInfo | null | undefined }) {
+  if (tab === 'summary') return <SummarySkeleton memory={memoryLayout(info).name} />;
   return (
     <div className="view" aria-busy="true">
       <Panel label={`${label} summary`} busy>

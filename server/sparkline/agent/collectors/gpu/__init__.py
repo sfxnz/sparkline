@@ -86,7 +86,7 @@ class GpuCollector:
         self.info: list[GpuInfo] = []
         self.versions: dict[str, str] = {}
         self.proc_mem: dict[int, int] = {}
-        self.proc_mem_total: int | None = None
+        self.shared_total: int | None = None
         self._live: list[_Live] = []
         self._caps: dict[str, Unsupported | None] = {}
         self._lock = threading.Lock()
@@ -128,10 +128,10 @@ class GpuCollector:
                 self.versions |= _labelled(chain.vendor, versions)
                 break
         if self.info:
-            procs = [self._caps[f"gpu{g.index}.proc_mem"] for g in self.info]
-            first = procs[0]
+            shared = [self._caps[f"gpu{g.index}.shared_used"] for g in self.info]
+            first = shared[0]
             self._caps["mem.gpu"] = (
-                first.model_copy(update={"metric": "mem.gpu"}) if first and all(procs) else None
+                first.model_copy(update={"metric": "mem.gpu"}) if first and all(shared) else None
             )
             self._caps["gpu.backend"] = None
             for field in GPU_TOTALS:
@@ -150,14 +150,21 @@ class GpuCollector:
             metric = f"gpu.backend.{f.backend}"
             self._caps[metric] = Unsupported(metric=metric, reason=f.reason, kind=f.kind)
 
-    def _total_gap(self, field: str) -> Unsupported | None:
-        every = GPU_TOTALS[field].needs_every_gpu
-        gaps = [(g.index, gap) for g in self.info if (gap := self._caps[f"gpu{g.index}.{field}"])]
+    def _total_gap(self, name: str) -> Unsupported | None:
+        total = GPU_TOTALS[name]
+        every = total.needs_every_gpu
+        gaps = [(g.index, gap) for g in self.info if (gap := self._gpu_gap(g.index, total.parts))]
         if not gaps or (not every and len(gaps) < len(self.info)):
             return None
         index, gap = gaps[0]
         reason = f"GPU {index}: {gap.reason}" if every and len(self.info) > 1 else gap.reason
-        return gap.model_copy(update={"metric": f"gpu.{field}", "reason": reason})
+        return gap.model_copy(update={"metric": f"gpu.{name}", "reason": reason})
+
+    def _gpu_gap(self, index: int, parts: tuple[str, ...]) -> Unsupported | None:
+        gaps = [self._caps[f"gpu{index}.{part}"] for part in parts]
+        if not all(gaps):
+            return None
+        return min((g for g in gaps if g), key=lambda g: _MOST_ACTIONABLE.index(g.kind))
 
     def _adopt(
         self,
@@ -203,7 +210,6 @@ class GpuCollector:
     def _collect(self) -> dict[str, Any]:
         out: list[GpuSample] = []
         proc_mem: dict[int, int] = {}
-        reported = False
         failed: list[str] = []
         for live in self._live:
             self._reading = live.backend
@@ -220,11 +226,11 @@ class GpuCollector:
                 s if live.base == 0 else s.model_copy(update={"index": live.base + s.index}) for s in samples
             ]
             for pids in procs.values():
-                reported = True
                 for pid, used in pids.items():
                     proc_mem[pid] = proc_mem.get(pid, 0) + used
         self.proc_mem = proc_mem
-        self.proc_mem_total = sum(proc_mem.values()) if reported else None
+        shared = [s.shared_used for s in out if s.shared_used is not None]
+        self.shared_total = sum(shared) if shared else None
         return {"gpu": out, "errors": {"gpu": "; ".join(failed)}} if failed else {"gpu": out}
 
     def close(self) -> None:

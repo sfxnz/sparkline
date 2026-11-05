@@ -26,6 +26,11 @@ describe('nodeGpuKey', () => {
     expect(nodeGpuKey(ws1, 'temp_c')).toBe('gpu.temp_c');
     expect(nodeGpuKey(ws1, 'power_w')).toBe('gpu.power_w');
   });
+
+  it('reads GPU memory from the node total on any node, since no GPU key has its name', () => {
+    expect(nodeGpuKey(gb10, 'mem_used')).toBe('gpu.mem_used');
+    expect(nodeGpuKey(ws1, 'mem_used')).toBe('gpu.mem_used');
+  });
 });
 
 describe('gpuSetGap', () => {
@@ -88,6 +93,15 @@ describe('totalGap', () => {
     expect(totalGap(ws1, s, 'power_w')).toEqual({ kind: 'hardware', label: 'No total', detail: 'GPU 2 sent no power reading this tick, so a sum would understate.' });
     expect(totalGap(ws1, s, 'util')).toBeNull();
     expect(totalGap(ws1, withGpu(s, 3, { power_w: null }), 'power_w')?.detail).toBe('GPUs 2 and 3 sent no power reading this tick, so a sum would understate.');
+  });
+
+  it('names the GPU that sent neither VRAM nor shared memory, on one GPU as on several', () => {
+    const vram = { ...sample, gpu: sample.gpu.map((g) => ({ ...g, vram_used: 40 * 1024 ** 3 })) };
+    expect(totalGap(ws1, vram, 'mem_used')).toBeNull();
+    expect(totalGap(ws1, withGpu(vram, 2, { vram_used: null }), 'mem_used')?.detail).toBe('GPU 2 sent no memory reading this tick, so a sum would understate.');
+    const oneGpu = { ...sample, gpu: vram.gpu.filter((g) => g.index === 0).map((g) => ({ ...g, vram_used: null, shared_used: null })) };
+    expect(totalGap(gb10, oneGpu, 'mem_used')?.detail).toBe('GPU 0 sent no memory reading this tick, so a sum would understate.');
+    expect(totalGap(gb10, withGpu(oneGpu, 0, { shared_used: 0 }), 'mem_used')).toBeNull();
   });
 
   it("gives the failed backend's own error for the GPUs it dropped", () => {

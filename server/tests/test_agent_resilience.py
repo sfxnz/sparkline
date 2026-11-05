@@ -38,7 +38,8 @@ class NVMLError_NoPermission(NVMLError):  # noqa: N801 - pynvml's name
 
 
 class FakeNvml:
-    """Stands in for pynvml. ``fail``: the exception every device read raises (None: healthy)."""
+    """Stands in for pynvml, as a GB10. ``fail``: the exception every device read raises (None: healthy);
+    ``answers`` replaces a call's healthy answer."""
 
     NVMLError = NVMLError
     NVMLError_NotSupported = NVMLError_NotSupported
@@ -47,6 +48,7 @@ class FakeNvml:
     def __init__(self) -> None:
         self.fail: BaseException | None = None
         self.fail_on: dict[str, BaseException] = {}
+        self.answers: dict[str, object] = {}
 
     def __getattr__(self, name: str):
         if name.startswith("NVML_"):
@@ -68,6 +70,8 @@ class FakeNvml:
             "nvmlDeviceGetComputeRunningProcesses": [SimpleNamespace(pid=1234, usedGpuMemory=2**30)],
             "nvmlDeviceGetTotalEnergyConsumption": 1_000_000,
             "nvmlDeviceGetProcessUtilization": [],
+            "nvmlDeviceGetMemoryInfo": NVMLError_NotSupported("Not Supported"),
+            **self.answers,
         }
 
         def call(*_args):
@@ -76,7 +80,10 @@ class FakeNvml:
             device_read = name.startswith("nvmlDevice") and name != "nvmlDeviceGetHandleByIndex"
             if self.fail is not None and device_read:
                 raise self.fail
-            return values.get(name, 1)
+            value = values.get(name, 1)
+            if isinstance(value, BaseException):
+                raise value
+            return value
 
         return call
 
@@ -96,11 +103,26 @@ def test_gpu_reads_recover_after_transient_nvml_errors(nvml):
     nvml.fail = NVMLError("Unknown Error")  # e.g. GPU busy / driver hiccup: readings missing, not fatal
     bad = g.collect()["gpu"][0]
     assert (bad.util, bad.temp_c, bad.power_w, bad.throttle_mask) == (None, None, None, None)
-    assert g.proc_mem_total is None
+    assert g.shared_total is None
 
     nvml.fail = None  # transient: nothing was disabled, the next tick reads everything again
     again = g.collect()["gpu"][0]
     assert (again.util, again.temp_c, again.power_w) == (42, 55, 30.0)
+
+
+def test_a_dedicated_gpus_vram_reading_recovers_after_a_transient_nvml_error(nvml):
+    nvml.answers["nvmlDeviceGetMemoryInfo"] = SimpleNamespace(
+        total=48 * 2**30, free=8 * 2**30, used=40 * 2**30
+    )
+    g = GpuCollector(gb10(nvml=nvml))
+    assert (g.info[0].memory, g.info[0].vram_total) == ("dedicated", 48 * 2**30)
+    assert g.collect()["gpu"][0].vram_used == 40 * 2**30
+
+    nvml.fail_on = {"nvmlDeviceGetMemoryInfo": NVMLError("Unknown Error")}
+    assert g.collect()["gpu"][0].vram_used is None
+
+    nvml.fail_on = {}
+    assert g.collect()["gpu"][0].vram_used == 40 * 2**30
 
 
 def test_an_unexpected_nvml_exception_fails_only_that_tick_and_names_the_backend(nvml, tmp_path):
@@ -133,7 +155,7 @@ def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missi
         "nvmlDeviceGetFanSpeed": NVMLError_NotSupported("Not Supported"),
     }
     gaps = {k: u for k, u in GpuCollector(gb10(nvml=nvml)).caps().items() if u}
-    assert set(gaps) == {"gpu0.power_limit_w", "gpu0.fan_pct"}
+    assert set(gaps) == {"gpu0.power_limit_w", "gpu0.fan_pct", "gpu0.vram_used"}
     limit = gaps["gpu0.power_limit_w"]
     assert limit.kind == "access"
     assert limit.reason == "Permission denied to the agent's user (NVML: Insufficient Permissions)"

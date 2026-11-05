@@ -1,4 +1,4 @@
-// A living node card: what the node runs, GPU load, heat, power, unified memory, CX7 traffic and recent trend.
+// A living node card: what the node runs, GPU load, heat, power, memory, CX7 traffic and recent trend.
 // Every number is its own subscriber, so a tick re-renders only the leaves whose value changed. The ambient glow is
 // driven by a CSS custom property (useBreath), never by React renders.
 import { ArrowLeft, ArrowRight, Clock, OctagonAlert, RotateCw, TriangleAlert, Unplug } from 'lucide-react';
@@ -20,7 +20,8 @@ import { useNow } from '../../design/useNow';
 import { api } from '../../lib/api';
 import { bitrateParts, DASH, formatAgo, formatBytes, formatPercent, formatWatts, text, wattsParts } from '../../lib/format';
 import { headroomGpu, tempRoom } from '../../lib/condition';
-import type { NodeInfo, Sample } from '../../lib/types';
+import { memoryLayout } from '../../lib/memoryLayout';
+import type { GpuInfo, NodeInfo, Sample } from '../../lib/types';
 import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -68,6 +69,7 @@ export function NodeCard({ id }: { id: string }) {
   );
 
   const dim = freshness === 'stale' || freshness === 'down';
+  const layout = memoryLayout(info);
   return (
     <Ctx.Provider value={{ id, freshness, info }}>
       <m.div
@@ -97,7 +99,8 @@ export function NodeCard({ id }: { id: string }) {
                 <Power />
               </div>
             </div>
-            <MemoryBar />
+            <MemoryBar name={layout.name} sharesRam={layout.sharesRam} />
+            {layout.sharesRam ? null : <GpuMemory gpus={layout.dedicated} />}
           </div>
           {/* The stale/offline notice takes the place of the link and trend row (which are frozen anyway), inside a
               slot of fixed height, so a node changing state never resizes its card or the row of cards. */}
@@ -329,16 +332,16 @@ function Power() {
 
 const GIB = 1024 ** 3;
 
-function MemoryBar() {
+function MemoryBar({ name, sharesRam }: { name: string; sharesRam: boolean }) {
   const { id, info, freshness } = useContext(Ctx);
   const available = useLiveValue(id, 'mem.available', GIB / 20);
   const gpu = useLiveValue(id, 'mem.gpu', GIB / 20);
-  const split = memSplit(info?.mem_total, available, gpu);
+  const split = memSplit(info?.mem_total, available, sharesRam ? gpu : null);
   const gap = notReported(info, 'mem.available');
   if (gap) {
     return (
       <div className="ov-mem">
-        <div className="ov-row"><span className="ov-label">Unified memory</span></div>
+        <div className="ov-row"><span className="ov-label">{name}</span></div>
         <Unsupported gap={gap} />
       </div>
     );
@@ -355,12 +358,12 @@ function MemoryBar() {
   const used = split ? split.gpu + split.other : null;
   const pct = split && used !== null ? (100 * used) / split.total : null;
   const label = split
-    ? `Unified memory: ${formatBytes(used)} of ${formatBytes(split.total)} in use (${formatPercent(pct)})${split.gpuKnown ? `, ${formatBytes(split.gpu)} GPU-allocated` : ''}, ${formatBytes(split.available)} available`
-    : 'Unified memory: no data';
+    ? `${name}: ${formatBytes(used)} of ${formatBytes(split.total)} in use (${formatPercent(pct)})${split.gpuKnown ? `, ${formatBytes(split.gpu)} GPU-allocated` : ''}, ${formatBytes(split.available)} available`
+    : `${name}: no data`;
   return (
     <div className="ov-mem">
       <div className="ov-row">
-        <span className="ov-label">Unified memory</span>
+        <span className="ov-label">{name}</span>
         <span className="ov-mem__total num">
           {split ? (
             <>
@@ -382,6 +385,42 @@ function MemoryBar() {
         <li><i className="ov-sw ov-sw--other" />{split?.gpuKnown ? 'Other' : 'In use'} <span className="num">{split ? formatBytes(split.other) : DASH}</span></li>
         <li><i className="ov-sw ov-sw--free" />Available <span className="num">{split ? formatBytes(split.available) : DASH}</span></li>
       </ul>
+    </div>
+  );
+}
+
+function GpuMemory({ gpus }: { gpus: readonly GpuInfo[] }) {
+  const { id, info, freshness } = useContext(Ctx);
+  const used = useLiveValue(id, nodeGpuKey(info, 'mem_used'), GIB / 20);
+  const gap = useTotalGap(id, 'mem_used');
+  const total = gpus.every((g) => g.vram_total != null) ? gpus.reduce((sum, g) => sum + (g.vram_total ?? 0), 0) : null;
+  if (used === null && freshness === 'waiting' && !gap) {
+    return (
+      <div className="ov-mem">
+        <div className="ov-row"><Skeleton width={90} height={12} /><Skeleton width={96} height={12} /></div>
+        <Skeleton height={8} radius={4} />
+      </div>
+    );
+  }
+  const share = used !== null && total ? Math.min(1, used / total) : null;
+  const label = used === null ? 'GPU memory: no data' : `GPU memory: ${formatBytes(used)}${total ? ` of ${formatBytes(total)} in use (${formatPercent(100 * (share ?? 0))})` : ' in use'}`;
+  return (
+    <div className="ov-mem">
+      <div className="ov-row">
+        <span className="ov-label">GPU memory</span>
+        {gap ? (
+          <Unsupported gap={gap} />
+        ) : (
+          <span className="ov-mem__total num">
+            {used === null ? DASH : <>{formatBytes(used)} <span className="ov-dim">{total ? `of ${formatBytes(total)}` : 'in use'}</span></>}
+          </span>
+        )}
+      </div>
+      {gap ? null : (
+        <div className="ov-mem__bar" role="img" aria-label={label}>
+          {share !== null ? <span className="ov-mem__seg ov-mem__seg--gpu" style={{ width: `${share * 100}%` }} /> : null}
+        </div>
+      )}
     </div>
   );
 }

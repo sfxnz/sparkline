@@ -7,6 +7,7 @@ import { Unsupported } from '../../design/components/Unsupported';
 import { bitrateParts, bytesParts, formatBitrate, formatBytes, formatPercent, formatWatts, percentParts, tempParts, wattsParts } from '../../lib/format';
 import { interconnectGap, notReported } from '../../lib/capabilities';
 import { nodeGpuKey } from '../../lib/gpu';
+import { memoryLayout } from '../../lib/memoryLayout';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { LiveStat } from './parts/LiveStat';
@@ -28,6 +29,7 @@ const MEM_SERIES: readonly SeriesSpec[] = [
   { key: 'mem.used', label: 'Used' },
   { key: 'mem.gpu', label: 'GPU-allocated' },
 ];
+const SYSTEM_SERIES = MEM_SERIES.filter((s) => s.key !== 'mem.gpu');
 
 export default function Summary({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
@@ -38,6 +40,8 @@ export default function Summary({ nodeId }: NodeTabProps) {
   const utilSeries = useMemo<SeriesSpec[]>(() => [{ key: utilKey, label: utilFrom ? `Utilisation (${utilFrom})` : 'Utilisation' }], [utilKey, utilFrom]);
   const powerSeries = useMemo<SeriesSpec[]>(() => [{ key: powerKey, label: 'GPU power' }], [powerKey]);
   const memTotal = info?.mem_total ?? null;
+  const layout = useMemo(() => memoryLayout(info), [info]);
+  const unified = layout.name === 'Unified memory';
   const rails = useMemo(() => cx7Rails(info), [info]);
   const railNames = useMemo(() => rails.map((r) => r.name), [rails]);
   const railId = railNames.join(',');
@@ -85,7 +89,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
             format={bytesParts}
             unsupported={notReported(info, 'mem.available')}
             href={paths.node(nodeId, 'memory')}
-            footer={() => (memTotal ? `of ${formatBytes(memTotal)} unified` : null)}
+            footer={() => (memTotal ? `of ${formatBytes(memTotal)} ${unified ? 'unified' : 'system'}` : null)}
           />
           <LiveStat nodeId={nodeId} label="CPU utilisation" select={cpuUtil} metric="cpu.util" format={percentParts} unsupported={notReported(info, 'cpu.util')} href={paths.node(nodeId, 'cpu')} footer={() => (info ? `${info.cores.length} cores` : null)} />
           {(['in', 'out'] as const).map((dir) => (
@@ -115,8 +119,8 @@ export default function Summary({ nodeId }: NodeTabProps) {
         <Panel title="GPU power" subtitle="GPU rail only — not whole-system power" actions={<TabLink nodeId={nodeId} tab="gpu">GPU</TabLink>}>
           <TimeSeriesChart node={nodeId} title="GPU power" series={powerSeries} format={formatWatts} yMin={0} height={168} />
         </Panel>
-        <Panel title="Unified memory" subtitle="Shared by CPU and GPU" actions={<TabLink nodeId={nodeId} tab="memory">Memory</TabLink>}>
-          <TimeSeriesChart node={nodeId} title="Unified memory used" series={MEM_SERIES} format={formatBytes} yMin={0} yMax={memTotal ?? undefined} yIncrs={BYTE_INCRS} height={168} />
+        <Panel title={layout.name} subtitle={unified ? 'Shared by CPU and GPU' : layout.sharesRam ? 'Host RAM, with the GPU memory held in it' : 'Host RAM; VRAM is on the Memory tab'} actions={<TabLink nodeId={nodeId} tab="memory">Memory</TabLink>}>
+          <TimeSeriesChart node={nodeId} title={`${layout.name} used`} series={layout.sharesRam ? MEM_SERIES : SYSTEM_SERIES} format={formatBytes} yMin={0} yMax={memTotal ?? undefined} yIncrs={BYTE_INCRS} height={168} />
         </Panel>
         <Panel title="CPU utilisation" subtitle="By core type" actions={<TabLink nodeId={nodeId} tab="cpu">CPU</TabLink>}>
           <TimeSeriesChart node={nodeId} title="CPU utilisation by core type" series={CPU_SERIES} format={pct} yMin={0} yMax={100} height={168} />

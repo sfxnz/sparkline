@@ -5,6 +5,7 @@ import { Skeleton } from '../../../design/components/Skeleton';
 import { useNow } from '../../../design/useNow';
 import { bytesParts, formatAgo, formatBytes, formatPercent } from '../../../lib/format';
 import { serverNow } from '../../../store/cluster';
+import type { MemoryLayout } from '../../../lib/memoryLayout';
 import type { MemSample } from '../../../lib/types';
 import { liveStore, useLatest } from '../../../store/live';
 import { lastKnownValue } from '../../shared/live';
@@ -14,18 +15,18 @@ import { mem as selectMem } from './selectors';
 
 const share = (s: MemSegment) => formatPercent(s.fraction * 100, s.fraction > 0 && s.fraction < 0.01 ? 1 : 0);
 
-/** The unified-memory story: how much is available, and one bar of everything it is used for. */
-export function MemoryHero({ nodeId, total }: { nodeId: string; total: number | null }) {
+/** The memory story: how much is available, and one bar of everything it is used for. */
+export function MemoryHero({ nodeId, total, layout }: { nodeId: string; total: number | null; layout: MemoryLayout }) {
   const latest = useLatest(nodeId, selectMem);
   const { stale, waiting } = useFreshness(nodeId);
   const fallback = latest === null && stale && !!total;
   useBufferTs(nodeId, fallback);
-  const m = latest ?? (fallback && total ? memFromBuffer(nodeId, total) : null);
+  const m = latest ?? (fallback && total ? memFromBuffer(nodeId, total, layout.sharesRam) : null);
   // Keep the headline unit fixed while the number animates.
   const unit = m ? bytesParts(m.total).unit : 'GiB';
   const fmt = useCallback((n: number) => bytesParts(n, unit).value, [unit]);
 
-  if (!m) return waiting ? <HeroSkeleton /> : <p className="nmuted">No memory data has been received from {nodeId}.</p>;
+  if (!m) return waiting ? <HeroSkeleton segments={layout.sharesRam ? 7 : 6} /> : <p className="nmuted">No memory data has been received from {nodeId}.</p>;
 
   const b = memoryBreakdown(m);
   const seg = (k: MemSegment['key']) => b.segments.find((s) => s.key === k);
@@ -34,13 +35,13 @@ export function MemoryHero({ nodeId, total }: { nodeId: string; total: number | 
   const used = b.segments.filter((s) => s.group === 'used');
   const avail = b.segments.filter((s) => s.group === 'available');
   const sum = (xs: MemSegment[]) => xs.reduce((a, s) => a + s.fraction, 0);
-  const label = `Unified memory: ${formatBytes(b.available)} available of ${formatBytes(b.total)}. ${b.segments.map((s) => `${s.label} ${formatBytes(s.bytes)} (${share(s)})`).join(', ')}.`;
+  const label = `${layout.name}: ${formatBytes(b.available)} available of ${formatBytes(b.total)}. ${b.segments.map((s) => `${s.label} ${formatBytes(s.bytes)} (${share(s)})`).join(', ')}.`;
 
   return (
     <div className={`nmem-hero${stale ? ' nmem-hero--stale' : ''}`}>
       <div className="nmem-hero__head">
         <div>
-          <p className="t-eyebrow">Unified memory · shared by CPU and GPU</p>
+          <p className="t-eyebrow">{layout.name === 'Unified memory' ? 'Unified memory · shared by CPU and GPU' : layout.name}</p>
           <p className="nmem-hero__headline">
             <span className="nmem-hero__big">
               <AnimatedNumber value={b.available} format={fmt} /> {unit}
@@ -87,21 +88,25 @@ export function MemoryHero({ nodeId, total }: { nodeId: string; total: number | 
       <p className="nmem-note">
         <Info aria-hidden="true" />
         <span>
-          CPU and GPU share one pool of memory, so GPU allocations come out of the same {formatBytes(b.total)}. Page cache is file data the kernel
-          keeps for speed and gives back when programs need it, which is why it counts toward available.
+          {layout.name === 'Unified memory'
+            ? `CPU and GPU share one pool of memory, so GPU allocations come out of the same ${formatBytes(b.total)}.`
+            : layout.sharesRam
+              ? `GPU memory held in system RAM comes out of this ${formatBytes(b.total)}; each GPU’s own memory is under GPU memory.`
+              : `Each GPU has its own memory, shown under GPU memory, so GPU allocations do not come out of this ${formatBytes(b.total)}.`}{' '}
+          Page cache is file data the kernel keeps for speed and gives back when programs need it, which is why it counts toward available.
         </span>
       </p>
     </div>
   );
 }
 
-function StaleAge({ nodeId }: { nodeId: string }) {
+export function StaleAge({ nodeId }: { nodeId: string }) {
   useNow(1000);
   const last = liveStore.lastTs(nodeId);
   return <span className="nmem-hero__stale num">{last ? `Updated ${formatAgo(last, serverNow())}` : 'No recent data'}</span>;
 }
 
-function HeroSkeleton() {
+function HeroSkeleton({ segments }: { segments: number }) {
   return (
     <div className="nmem-hero" aria-busy="true">
       <div className="nmem-hero__head">
@@ -116,7 +121,7 @@ function HeroSkeleton() {
         <Skeleton width="100%" height={10} style={{ marginTop: 8 }} />
       </div>
       <div className="memlegend">
-        {Array.from({ length: 7 }, (_, i) => (
+        {Array.from({ length: segments }, (_, i) => (
           <div key={i} style={{ display: 'grid', gap: 6 }}>
             <Skeleton width={80} height={10} />
             <Skeleton width={110} height={16} />
@@ -127,8 +132,9 @@ function HeroSkeleton() {
   );
 }
 
-/** Last known breakdown from the ring buffer (history seeded on connect), for a node that is not reporting. */
-function memFromBuffer(nodeId: string, total: number): MemSample | null {
+/** Last known breakdown from the ring buffer (history seeded on connect), for a node that is not reporting. A node
+ *  whose GPUs keep their own memory has no GPU share of RAM, whatever older history says. */
+function memFromBuffer(nodeId: string, total: number, sharesRam: boolean): MemSample | null {
   const v = (k: string) => lastKnownValue(nodeId, `mem.${k}`);
   const available = v('available');
   if (available === null) return null;
@@ -137,7 +143,7 @@ function memFromBuffer(nodeId: string, total: number): MemSample | null {
     available,
     used: v('used') ?? total - available,
     free: 0,
-    gpu: v('gpu'),
+    gpu: sharesRam ? v('gpu') : null,
     anon: v('anon') ?? 0,
     cache: v('cache') ?? 0,
     shmem: v('shmem') ?? 0,

@@ -87,7 +87,8 @@ def startup_gaps(name: str, prefixes: list[str], e: Exception, root: str) -> lis
 
 
 class Collectors:
-    """Builds the real collectors in tick order (GPU first: memory and procs reuse its per-process data)."""
+    """Builds the real collectors in tick order (GPU first: memory reuses its shared memory, procs its
+    per-process data)."""
 
     def __init__(self, cfg: AgentConfig, src: Sources) -> None:
         self.fs = src.fs
@@ -118,7 +119,7 @@ class Collectors:
             return None
 
     def _gpu_mem(self) -> int | None:
-        return self.gpu.proc_mem_total if self.gpu else None
+        return self.gpu.shared_total if self.gpu else None
 
     def close(self) -> None:
         if self.gpu:
