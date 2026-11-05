@@ -1100,7 +1100,15 @@ def test_a_link_target_that_passes_through_an_unread_name_records_it_without_tha
     assert [name for name, data in surfaces(out) if b"zorb" in data] == []
 
 
-def test_ctrl_c_while_python_loads_the_capture_prints_no_traceback():
+@pytest.mark.parametrize(
+    "start",
+    [
+        "from sparkline.agent.capture_entry import main\nsys.exit(main())\n",
+        "import runpy\nrunpy.run_module('sparkline.agent.capture', run_name='__main__', alter_sys=True)\n",
+    ],
+    ids=["sparkline-capture", "python -m sparkline.agent.capture"],
+)
+def test_ctrl_c_while_python_loads_the_capture_prints_no_traceback(start):
     stop_on_import = (
         "import importlib.abc, sys\n"
         "class Stop(importlib.abc.MetaPathFinder):\n"
@@ -1108,8 +1116,7 @@ def test_ctrl_c_while_python_loads_the_capture_prints_no_traceback():
         "        if name == 'sparkline.agent.redact':\n"
         "            raise KeyboardInterrupt\n"
         "sys.meta_path.insert(0, Stop())\n"
-        "from sparkline.agent.capture_entry import main\n"
-        "sys.exit(main())\n"
+        f"{start}"
     )
     run = subprocess.run([sys.executable, "-c", stop_on_import], capture_output=True, text=True, check=False)
     assert run.returncode == 130
