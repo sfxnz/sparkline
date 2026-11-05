@@ -63,7 +63,7 @@ describe('Summary memory', () => {
     open(ws1(), wsSample);
     expect(memoryStat()).toHaveTextContent('of 251.4 GiB system');
     const panel = screen.getByRole('region', { name: 'System memory' });
-    expect(panel).toHaveTextContent('Host RAM; each GPU’s VRAM is on the Memory tab');
+    expect(panel).toHaveTextContent('Host RAM; VRAM is on the Memory tab');
     expect(within(panel).getByRole('list', { name: 'System memory used series' })).not.toHaveTextContent('GPU-allocated');
   });
 

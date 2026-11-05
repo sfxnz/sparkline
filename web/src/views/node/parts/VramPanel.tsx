@@ -14,21 +14,25 @@ import { useGpuGap } from './useGpuGap';
 
 const pct = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
 
-/** One bar per GPU with memory of its own: how full each card's VRAM is. */
+/** One bar per GPU with memory of its own: how full each card's VRAM is. Cards of one model are named once, in the
+ *  subtitle, rather than on every bar. */
 export function VramPanel({ nodeId, gpus }: { nodeId: string; gpus: readonly GpuInfo[] }) {
   const { stale, waiting } = useFreshness(nodeId);
+  const names = new Set(gpus.map((g) => g.name));
+  const [shared] = names.size === 1 ? names : [];
+  const whose = shared ? `${gpus.length === 1 ? 'The' : 'Each'} ${shared}’s` : 'Each GPU’s';
   return (
-    <Panel title="GPU memory" subtitle="Each GPU’s own memory (VRAM), apart from system memory" actions={stale ? <StaleAge nodeId={nodeId} /> : null} busy={waiting || undefined}>
+    <Panel title="GPU memory" subtitle={`${whose} own memory (VRAM), apart from system memory`} actions={stale ? <StaleAge nodeId={nodeId} /> : null} busy={waiting || undefined}>
       <ul className={`nvram${stale ? ' nvram--stale' : ''}`} aria-label="VRAM by GPU">
         {gpus.map((g) => (
-          <VramBar key={g.index} nodeId={nodeId} gpu={g} />
+          <VramBar key={g.index} nodeId={nodeId} gpu={g} model={shared ? null : g.name} />
         ))}
       </ul>
     </Panel>
   );
 }
 
-function VramBar({ nodeId, gpu }: { nodeId: string; gpu: GpuInfo }) {
+function VramBar({ nodeId, gpu, model }: { nodeId: string; gpu: GpuInfo; model: string | null }) {
   const { index } = gpu;
   const key = gpuKey(index, 'vram_used');
   const live = useLatest(nodeId, gpuSelector(index, 'vram_used'));
@@ -47,7 +51,7 @@ function VramBar({ nodeId, gpu }: { nodeId: string; gpu: GpuInfo }) {
         <span className="ngpu-section__swatch" style={{ background: gpuColor(index) }} aria-hidden="true" />
         {name}
       </span>
-      {gpu.name && gpu.name !== name ? <span className="nvram__model" title={gpu.name}>{gpu.name}</span> : null}
+      {model && model !== name ? <span className="nvram__model" title={model}>{model}</span> : null}
     </div>
   );
 
@@ -85,7 +89,9 @@ function VramBar({ nodeId, gpu }: { nodeId: string; gpu: GpuInfo }) {
         <div className="nvram__bar" aria-hidden="true">
           <span style={{ width: `${share.toFixed(2)}%`, background: gpuColor(index) }} />
         </div>
-      ) : null}
+      ) : (
+        <div className="nvram__bar nvram__bar--empty" aria-hidden="true" />
+      )}
     </li>
   );
 }

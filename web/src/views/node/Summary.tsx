@@ -119,7 +119,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
         <Panel title="GPU power" subtitle="GPU rail only — not whole-system power" actions={<TabLink nodeId={nodeId} tab="gpu">GPU</TabLink>}>
           <TimeSeriesChart node={nodeId} title="GPU power" series={powerSeries} format={formatWatts} yMin={0} height={168} />
         </Panel>
-        <Panel title={layout.name} subtitle={unified ? 'Shared by CPU and GPU' : layout.sharesRam ? 'Host RAM, with the GPU memory held in it' : 'Host RAM; each GPU’s VRAM is on the Memory tab'} actions={<TabLink nodeId={nodeId} tab="memory">Memory</TabLink>}>
+        <Panel title={layout.name} subtitle={unified ? 'Shared by CPU and GPU' : layout.sharesRam ? 'Host RAM, with the GPU memory held in it' : 'Host RAM; VRAM is on the Memory tab'} actions={<TabLink nodeId={nodeId} tab="memory">Memory</TabLink>}>
           <TimeSeriesChart node={nodeId} title={`${layout.name} used`} series={layout.sharesRam ? MEM_SERIES : SYSTEM_SERIES} format={formatBytes} yMin={0} yMax={memTotal ?? undefined} yIncrs={BYTE_INCRS} height={168} />
         </Panel>
         <Panel title="CPU utilisation" subtitle="By core type" actions={<TabLink nodeId={nodeId} tab="cpu">CPU</TabLink>}>

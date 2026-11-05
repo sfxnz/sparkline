@@ -119,7 +119,15 @@ describe('Memory tab by memory model', () => {
       'GPU 2: 42.0 GiB of 48.0 GiB in use (88%).',
       'GPU 3: 43.0 GiB of 48.0 GiB in use (90%).',
     ]);
+    expect(screen.getByRole('region', { name: 'GPU memory' })).toHaveTextContent('Each NVIDIA RTX 6000 Ada Generation’s own memory (VRAM), apart from system memory');
+    expect(bar(0)).not.toHaveTextContent('NVIDIA');
+  });
+
+  it('names each card on its bar when the GPUs are different models', () => {
+    open(ws1([], (g) => (g.index === 3 ? { name: 'NVIDIA RTX A4000' } : {})), ws1Sample());
+    expect(screen.getByRole('region', { name: 'GPU memory' })).toHaveTextContent('Each GPU’s own memory (VRAM)');
     expect(bar(0)).toHaveTextContent('NVIDIA RTX 6000 Ada Generation');
+    expect(bar(3)).toHaveTextContent('NVIDIA RTX A4000');
   });
 
   it('ranks top consumers by resident memory alone, with no total that adds VRAM', () => {
@@ -164,8 +172,8 @@ describe('Memory tab by memory model', () => {
     open(ws1([], (g) => (g.index === 0 ? { vram_total: null } : {})), ws1Sample());
     expect(bar(0)).toHaveTextContent('40.0 GiB');
     expect(bar(0)).toHaveTextContent('total not reported');
-    expect(bar(0).querySelector('.nvram__bar')).toBeNull();
-    expect(bar(1).querySelector('.nvram__bar')).not.toBeNull();
+    expect(bar(0).querySelector('.nvram__bar > span')).toBeNull();
+    expect(bar(1).querySelector('.nvram__bar > span')).not.toBeNull();
   });
 
   const gb10Strings = () => {
