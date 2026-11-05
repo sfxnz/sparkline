@@ -724,16 +724,17 @@ class _Harvest:
             form = "host"
         elif category == "serial number" and len(value) >= LONG_NAME:
             form = "anywhere"
-        self._pairs(form, [value], [placeholder], category)
         spelled_like_a_hostname = category in ("hostname", "domain name")
-        if spelled_like_a_hostname and len(value) >= LONG_NAME:
-            self._pairs("anywhere", [value], [placeholder], category)
-        if not value.isascii():
-            forms = [*_idna_forms(value), *_normal_forms(value)]
-            self._pairs(form, forms, [placeholder] * len(forms), category)
-        if spelled_like_a_hostname and "-" in value:
-            self._pairs(form, [value.replace("-", "--")], [placeholder.replace("-", "--")], category)
-            self._pairs(form, [value.replace("-", "_")], [placeholder], category)
+        for spelled in [value, *_unicode_spelling(value)] if spelled_like_a_hostname else [value]:
+            self._pairs(form, [spelled], [placeholder], category)
+            if spelled_like_a_hostname and len(spelled) >= LONG_NAME:
+                self._pairs("anywhere", [spelled], [placeholder], category)
+            if not spelled.isascii():
+                forms = [*_idna_forms(spelled), *_normal_forms(spelled)]
+                self._pairs(form, forms, [placeholder] * len(forms), category)
+            if spelled_like_a_hostname and "-" in spelled:
+                self._pairs(form, [spelled.replace("-", "--")], [placeholder.replace("-", "--")], category)
+                self._pairs(form, [spelled.replace("-", "_")], [placeholder], category)
 
     def hexes(self, category: str, values: list[str], placeholders: list[str]) -> None:
         self._pairs("hex", values, placeholders, category)
@@ -773,6 +774,17 @@ def _idna_forms(value: str) -> list[str]:
             )
         )
     return forms
+
+
+def _unicode_spelling(value: str) -> list[str]:
+    def in_unicode(label: str) -> str:
+        with suppress(UnicodeError):
+            if label[:4].lower() == "xn--" and not (u := label[4:].encode().decode("punycode")).isascii():
+                return u
+        return label
+
+    spelled = ".".join(in_unicode(label) for label in value.split("."))
+    return [spelled] if spelled != value else []
 
 
 def _words(text: str) -> list[str]:
