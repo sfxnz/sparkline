@@ -4,7 +4,7 @@ import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import sampleJson from '../test/fixtures/sample.json';
 import { ApiError } from '../lib/api';
-import type { ClusterState, Event, NodeState, Sample } from '../lib/types';
+import type { ClusterState, Event, NodeInfo, NodeState, Sample } from '../lib/types';
 import { announcer } from '../design/components/LiveAnnouncer';
 import { useCluster } from '../store/cluster';
 import { useEvents } from '../store/events';
@@ -120,10 +120,34 @@ describe('CommandPalette', () => {
     expect(options()[0]).toBe('spark1 › Swap');
     expect(options().some((o) => o.includes('appearance'))).toBe(false);
     await user.clear(input);
+    await user.type(input, 'unified memory');
+    expect(options()[0]).toBe('spark1 › Unified memory');
+    await user.clear(input);
     await user.type(input, 'matmul');
     expect(options()).toEqual(['GPU matmul throughput…']);
     await user.keyboard('{Enter}');
     expect(loc.history.at(-1)).toBe('/benchmarks?configure=gpu-matmul');
     fetchSpy.mockRestore();
+  });
+
+  it("names each node's memory by its layout, and finds the VRAM of a node whose GPUs keep their own", async () => {
+    const user = userEvent.setup();
+    const ws1 = { node_id: 'ws1', gpus: [0, 1].map((index) => ({ index, name: 'RTX', memory: 'dedicated', vram_total: 48 * 1024 ** 3 })), unsupported: [] } as unknown as NodeInfo;
+    useCluster.getState().setHello({ ...cluster, nodes: [...cluster.nodes, { ...(cluster.nodes[0] as NodeState), node_id: 'ws1', info: ws1 }] });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } }));
+    render(
+      <Router hook={memoryLocation({ path: '/' }).hook}>
+        <CommandPalette />
+      </Router>,
+    );
+    act(() => { useUi.getState().setPalette(true); });
+    const input = screen.getByRole('combobox', { name: /Search views/ });
+    const options = () => screen.queryAllByRole('option').map((o) => o.textContent);
+    await user.type(input, 'vram');
+    expect(options()).toEqual(['ws1 › GPU memory']);
+    await user.clear(input);
+    await user.type(input, 'ws1 memory');
+    expect(options()).toContain('ws1 › System memory');
+    expect(options()).not.toContain('ws1 › Unified memory');
   });
 });

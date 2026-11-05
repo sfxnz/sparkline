@@ -14,6 +14,9 @@ describe('units', () => {
     expect(unitFor('fs.data.used_pct')).toBe('percent');
     expect(unitFor('cpu.load1')).toBe('plain');
   });
+  it('edits GPU memory in GiB, per GPU and as the node total', () => {
+    for (const key of ['gpu0.vram_used', 'gpu*.vram_used', 'gpu1.shared_used', 'gpu.mem_used']) expect(unitFor(key)).toBe('gib');
+  });
   it('names the default GPU temperature rule, which watches every GPU, and keeps the GPU 0 entry', () => {
     expect(metricMeta('gpu*.temp_c')).toEqual({ key: 'gpu*.temp_c', label: 'Any GPU temperature', unit: 'celsius' });
     expect(metricMeta('gpu0.temp_c').label).toBe('GPU temperature');

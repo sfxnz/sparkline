@@ -5,6 +5,7 @@ import { Dialog } from '../design/components/Dialog';
 import { Kbd } from '../design/components/Kbd';
 import { benchApi } from '../lib/api';
 import { fuzzyFilter } from '../lib/fuzzy';
+import { memoryLayout, type MemoryLayout } from '../lib/memoryLayout';
 import { nextTheme, resolveTheme } from '../lib/prefs';
 import type { BenchSpec } from '../lib/types';
 import { useCluster } from '../store/cluster';
@@ -24,15 +25,17 @@ export interface Command {
   run: () => void;
 }
 
-/** Metrics people look for by name, and the node tab that shows each. Listed per node, only once the user types. */
-const METRICS: readonly { label: string; tab: NodeTab; keywords: string }[] = [
+/** Metrics people look for by name, and the node tab that shows each. Listed per node, only once the user types; the
+ *  memory entries follow the node's layout. */
+const metrics = (layout: MemoryLayout): readonly { label: string; tab: NodeTab; keywords: string }[] => [
   { label: 'GPU utilisation', tab: 'gpu', keywords: 'usage load busy sm' },
   { label: 'GPU temperature', tab: 'gpu', keywords: 'temp thermal heat slowdown shutdown' },
   { label: 'GPU power', tab: 'gpu', keywords: 'watts rail' },
   { label: 'SM clock', tab: 'gpu', keywords: 'clocks frequency ghz mhz' },
   { label: 'Throttle reasons', tab: 'gpu', keywords: 'throttling clock limits clocks-event power-capped thermal-capped' },
   { label: 'GPU processes', tab: 'gpu', keywords: 'gpu memory vllm model containers' },
-  { label: 'Unified memory', tab: 'memory', keywords: 'ram used free breakdown' },
+  { label: layout.name, tab: 'memory', keywords: 'ram used free breakdown' },
+  ...(layout.dedicated.length ? [{ label: 'GPU memory', tab: 'memory' as const, keywords: 'vram dedicated card used free' }] : []),
   { label: 'Swap', tab: 'memory', keywords: 'paged out' },
   { label: 'Memory pressure', tab: 'memory', keywords: 'psi stall waiting' },
   { label: 'CPU utilisation', tab: 'cpu', keywords: 'cores load performance efficiency' },
@@ -62,6 +65,7 @@ function useCatalog(): BenchSpec[] {
 function useCommands(close: () => void, query: string): Command[] {
   const [, navigate] = useLocation();
   const order = useCluster((s) => s.order);
+  const nodes = useCluster((s) => s.nodes);
   const theme = usePrefs((s) => s.theme);
   const reduceTransparency = usePrefs((s) => s.reduceTransparency);
   const collapsed = usePrefs((s) => s.sidebarCollapsed);
@@ -90,7 +94,7 @@ function useCommands(close: () => void, query: string): Command[] {
     // Metrics and individual benchmarks would bury the short list; they appear once the user types.
     if (typing) {
       for (const id of order) {
-        for (const m of METRICS) {
+        for (const m of metrics(memoryLayout(nodes[id]?.info))) {
           cmds.push({ id: `metric-${id}-${m.label}`, group: 'Metrics', label: `${id} › ${m.label}`, keywords: m.keywords, icon: Activity, run: go(paths.node(id, m.tab)) });
         }
       }
@@ -107,7 +111,7 @@ function useCommands(close: () => void, query: string): Command[] {
       { id: 'act-single-keys', group: 'Actions', label: singleKeys ? 'Turn off single-key shortcuts' : 'Turn on single-key shortcuts', keywords: 'keyboard keys speech accessibility', icon: Keyboard, run: () => { setPrefs({ singleKeyShortcuts: !singleKeys }); } },
     );
     return cmds;
-  }, [order, theme, reduceTransparency, collapsed, singleKeys, navigate, close, setPrefs, cycleTheme, setHelp, specs, typing]);
+  }, [order, nodes, theme, reduceTransparency, collapsed, singleKeys, navigate, close, setPrefs, cycleTheme, setHelp, specs, typing]);
 }
 
 /** ⌘K / Ctrl+K palette: combobox + listbox with grouped options and fuzzy filtering. */

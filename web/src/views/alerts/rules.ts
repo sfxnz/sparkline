@@ -48,6 +48,7 @@ export function unitFor(key: string | null): RuleUnit {
   if (known) return known.unit;
   if (key.endsWith('temp_c') || key.startsWith('temp.')) return 'celsius';
   if (key.startsWith('mem.') && !key.startsWith('mem.psi') && !key.endsWith('_pct')) return 'gib';
+  if (/(?:vram|shared|mem)_used$/.test(key)) return 'gib';
   if (key.endsWith('_pct') || key.endsWith('.util') || key.includes('.psi')) return 'percent';
   if (key.endsWith('power_w')) return 'watts';
   if (key.endsWith('_mhz') || key.endsWith('.mhz')) return 'mhz';
