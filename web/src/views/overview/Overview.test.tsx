@@ -867,4 +867,17 @@ describe('a GB10 whose GPU stays in the sample with every fresh reading empty, a
     expect(within(card()).queryByText('No GPU processes')).not.toBeInTheDocument();
     expect(document.querySelector('.ov-hero__workload')).toHaveTextContent(/^GPU workloads not reported$/);
   });
+
+  it('raises the pill with the sentence as soon as the history the page seeds shows the GPU silent, before the next sample', () => {
+    show([empty(reading)]);
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    const ts = Array.from({ length: 8 }, (_, i) => now - 8 + i);
+    act(() => {
+      liveStore.seed({ node_id: 'spark1', resolution_s: 1, ts, series: { 'cpu.util': ts.map(() => 5), 'gpu0.energy_j': ts.map(() => 7_000_000) }, min: {}, max: {} });
+      liveStore.flush();
+    });
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(card().querySelector('[data-status]')).toHaveAttribute('data-status', 'warning');
+    expect(document.querySelector('.ov-hero [data-status]')).toHaveAttribute('data-status', 'warning');
+  });
 });
