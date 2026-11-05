@@ -68,8 +68,9 @@
   .ov-card__flag { display: block; }
   .ov-stat .ov-flag, .ov-stat .ov-stat__to-row { display: none; }
 }
-/* A plain headroom line wraps in its column until the column is narrower than the word "headroom" (about 4rem). */
-@container ov-stats (width < 9rem) {
+/* A plain headroom line wraps in its column until a column is narrower than the word "headroom" (two columns of about
+   3.6rem and the gap between them). */
+@container ov-stats (width < 8.25rem) {
   .ov-card__headroom { display: block; }
   .ov-stat .ov-stat__headroom { display: none; }
 }
@@ -184,8 +185,7 @@
 .ov-cx .ov-label { overflow-wrap: anywhere; }
 
 .ov-card__sparks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-/* A caption that wraps (one with a GPU count) leaves both charts level: each sits at the bottom of its cell. */
-.ov-spark { display: grid; gap: var(--space-1); min-width: 0; align-content: end; }
+.ov-spark { display: grid; gap: var(--space-1); min-width: 0; }
 .ov-spark__label { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 500; color: var(--text-2); }
 
 /* Stale / offline notice: fills the card's foot slot exactly (see .ov-card__foot). */
