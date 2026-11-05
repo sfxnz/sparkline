@@ -233,6 +233,16 @@ def test_values_carry_units_and_throttle_reasons_read_as_a_phrase():
     assert three == "Power cap, thermal limit and overheating"
 
 
+def test_gpu_memory_values_read_in_gib_like_system_memory():
+    from sparkline.console.alerts import fmt_value
+
+    gib = 1 << 30
+    assert fmt_value("mem.used", 12.5 * gib) == "12.5 GiB"
+    assert fmt_value("gpu0.vram_used", 41.3 * gib) == "41.3 GiB"
+    assert fmt_value("gpu1.shared_used", 2 * gib) == "2.0 GiB"
+    assert fmt_value("gpu.mem_used", 161.5 * gib) == "161.5 GiB"
+
+
 def test_the_default_temperature_rules_fire_for_gpu_3_alone_on_a_four_gpu_node_and_name_it(eng):
     engine, sink = eng
     t = feed_ws1(engine, WS1_QUIET_T, 31, temps=(60.0, 60.0, 60.0, 86.0))
