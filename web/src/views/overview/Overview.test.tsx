@@ -917,3 +917,28 @@ describe('a GB10 whose GPU was quiet when it went offline, coming back online', 
     expect(pill()).toHaveAttribute('data-status', 'warning');
   });
 });
+
+describe('the not-responding reasons of several nodes', () => {
+  it("names the GPUs on every line, where one node's backend raised and all four GPUs of the other send nothing", () => {
+    const gb10 = gb10Info as unknown as NodeInfo;
+    const ws1 = wsInfo as unknown as NodeInfo;
+    const ws = wsSample as unknown as Sample;
+    const raised: Sample = { ...(gb10Sample as unknown as Sample), node_id: 'spark1', ts: now, gpu: [], errors: { gpu: 'nvml: RuntimeError: boom' } };
+    const silent: Sample = { ...ws, ts: now, gpu: ws.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })) };
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10 }), node('ws1', { info: ws1 })]));
+    act(() => {
+      for (const s of [raised, silent]) {
+        liveStore.removeNode(s.node_id);
+        liveStore.pushSample(s);
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+    const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+    for (const label of ['Cluster compute', 'GPU power']) {
+      expect(within(tile(label)).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(
+        'spark1: GPU 0 not responding (RuntimeError: boom).\nws1: GPUs 0, 1, 2 and 3 sent no reading this tick.',
+      );
+    }
+  });
+});
