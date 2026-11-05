@@ -117,7 +117,7 @@ function gpuEnergyGap(info: NodeInfo | null | undefined, s: Sample | null): NotR
   const indexes = gpuIndexes(info);
   for (const i of indexes) {
     const gap = notResponding(info, s, i);
-    if (gap) return indexes.length > 1 ? { ...gap, detail: `GPU ${i}: ${gap.detail}` } : gap;
+    if (gap) return gap;
   }
   return null;
 }
