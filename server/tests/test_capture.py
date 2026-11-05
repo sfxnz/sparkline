@@ -1488,6 +1488,45 @@ def test_a_stop_after_the_command_finished_while_python_shuts_down_is_ignored(si
     assert (out / "recording.tgz").exists()
 
 
+ENDINGS = {
+    "a refusal": (
+        "from sparkline.agent.redact import CaptureRefused, Leak\n"
+        "def refused(*args):\n    raise CaptureRefused([Leak('a place', 'a kind')])\n"
+        "cli.capture = refused\n",
+        2,
+    ),
+    "a failure": ("def failed(out):\n    raise MemoryError\ncli.write_archive = failed\n", 4),
+    "a usage error, an output directory that holds a file": ("", 3),
+    "a usage error, two arguments": (
+        "capture_main = cli.main\ncli.main = lambda argv=None: capture_main([*sys.argv[1:], 'extra'])\n",
+        3,
+    ),
+}
+
+
+@pytest.mark.parametrize(("planted", "code"), ENDINGS.values(), ids=ENDINGS)
+def test_a_stop_while_python_shuts_down_after_any_ending_keeps_that_ending(planted, code, tmp_path):
+    out = tmp_path / "out"
+    if code == 3:
+        out.mkdir()
+        (out / "kept").write_text("")
+    run = run_the_command(out, planted, after="import os, signal\nos.kill(os.getpid(), signal.SIGTERM)\n")
+    assert run.returncode == code
+    assert "Stopped" not in run.stderr
+
+
+def test_a_stop_as_the_capture_starts_stops_it(tmp_path):
+    starts = (
+        "import os, signal\n"
+        "cli.print_no_traceback_from_python = lambda: os.kill(os.getpid(), signal.SIGTERM)\n"
+    )
+    out = tmp_path / "out"
+    run = run_the_command(out, starts)
+    assert run.returncode == 143
+    assert run.stderr == "sparkline-capture stopped. It keeps no partial recording.\n"
+    assert not out.exists()
+
+
 def stopped_at_a_call_after(planted: str, calls: int) -> str:
     return (
         "import os, signal, sys\n"
