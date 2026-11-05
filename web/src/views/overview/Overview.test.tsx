@@ -992,3 +992,37 @@ describe("GPU processes while some or all of a node's GPUs send nothing", () => 
     expect(footer('Active GPU processes')).toBe('No containers · excl.\u00a0spark2 and ws4: GPU 0');
   });
 });
+
+describe("the cluster's GPU energy today names each node it cannot count", () => {
+  const gb10 = (id: string) => ({ ...(gb10Info as unknown as NodeInfo), node_id: id, hostname: id });
+  const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+  /** spark1's history since midnight holds its energy counter; spark2's loads but holds no energy reading. */
+  const show = (spark2: NodeState['status']) => {
+    vi.mocked(globalThis.fetch).mockImplementation((url) => {
+      const spark1 = typeof url === 'string' && new URL(url, 'http://x').searchParams.get('node') === 'spark1';
+      const series = spark1 ? { 'gpu0.energy_j': [7_000_000, 7_010_000] } : {};
+      return Promise.resolve(Response.json({ node_id: 'n', resolution_s: 60, ts: spark1 ? [now - 120, now - 60] : [], series, min: {}, max: {} }));
+    });
+    historyCache.clear();
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10('spark1') }), node('spark2', { info: gb10('spark2'), status: spark2 })]));
+    act(() => {
+      for (const id of ['spark1', 'spark2']) {
+        liveStore.removeNode(id);
+        liveStore.pushSample({ ...(gb10Sample as unknown as Sample), node_id: id, ts: now });
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+
+  it('names a node whose history since midnight holds no energy reading, and says why', async () => {
+    show('online');
+    expect(await within(tile('GPU power')).findByText(/^Today/)).toHaveTextContent(/^Today [\d.]+ kWh · excl\. spark2 \(no energy reading today\) · £/);
+  });
+
+  it('names an offline node whose history holds no energy reading as left out, not as counted until it went offline', async () => {
+    show('offline');
+    const today = await within(tile('GPU power')).findByText(/^Today/);
+    expect(today).toHaveTextContent(/^Today [\d.]+ kWh · excl\. spark2 \(no energy reading today\) · £[\d.]+$/);
+  });
+});
