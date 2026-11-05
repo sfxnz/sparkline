@@ -40,6 +40,14 @@ def _stored_metric(r: AlertRule) -> str | None:
     return "gpu0.throttle_mask" if r.kind == "throttle" and r.metric == "gpu*.throttle_mask" else r.metric
 
 
+def _saved_rule_metrics(row: object) -> dict[str, str | None] | None:
+    """RULE_METRICS_KEY as load_rules reads it. A hand edit or another tool can leave any JSON there, so a row
+    that is not an object counts as absent, and an entry that is not a metric as no entry for its rule."""
+    if not isinstance(row, dict):
+        return None
+    return {k: v for k, v in row.items() if v is None or isinstance(v, str)}
+
+
 def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> list[AlertRule]:
     rules = []
     for raw in saved:
@@ -64,7 +72,7 @@ class Cluster:
         self.settings = ConsoleSettings.model_validate(saved) if saved else default_settings
         saved_rules = store.kv_get(RULES_KEY)
         rules = (
-            load_rules(saved_rules, store.kv_get(RULE_METRICS_KEY))
+            load_rules(saved_rules, _saved_rule_metrics(store.kv_get(RULE_METRICS_KEY)))
             if saved_rules is not None
             else DEFAULT_RULES
         )
