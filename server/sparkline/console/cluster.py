@@ -118,8 +118,12 @@ class Cluster:
         self.hub.broadcast({"type": "settings", "settings": s.model_dump(mode="json")})
 
     def update_rules(self, rules: list[AlertRule]) -> None:
-        self.store.kv_set(RULE_METRICS_KEY, {r.id: r.metric for r in rules})
-        self.store.kv_set(RULES_KEY, [{**r.model_dump(), "metric": _stored_metric(r)} for r in rules])
+        self.store.kv_set_many(
+            {
+                RULE_METRICS_KEY: {r.id: r.metric for r in rules},
+                RULES_KEY: [{**r.model_dump(), "metric": _stored_metric(r)} for r in rules],
+            }
+        )
         self.alerts.set_rules(rules, time.time())
 
     # -- events -------------------------------------------------------------------------------------
