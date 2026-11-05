@@ -11,10 +11,12 @@ from starlette.websockets import WebSocketDisconnect
 
 from sparkline.common.metrics import flatten
 from sparkline.common.schema import Event, HistoryResponse
+from sparkline.console.alerts import DEFAULT_RULES
 from sparkline.console.app import create_app
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel
 from sparkline.console.nodes import RING_S, NodeSource
+from sparkline.console.store import Store
 
 TOKEN = "s3cret-browser-token"
 SAME = {"Origin": "http://testserver"}
@@ -462,3 +464,45 @@ def test_data_dir_lock_refuses_a_second_console(tmp_path):
     finally:
         os.close(fd)
     os.close(lock_data_dir(tmp_path / "data"))  # free again once the first one exits
+
+
+RULES_STATUS = "/api/v1/alerts/rules/status"
+READABLE_RULES = json.dumps([r.model_dump() for r in DEFAULT_RULES])
+
+
+def stored_before_start(tmp_path, rows: dict[str, str]) -> None:
+    (tmp_path / "data").mkdir()
+    store = Store(tmp_path / "data" / "console.sqlite")
+    for key, text in rows.items():
+        store.db.execute("INSERT OR REPLACE INTO kv VALUES (?,?)", (key, text))
+    store.close()
+
+
+@pytest.mark.parametrize("text", ["{not json", '[{"id": "x"}]', "null"])
+def test_the_console_reports_its_rules_were_reset_from_unreadable_saved_ones_until_rules_are_saved(
+    tmp_path, text
+):
+    stored_before_start(tmp_path, {"alert_rules": text})
+    with TestClient(make(tmp_path)) as c:
+        assert c.get(RULES_STATUS, headers=bearer()).json() == {"reset": True}
+        assert c.get(RULES_STATUS).status_code == 401
+        rules = c.get("/api/v1/alerts/rules", headers=bearer()).json()
+        assert c.put("/api/v1/alerts/rules", json=rules, headers=bearer()).status_code == 200
+        assert c.get(RULES_STATUS, headers=bearer()).json() == {"reset": False}
+    with TestClient(make(tmp_path)) as c:
+        assert c.get(RULES_STATUS, headers=bearer()).json() == {"reset": False}
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        {},
+        {"alert_rules": READABLE_RULES},
+        {"alert_rules": READABLE_RULES, "alert_rule_metrics": "{not json"},
+        {"settings": "{not json"},
+    ],
+)
+def test_rules_the_console_read_or_never_saved_are_not_reported_as_reset(tmp_path, rows):
+    stored_before_start(tmp_path, rows)
+    with TestClient(make(tmp_path)) as c:
+        assert c.get(RULES_STATUS, headers=bearer()).json() == {"reset": False}
