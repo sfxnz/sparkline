@@ -113,6 +113,7 @@ export function WallTile({ id }: { id: string }) {
   useBreath(ref, id, freshness === 'live');
   const sparkH = useVh(0.075, 48);
   const dim = freshness === 'stale' || freshness === 'down';
+  const utilFrom = useTotalFrom(id, 'util');
 
   return (
     <section ref={ref} className={`wall-tile${dim ? ' is-dim' : ''}${freshness === 'down' ? ' is-down' : ''}`} data-breath="0" aria-label={`Node ${id}`} aria-busy={freshness === 'waiting' || undefined}>
@@ -135,7 +136,7 @@ export function WallTile({ id }: { id: string }) {
             <TotalFrom node={id} field="util" />
           </div>
           <div className="wall-tile__spark">
-            <Sparkline label={`${id} GPU utilisation, last 5 minutes`} source={{ node: id, metric: nodeGpuKey(info, 'util'), windowS: 300 }} format={(n) => formatPercent(n)} min={0} max={100} height={sparkH} />
+            <Sparkline label={`${id} GPU utilisation${utilFrom ? ` (${utilFrom})` : ''}, last 5 minutes`} source={{ node: id, metric: nodeGpuKey(info, 'util'), windowS: 300 }} format={(n) => formatPercent(n)} min={0} max={100} height={sparkH} />
           </div>
           <dl className="wall-tile__stats">
             <div>

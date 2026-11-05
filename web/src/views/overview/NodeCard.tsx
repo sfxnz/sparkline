@@ -105,7 +105,7 @@ export function NodeCard({ id }: { id: string }) {
             <div className="ov-card__foot-main">
               <Interconnect />
               <div className="ov-card__sparks">
-                <Spark metric={nodeGpuKey(info, 'util')} label="GPU utilisation" format={(n) => formatPercent(n)} min={0} max={100} />
+                <UtilSpark />
                 <Spark metric={nodeGpuKey(info, 'power_w')} label="GPU power" format={formatWatts} min={0} />
               </div>
             </div>
@@ -443,7 +443,13 @@ function Interconnect() {
   );
 }
 
-function Spark({ metric, label, format, min, max }: { metric: string; label: string; format: (n: number) => string; min?: number; max?: number }) {
+function UtilSpark() {
+  const { id, info } = useContext(Ctx);
+  const from = useTotalFrom(id, 'util');
+  return <Spark metric={nodeGpuKey(info, 'util')} label="GPU utilisation" from={from} format={(n) => formatPercent(n)} min={0} max={100} />;
+}
+
+function Spark({ metric, label, from, format, min, max }: { metric: string; label: string; from?: string; format: (n: number) => string; min?: number; max?: number }) {
   const { id, freshness, info } = useContext(Ctx);
   const reason = notReported(info, metric);
   return (
@@ -454,7 +460,7 @@ function Spark({ metric, label, format, min, max }: { metric: string; label: str
       ) : freshness === 'waiting' ? (
         <Skeleton height={SPARK_H} radius={6} />
       ) : (
-        <Sparkline label={`${id} ${label}`} source={{ node: id, metric }} format={format} height={SPARK_H} min={min} max={max} />
+        <Sparkline label={`${id} ${label}${from ? ` (${from})` : ''}`} source={{ node: id, metric }} format={format} height={SPARK_H} min={min} max={max} />
       )}
     </div>
   );
