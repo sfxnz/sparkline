@@ -914,6 +914,20 @@ CASES = [
             ("in Turkish lower case", "izorbina"),
         )
     ),
+    *(
+        Case(
+            f"Turkish {part} with İ and a second mark alone in free text, as str.lower and casefold write it",
+            "refused",
+            (word,),
+            f"{word} lab",
+            full_name(name),
+            because="full name",
+        )
+        for part, name, word in (
+            ("given name", "İzörbina Quuxley", "i̇zörbina"),
+            ("given name in capitals", "GÜLİZAR QUUXLEY", "güli̇zar"),
+        )
+    ),
     Case(
         "dotted MAC after an accented letter",
         "replaced",
