@@ -74,12 +74,9 @@ def load_config(path: Path | None, env: Mapping[str, str] | None = None) -> Cons
         with open(path, "rb") as f:
             data = tomllib.load(f)
     else:
-        # The default path may be absent — or unreadable: /etc/sparkline is
-        # commonly root:sparkline 0750, and on Python 3.13 Path.exists()
-        # propagates that EACCES instead of reporting the file absent, which
-        # crashed e.g. `sparkline --demo` for users outside the group. Probe
-        # and load the default tolerantly; an explicit --config or
-        # $SPARKLINE_CONFIG path above still errors loudly.
+        # An unreadable default counts as absent. On Python 3.12 and 3.13, Path.exists() raises
+        # PermissionError when it cannot search /etc/sparkline. From 3.14 it returns False.
+        # An explicit --config or $SPARKLINE_CONFIG path still fails loudly.
         try:
             if DEFAULT_CONFIG.exists():
                 with open(DEFAULT_CONFIG, "rb") as f:
