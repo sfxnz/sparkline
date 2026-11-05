@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...common.schema import GpuInfo, GpuOption, NetIfInfo, NodeInfo, Problem
+from ..collectors.gpu.nvml import NO_DRIVER
 
 DOCKER_SOCK = "/var/run/docker.sock"
 IB_SYSFS = "/sys/class/infiniband"
@@ -188,12 +189,20 @@ def gpu_problem(node: str, info: NodeInfo) -> Problem | None:
             "PyTorch container",
             fix=f"Sparkline cannot benchmark {_NOT_YET.get(vendor, 'these GPUs')} yet; {elsewhere}",
         )
+    reason = next((u.reason for u in info.unsupported if u.metric == "gpu*"), None)
     if info.platform == "darwin":
-        reason = next((u.reason for u in info.unsupported if u.metric == "gpu*"), None)
         return Problem(
             message=need,
             cause=f'{node} is a Mac, and its agent reports "{reason}"' if reason else f"{node} is a Mac",
             fix=f"Sparkline cannot benchmark Apple GPUs yet; {elsewhere}",
+        )
+    if reason is not None and NO_DRIVER in reason:
+        return Problem(
+            message=need,
+            cause=f"{node}'s agent reports \"{reason}\", and the GPU benchmarks run CUDA in NVIDIA's "
+            "PyTorch container",
+            fix=f"If {node} has an NVIDIA GPU, install the NVIDIA driver and restart sparkline-agent; "
+            f"otherwise {elsewhere}",
         )
     return Problem(
         message=f"No NVIDIA GPU detected on {node}",
