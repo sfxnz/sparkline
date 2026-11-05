@@ -3,7 +3,7 @@
 // own leaf, and only when its (quantised) value changes.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { gpuCountText, gpuSetGap, nodeGpuKey, nodeTotalGap, totalFrom } from '../../lib/gpu';
-import type { HistoryResponse, NodeState, NodeStatus } from '../../lib/types';
+import type { HistoryResponse, NodeInfo, NodeState, NodeStatus } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
@@ -12,7 +12,7 @@ import { loadSpan } from '../shared/live';
 import { useShallow } from 'zustand/react/shallow';
 import { useLiveConditions } from '../../store/attention';
 import { openAlerts, useEvents } from '../../store/events';
-import { breathLevel, clusterHealth, openAlertCounts, type Health } from './model';
+import { breathLevel, clusterHealth, clusterTotals, openAlertCounts, type Health, type NodeNumbers } from './model';
 
 const quantise = (v: number | null, q: number | undefined) => (v === null || !q ? v : Math.round(v / q) * q);
 
@@ -87,26 +87,28 @@ export function utilGpusRead(ids: readonly string[], nodes: Readonly<Record<stri
   return from < of ? gpuCountText({ from, of }) : '';
 }
 
-/** The live nodes' GPU load and power from each node's totals: mean utilisation and summed power. A node whose power
- *  the agent declares not reported, or whose total dropped out this tick, is named in `dropped`, as the cluster
- *  totals name it. */
+/** The node's GPU utilisation and the GPUs it is the mean of (totalFrom, else every GPU it lists, at least one). */
+export function nodeUtil(id: string, info: NodeInfo | null | undefined): Pick<NodeNumbers, 'util' | 'utilGpus'> {
+  return {
+    util: liveStore.latestValue(id, nodeGpuKey(info, 'util')),
+    utilGpus: totalFrom(info, liveStore.latest(id), 'util')?.from ?? Math.max(1, info?.gpus.length ?? 0),
+  };
+}
+
+/** The live nodes' GPU load and power from each node's totals: utilisation averaged over GPUs, as the cluster totals
+ *  average it, and summed power. A node whose power the agent declares not reported, or whose total dropped out this
+ *  tick, is named in `dropped`, as the cluster totals name it. */
 export function clusterGpuNow(ids: readonly string[], nodes: Readonly<Record<string, NodeState | undefined>>): ClusterGpuNow {
-  let utilSum = 0;
-  let utilN = 0;
-  let power: number | null = null;
   const dropped: string[] = [];
-  for (const id of ids) {
-    const info = nodes[id]?.info;
-    const u = liveStore.latestValue(id, nodeGpuKey(info, 'util'));
-    const p = liveStore.latestValue(id, nodeGpuKey(info, 'power_w'));
-    if (u !== null) {
-      utilSum += u;
-      utilN++;
-    }
-    if (p !== null) power = (power ?? 0) + p;
-    else if (nodeTotalGap(info, liveStore.latest(id), 'power_w')) dropped.push(id);
-  }
-  return { util: utilN ? utilSum / utilN : null, power, dropped: dropped.join('\n'), utilFrom: utilGpusRead(ids, nodes) };
+  const t = clusterTotals(
+    ids.map((id) => {
+      const info = nodes[id]?.info;
+      const power = liveStore.latestValue(id, nodeGpuKey(info, 'power_w'));
+      if (power === null && nodeTotalGap(info, liveStore.latest(id), 'power_w')) dropped.push(id);
+      return { ...nodeUtil(id, info), power, memUsed: null, memTotal: null, psi: null };
+    }),
+  );
+  return { util: t.util, power: t.power, dropped: dropped.join('\n'), utilFrom: utilGpusRead(ids, nodes) };
 }
 
 /** True once the browser holds any sample for the node (live or seeded). */

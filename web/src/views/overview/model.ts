@@ -226,6 +226,8 @@ export function workloadSentence(nodes: readonly NodeActivityInput[]): string | 
 
 export interface NodeNumbers {
   util: number | null;
+  /** The GPUs `util` is the mean of (1 when absent): its weight in the cluster's mean over GPUs. */
+  utilGpus?: number;
   power: number | null;
   memUsed: number | null;
   memTotal: number | null;
@@ -233,7 +235,7 @@ export interface NodeNumbers {
 }
 
 export interface Totals {
-  /** Mean GPU utilisation over the nodes that report it. */
+  /** Mean GPU utilisation over the GPUs the nodes read. */
   util: number | null;
   /** Sum of GPU (rail) power. */
   power: number | null;
@@ -254,8 +256,9 @@ export function clusterTotals(nodes: readonly NodeNumbers[]): Totals {
   let reporting = 0;
   for (const n of nodes) {
     if (n.util != null) {
-      utilSum += n.util;
-      utilN++;
+      const gpus = n.utilGpus ?? 1;
+      utilSum += n.util * gpus;
+      utilN += gpus;
     }
     if (n.power != null) power = (power ?? 0) + n.power;
     if (n.memUsed != null && n.memTotal) {

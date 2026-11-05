@@ -11,7 +11,7 @@ import type { NodeState } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { formatEnergyCost, formatKwh } from '../shared/energy';
-import { shallowEqual, useAcross, useEnergyToday, useOnlineIds, utilGpusRead } from './hooks';
+import { nodeUtil, shallowEqual, useAcross, useEnergyToday, useOnlineIds, utilGpusRead } from './hooks';
 import { clusterTotals, gpuProcesses, listNodes } from './model';
 
 /** "16:13": the local time of a reading. */
@@ -43,7 +43,7 @@ export function Totals() {
     () => {
       const t = clusterTotals(
         ids.map((id) => ({
-          util: liveStore.latestValue(id, nodeGpuKey(infos[id]?.info, 'util')),
+          ...nodeUtil(id, infos[id]?.info),
           power: liveStore.latestValue(id, nodeGpuKey(infos[id]?.info, 'power_w')),
           memUsed: liveStore.latestValue(id, 'mem.used'),
           memTotal: infos[id]?.info?.mem_total ?? null,
