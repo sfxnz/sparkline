@@ -925,6 +925,11 @@ def under_a_read_only_directory(tmp: Path) -> Path:
     return tmp / "locked" / "out"
 
 
+def under_a_file(tmp: Path) -> Path:
+    (tmp / "notes").write_text("mine")
+    return tmp / "notes" / "out"
+
+
 def a_file(tmp: Path) -> Path:
     (tmp / "out").write_text("mine")
     return tmp / "out"
@@ -937,8 +942,9 @@ def a_file(tmp: Path) -> Path:
         (under_a_missing_directory, "does not exist"),
         (under_a_read_only_directory, "write"),
         (a_file, "not a directory"),
+        (under_a_file, "not a directory"),
     ],
-    ids=["missing parent", "read-only parent", "a file"],
+    ids=["missing parent", "read-only parent", "a file", "under a file"],
 )
 def test_an_output_path_that_cannot_hold_a_recording_is_a_usage_error(
     output, says, tmp_path, monkeypatch, capsys
