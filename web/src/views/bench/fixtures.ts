@@ -80,12 +80,30 @@ export const LLM: BenchSpec = {
   availability: { spark1: null, spark2: null },
 };
 
+export const MEMBW: BenchSpec = {
+  id: 'mem-bandwidth',
+  name: 'Unified memory bandwidth',
+  category: 'memory',
+  description: 'How fast the CPU and the GPU read and write the memory they share.',
+  est_duration_s: 20.8,
+  impact: impact('medium', 'medium', true),
+  params: [
+    param({ name: 'side', label: 'Measure from', type: 'enum', default: 'both', choices: ['both', 'gpu', 'cpu'] }),
+    param({ name: 'iterations', label: 'Iterations', type: 'int', default: 20, min: 5, max: 200 }),
+  ],
+  min_nodes: 1,
+  max_nodes: null,
+  requires: ['docker', 'pytorch_image'],
+  availability: { spark1: null },
+};
+
 export const CATALOG: BenchSpec[] = [MATMUL, RDMA, SOAK, LLM];
 
 export const WS1 = wsInfo as unknown as NodeInfo;
 export const wsGpuOptions = (lost: Record<number, Problem> = {}): GpuOption[] => WS1.gpus.map((g) => ({ index: g.index, name: g.name, uuid: g.uuid ?? null, problem: lost[g.index] ?? null }));
 export const WS_MATMUL: BenchSpec = { ...MATMUL, availability: { spark1: null, ws1: null }, gpu_options: { ws1: wsGpuOptions() } };
 export const WS_SOAK: BenchSpec = { ...SOAK, availability: { spark1: null, ws1: null }, gpu_options: { ws1: wsGpuOptions() } };
+export const WS_MEMBW: BenchSpec = { ...MEMBW, availability: { spark1: null, ws1: null }, gpu_options: { ws1: wsGpuOptions() } };
 
 export const MAC_GPU: Problem = {
   message: 'GPU benchmarks need an NVIDIA GPU',

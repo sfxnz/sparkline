@@ -10,7 +10,7 @@ import { useBench } from '../../store/bench';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { ConfigureDialog } from './ConfigureDialog';
-import { MAC_GPU, MATMUL, SOAK, WS1, WS_MATMUL, run, wsGpuOptions } from './fixtures';
+import { MAC_GPU, MATMUL, SOAK, WS1, WS_MATMUL, WS_MEMBW, run, wsGpuOptions } from './fixtures';
 import { Home } from './Home';
 import { Availability } from './parts';
 import type { ChartSeries } from './RunChart';
@@ -125,6 +125,30 @@ describe('choosing the GPU on a multi-GPU node', () => {
   });
 });
 
+describe('measuring memory bandwidth from the CPU side of a multi-GPU node', () => {
+  const side = (choice: string) => { fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Measure from' })).getByRole('radio', { name: choice })); };
+
+  it('offers and names no GPU, and gives the GPU picked earlier back for the GPU side', () => {
+    cluster([{ info: WS1, sample: wsWith({ 2: 3 }) }]);
+    const onRun = vi.fn();
+    const { baseElement } = render(<ConfigureDialog spec={WS_MEMBW} open onClose={noop} onRun={onRun} initialNodes={['ws1']} />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'GPU on ws1' }), { target: { value: '2' } });
+
+    side('CPU');
+    expect(screen.queryByRole('combobox', { name: /GPU/ })).toBeNull();
+    expect(baseElement.textContent).not.toMatch(GPU_NUMBER);
+    side('GPU');
+    expect(screen.getByRole('combobox', { name: 'GPU on ws1' })).toHaveValue('2');
+
+    side('CPU');
+    review();
+    expect(screen.getByText('Runs Unified memory bandwidth on ws1.')).toBeInTheDocument();
+    expect(baseElement.textContent).not.toMatch(GPU_NUMBER);
+    fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
+    expect(onRun).toHaveBeenCalledWith(['ws1'], { side: 'cpu', iterations: 20 }, {});
+  });
+});
+
 describe('a node that cannot run GPU benchmarks', () => {
   const spec = { ...MATMUL, availability: { spark1: null, mac1: MAC_GPU } };
 
@@ -163,7 +187,7 @@ describe('starting a run', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string, init?: RequestInit) => {
-        if (url.startsWith('/api/v1/bench/catalog')) return reply([WS_MATMUL]);
+        if (url.startsWith('/api/v1/bench/catalog')) return reply([WS_MATMUL, WS_MEMBW]);
         if (url.startsWith('/api/v1/bench/runs') && init?.method === 'POST') {
           const body = JSON.parse(init.body as string) as BenchCreate;
           posted.push(body);
@@ -200,6 +224,17 @@ describe('starting a run', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
     await waitFor(() => { expect(posted).toHaveLength(1); });
     expect(posted[0]).toEqual({ bench_id: 'gpu-matmul', nodes: ['spark1'], params: MATMUL_DEFAULTS, confirm: true });
+  });
+
+  it('sends no GPU for a run that measures only from the CPU', async () => {
+    home('/benchmarks?configure=mem-bandwidth');
+    fireEvent.click(await screen.findByRole('checkbox', { name: /^ws1/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /^spark1/ }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Measure from' })).getByRole('radio', { name: 'CPU' }));
+    review();
+    fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
+    await waitFor(() => { expect(posted).toHaveLength(1); });
+    expect(posted[0]).toEqual({ bench_id: 'mem-bandwidth', nodes: ['ws1'], params: { side: 'cpu', iterations: 20 }, confirm: true });
   });
 });
 
