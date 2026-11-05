@@ -243,7 +243,7 @@ function NodeList({ spec, known, statusOf, nodes, gpuIndex, single, onChange }: 
               {problem ? (
                 <span className="bench-node__why"><ProblemTip problem={problem} /></span>
               ) : (
-                <NodeLoad node={id} hint={nodeHint(statusOf(id))} gpu={gpuIndex[id]} />
+                <NodeLoad node={id} status={statusOf(id)} gpu={gpuIndex[id]} />
               )}
             </label>
           </div>
@@ -283,16 +283,15 @@ function PairPicker({ spec, known, statusOf, nodes, onChange }: { spec: BenchSpe
   );
 }
 
-/** Live one-liner next to a node: "serving DeepSeek… · GPU 62%", or "GPU 2 at 3%" for the GPU chosen on a node with several;
- *  in the past tense ("GPU was 62%") while the node is not reporting (refreshes every 2 s while the dialog is open). */
-function NodeLoad({ node, hint, gpu }: { node: string; hint: string; gpu: number | undefined }) {
+function NodeLoad({ node, status, gpu }: { node: string; status: NodeStatus | undefined; gpu: number | undefined }) {
   useNow(2000);
+  const live = (status ?? 'online') === 'online';
   const s = liveStore.latest(node);
   const util = gpuAt(s?.gpu, gpu ?? 0)?.util;
   const top = topGpuProcess(s?.procs);
   const pct = util != null ? `${Math.round(util)}%` : null;
-  const load = pct && (gpu === undefined ? `GPU ${hint ? 'was ' : ''}${pct}` : `GPU\u00a0${gpu}\u00a0${hint ? 'was' : 'at'}\u00a0${pct}`);
-  const text = [hint, top ? `${isServing(top) ? 'serving' : 'running'} ${workloadName(top)}` : null, load].filter(Boolean).join(' · ');
+  const load = pct && (gpu === undefined ? `GPU ${live ? '' : 'was '}${pct}` : `GPU\u00a0${gpu}\u00a0${live ? 'at' : 'was'}\u00a0${pct}`);
+  const text = [nodeHint(status), top ? `${isServing(top) ? 'serving' : 'running'} ${workloadName(top)}` : null, load].filter(Boolean).join(' · ');
   return <span className="bench-node__load num">{text || 'No live data'}</span>;
 }
 
