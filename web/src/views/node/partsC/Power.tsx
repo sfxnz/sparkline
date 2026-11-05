@@ -11,9 +11,10 @@ import { DASH, formatWatts, wattsParts } from '../../../lib/format';
 import type { TimeRange } from '../../../lib/prefs';
 import type { NodeInfo } from '../../../lib/types';
 import { paths } from '../../../app/routes';
+import { quietGpusOf } from '../../../store/attention';
 import { serverNow, useCluster } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
-import { counterDelta, energyKeys, formatEnergyAuto, formatEnergyCost, formatKwh, historyEnergy } from '../../shared/energy';
+import { counterDelta, energyKeys, formatEnergyAuto, formatEnergyCost, formatKwh, gpuStops, historyEnergy, sameStops, type GpuStop } from '../../shared/energy';
 import { useNodeGpuGap } from '../parts/useGpuGap';
 import { powerStats } from './energy';
 import { useRangeHistory, type Loadable } from '../../shared/live';
@@ -149,6 +150,12 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
       </div>
     </Panel>
   );
+}
+
+/** The node's quiet GPUs (quietGpusOf), each with when its energy counter last moved: the energy totals count them
+ *  only until then. */
+export function useGpuStops(nodeId: string, info: NodeInfo | null | undefined, store: LiveStore = liveStore): GpuStop[] {
+  return useLiveDerived(nodeId, useCallback((st: LiveStore) => gpuStops(st, nodeId, quietGpusOf(nodeId, info)), [nodeId, info]), sameStops, store);
 }
 
 function sumOf(values: readonly (number | null)[]): number | null {

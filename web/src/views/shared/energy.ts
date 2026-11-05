@@ -1,9 +1,10 @@
 // Energy from NVML's cumulative counters (gpu<i>.energy_j) and its display, shared by the Overview, GPU and
 // Thermals & Power screens so every screen totals and formats energy the same way. Unit-tested in energy.test.ts.
 import { DASH } from '../../lib/format';
-import { gpuIndexes } from '../../lib/gpu';
+import { andList, gpuIndexes, gpuList } from '../../lib/gpu';
 import { gpuKey } from '../../lib/metrics';
 import type { NodeInfo } from '../../lib/types';
+import type { LiveStore } from '../../store/live';
 
 const J_PER_KWH = 3.6e6;
 const NBSP = '\u00a0';
@@ -88,6 +89,52 @@ export function sumCounters(resp: Parameters<typeof historyPlusLive>[0], keys: r
     if (j !== null) sum = (sum ?? 0) + j;
   }
   return sum;
+}
+
+/** A quiet GPU in an energy total, which counts it only until its counter last moved: `at` (epoch s), or null when
+ *  the readings on hand never show the counter move. */
+export interface GpuStop {
+  index: number;
+  at: number | null;
+}
+
+/** When a counter last moved: the time of the first reading of the value it holds now. A silent GPU's counter sends
+ *  nothing after its last reading, or repeats it. Null when no reading shows the counter move. */
+export function lastMove(ts: readonly number[], values: readonly (number | null)[]): number | null {
+  let held: number | null = null;
+  let since: number | null = null;
+  for (let i = values.length - 1; i >= 0; i--) {
+    const v = values[i];
+    if (v == null) continue;
+    if (held === null) held = v;
+    else if (v !== held) return since;
+    since = ts[i] ?? null;
+  }
+  return null;
+}
+
+/** The `quiet` GPUs of `node`, each with when its energy counter last moved in the store. */
+export function gpuStops(store: Pick<LiveStore, 'window'>, node: string, quiet: readonly number[]): GpuStop[] {
+  return quiet.map((index) => {
+    const w = store.window(node, [gpuKey(index, 'energy_j')]);
+    return { index, at: lastMove(w.ts, w.values[0] ?? []) };
+  });
+}
+
+export const sameStops = (a: readonly GpuStop[], b: readonly GpuStop[]) =>
+  a.length === b.length && a.every((s, i) => s.index === b[i]?.index && s.at === b[i].at);
+
+/** "16:13": the local time of a reading. */
+export const formatHm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+/** "GPU 2 until 16:13", "GPUs 1 and 2 until 16:13", "GPU 1 until 09:05 and GPU 2 until its last reading". */
+export function stopsText(stops: readonly GpuStop[]): string {
+  const byMinute = new Map<string, number[]>();
+  for (const s of stops) {
+    const hm = s.at === null ? '' : formatHm(s.at);
+    byMinute.set(hm, [...(byMinute.get(hm) ?? []), s.index]);
+  }
+  return andList([...byMinute].map(([hm, indexes]) => `${gpuList(indexes)} until ${hm || (indexes.length > 1 ? 'their last readings' : 'its last reading')}`));
 }
 
 export const joulesToKwh = (j: number) => j / J_PER_KWH;

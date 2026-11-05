@@ -11,13 +11,10 @@ import type { NodeState } from '../../lib/types';
 import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
-import { formatEnergyCost, formatKwh } from '../shared/energy';
+import { formatEnergyCost, formatHm, formatKwh } from '../shared/energy';
 import { excl } from '../shared/totalGap';
 import { nodeUtil, shallowEqual, useAcross, useEnergyToday, useOnlineIds, utilGpusRead } from './hooks';
 import { clusterTotals, gpuProcesses } from './model';
-
-/** "16:13": the local time of a reading. */
-const formatHm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
 const countParts: Formatter = (n) => ({ value: n.toFixed(0), unit: '' });
 

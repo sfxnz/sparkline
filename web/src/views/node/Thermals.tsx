@@ -7,14 +7,14 @@ import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
 import { notReported, type NotReported } from '../../lib/capabilities';
-import { gpuIndexes, gpuSetGap, nodeGpuKey, notResponding } from '../../lib/gpu';
+import { everyGpuSilent, gpuIndexes, gpuSetGap, nodeGpuKey, notResponding } from '../../lib/gpu';
 import { tempParts, wattsParts, type Formatter } from '../../lib/format';
 import type { NodeInfo, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useLatest, type LiveStore } from '../../store/live';
 import { usePrefs } from '../../store/prefs';
 import { ChartPanelSkeleton, StatSkeleton } from '../placeholders';
-import { energyKeys, formatEnergyCost, formatKwh, joulesToKwh } from '../shared/energy';
+import { energyKeys, formatEnergyCost, formatKwh, joulesToKwh, stopsText } from '../shared/energy';
 import { useRangeHistory } from '../shared/live';
 import { sameGap } from '../shared/totalGap';
 import { useLiveDerived, useSpanEnergy, useStaleSince } from './partsC/hooks';
@@ -22,7 +22,7 @@ import { CollectorErrors } from './parts/Notices';
 import { NowLabel } from './parts/NowLabel';
 import { NodeTempFooter } from './parts/TempFooter';
 import { useNodeGpuGap } from './parts/useGpuGap';
-import { EnergyPanel, PowerPanel } from './partsC/Power';
+import { EnergyPanel, PowerPanel, useGpuStops } from './partsC/Power';
 import { SensorGroupPanel } from './partsC/SensorGroup';
 import { buildGroups, hottest, type SensorGroup } from './partsC/thermal';
 import './partsC/partsC.css';
@@ -111,15 +111,11 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
   );
 }
 
+/** Why the node has no GPU energy figure: a GPU has no energy counter (a partial sum would understate), or no GPU the
+ *  node lists answers, said as the GPU temperature beside it says it. */
 function gpuEnergyGap(info: NodeInfo | null | undefined, s: Sample | null): NotReported | null {
-  const declared = gpuSetGap(info, 'energy_j', 'every');
-  if (declared) return declared;
-  const indexes = gpuIndexes(info);
-  for (const i of indexes) {
-    const gap = notResponding(info, s, i);
-    if (gap) return gap;
-  }
-  return null;
+  const [only = 0, ...more] = gpuIndexes(info);
+  return gpuSetGap(info, 'energy_j', 'every') ?? (more.length ? everyGpuSilent(info, s) : notResponding(info, s, only));
 }
 
 /** kWh in, always shown in kWh (3 significant figures), like the Overview's "Today": one unit for a figure that
@@ -133,8 +129,10 @@ function EnergyToday({ nodeId, gap }: { nodeId: string; gap: NotReported | null 
   const settings = useCluster((s) => s.cluster?.settings);
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const today = useSpanEnergy(nodeId, energyKeys(info), 'today');
+  const stops = useGpuStops(nodeId, info);
   const j = today.state === 'ready' ? today.data : null;
   const cost = j == null || !settings ? undefined : `${formatEnergyCost(j, settings.energy_rate_per_kwh, settings.currency)} so far`;
+  const counted = stops.length ? stopsText(stops) : undefined;
   if (today.state === 'loading' && !gap) {
     return (
       <div className="stat stat--md" aria-busy="true">
@@ -150,7 +148,7 @@ function EnergyToday({ nodeId, gap }: { nodeId: string; gap: NotReported | null 
       format={kwhParts}
       unsupported={gap}
       reporting={today.state === 'ready'}
-      footer={today.state === 'error' ? 'History unavailable' : cost}
+      footer={today.state === 'error' ? 'History unavailable' : [cost, counted].filter(Boolean).join(' · ') || undefined}
     />
   );
 }
