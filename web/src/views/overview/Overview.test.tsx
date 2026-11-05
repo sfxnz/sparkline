@@ -652,10 +652,10 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
   const gb10 = (id: string) => ({ ...(gb10Info as unknown as NodeInfo), node_id: id, hostname: id });
   const gb10Reading = (id: string, over: Partial<Sample> = {}): Sample => ({ ...(gb10Sample as unknown as Sample), node_id: id, ts: now, ...over });
   const backendDown = (s: Sample, error = NVML_DOWN): Sample => ({ ...s, gpu: [], errors: { ...s.errors, gpu: `nvml: ${error}` } });
-  const noNvml = (id: string) =>
+  const noNvml = (id: string, reason = NO_NVML) =>
     ({
       node_id: id, hostname: id, gpus: [], net: [], cores: [], disks: [], sensors: [], mem_total: (sampleJson as unknown as Sample).mem.total,
-      unsupported: [{ metric: 'gpu*', reason: NO_NVML, kind: 'dependency' }, { metric: 'mem.gpu', reason: NO_NVML, kind: 'dependency' }],
+      unsupported: [{ metric: 'gpu*', reason, kind: 'dependency' }, { metric: 'mem.gpu', reason, kind: 'dependency' }],
     }) as unknown as NodeInfo;
   const noNvmlReading = (id: string): Sample => ({ ...(sampleJson as unknown as Sample), node_id: id, ts: now, gpu: [] });
   const show = (nodes: readonly (readonly [NodeInfo, Sample | null])[], status: Record<string, NodeState['status']> = {}) => {
@@ -753,5 +753,23 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
     expect(await within(tile('GPU power')).findByText(/^Now excl\. spark2 · Today \d/)).toHaveTextContent(/Today .* excl\. n1/);
     expect(footer('GPU power')).toContain('Now excl. spark2');
     expect(footer('GPU power')).toContain('excl. n1');
+  });
+
+  it('lists five nodes and how many more in a tooltip over seven nodes, while its description names all seven', () => {
+    const ids = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
+    const reason = (id: string) => `NVIDIA driver library (NVML) not found on ${id}`;
+    show(ids.map((id) => [noNvml(id, reason(id)), noNvmlReading(id)] as const));
+    const compute = tile('Cluster compute');
+    expect(compute).toHaveTextContent('Helper tool missing');
+    expect(within(compute).getByRole('tooltip')).toHaveTextContent('and 2 more nodes');
+    expect(why(compute)).toHaveAccessibleDescription(ids.map((id) => `${id}: ${reason(id)}`).join('\n'));
+  });
+
+  it('lists every node in a tooltip over six nodes', () => {
+    const ids = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6'];
+    const reason = (id: string) => `NVIDIA driver library (NVML) not found on ${id}`;
+    show(ids.map((id) => [noNvml(id, reason(id)), noNvmlReading(id)] as const));
+    expect(within(tile('Cluster compute')).getByRole('tooltip')).not.toHaveTextContent('more nodes');
+    expect(why(tile('Cluster compute'))).toHaveAccessibleDescription(ids.map((id) => `${id}: ${reason(id)}`).join('\n'));
   });
 });
