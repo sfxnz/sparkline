@@ -858,7 +858,7 @@ _NO_DECOMPOSITION = str.maketrans(
 
 
 def _ascii(text: str) -> str:
-    return unicodedata.normalize("NFKD", text.translate(_NO_DECOMPOSITION)).encode("ascii", "ignore").decode()
+    return unicodedata.normalize("NFKD", text).translate(_NO_DECOMPOSITION).encode("ascii", "ignore").decode()
 
 
 def _unmarked(text: str) -> str:
