@@ -869,9 +869,41 @@ REPO_TAGS = ("docker", "/images/json", "result", "RepoTags")
 _DISK_SOURCE = re.compile(rf"^(?=(?:{DISK.pattern}) )/(dev)/", re.MULTILINE)
 
 
+def _spans_of_parts(path: str, parts: frozenset[int]) -> list[tuple[int, int]]:
+    return [m.span() for i, m in enumerate(re.finditer("[^/]+", path)) if i in parts]
+
+
 def _fixed_parts_of(path: str) -> list[tuple[int, int]]:
-    fixed = fixed_parts(path)
-    return [m.span() for i, m in enumerate(re.finditer("[^/]+", path)) if i in fixed]
+    return _spans_of_parts(path, fixed_parts(path))
+
+
+def _depth(path: str) -> int:
+    return len([p for p in path.split("/") if p])
+
+
+def _fixed_parts_in(tree: dict[str, Node]) -> dict[str, frozenset[int]]:
+    leads_to = list(tree)
+    for link, node in tree.items():
+        if isinstance(node, Link):
+            at = _resolve(tree, posixpath.join(posixpath.dirname(link), node.target))
+            if at is not None:
+                leads_to += [link + path[len(at) :] for path in tree if path.startswith(at + "/")]
+    fixed = {path: fixed_parts(path) for path in tree}
+    for path in leads_to:
+        for ancestor in _ancestors(path):
+            if ancestor in fixed:
+                fixed[ancestor] |= {i for i in fixed_parts(path) if i < _depth(ancestor)}
+    return fixed
+
+
+def _fixed_in_target(link: str, target: str, fixed: dict[str, frozenset[int]]) -> list[tuple[int, int]]:
+    parts = list(re.finditer("[^/]+", target))
+    ups = next((i for i, m in enumerate(parts) if m[0] != ".."), len(parts))
+    if any(m[0] in (".", "..") for m in parts[ups:]):
+        return []
+    resolved = posixpath.normpath(posixpath.join(posixpath.dirname(link), target))
+    at = fixed.get(resolved, fixed_parts(resolved))
+    return [m.span() for i, m in enumerate(parts[ups:], _depth(resolved) - len(parts) + ups) if i in at]
 
 
 def _fixed_text(path: str, text: str) -> list[tuple[int, int]]:
@@ -913,10 +945,14 @@ def _strings_at(doc: Any, where: tuple[str, ...] = ()) -> Iterable[tuple[tuple[s
 
 def _collisions(rec: Recording, names: Spellings) -> list[Leak]:
     found: set[str] = set()
+    in_tree = _fixed_parts_in(rec.tree)
     for path, node in rec.tree.items():
-        found |= names.outside(path, _where_names_live("", path) + _fixed_parts_of(path))
+        found |= names.outside(path, _where_names_live("", path) + _spans_of_parts(path, in_tree[path]))
         if isinstance(node, Link):
-            found |= names.outside(node.target, _where_names_live("", node.target))
+            target = node.target
+            found |= names.outside(
+                target, _where_names_live("", target) + _fixed_in_target(path, target, in_tree)
+            )
         elif isinstance(node, File):
             text = text_of(node.data)[0]
             found |= names.outside(text, _where_names_live(path, text) + _fixed_text(path, text))
@@ -1026,14 +1062,16 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
             return [rewrite_doc(v, fixed, where) for v in doc]
         return doc
 
+    fixed = _fixed_parts_in(rec.tree)
+
     def rewrite_node(path: str, node: Node) -> Node:
         if isinstance(node, Link):
-            return Link(rewrite(node.target))
+            return Link(rewrite(node.target, _fixed_in_target(path, node.target, fixed)))
         if isinstance(node, File) and (text := _text(node)) is not None:
             return File(rewrite(text, _fixed_text(path, text)).encode())
         return node
 
-    read_at = {rewrite(path, _fixed_parts_of(path)): path for path in rec.tree}
+    read_at = {rewrite(path, _spans_of_parts(path, fixed[path])): path for path in rec.tree}
     tree = {path: rewrite_node(raw, rec.tree[raw]) for path, raw in read_at.items()}
     nvml = rewrite_doc(rec.nvml, _fixed_in_nvml)
     host = rewrite_doc(rec.host, _fixed_in_host)
@@ -1155,10 +1193,11 @@ def _unreviewed_readings(rec: Recording, originals: Spellings) -> list[Leak]:
 def leaks(red: Redacted) -> list[Leak]:
     rec, originals = red.recording, red.originals
     admitted = _admitted(rec.tree, red.read_at)
+    in_tree = _fixed_parts_in(rec.tree)
     out: list[Leak] = []
     clean: set[str] = set()
     for path in rec.tree:
-        found = _categories(path, False, originals, _fixed_parts_of(path))
+        found = _categories(path, False, originals, _spans_of_parts(path, in_tree[path]))
         out += [Leak("a path in root/", c) for c in sorted(found)]
         if not found:
             clean.add(path)
@@ -1173,7 +1212,9 @@ def leaks(red: Redacted) -> list[Leak]:
         if isinstance(node, Link):
             out += [
                 Leak(f"the link target of {where}", c)
-                for c in sorted(_categories(node.target, False, originals))
+                for c in sorted(
+                    _categories(node.target, False, originals, _fixed_in_target(path, node.target, in_tree))
+                )
             ]
         elif isinstance(node, File):
             text, binary = text_of(node.data)
