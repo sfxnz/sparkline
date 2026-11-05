@@ -59,6 +59,11 @@ def _saved_rule_metrics(store: Store, row: dict[str, object] | None) -> dict[str
     return metrics
 
 
+def _saved_settings(row: object) -> ConsoleSettings | None:
+    """None for an empty row: nothing was saved, so the configured settings apply."""
+    return ConsoleSettings.model_validate(row) if row != {} else None
+
+
 def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> list[AlertRule]:
     rules = []
     for raw in saved:
@@ -79,7 +84,8 @@ class Cluster:
         self.store = store
         self.hub = hub
         self.demo = demo
-        self.settings = store.kv_read("settings", ConsoleSettings.model_validate) or default_settings
+        saved: ConsoleSettings | None = store.kv_read("settings", _saved_settings)
+        self.settings = saved or default_settings
         metrics = _saved_rule_metrics(store, store.kv_read(RULE_METRICS_KEY, _METRICS.validate_python))
         rules = store.kv_read(RULES_KEY, lambda rows: load_rules(_ROWS.validate_python(rows), metrics))
         self.rules_reset = rules is None and store.kv_has(RULES_KEY)
