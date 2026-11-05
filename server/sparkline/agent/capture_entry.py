@@ -10,6 +10,8 @@ import threading
 import warnings
 
 STOPPED = 130
+FAILED = 4
+PR_SET_DUMPABLE = 4
 STOPPED_LINE = "sparkline-capture stopped. It keeps no partial recording."
 STOP_SIGNALS = (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT, signal.SIGTERM)
 
@@ -25,10 +27,11 @@ def stopped(stop: KeyboardInterrupt) -> int:
     return stop.exit_code if isinstance(stop, Stopped) else STOPPED
 
 
-def print_no_traceback_from_python() -> None:
-    def failed(kind: type[BaseException]) -> None:
-        print(f"sparkline-capture failed with {kind.__name__} (message not shown).", file=sys.stderr)
+def failed(kind: type[BaseException]) -> None:
+    print(f"sparkline-capture failed with {kind.__name__} (message not shown).", file=sys.stderr)
 
+
+def print_no_traceback_from_python() -> None:
     sys.excepthook = lambda kind, _value, _traceback: failed(kind)
     threading.excepthook = lambda args: failed(args.exc_type)
     sys.unraisablehook = lambda _ignored: None
@@ -48,8 +51,25 @@ def stop_like_ctrl_c_on_a_hangup_or_terminate() -> None:
             signal.signal(s, stop)
 
 
+def no_core_dumps() -> None:
+    import resource
+
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    if sys.platform == "linux":
+        import ctypes
+
+        zero = ctypes.c_ulong(0)
+        if ctypes.CDLL(None, use_errno=True).prctl(PR_SET_DUMPABLE, zero, zero, zero, zero) != 0:
+            raise OSError(ctypes.get_errno(), "prctl")
+
+
 def main() -> int:
     print_no_traceback_from_python()
+    try:
+        no_core_dumps()
+    except Exception as e:
+        failed(type(e))
+        return FAILED
     faulthandler.disable()
     stop_like_ctrl_c_on_a_hangup_or_terminate()
     try:
