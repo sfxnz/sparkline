@@ -20,6 +20,46 @@ PING_S = 15.0
 SESSION_CHECK_S = 60.0
 VERSION = pkg_version("sparkline")
 
+GPU0_DEFAULT_UPGRADES: dict[tuple[str, str | None], str] = {
+    ("gpu_temp_high", "gpu0.temp_c"): "gpu*.temp_c",
+    ("gpu_temp_critical", "gpu0.temp_c"): "gpu*.temp_c",
+    ("gpu_throttle", "gpu0.throttle_mask"): "gpu*.throttle_mask",
+    ("gpu_power_cap", "gpu0.throttle_mask"): "gpu*.throttle_mask",
+}
+
+
+RULES_KEY = "alert_rules"
+# Each rule's metric as this console saved it. Older consoles read and write RULES_KEY only, so a rule whose
+# stored metric still matches its entry here was last saved by a console that knows the gpu* defaults.
+RULE_METRICS_KEY = "alert_rule_metrics"
+
+
+def _stored_metric(r: AlertRule) -> str | None:
+    """The metric as RULES_KEY holds it. An older console reads a throttle rule's metric as one literal key,
+    so the every-GPU glob is stored as GPU 0, the key it always watched."""
+    return "gpu0.throttle_mask" if r.kind == "throttle" and r.metric == "gpu*.throttle_mask" else r.metric
+
+
+def _saved_rule_metrics(row: object) -> dict[str, str | None] | None:
+    if not isinstance(row, dict):
+        return None
+    return {k: v for k, v in row.items() if v is None or isinstance(v, str)}
+
+
+def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> list[AlertRule]:
+    rules = []
+    for raw in saved:
+        r = AlertRule.model_validate(raw)
+        if metrics is not None and r.id in metrics:
+            meant = r.model_copy(update={"metric": metrics[r.id]})
+            unchanged_since_saved_here = _stored_metric(meant) == r.metric
+            rules.append(meant if unchanged_since_saved_here else r)
+        elif upgrade := GPU0_DEFAULT_UPGRADES.get((r.id, r.metric)):
+            rules.append(r.model_copy(update={"metric": upgrade}))
+        else:
+            rules.append(r)
+    return rules
+
 
 class Cluster:
     def __init__(self, store: Store, hub: Hub, default_settings: ConsoleSettings, demo: bool = False):
@@ -28,9 +68,11 @@ class Cluster:
         self.demo = demo
         saved = store.kv_get("settings")
         self.settings = ConsoleSettings.model_validate(saved) if saved else default_settings
-        saved_rules = store.kv_get("alert_rules")
+        saved_rules = store.kv_get(RULES_KEY)
         rules = (
-            [AlertRule.model_validate(r) for r in saved_rules] if saved_rules is not None else DEFAULT_RULES
+            load_rules(saved_rules, _saved_rule_metrics(store.kv_get(RULE_METRICS_KEY)))
+            if saved_rules is not None
+            else DEFAULT_RULES
         )
         self.alerts = AlertEngine(rules, self.add_event, self.resolve_event)
         self.sources: dict[str, NodeSource] = {}
@@ -74,7 +116,12 @@ class Cluster:
         self.hub.broadcast({"type": "settings", "settings": s.model_dump(mode="json")})
 
     def update_rules(self, rules: list[AlertRule]) -> None:
-        self.store.kv_set("alert_rules", [r.model_dump() for r in rules])
+        self.store.kv_set_atomically(
+            {
+                RULE_METRICS_KEY: {r.id: r.metric for r in rules},
+                RULES_KEY: [{**r.model_dump(), "metric": _stored_metric(r)} for r in rules],
+            }
+        )
         self.alerts.set_rules(rules, time.time())
 
     # -- events -------------------------------------------------------------------------------------

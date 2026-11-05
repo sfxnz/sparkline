@@ -24,8 +24,8 @@ export interface NodeHealthInput {
   status: NodeStatus | undefined;
   /** What the latest sample already flags (temperature at slowdown, hardware clock limits), if anything. */
   condition?: LiveCondition | null;
-  /** The node has an open warning/critical alert (its rule has fired). */
-  alerted?: boolean;
+  /** The level of the node's worst open alert (a rule has fired), if any. */
+  alert?: 'warning' | 'critical' | null;
 }
 
 export interface AlertCounts {
@@ -42,6 +42,8 @@ export interface Health {
   label: string;
   sentence: string;
 }
+
+const alertCovers = (alert: 'warning' | 'critical' | null | undefined, level: LiveCondition['level']) => alert === 'critical' || alert === level;
 
 /** Alert rules whose event only restates a node state the sentence already names. */
 const NODE_STATE_RULES = new Set(['node_offline']);
@@ -79,14 +81,16 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   const error = by('error');
   const stale = by('stale');
   const connecting = nodes.filter((n) => n.status === 'connecting' || n.status === undefined).map((n) => n.id);
-  // Live flags whose alert has not fired yet; once it has, the alert count says it.
-  const flagged = nodes.filter((n) => n.status === 'online' && n.condition && !n.alerted);
+  const flagged = nodes.flatMap((n) => {
+    const c = n.status === 'online' && n.condition ? (alertCovers(n.alert, n.condition.level) ? n.condition.outsideAlertRules : n.condition) : null;
+    return c ? [{ id: n.id, condition: c }] : [];
+  });
 
   const parts: string[] = [];
   if (offline.length) parts.push(`${listNodes(offline)} ${isAre(offline)} offline`);
   if (error.length) parts.push(`${listNodes(error)} ${error.length === 1 ? 'has' : 'have'} a connection error`);
   if (stale.length) parts.push(`${listNodes(stale)} ${isAre(stale)} not reporting`);
-  for (const n of flagged) parts.push(`${n.id} ${n.condition?.text ?? ''}`);
+  for (const n of flagged) parts.push(`${n.id} ${n.condition.text}`);
   if (connecting.length) parts.push(`Waiting for ${listNodes(connecting)}…`);
   const problems = parts.length > 0;
 
@@ -100,7 +104,7 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   }
   const sentence = [...parts, ...alertParts].join(' · ');
 
-  const flaggedCritical = flagged.some((n) => n.condition?.level === 'critical');
+  const flaggedCritical = flagged.some((n) => n.condition.level === 'critical');
   let status: Status;
   if (connecting.length === nodes.length) status = 'connecting';
   else if (alerts.critical || alerts.explained === 'critical' || flaggedCritical) status = 'critical';

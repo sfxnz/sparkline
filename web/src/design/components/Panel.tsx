@@ -15,13 +15,16 @@ interface Props {
   label?: string;
   /** Mark the region busy while its content loads. */
   busy?: boolean;
+  /** Makes the panel a jump target: the section carries the id and its title can take focus. */
+  id?: string;
 }
 
 /** A material surface with header and its own error boundary. */
-export function Panel({ title, subtitle, actions, children, material = 'regular', flush, className, label, busy }: Props) {
+export function Panel({ title, subtitle, actions, children, material = 'regular', flush, className, label, busy, id }: Props) {
   const name = typeof title === 'string' ? title : label;
   return (
     <section
+      id={id}
       className={`panel material-${material}${flush ? ' panel--flush' : ''}${className ? ` ${className}` : ''}`}
       aria-label={name}
       aria-busy={busy || undefined}
@@ -29,7 +32,7 @@ export function Panel({ title, subtitle, actions, children, material = 'regular'
       {title || actions ? (
         <header className="panel__header">
           <div className="panel__titles">
-            {title ? <h2 className="panel__title">{title}</h2> : null}
+            {title ? <h2 className="panel__title" tabIndex={id ? -1 : undefined}>{title}</h2> : null}
             {subtitle ? <p className="panel__subtitle">{subtitle}</p> : null}
           </div>
           {actions ? <div className="panel__actions">{actions}</div> : null}

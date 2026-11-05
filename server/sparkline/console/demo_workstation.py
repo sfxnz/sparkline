@@ -9,7 +9,8 @@ temperature curve, the RAM, disks, NICs, sensors, OS and driver versions, and th
 Telemetry is a deterministic function of wall time, as in DemoModel. vLLM serves Llama-3.3-70B-Instruct FP8
 with tensor parallel 4, so the four GPUs load together. On scenario time: GPU 3, with impaired cooling, heats
 past slowdown every 6 min from 90 s for ~50 s under a burst of requests (sw_thermal then hw_thermal, clocks
-sag). Otherwise GPU 2, between two cards, runs hottest. Demo benchmark GPU load lands on GPU 0.
+sag). Otherwise GPU 2, between two cards, runs hottest. GPU 2's power reading drops out every 6 min from 200 s
+for 20 s, as on a transient NVML power read error. Demo benchmark GPU load lands on GPU 0.
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ CAP_MIN_S, CAP_HOLD_S = 10, 600
 SLOT_HEAT_C = (1.0, 3.0, 6.0, 0.0)
 POWER_SKEW_W = (0.0, 2.5, -2.0, 3.5)
 EPISODE_GPU = 3
+POWER_DROPOUT_GPU, POWER_DROPOUT_S = 2, (200, 220)
 BENCH_GPU = 0
 CCD_HEAT_C = (0.0, 1.5, -1.0, 2.0)
 WORKER_CPUS = (2, 10, 18, 26)
@@ -194,6 +196,7 @@ class WorkstationModel:
         temp = 31 + SLOT_HEAT_C[i] + 0.165 * lag + 0.4 * j("t")
         if i == EPISODE_GPU:
             temp += self.thermal(t) * (94.4 + 0.4 * j("th") - temp)
+        dropout = i == POWER_DROPOUT_GPU and POWER_DROPOUT_S[0] <= self.scen(t) % 360 < POWER_DROPOUT_S[1]
         busy = util >= 5
         mask = 0 if busy else 0x1
         sm = 2700 + 40 * j("sm") if busy else 210.0
@@ -216,7 +219,7 @@ class WorkstationModel:
             gr_mhz=round(sm),
             video_mhz=1965.0 if busy else 765.0,
             temp_c=round(temp, 1),
-            power_w=round(self.power_at(i, t), 2),
+            power_w=None if dropout else round(self.power_at(i, t), 2),
             energy_j=round(self.energy_at(i, t), 1),
             pstate=0 if busy else 8,
             throttle_mask=mask,

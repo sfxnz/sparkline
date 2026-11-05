@@ -13,16 +13,14 @@ import type { NodeInfo } from '../../../lib/types';
 import { paths } from '../../../app/routes';
 import { serverNow, useCluster } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
-import { counterDelta, formatEnergyAuto, formatEnergyCost, formatKwh, historyEnergy } from '../../shared/energy';
+import { counterDelta, energyKeys, formatEnergyAuto, formatEnergyCost, formatKwh, historyEnergy } from '../../shared/energy';
+import { useTotalGap } from '../../shared/totalGap';
 import { powerStats } from './energy';
 import { useRangeHistory, type Loadable } from '../../shared/live';
 import { useLiveDerived, useSpanEnergy } from './hooks';
 import { RANGE_SHORT } from './SensorGroup';
-import { gpuAt } from '../../../lib/gpu';
+import { gpuSetGap, nodeGpuKey, powerLimit } from '../../../lib/gpu';
 
-const POWER = 'gpu0.power_w';
-const ENERGY = 'gpu0.energy_j';
-const POWER_SERIES = [{ key: POWER, label: 'GPU power' }] as const;
 const DEFAULT_RATE = { energy_rate_per_kwh: 0.28, currency: '£' };
 
 const roundEq = (a: { avg: number | null; peak: number | null }, b: { avg: number | null; peak: number | null }) =>
@@ -41,22 +39,26 @@ interface Props {
 /** GPU rail power over the selected range, with now / average / peak, and the (unsupported) power limit. */
 export function PowerPanel({ nodeId, info, range, stale, updatedAt, store = liveStore }: Props) {
   const live = range === 'live';
-  const now = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, POWER), [nodeId]), Object.is, store);
+  const key = nodeGpuKey(info, 'power_w');
+  const keys = useMemo(() => [key], [key]);
+  const series = useMemo(() => [{ key, label: 'GPU power' }], [key]);
+  const now = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, key), [nodeId, key]), Object.is, store);
   const liveStats = useLiveDerived(
     nodeId,
-    useCallback((st: LiveStore) => powerStats(st.window(nodeId, [POWER], serverNow() - LIVE_WINDOW_S).values[0] ?? []), [nodeId]),
+    useCallback((st: LiveStore) => powerStats(st.window(nodeId, [key], serverNow() - LIVE_WINDOW_S).values[0] ?? []), [nodeId, key]),
     roundEq,
     store,
   );
-  const hist = useRangeHistory(nodeId, [POWER], live ? null : range);
+  const hist = useRangeHistory(nodeId, keys, live ? null : range);
   const histStats = useMemo(
-    () => (hist.state === 'ready' ? powerStats(hist.data.series[POWER] ?? [], hist.data.max[POWER]) : null),
-    [hist],
+    () => (hist.state === 'ready' ? powerStats(hist.data.series[key] ?? [], hist.data.max[key]) : null),
+    [hist, key],
   );
   const stats = live ? liveStats : histStats;
   const span = RANGE_SHORT[range];
-  const limit = gpuAt(info?.gpus, 0)?.power_limit_w ?? null;
-  const powerReason = notReported(info, POWER);
+  const limit = powerLimit(info);
+  const powerReason = notReported(info, key);
+  const nowReason = useTotalGap(nodeId, 'power_w');
 
   return (
     <Panel
@@ -65,12 +67,12 @@ export function PowerPanel({ nodeId, info, range, stale, updatedAt, store = live
       className={`tp-power${stale ? ' is-stale' : ''}`}
     >
       <div className="tp-power__body">
-        <TimeSeriesChart node={nodeId} title="GPU power" series={POWER_SERIES} format={formatWatts} height={228} yMin={0} store={store} />
+        <TimeSeriesChart node={nodeId} title="GPU power" series={series} format={formatWatts} height={228} yMin={0} store={store} />
         <div className="tp-power__stats">
-          <Stat label="Now" value={now} format={wattsParts} stale={stale} updatedAt={updatedAt} unsupported={powerReason} />
+          <Stat label="Now" value={now} format={wattsParts} stale={stale} updatedAt={updatedAt} unsupported={nowReason} />
           <RangeStat label={`Average · ${span}`} value={stats?.avg ?? null} loading={!live && hist.state === 'loading'} error={!live && hist.state === 'error'} unsupported={powerReason} />
           <RangeStat label={`Peak · ${span}`} value={stats?.peak ?? null} loading={!live && hist.state === 'loading'} error={!live && hist.state === 'error'} unsupported={powerReason} />
-          <Stat label="Power limit" value={limit} format={wattsParts} unsupported={limit === null ? notReported(info, 'gpu0.power_limit_w') : null} reporting />
+          <Stat label="Power limit" value={limit} format={wattsParts} unsupported={limit === null ? gpuSetGap(info, 'power_limit_w', 'every') : null} reporting />
         </div>
       </div>
     </Panel>
@@ -95,23 +97,25 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
   const rate = settings.energy_rate_per_kwh;
   const currency = settings.currency;
   const live = range === 'live';
-  const energyReason = notReported(info, ENERGY);
+  const keysId = energyKeys(info).join('|');
+  const keys = useMemo(() => keysId.split('|'), [keysId]);
+  const energyReason = gpuSetGap(info, 'energy_j', 'every');
   const systemReason = notReported(info, 'system.power_w');
 
   const liveJ = useLiveDerived(
     nodeId,
-    useCallback((st: LiveStore) => counterDelta(st.window(nodeId, [ENERGY], serverNow() - LIVE_WINDOW_S).values[0] ?? []), [nodeId]),
+    useCallback((st: LiveStore) => sumOf(st.window(nodeId, keys, serverNow() - LIVE_WINDOW_S).values.map(counterDelta)), [nodeId, keys]),
     (a, b) => (a === null ? b === null : b !== null && Math.round(a) === Math.round(b)),
     store,
   );
-  const rangeHist = useRangeHistory(nodeId, [ENERGY], live ? null : range);
+  const rangeHist = useRangeHistory(nodeId, keys, live ? null : range);
   const rangeJ: Loadable<number | null> = live
     ? { state: 'ready', data: liveJ }
     : rangeHist.state === 'ready'
-      ? { state: 'ready', data: historyEnergy(rangeHist.data.series[ENERGY], rangeHist.data.min[ENERGY]) }
+      ? { state: 'ready', data: sumOf(keys.map((k) => historyEnergy(rangeHist.data.series[k], rangeHist.data.min[k]))) }
       : rangeHist;
-  const todayJ = useSpanEnergy(nodeId, ENERGY, 'today', store);
-  const weekJ = useSpanEnergy(nodeId, ENERGY, '7d', store);
+  const todayJ = useSpanEnergy(nodeId, keys, 'today', store);
+  const weekJ = useSpanEnergy(nodeId, keys, '7d', store);
 
   return (
     <Panel
@@ -145,6 +149,12 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
       </div>
     </Panel>
   );
+}
+
+function sumOf(values: readonly (number | null)[]): number | null {
+  let sum: number | null = null;
+  for (const v of values) if (v !== null) sum = (sum ?? 0) + v;
+  return sum;
 }
 
 function EnergyRow({ label, value, rate, currency, kwh }: { label: string; value: Loadable<number | null>; rate: number; currency: string; kwh?: boolean }) {

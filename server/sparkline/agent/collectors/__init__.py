@@ -10,6 +10,7 @@ import re
 from collections.abc import Mapping
 from typing import Any, Literal, Protocol, get_args
 
+from ...common.metrics import GPU_TOTALS
 from ...common.schema import Unsupported
 from ..sources import RootFs
 
@@ -51,6 +52,7 @@ VOCABULARY: dict[str, str] = {
     **{f"gpu*.{f}": "gpu" for f in get_args(GpuField)},
     "mem.gpu": "gpu",
     "gpu.backend": "gpu",
+    **{f"gpu.{f}": "gpu" for f in GPU_TOTALS},
     **{f"mem.{f}": "memory" for f in _MEM},
     **{f"cpu.{f}": "cpu" for f in _CPU},
     "net": "net",

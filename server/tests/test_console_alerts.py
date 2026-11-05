@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 from platforms import gb10_without
 
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors
 from sparkline.agent.sampler import Sampler
-from sparkline.common.schema import AlertRule, Event, Problem
+from sparkline.common.schema import AlertRule, ConsoleSettings, Event, Problem
 from sparkline.console.alerts import DEFAULT_RULES, AlertEngine, validate_rules
+from sparkline.console.cluster import Cluster
 from sparkline.console.demo import DemoModel
+from sparkline.console.demo_fleets import FLEETS
+from sparkline.console.hub import Hub
+from sparkline.console.store import Store
 
 T0 = 1_791_280_000.0
 
@@ -53,6 +59,28 @@ def feed(engine, start: float, seconds: int, **kw) -> float:
     for i in range(seconds):
         engine.evaluate_sample("spark2", sample(start + i, **kw))
     return start + seconds
+
+
+WS1 = FLEETS["mixed"]["ws1"](T0, 1.0)
+WS1_QUIET_T = T0 + 300
+COOL = (60.0, 60.0, 60.0, 60.0)
+
+
+def ws1_sample(ts: float, temps: tuple[float, ...] = COOL, masks: tuple[int, ...] = (0, 0, 0, 0)):
+    s = WS1.sample_at(ts)
+    for g, temp, mask in zip(s.gpu, temps, masks, strict=True):
+        g.temp_c, g.throttle_mask = temp, mask
+    return s
+
+
+def feed_ws1(engine, start: float, seconds: int, info=WS1.info, **kw) -> float:
+    for i in range(seconds):
+        engine.evaluate_sample("ws1", ws1_sample(start + i, **kw), info)
+    return start + seconds
+
+
+def fired(events: list[Event], kind: str = "alert") -> list[tuple[str | None, str | None, str]]:
+    return [(e.rule_id, e.metric, e.title) for e in sorted(events, key=lambda e: e.id) if e.kind == kind]
 
 
 def test_fires_once_after_for_s_and_recovers_with_hysteresis(eng):
@@ -203,3 +231,281 @@ def test_values_carry_units_and_throttle_reasons_read_as_a_phrase():
     assert _sentence(["Thermal limit", "Overheating"]) == "Thermal limit and overheating"
     three = _sentence(["Power cap", "Thermal limit", "Overheating"])
     assert three == "Power cap, thermal limit and overheating"
+
+
+def test_the_default_temperature_rules_fire_for_gpu_3_alone_on_a_four_gpu_node_and_name_it(eng):
+    engine, sink = eng
+    t = feed_ws1(engine, WS1_QUIET_T, 31, temps=(60.0, 60.0, 60.0, 86.0))
+    assert fired(sink.events) == [
+        ("gpu_temp_critical", "gpu3.temp_c", "GPU temperature critical on ws1 · GPU 3"),
+        ("gpu_temp_high", "gpu3.temp_c", "GPU temperature high on ws1 · GPU 3"),
+    ]
+    assert sink.events[0].detail == "86 °C for 10 s (threshold 85 °C)"
+    one_gpu_now = WS1.info.model_copy(update={"gpus": WS1.info.gpus[:1]})
+    feed_ws1(engine, t, 1, info=one_gpu_now)
+    assert fired(sink.events, "recovered") == [
+        ("gpu_temp_high", "gpu3.temp_c", "Resolved: GPU temperature high on ws1 · GPU 3"),
+        ("gpu_temp_critical", "gpu3.temp_c", "Resolved: GPU temperature critical on ws1 · GPU 3"),
+    ]
+
+
+def test_a_node_that_lists_several_gpus_names_the_gpu_while_a_failed_backend_leaves_one_in_the_sample(eng):
+    engine, sink = eng
+    for i in range(11):
+        s = ws1_sample(WS1_QUIET_T + i, temps=(86.0, 60.0, 60.0, 60.0))
+        engine.evaluate_sample("ws1", s.model_copy(update={"gpu": s.gpu[:1]}), WS1.info)
+    assert fired(sink.events) == [
+        ("gpu_temp_critical", "gpu0.temp_c", "GPU temperature critical on ws1 · GPU 0"),
+    ]
+
+
+def test_two_hot_gpus_give_two_events(eng):
+    engine, sink = eng
+    feed_ws1(engine, WS1_QUIET_T, 11, temps=(60.0, 88.0, 60.0, 87.0))
+    assert fired(sink.events) == [
+        ("gpu_temp_critical", "gpu1.temp_c", "GPU temperature critical on ws1 · GPU 1"),
+        ("gpu_temp_critical", "gpu3.temp_c", "GPU temperature critical on ws1 · GPU 3"),
+    ]
+
+
+def test_throttle_rules_accept_globs_and_one_with_no_metric_watches_every_gpu(eng):
+    engine, sink = eng
+    feed_ws1(engine, WS1_QUIET_T, 11, masks=(0, 0, 0x20, 0))
+    (ev,) = [e for e in sink.events if e.rule_id == "gpu_throttle"]
+    assert (ev.metric, ev.title, ev.detail) == (
+        "gpu2.throttle_mask",
+        "GPU throttling on ws1 · GPU 2",
+        "Thermal limit for 10 s",
+    )
+    no_metric = AlertRule(id="any", name="Clock limit", kind="throttle", threshold=0x20, for_s=0)
+    engine.set_rules([no_metric], WS1_QUIET_T)
+    feed_ws1(engine, WS1_QUIET_T + 20, 1, masks=(0x20, 0, 0x20, 0))
+    assert fired([e for e in sink.events if e.rule_id == "any"]) == [
+        ("any", "gpu0.throttle_mask", "Clock limit on ws1 · GPU 0"),
+        ("any", "gpu2.throttle_mask", "Clock limit on ws1 · GPU 2"),
+    ]
+
+
+def test_a_glob_rule_fires_once_for_one_hot_gpu_although_the_node_total_matches_it_too(eng):
+    engine, sink = eng
+    engine.set_rules(
+        [
+            AlertRule(id="any_gpu", name="Any GPU hot", metric="gpu*.temp_c", threshold=85, for_s=0),
+            AlertRule(id="any_temp", name="Anything hot", metric="*.temp_c", threshold=85, for_s=0),
+        ],
+        T0,
+    )
+    feed_ws1(engine, WS1_QUIET_T, 1, temps=(60.0, 60.0, 60.0, 90.0))
+    feed(engine, T0, 1, temp=90.0)
+    assert fired(sink.events) == [
+        ("any_gpu", "gpu3.temp_c", "Any GPU hot on ws1 · GPU 3"),
+        ("any_temp", "gpu3.temp_c", "Anything hot on ws1 · GPU 3"),
+        ("any_gpu", "gpu0.temp_c", "Any GPU hot on spark2"),
+        ("any_temp", "gpu0.temp_c", "Anything hot on spark2"),
+    ]
+
+
+def test_a_rule_naming_the_node_total_fires_on_the_total_and_so_does_a_glob_over_totals_only(eng):
+    engine, sink = eng
+    engine.set_rules(
+        [
+            AlertRule(id="total", name="Hottest GPU", metric="gpu.temp_c", threshold=85, for_s=0),
+            AlertRule(id="totals", name="Node GPU temperature", metric="gpu.temp*", threshold=85, for_s=0),
+        ],
+        T0,
+    )
+    feed_ws1(engine, WS1_QUIET_T, 1, temps=(60.0, 60.0, 60.0, 90.0))
+    assert fired(sink.events) == [
+        ("total", "gpu.temp_c", "Hottest GPU on ws1"),
+        ("totals", "gpu.temp_c", "Node GPU temperature on ws1"),
+    ]
+
+
+@pytest.mark.parametrize("info", [MODEL.info, None], ids=["with node info", "before the hello"])
+def test_on_a_one_gpu_node_the_default_gpu_rules_read_exactly_as_before(eng, info):
+    engine, sink = eng
+    for i in range(11):
+        engine.evaluate_sample("spark2", sample(T0 + i, temp=86.0, mask=0x20), info)
+    engine.evaluate_sample("spark2", sample(T0 + 11), info)
+    events = [e for e in sink.events if e.rule_id and e.rule_id.startswith("gpu_")]
+    assert [(e.metric, e.title, e.detail) for e in events] == [
+        ("gpu0.temp_c", "GPU temperature critical on spark2", "86 °C for 10 s (threshold 85 °C)"),
+        ("gpu0.throttle_mask", "GPU throttling on spark2", "Thermal limit for 10 s"),
+        (
+            "gpu0.temp_c",
+            "Resolved: GPU temperature critical on spark2",
+            "Now 60 °C · cleared after 1 s · was critical",
+        ),
+        (
+            "gpu0.throttle_mask",
+            "Resolved: GPU throttling on spark2",
+            "No longer throttling · cleared after 1 s · was warning",
+        ),
+    ]
+
+
+GPU0_METRICS = {
+    "gpu_temp_high": "gpu0.temp_c",
+    "gpu_temp_critical": "gpu0.temp_c",
+    "gpu_throttle": "gpu0.throttle_mask",
+    "gpu_power_cap": "gpu0.throttle_mask",
+}
+
+
+def saved(tmp_path, rules: list[dict]) -> Cluster:
+    store = Store(tmp_path / "console.sqlite")
+    store.kv_set("alert_rules", rules)
+    return Cluster(store, Hub(), ConsoleSettings())
+
+
+def test_saved_copies_of_the_gpu0_defaults_load_watching_every_gpu_and_still_fire(tmp_path):
+    rules = [{**r.model_dump(), "metric": GPU0_METRICS.get(r.id, r.metric)} for r in DEFAULT_RULES]
+    next(r for r in rules if r["id"] == "gpu_temp_high")["threshold"] = 75.0
+    cluster = saved(tmp_path, rules)
+
+    loaded = {r.id: r for r in cluster.alerts.rules}
+    assert {i: loaded[i].metric for i in GPU0_METRICS} == {
+        "gpu_temp_high": "gpu*.temp_c",
+        "gpu_temp_critical": "gpu*.temp_c",
+        "gpu_throttle": "gpu*.throttle_mask",
+        "gpu_power_cap": "gpu*.throttle_mask",
+    }
+    assert [r.model_dump() for r in cluster.alerts.rules] == [
+        {**raw, "metric": loaded[raw["id"]].metric} for raw in rules
+    ], "every other field stays as saved"
+    for i in range(31):
+        cluster.alerts.evaluate_sample("spark2", sample(T0 + i, temp=86.0), MODEL.info)
+        cluster.alerts.evaluate_sample(
+            "ws1", ws1_sample(WS1_QUIET_T + i, temps=(60.0, 60.0, 60.0, 86.0)), WS1.info
+        )
+    assert fired(cluster.store.list_events()) == [
+        ("gpu_temp_critical", "gpu0.temp_c", "GPU temperature critical on spark2"),
+        ("gpu_temp_critical", "gpu3.temp_c", "GPU temperature critical on ws1 · GPU 3"),
+        ("gpu_temp_high", "gpu0.temp_c", "GPU temperature high on spark2"),
+        ("gpu_temp_high", "gpu3.temp_c", "GPU temperature high on ws1 · GPU 3"),
+    ]
+
+
+def test_a_saved_rule_the_user_pointed_at_gpu0_under_its_own_id_still_watches_gpu_0_only(tmp_path):
+    mine = AlertRule(id="gpu0_hot", name="GPU 0 hot", metric="gpu0.temp_c", threshold=85, for_s=0)
+    cluster = saved(tmp_path, [mine.model_dump()])
+    assert cluster.alerts.rules == [mine]
+    cluster.alerts.evaluate_sample("ws1", ws1_sample(WS1_QUIET_T, temps=(60.0, 60.0, 60.0, 90.0)), WS1.info)
+    assert cluster.store.list_events() == []
+    cluster.alerts.evaluate_sample(
+        "ws1", ws1_sample(WS1_QUIET_T + 1, temps=(90.0, 60.0, 60.0, 90.0)), WS1.info
+    )
+    assert fired(cluster.store.list_events()) == [("gpu0_hot", "gpu0.temp_c", "GPU 0 hot on ws1 · GPU 0")]
+
+
+def restart(cluster: Cluster) -> Cluster:
+    return Cluster(cluster.store, Hub(), ConsoleSettings())
+
+
+def edited(rules: list[AlertRule], rule_id: str, **fields) -> list[AlertRule]:
+    return [r.model_copy(update=fields) if r.id == rule_id else r for r in rules]
+
+
+def test_a_default_rule_the_user_points_at_gpu_0_still_watches_gpu_0_only_after_restarts(tmp_path):
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    mine = edited(
+        edited(DEFAULT_RULES, "gpu_temp_high", metric="gpu0.temp_c"),
+        "gpu_throttle",
+        metric="gpu0.throttle_mask",
+    )
+    cluster.update_rules(mine)
+    cluster = restart(restart(cluster))
+    assert cluster.alerts.rules == mine
+    for i in range(31):
+        s = ws1_sample(WS1_QUIET_T + i, temps=(60.0, 60.0, 60.0, 82.0), masks=(0, 0, 0, 0x20))
+        cluster.alerts.evaluate_sample("ws1", s, WS1.info)
+    assert fired(cluster.store.list_events()) == []
+    for i in range(31, 62):
+        s = ws1_sample(WS1_QUIET_T + i, temps=(82.0, 60.0, 60.0, 60.0), masks=(0x20, 0, 0, 0))
+        cluster.alerts.evaluate_sample("ws1", s, WS1.info)
+    assert fired(cluster.store.list_events()) == [
+        ("gpu_throttle", "gpu0.throttle_mask", "GPU throttling on ws1 · GPU 0"),
+        ("gpu_temp_high", "gpu0.temp_c", "GPU temperature high on ws1 · GPU 0"),
+    ]
+
+
+def test_defaults_the_user_never_touched_still_watch_every_gpu_after_a_save_and_a_restart(tmp_path):
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    mine = edited(DEFAULT_RULES, "mem_pressure", threshold=20.0)
+    cluster.update_rules(mine)
+    assert restart(cluster).alerts.rules == mine
+
+
+def test_an_older_console_reads_each_saved_throttle_default_as_a_key_it_can_watch(tmp_path):
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    cluster.update_rules(DEFAULT_RULES)
+    stored = {r["id"]: r["metric"] for r in cluster.store.kv_get("alert_rules")}
+    assert {i: stored[i] for i in GPU0_METRICS} == {
+        "gpu_temp_high": "gpu*.temp_c",
+        "gpu_temp_critical": "gpu*.temp_c",
+        "gpu_throttle": "gpu0.throttle_mask",
+        "gpu_power_cap": "gpu0.throttle_mask",
+    }
+    assert {r.id: r.metric for r in cluster.alerts.rules if r.kind == "throttle"} == {
+        "gpu_throttle": "gpu*.throttle_mask",
+        "gpu_power_cap": "gpu*.throttle_mask",
+    }
+
+
+def test_rules_an_older_console_saved_after_a_downgrade_keep_this_consoles_choices_and_the_older_edits(
+    tmp_path,
+):
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    cluster.update_rules(edited(DEFAULT_RULES, "gpu_temp_high", metric="gpu0.temp_c"))
+    older = cluster.store.kv_get("alert_rules")
+    for r in older:
+        if r["id"] == "mem_pressure":
+            r["threshold"] = 20.0
+        if r["id"] == "gpu_temp_critical":
+            r["metric"] = "gpu0.temp_c"
+    cluster.store.kv_set("alert_rules", older)
+
+    loaded = {r.id: r for r in restart(cluster).alerts.rules}
+    assert {i: loaded[i].metric for i in GPU0_METRICS} == {
+        "gpu_temp_high": "gpu0.temp_c",
+        "gpu_temp_critical": "gpu0.temp_c",
+        "gpu_throttle": "gpu*.throttle_mask",
+        "gpu_power_cap": "gpu*.throttle_mask",
+    }
+    assert loaded["mem_pressure"].threshold == 20.0
+
+
+def started_with_rule_metrics(tmp_path, row: object) -> Cluster:
+    store = Store(tmp_path / "console.sqlite")
+    store.kv_set(
+        "alert_rules", [{**r.model_dump(), "metric": GPU0_METRICS.get(r.id, r.metric)} for r in DEFAULT_RULES]
+    )
+    store.kv_set("alert_rule_metrics", row)
+    return Cluster(store, Hub(), ConsoleSettings())
+
+
+@pytest.mark.parametrize("row", [["gpu_temp_high", "gpu_throttle"], "gpu_temp_high=gpu0.temp_c", 7])
+def test_a_rule_metrics_row_that_is_not_an_object_loads_the_saved_rules_as_if_it_were_absent(tmp_path, row):
+    assert started_with_rule_metrics(tmp_path, row).alerts.rules == DEFAULT_RULES
+
+
+def test_a_rule_metrics_entry_that_is_not_a_metric_loads_its_rule_as_if_it_had_none(tmp_path):
+    row = {"gpu_temp_high": 5, "gpu_throttle": ["gpu*.throttle_mask"], "gpu_temp_critical": "gpu0.temp_c"}
+    assert started_with_rule_metrics(tmp_path, row).alerts.rules == edited(
+        DEFAULT_RULES, "gpu_temp_critical", metric="gpu0.temp_c"
+    )
+
+
+def test_a_rule_save_that_fails_part_way_leaves_the_saved_rules_as_they_were(tmp_path):
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    mine = edited(DEFAULT_RULES, "gpu_throttle", metric="gpu0.throttle_mask")
+    cluster.update_rules(mine)
+    metrics_before = cluster.store.kv_get("alert_rule_metrics")
+    cluster.store.db.execute(
+        "CREATE TRIGGER disk_full BEFORE INSERT ON kv WHEN NEW.key='alert_rules' "
+        "BEGIN SELECT RAISE(ABORT,'disk full'); END"
+    )
+    with pytest.raises(sqlite3.Error, match="disk full"):
+        cluster.update_rules(DEFAULT_RULES)
+    assert cluster.store.kv_get("alert_rule_metrics") == metrics_before
+    assert restart(cluster).alerts.rules == mine

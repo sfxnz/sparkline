@@ -2,9 +2,12 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
-import type { ClusterState, GpuInfo, NodeInfo, NodeState } from '../lib/types';
+import type { ClusterState, GpuInfo, NodeInfo, NodeState, Sample } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
+import { liveStore } from '../store/live';
+import wsInfo from '../test/fixtures/platforms/workstation/info.json';
+import wsSample from '../test/fixtures/platforms/workstation/sample.json';
 import Node, { NodeNotice } from './Node';
 
 // Tab bodies are their own lazy chunks (charts need a real browser); here each one just names itself.
@@ -335,5 +338,33 @@ describe('Node page', () => {
     await user.keyboard('{Home}');
     expect(loc.history.at(-1)).toBe('/node/spark2');
     expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  describe('the header of a four-GPU workstation (ws1, slowdown 93 °C)', () => {
+    const reading = wsSample as unknown as Sample;
+    const showWs1 = (gpu3: Partial<Sample['gpu'][number]>) => {
+      useCluster.getState().setHello(hello([{ ...base, node_id: 'ws1', info: wsInfo as unknown as NodeInfo }]));
+      act(() => {
+        liveStore.removeNode('ws1');
+        liveStore.pushSample({ ...reading, ts: Date.now() / 1000, gpu: reading.gpu.map((g) => (g.index === 3 ? { ...g, ...gpu3 } : g)) });
+        liveStore.flush();
+      });
+      renderAt('/node/ws1');
+      return document.querySelector('.nhead [data-status]')?.getAttribute('data-status');
+    };
+
+    it('raises the status pill when only GPU 3 is at its slowdown temperature', () => {
+      expect(showWs1({ temp_c: 94 })).toBe('critical');
+    });
+    it('raises the status pill when only GPU 3 has its clocks cut by overheating', () => {
+      expect(showWs1({ throttle_mask: 0x40 })).toBe('critical');
+    });
+    it('keeps the status pill healthy while GPU 3 is calm', () => {
+      expect(showWs1({})).toBe('healthy');
+    });
+    it('names the GPU set in the meta row', () => {
+      showWs1({});
+      expect(screen.getByRole('list', { name: 'ws1 details' })).toHaveTextContent('4× NVIDIA RTX 6000 Ada Generation');
+    });
   });
 });

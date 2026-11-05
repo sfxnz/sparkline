@@ -65,6 +65,21 @@ for (const width of [375, 1440]) {
   });
 }
 
+for (const width of [375, 1440]) {
+  test(`a GPU section the attention summary jumps to starts below the sticky toolbar at ${width} px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${MIXED}/node/ws1/gpu`);
+    const section = page.getByRole('region', { name: 'GPU 3', exact: true });
+    await expect(section.locator('.stat', { hasText: 'Utilisation' })).toContainText(/\d+\s*%/, { timeout: 15_000 });
+    const below = await section.evaluate((el) => {
+      el.scrollIntoView({ block: 'start' });
+      const bar = document.querySelector('.toolbar')?.getBoundingClientRect().bottom ?? Infinity;
+      return Math.round(el.getBoundingClientRect().top - bar);
+    });
+    expect(below).toBeGreaterThanOrEqual(0);
+  });
+}
+
 interface RunJson {
   id: string;
   status: string;

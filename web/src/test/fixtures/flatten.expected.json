@@ -23,6 +23,9 @@
   "fs.root.total": 3800000000000.0,
   "fs.root.used": 3116000000000.0,
   "fs.root.used_pct": 86.17256637168141,
+  "gpu.power_w": 32.4,
+  "gpu.temp_c": 71.0,
+  "gpu.util": 91.0,
   "gpu0.energy_j": 123456789.0,
   "gpu0.power_capped_pct": 12.5,
   "gpu0.power_w": 32.4,
@@ -54,6 +57,217 @@
   "temp.acpitz.0": 63.5,
   "temp.mlx5.0": 66.0
  },
+ "gpu_totals": [
+  {
+   "case": "four GPUs that all report",
+   "errors": {},
+   "flatten": {
+    "gpu.power_w": 999.5,
+    "gpu.temp_c": 91.0,
+    "gpu.util": 47.75,
+    "gpu0.power_w": 250.5,
+    "gpu0.temp_c": 70.0,
+    "gpu0.util": 90.0,
+    "gpu1.power_w": 248.25,
+    "gpu1.temp_c": 82.5,
+    "gpu1.util": 60.5,
+    "gpu2.power_w": 251.0,
+    "gpu2.temp_c": 64.0,
+    "gpu2.util": 30.25,
+    "gpu3.power_w": 249.75,
+    "gpu3.temp_c": 91.0,
+    "gpu3.util": 10.25
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 250.5,
+     "temp_c": 70.0,
+     "util": 90.0
+    },
+    {
+     "index": 1,
+     "power_w": 248.25,
+     "temp_c": 82.5,
+     "util": 60.5
+    },
+    {
+     "index": 2,
+     "power_w": 251.0,
+     "temp_c": 64.0,
+     "util": 30.25
+    },
+    {
+     "index": 3,
+     "power_w": 249.75,
+     "temp_c": 91.0,
+     "util": 10.25
+    }
+   ]
+  },
+  {
+   "case": "GPU 2 sent no power reading",
+   "errors": {},
+   "flatten": {
+    "gpu.temp_c": 91.0,
+    "gpu.util": 47.75,
+    "gpu0.power_w": 250.5,
+    "gpu0.temp_c": 70.0,
+    "gpu0.util": 90.0,
+    "gpu1.power_w": 248.25,
+    "gpu1.temp_c": 82.5,
+    "gpu1.util": 60.5,
+    "gpu2.temp_c": 64.0,
+    "gpu2.util": 30.25,
+    "gpu3.power_w": 249.75,
+    "gpu3.temp_c": 91.0,
+    "gpu3.util": 10.25
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 250.5,
+     "temp_c": 70.0,
+     "util": 90.0
+    },
+    {
+     "index": 1,
+     "power_w": 248.25,
+     "temp_c": 82.5,
+     "util": 60.5
+    },
+    {
+     "index": 2,
+     "power_w": null,
+     "temp_c": 64.0,
+     "util": 30.25
+    },
+    {
+     "index": 3,
+     "power_w": 249.75,
+     "temp_c": 91.0,
+     "util": 10.25
+    }
+   ]
+  },
+  {
+   "case": "a lost GPU 0 sends an empty reading",
+   "errors": {},
+   "flatten": {
+    "gpu.temp_c": 91.0,
+    "gpu.util": 33.666666666666664,
+    "gpu1.power_w": 248.25,
+    "gpu1.temp_c": 82.5,
+    "gpu1.util": 60.5,
+    "gpu2.power_w": 251.0,
+    "gpu2.temp_c": 64.0,
+    "gpu2.util": 30.25,
+    "gpu3.power_w": 249.75,
+    "gpu3.temp_c": 91.0,
+    "gpu3.util": 10.25
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": null,
+     "temp_c": null,
+     "util": null
+    },
+    {
+     "index": 1,
+     "power_w": 248.25,
+     "temp_c": 82.5,
+     "util": 60.5
+    },
+    {
+     "index": 2,
+     "power_w": 251.0,
+     "temp_c": 64.0,
+     "util": 30.25
+    },
+    {
+     "index": 3,
+     "power_w": 249.75,
+     "temp_c": 91.0,
+     "util": 10.25
+    }
+   ]
+  },
+  {
+   "case": "a failed backend dropped its GPUs",
+   "errors": {
+    "gpu": "amd: RuntimeError: read failed"
+   },
+   "flatten": {
+    "gpu.temp_c": 82.5,
+    "gpu.util": 75.25,
+    "gpu0.power_w": 250.5,
+    "gpu0.temp_c": 70.0,
+    "gpu0.util": 90.0,
+    "gpu1.power_w": 248.25,
+    "gpu1.temp_c": 82.5,
+    "gpu1.util": 60.5
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 250.5,
+     "temp_c": 70.0,
+     "util": 90.0
+    },
+    {
+     "index": 1,
+     "power_w": 248.25,
+     "temp_c": 82.5,
+     "util": 60.5
+    }
+   ]
+  },
+  {
+   "case": "no GPU",
+   "errors": {},
+   "flatten": {},
+   "gpu": []
+  },
+  {
+   "case": "totals add in sample order, without compensated summation",
+   "errors": {},
+   "flatten": {
+    "gpu.power_w": 0.6000000000000001,
+    "gpu.temp_c": 0.3,
+    "gpu.util": 0.20000000000000004,
+    "gpu0.power_w": 0.1,
+    "gpu0.temp_c": 0.1,
+    "gpu0.util": 0.1,
+    "gpu1.power_w": 0.2,
+    "gpu1.temp_c": 0.2,
+    "gpu1.util": 0.2,
+    "gpu2.power_w": 0.3,
+    "gpu2.temp_c": 0.3,
+    "gpu2.util": 0.3
+   },
+   "gpu": [
+    {
+     "index": 0,
+     "power_w": 0.1,
+     "temp_c": 0.1,
+     "util": 0.1
+    },
+    {
+     "index": 1,
+     "power_w": 0.2,
+     "temp_c": 0.2,
+     "util": 0.2
+    },
+    {
+     "index": 2,
+     "power_w": 0.3,
+     "temp_c": 0.3,
+     "util": 0.3
+    }
+   ]
+  }
+ ],
  "mem_placeholder": {
   "flatten": {
    "cpu.core0.mhz": 2808.0,
@@ -79,6 +293,9 @@
    "fs.root.total": 3800000000000.0,
    "fs.root.used": 3116000000000.0,
    "fs.root.used_pct": 86.17256637168141,
+   "gpu.power_w": 32.4,
+   "gpu.temp_c": 71.0,
+   "gpu.util": 91.0,
    "gpu0.energy_j": 123456789.0,
    "gpu0.power_capped_pct": 12.5,
    "gpu0.power_w": 32.4,

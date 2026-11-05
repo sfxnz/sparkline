@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, get_args
 
+from ....common.metrics import GPU_TOTALS
 from ....common.schema import LEGACY_VERSION_KEYS, GpuInfo, GpuSample, Unsupported, UnsupportedKind, Vendor
 from ...sources import Sources
 from .. import Caps, GpuField
@@ -79,7 +80,7 @@ def _joined(metric: str, failures: list[_Failure]) -> Unsupported:
 
 class GpuCollector:
     name = "gpu"
-    prefixes = ("gpu*", "gpu.backend", "mem.gpu")
+    prefixes = ("gpu*", "gpu.backend", "mem.gpu", *(f"gpu.{f}" for f in GPU_TOTALS))
 
     def __init__(self, src: Sources) -> None:
         self.info: list[GpuInfo] = []
@@ -133,6 +134,8 @@ class GpuCollector:
                 first.model_copy(update={"metric": "mem.gpu"}) if first and all(procs) else None
             )
             self._caps["gpu.backend"] = None
+            for field in GPU_TOTALS:
+                self._caps[f"gpu.{field}"] = self._total_gap(field)
             failures = [f for f in failures if not f.vendor_absent]
         else:
             none = Unsupported(metric="gpu*", reason=f"No GPU backend reads {src.platform} yet", kind="agent")
@@ -141,9 +144,20 @@ class GpuCollector:
             self._caps["mem.gpu"] = gap.model_copy(update={"metric": "mem.gpu"})
             absent = failures and all(f.vendor_absent for f in failures)
             self._caps["gpu.backend"] = None if absent else gap.model_copy(update={"metric": "gpu.backend"})
+            for field in GPU_TOTALS:
+                self._caps[f"gpu.{field}"] = gap.model_copy(update={"metric": f"gpu.{field}"})
         for f in failures:
             metric = f"gpu.backend.{f.backend}"
             self._caps[metric] = Unsupported(metric=metric, reason=f.reason, kind=f.kind)
+
+    def _total_gap(self, field: str) -> Unsupported | None:
+        every = GPU_TOTALS[field].needs_every_gpu
+        gaps = [(g.index, gap) for g in self.info if (gap := self._caps[f"gpu{g.index}.{field}"])]
+        if not gaps or (not every and len(gaps) < len(self.info)):
+            return None
+        index, gap = gaps[0]
+        reason = f"GPU {index}: {gap.reason}" if every and len(self.info) > 1 else gap.reason
+        return gap.model_copy(update={"metric": f"gpu.{field}", "reason": reason})
 
     def _adopt(
         self,

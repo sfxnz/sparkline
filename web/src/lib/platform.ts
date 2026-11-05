@@ -1,5 +1,5 @@
 import { describeGap, lostGpu, notReported, type NotReported } from './capabilities';
-import { gpuAt } from './gpu';
+import { everyGpuLost } from './gpu';
 import { GPU_VENDORS, type GpuVendor, type NodeInfo } from './types';
 
 const PLATFORM_LABEL = new Map([['linux', 'Linux'], ['darwin', 'macOS']]);
@@ -89,10 +89,17 @@ export function noGpuLabel(info: NodeInfo): string | null {
   return missing === 'No GPU backend opened' ? 'No GPU backend' : missing === 'No GPU found' ? 'No GPU' : null;
 }
 
-/** The node's headline GPU: GPU 0's name, "GPU not responding" when its backend sees it but cannot read it, or why
- *  the node has no GPU. */
+/** The node's GPUs by name in index order, a repeated name counted once: "4× NVIDIA RTX 6000 Ada Generation",
+ *  "NVIDIA GB10 + Radeon 8060S". Null when the node lists no GPU. */
+export function gpuSetName(info: NodeInfo): string | null {
+  const counts = new Map<string, number>();
+  for (const g of info.gpus.toSorted((a, b) => a.index - b.index)) counts.set(g.name, (counts.get(g.name) ?? 0) + 1);
+  return counts.size ? [...counts].map(([name, n]) => (n > 1 ? `${n}× ${name}` : name)).join(' + ') : null;
+}
+
+/** The node's headline GPUs: the set's name, "GPU not responding" for a lone GPU its backend sees but cannot read, or
+ *  why the node has no GPU. */
 export function gpuHeadline(info: NodeInfo): string | null {
-  const g = gpuAt(info.gpus, 0);
-  if (!g) return noGpuLabel(info);
-  return lostGpu(info, 0) ? 'GPU not responding' : g.name;
+  if (info.gpus.length === 1 && everyGpuLost(info)) return 'GPU not responding';
+  return gpuSetName(info) ?? noGpuLabel(info);
 }

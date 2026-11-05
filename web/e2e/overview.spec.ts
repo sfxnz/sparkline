@@ -3,7 +3,8 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 
-const sample = JSON.parse(readFileSync(new URL('../src/test/fixtures/sample.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+const fixture = (path: string) => JSON.parse(readFileSync(new URL(`../src/test/fixtures/${path}`, import.meta.url), 'utf8')) as Record<string, unknown>;
+const sample = fixture('sample.json');
 
 /**
  * A stubbed two-node console where spark2 reports no memory (mem_total 0) and its energy history fails to load, so
@@ -76,5 +77,138 @@ for (const linked of [false, true]) {
         await expect.poll(() => footer(label).evaluate(shows, 'excl. spark2'), { message: `${label} footer shows "excl. spark2" at ${width} px` }).toBe(true);
       }
     }
+  });
+}
+
+interface GpuReading { index: number; temp_c?: number | null }
+
+async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading, gaps: unknown[] = []) {
+  const now = Date.now() / 1000;
+  const base = fixture('platforms/workstation/info.json');
+  const info = { ...base, node_id: 'ws1', unsupported: [...(base.unsupported as unknown[]), ...gaps] };
+  const reading = fixture('platforms/workstation/sample.json');
+  await page.route('**/api/**', (route) => route.fulfill({ status: 502, body: '' }));
+  await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { ok: true } }));
+  await page.route('**/api/v1/live**', (route) => route.fulfill({ status: 404, body: '' }));
+  await page.routeWebSocket('**/api/v1/stream', (ws) => {
+    ws.send(JSON.stringify({
+      type: 'hello',
+      cluster: {
+        nodes: [{ node_id: 'ws1', url: '', status: 'online', since: now, last_sample_ts: now, error: null, info, next_retry_ts: null }],
+        settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 },
+        demo: true,
+        version: 'test',
+        server_time: now,
+      },
+    }));
+    ws.send(JSON.stringify({ type: 'sample', node_id: 'ws1', sample: { ...reading, node_id: 'ws1', ts: now, gpu: (reading.gpu as GpuReading[]).map(gpus) } }));
+  });
+}
+
+const paintsInFull = (el: Element, text: string) => {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const at = n.textContent?.indexOf(text) ?? -1;
+    if (at < 0 || !n.parentElement?.checkVisibility()) continue;
+    const range = document.createRange();
+    range.setStart(n, at);
+    range.setEnd(n, at + text.length);
+    const r = range.getBoundingClientRect();
+    let inside = true;
+    for (let box = n.parentElement as Element | null; box && box !== el.parentElement; box = box.parentElement) {
+      const style = getComputedStyle(box);
+      if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+      const b = box.getBoundingClientRect();
+      inside &&= r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5;
+    }
+    if (inside) return true;
+  }
+  return false;
+};
+
+test('the ws1 card shows GPU 3 at slowdown in full on a phone and a laptop', async ({ page }) => {
+  await workstation(page, (g) => (g.index === 3 ? { ...g, temp_c: 94 } : g));
+  await page.goto('/');
+  const card = page.getByRole('region', { name: 'Node ws1' });
+  await expect(card).toContainText('At slowdown');
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const text of ['At slowdown', 'GPU 3']) {
+      await expect.poll(() => card.evaluate(paintsInFull, text), { message: `ws1 card shows "${text}" in full at ${String(width)} px` }).toBe(true);
+    }
+  }
+});
+
+/** The visible " · " separators in `el` that start a line: each should share a line with the word before it. */
+const strandedSeparators = (el: Element) => {
+  const words: { text: string; top: number; block: Element | null }[] = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.parentElement?.checkVisibility() || n.parentElement.closest('.visually-hidden')) continue;
+    let block: Element | null = n.parentElement;
+    while (block && getComputedStyle(block).display.startsWith('inline')) block = block.parentElement;
+    for (const m of (n.textContent ?? '').matchAll(/\S+/g)) {
+      const range = document.createRange();
+      range.setStart(n, m.index);
+      range.setEnd(n, m.index + m[0].length);
+      words.push({ text: m[0], top: Math.round(range.getBoundingClientRect().top), block });
+    }
+  }
+  return words.flatMap((w, i) => {
+    const before = words[i - 1];
+    return w.text === '·' && before?.block === w.block && Math.abs(before.top - w.top) > 4 ? [`· after "${before.text}"`] : [];
+  });
+};
+
+for (const [state, temp] of [['heating up', 88], ['at slowdown', 94]] as const) {
+  test(`the ws1 card never starts a line with a separator while GPU 3 is ${state}`, async ({ page }) => {
+    await workstation(page, (g) => (g.index === 3 ? { ...g, temp_c: temp } : g));
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Node ws1' });
+    await expect(card).toContainText('GPU 3');
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => card.evaluate(strandedSeparators), { message: `separators starting a line at ${String(width)} px` }).toEqual([]);
+    }
+  });
+}
+
+const LOST_GPU0 = [{ metric: 'gpu0', reason: 'NVML could not open GPU 0 (NVML: GPU is lost)', kind: 'hardware' }];
+
+for (const [state, temp] of [['calm', 77], ['heating up', 89], ['at slowdown', 94]] as const) {
+  test(`the ws1 card says its temperature reads 3 of 4 GPUs while GPU 0 is lost and GPU 3 is ${state}`, async ({ page }) => {
+    await workstation(page, (g) => (g.index === 0 ? { index: 0 } : g.index === 3 ? { ...g, temp_c: temp } : g), LOST_GPU0);
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Node ws1' });
+    await expect(card).toContainText('GPU temp');
+    const stats = card.locator('.ov-card__stats');
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => stats.evaluate(paintsInFull, '3 of 4 GPUs'), { message: `"3 of 4 GPUs" under the temperature at ${String(width)} px` }).toBe(true);
+    }
+  });
+}
+
+for (const [state, temp, flag, gaps] of [
+  ['heating up', 89, 'headroom', []],
+  ['at slowdown', 94, 'At slowdown', []],
+  ['heating up beside a lost GPU 0', 89, 'headroom', LOST_GPU0],
+  ['at slowdown beside a lost GPU 0', 94, 'At slowdown', LOST_GPU0],
+] as const) {
+  test(`the ws1 card paints its flag in full at every width from 320 to 1440 px while GPU 3 is ${state}`, async ({ page }) => {
+    await workstation(page, (g) => (gaps.length && g.index === 0 ? { index: 0 } : g.index === 3 ? { ...g, temp_c: temp } : g), [...gaps]);
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Node ws1' });
+    await expect(card).toContainText(flag);
+    const stats = card.locator('.ov-card__stats');
+    const texts = [flag, 'GPU 3', ...(gaps.length ? ['3 of 4 GPUs'] : [])];
+    const clipped: string[] = [];
+    const sweep = Array.from({ length: 141 }, (_, i) => 320 + 8 * i);
+    for (const width of [...sweep, 455, 460, 465, 470, 650]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      for (const text of texts) if (!(await stats.evaluate(paintsInFull, text))) clipped.push(`"${text}" at ${String(width)} px`);
+    }
+    expect(clipped).toEqual([]);
   });
 }

@@ -3,9 +3,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
-
-/** Matches when `at` is a GPU list: `gpus`, `x.gpu`, `x?.gpu`, `x['gpus']`. */
-const gpuList = (at) => [`${at}.name`, `${at}.property.name`, `${at}.property.value`, `${at}.expression.property.name`].map((k) => `[${k}=/^gpus?$/]`).join(', ');
+import gpuIndex from './eslint-rules/gpu-index.js';
 
 export default tseslint.config(
   { ignores: ['dist', 'playwright-report', 'test-results', 'screenshots', 'node_modules'] },
@@ -17,26 +15,15 @@ export default tseslint.config(
       globals: globals.browser,
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
-    plugins: { 'react-hooks': reactHooks },
+    plugins: { 'react-hooks': reactHooks, sparkline: { rules: { 'gpu-index': gpuIndex } } },
     rules: {
       ...reactHooks.configs.recommended.rules,
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
-      'no-restricted-syntax': [
-        'error',
-        ...[
-          'MemberExpression[computed=true]:matches(OBJ)',
-          "CallExpression[callee.property.name='at']:matches(CALLEE)",
-          "VariableDeclarator[id.type='ArrayPattern']:matches(INIT)",
-          "AssignmentExpression[left.type='ArrayPattern']:matches(RIGHT)",
-        ].map((selector) => ({
-          selector: selector.replace(/OBJ|CALLEE|INIT|RIGHT/, (at) => gpuList({ OBJ: 'object', CALLEE: 'callee.object', INIT: 'init', RIGHT: 'right' }[at])),
-          message: 'Read a GPU by its index with gpuAt() (lib/gpu.ts): a sample lists only the GPUs that reported, so position 0 can be another vendor.',
-        })),
-      ],
+      'sparkline/gpu-index': 'error',
     },
   },
   {
-    files: ['eslint.config.js'],
+    files: ['eslint.config.js', 'eslint-rules/*.js'],
     extends: [js.configs.recommended],
     languageOptions: { globals: globals.node },
   },

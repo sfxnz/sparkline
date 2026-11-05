@@ -4,8 +4,13 @@ import type { ClusterState, NodeInfo, NodeState, Sample } from '../../lib/types'
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { useEvents } from '../../store/events';
+import { historyCache } from '../../store/history';
 import { liveStore } from '../../store/live';
 import sampleJson from '../../test/fixtures/sample.json';
+import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
+import gb10Sample from '../../test/fixtures/platforms/gb10/sample.json';
+import wsInfo from '../../test/fixtures/platforms/workstation/info.json';
+import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
 import Overview from '../Overview';
 
 // uPlot needs a real canvas; the charts have their own tests.
@@ -257,5 +262,177 @@ describe('Overview', () => {
     const row = container.querySelector('.ov-cx');
     expect(row).toHaveTextContent('No direct link');
     expect(row).not.toHaveTextContent('Not collected yet');
+  });
+});
+
+describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => {
+  const ws1 = wsInfo as unknown as NodeInfo;
+  const reading = wsSample as unknown as Sample;
+  const withGpus = (over: Record<number, Partial<Sample['gpu'][number]>>): Sample => ({ ...reading, gpu: reading.gpu.map((g) => ({ ...g, ...over[g.index] })) });
+  const show = (sample: Sample, info: NodeInfo = ws1) => {
+    useCluster.getState().setHello(cluster([node('ws1', { info })]));
+    act(() => {
+      liveStore.removeNode('ws1');
+      liveStore.pushSample({ ...sample, ts: now });
+      liveStore.flush();
+    });
+    render(<Overview />);
+    return screen.getByRole('region', { name: 'Node ws1' });
+  };
+  const pill = (scope: HTMLElement) => scope.querySelector('[data-status]')?.getAttribute('data-status');
+  const stat = (scope: HTMLElement, label: string) => within(scope).getByText(label, { selector: '.ov-stat__label' }).parentElement as HTMLElement;
+  const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+  const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+  const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+  const withSpark1 = (sample: Sample, info: NodeInfo = ws1) => {
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10Info as unknown as NodeInfo }), node('ws1', { info })]));
+    act(() => {
+      for (const s of [{ ...(gb10Sample as unknown as Sample), ts: now }, { ...sample, ts: now }]) {
+        liveStore.removeNode(s.node_id);
+        liveStore.pushSample(s);
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+
+  it('shows the node totals on the card, the hero and the cluster totals: mean utilisation, the hottest GPU, the four powers summed', () => {
+    const card = show(reading);
+    expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 86%');
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C16\s°C headroom to the 93 °C slowdown threshold$/);
+    expect(stat(card, 'GPU power')).toHaveTextContent(/^GPU power1069W/);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 86% at 1069 W$/);
+    expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute86%Mean GPU utilisation · /);
+    expect(tile('GPU power')).toHaveTextContent(/^GPU power1069W/);
+  });
+
+  it("says why there is no power total while GPU 2 sends no power reading, and leaves ws1 out of the cluster's", async () => {
+    const counters = Object.fromEntries([0, 1, 2, 3].map((i) => [`gpu${i}.energy_j`, [40_000_000, 40_100_000]]));
+    vi.mocked(globalThis.fetch).mockImplementation(() => Promise.resolve(Response.json({ node_id: 'n', resolution_s: 60, ts: [now - 120, now - 60], series: counters, min: {}, max: {} })));
+    historyCache.clear();
+    withSpark1(withGpus({ 2: { power_w: null } }));
+    const card = screen.getByRole('region', { name: 'Node ws1' });
+    expect(stat(card, 'GPU power')).toHaveTextContent('No total');
+    expect(why(stat(card, 'GPU power'))).toHaveAccessibleDescription('GPU 2 sent no power reading this tick, so a sum would understate.');
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C/);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 74% at 24\.5 W · excl\. ws1$/);
+    expect(tile('GPU power')).toHaveTextContent(/^GPU power24\.5W/);
+    expect(await within(tile('GPU power')).findByText(/^Now excl\. ws1 · Today \d/)).not.toHaveTextContent(/Today.*excl\./);
+    expect(tile('Cluster compute')).not.toHaveTextContent('excl.');
+  });
+
+  it("reads utilisation and temperature from GPUs 1 to 3 while GPU 0 is lost, keeps counting ws1's processes and gives the lost GPU as the power gap", () => {
+    const lost = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    const card = show(withGpus({ 0: { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null } }), lost);
+    expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 87%, from 3 of 4 GPUs');
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C/);
+    expect(stat(card, 'GPU power')).toHaveTextContent('No total');
+    expect(why(stat(card, 'GPU power'))).toHaveAccessibleDescription(`GPU 0: ${LOST}`);
+    expect(tile('Active GPU processes')).toHaveTextContent(/^Active GPU processes4In 1 container$/);
+  });
+
+  it("names ws1 beside the hero's GPU power while GPU 0 is lost and ws1 has no power total", () => {
+    const lost = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    withSpark1(withGpus({ 0: { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null } }), lost);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/ at 24\.5 W · excl\. ws1$/);
+  });
+
+  it('marks what it reads from 3 of 4 GPUs while GPU 0 is lost, and raises the pill and the cluster sentence', () => {
+    const lost = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    withSpark1(withGpus({ 0: { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null } }), lost);
+    const card = screen.getByRole('region', { name: 'Node ws1' });
+    expect(pill(card)).toBe('warning');
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 0 not responding' })).toBeInTheDocument();
+    expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 87%, from 3 of 4 GPUs');
+    expect(within(card).getByRole('img', { name: /^ws1 GPU utilisation/ })).toHaveAccessibleName(/^ws1 GPU utilisation \(3 of 4 GPUs\)/);
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/headroom to the 93 °C slowdown threshold3 of 4 GPUs$/);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU \d+% \(4 of 5 GPUs\) at 24\.5 W · excl\. ws1$/);
+    expect(tile('Cluster compute')).toHaveTextContent('Mean GPU utilisation (4 of 5 GPUs) · ');
+  });
+
+  it('still counts the GPUs under the temperature of a node whose GPUs declare no slowdown', () => {
+    const lost = { ...ws1, gpus: ws1.gpus.map((g) => ({ ...g, temp_slowdown_c: null })), unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
+    const card = show(withGpus({ 0: { util: null, temp_c: null, power_w: null, throttle_mask: null } }), lost);
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C3 of 4 GPUs$/);
+  });
+
+  const ws2Lost = {
+    ...ws1,
+    node_id: 'ws2',
+    unsupported: [
+      ...[0, 1, 2, 3].map((i) => ({ metric: `gpu${String(i)}`, reason: LOST, kind: 'hardware' })),
+      ...['util', 'temp_c', 'power_w'].map((f) => ({ metric: `gpu.${f}`, reason: `GPU 0: ${LOST}`, kind: 'hardware' })),
+    ],
+  } as NodeInfo;
+  const silent = { ...reading, gpu: reading.gpu.map((g) => ({ index: g.index })) } as Sample;
+  const failed: Sample = { ...reading, gpu: [], errors: { ...reading.errors, gpu: 'nvml: Unknown Error' } };
+  it.each([
+    ['sends no reading from any of its GPUs', silent, { ...ws1, node_id: 'ws2' }],
+    ['has every GPU lost', silent, ws2Lost],
+    ['has its GPU backend fail the tick', failed, { ...ws1, node_id: 'ws2' }],
+  ])('counts the GPUs under the hero and the cluster compute total while ws2 %s', (_, b, info) => {
+    useCluster.getState().setHello(cluster([node('ws1', { info: ws1 }), node('ws2', { info })]));
+    act(() => {
+      for (const s of [{ ...reading, ts: now }, { ...b, node_id: 'ws2', ts: now }]) {
+        liveStore.removeNode(s.node_id);
+        liveStore.pushSample(s);
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 86% \(4 of 8 GPUs\) at 1069 W · excl\. ws2$/);
+    expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute86%Mean GPU utilisation \(4 of 8 GPUs\) · excl\. ws2 · All 2 nodes reporting$/);
+  });
+
+  it('marks nothing on a calm ws1 beside a GB10', () => {
+    withSpark1(reading);
+    expect(document.querySelector('.ov-hero__numbers')).not.toHaveTextContent('GPUs');
+    expect(tile('Cluster compute')).not.toHaveTextContent('GPUs');
+    expect(within(screen.getByRole('region', { name: 'Node ws1' })).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 86%');
+  });
+
+  it.each([
+    ['only GPU 3 is at its slowdown temperature', { 3: { temp_c: 94 } }, 'ws1 has GPU 3 at its slowdown temperature'],
+    ['only GPU 3 has its clocks cut by overheating', { 3: { throttle_mask: 0x40 } }, 'ws1 has GPU 3 clocks limited by overheating'],
+  ])('raises the card pill to critical and names ws1 in the cluster sentence when %s', (_, over, sentence) => {
+    const card = show(withGpus(over));
+    expect(pill(card)).toBe('critical');
+    expect(screen.getByRole('heading', { name: sentence })).toBeInTheDocument();
+  });
+
+  it('flags the hottest GPU on the card and names it under the flag', () => {
+    const card = show(withGpus({ 3: { temp_c: 94 } }));
+    expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp94°CAt slowdown to the 93 °C slowdown thresholdGPU 3$/);
+  });
+
+  it('keeps the card pill healthy while every GPU is calm', () => {
+    expect(pill(show(reading))).toBe('healthy');
+    expect(screen.getByRole('heading', { name: 'ws1 is healthy' })).toBeInTheDocument();
+  });
+
+  it('still names GPU 3 at slowdown while GPU 0 has an open warning alert', () => {
+    useEvents.setState({
+      events: [{ id: 1, ts: now, node_id: 'ws1', severity: 'warning', kind: 'alert', rule_id: 'gpu_temp_high', title: 'GPU temperature high on ws1 · GPU 0', detail: '', metric: 'gpu0.temp_c', value: 88, resolved_ts: null, acked: false }],
+    });
+    show(withGpus({ 0: { temp_c: 88 }, 3: { temp_c: 94 } }));
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 3 at its slowdown temperature · 1 warning' })).toBeInTheDocument();
+  });
+
+  const alert = (severity: 'warning' | 'critical', rule_id: string, metric: string) => ({
+    id: 1, ts: now, node_id: 'ws1', severity, kind: 'alert' as const, rule_id, title: rule_id, detail: '', metric, value: 95, resolved_ts: null, acked: false,
+  });
+  const lostGpu0 = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
+  const gpu0Silent = { 0: { util: null, temp_c: null, power_w: null, throttle_mask: null } };
+
+  it('still says GPU 0 is not responding while an unrelated warning is open on ws1', () => {
+    useEvents.setState({ events: [alert('warning', 'disk_full', 'fs.root.used_pct')] });
+    show(withGpus(gpu0Silent), lostGpu0);
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 0 not responding · 1 warning' })).toBeInTheDocument();
+  });
+
+  it("still says GPU 0 is not responding while GPU 3's critical temperature alert is open", () => {
+    useEvents.setState({ events: [alert('critical', 'gpu_temp_critical', 'gpu3.temp_c')] });
+    show(withGpus({ ...gpu0Silent, 3: { temp_c: 94 } }), lostGpu0);
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 0 not responding · 1 critical alert' })).toBeInTheDocument();
   });
 });

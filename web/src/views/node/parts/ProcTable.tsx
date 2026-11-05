@@ -2,7 +2,7 @@ import { Box, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Table, type Column } from '../../../design/components/Table';
 import { Unsupported } from '../../../design/components/Unsupported';
-import { notReported } from '../../../lib/capabilities';
+import { gpuSetGap } from '../../../lib/gpu';
 import { formatBytes } from '../../../lib/format';
 import type { ProcSample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
@@ -86,7 +86,7 @@ export function ProcTable({ nodeId, mode }: { nodeId: string; mode: 'gpu' | 'mem
     return stale ? <p className="nmuted ntable-pad">No process list was received before {nodeId} stopped reporting.</p> : <div className="ntable-pad"><RowsSkeleton rows={4} /></div>;
   }
   if (mode === 'gpu') {
-    const gap = notReported(info, 'gpu0.proc_mem');
+    const gap = gpuSetGap(info, 'proc_mem', 'any');
     // The Processes tab's table, filtered to GPU users: one look for the same row on every tab.
     return (
       <div className={stale ? 'is-stale' : undefined}>

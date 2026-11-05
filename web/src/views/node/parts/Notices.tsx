@@ -2,18 +2,17 @@ import { ChevronRight, Info, OctagonAlert, TriangleAlert, type LucideIcon } from
 import type { ReactNode } from 'react';
 import { Link } from 'wouter';
 import { paths, type NodeTab } from '../../../app/routes';
-import { lostGpu, notReported } from '../../../lib/capabilities';
+import { notReported } from '../../../lib/capabilities';
 import { decodeThrottle, worstSeverity, type ThrottleReason } from '../../../lib/throttle';
 import type { NodeInfo, Sample, Severity } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
-import { andList, gpuAt, reportingGpus, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
-import { gpuSelector } from './selectors';
+import { andList, gpuAt, gpuCollectorDown, gpuList, reportingGpus, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
 
 // ------------------------------------------------------------------ collector errors
 
-const COLLECTORS: Record<string, { label: string; tab?: NodeTab; metric: string }> = {
-  gpu: { label: 'GPU metrics', tab: 'gpu', metric: 'gpu0' },
+const COLLECTORS: Record<string, { label: string; tab?: NodeTab; metric?: string }> = {
+  gpu: { label: 'GPU metrics', tab: 'gpu' },
   memory: { label: 'Memory metrics', tab: 'memory', metric: 'mem' },
   cpu: { label: 'CPU metrics', tab: 'cpu', metric: 'cpu' },
   net: { label: 'Network metrics', tab: 'network', metric: 'net' },
@@ -33,9 +32,8 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
 
 export const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
 
-/** A lost GPU 0 declares `gpu0` too, but the GPU collector still runs and reads the other GPUs. */
 const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
-  notReported(info, COLLECTORS[name]?.metric ?? name) !== null && !(name === 'gpu' && lostGpu(info, 0));
+  name === 'gpu' ? gpuCollectorDown(info) : notReported(info, COLLECTORS[name]?.metric ?? name) !== null;
 
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
  *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. While
@@ -102,15 +100,13 @@ export const SEVERITY_META: Record<Severity, { label: string; icon: LucideIcon; 
   critical: { label: 'Critical', icon: OctagonAlert, tone: 'tone-crit' },
 };
 
-export const selectThrottleMask = gpuSelector(0, 'throttle_mask');
-
 /** Reasons that actually limit clocks ("Idle" only means there is no work). */
 export const limiting = (reasons: readonly ThrottleReason[]) => reasons.filter((r) => r.code !== 'gpu_idle');
 
 /** Where the SM clock sits against its maximum: near it ('full'), well below it with no work ('idle') or with work
  *  ('low'), or unknown (null). An idle GB10 reports mask 0x0 at about 7% of its maximum clock. */
 export type ClockLevel = 'full' | 'idle' | 'low' | null;
-export function clockLevel(s: Sample | null, maxMhz: number | null, index = 0): ClockLevel {
+export function clockLevel(s: Sample | null, maxMhz: number | null, index: number): ClockLevel {
   const g = gpuAt(s?.gpu, index);
   if (g?.sm_mhz == null || !maxMhz) return null;
   if (g.sm_mhz >= 0.8 * maxMhz) return 'full';
@@ -172,22 +168,37 @@ export function ThrottleRows({ reasons }: { reasons: readonly ThrottleReason[] }
   );
 }
 
-/** Summary-tab note: shown only while something limits the clocks. */
+interface GpuMask { index: number; mask: number | null }
+const selectMasks = (s: Sample | null): GpuMask[] => (s?.gpu ?? []).toSorted((a, b) => a.index - b.index).map((g) => ({ index: g.index, mask: g.throttle_mask }));
+const sameMasks = (a: GpuMask[], b: GpuMask[]) => a.length === b.length && a.every((x, i) => b[i]?.index === x.index && b[i].mask === x.mask);
+
+/** Summary-tab note: shown only while something limits the clocks of any GPU. On a node with several GPUs, it names
+ *  the GPUs at the worst severity. */
 export function ThrottleNotice({ nodeId }: { nodeId: string }) {
-  const mask = useLatest(nodeId, selectThrottleMask);
-  const reasons = decodeThrottle(mask);
-  const active = limiting(reasons);
-  if (!active.length) return null;
-  const head = throttleHeadline(reasons);
-  const m = SEVERITY_META[head.severity === 'ok' ? 'info' : head.severity];
+  const info = useCluster((s) => s.nodes[nodeId]?.info);
+  const masks = useLatest(nodeId, selectMasks, sameMasks);
+  const limited = masks.flatMap(({ index, mask }) => {
+    const reasons = decodeThrottle(mask);
+    return limiting(reasons).length ? [{ index, reasons }] : [];
+  });
+  const all = limited.flatMap((g) => limiting(g.reasons));
+  const worst = worstSeverity(all);
+  if (!worst) return null;
+  const m = SEVERITY_META[worst];
   const Icon = m.icon;
+  const named = (info?.gpus.length ?? 0) > 1 || masks.length > 1;
+  const heads = limited.map((g) => ({ index: g.index, head: throttleHeadline(g.reasons) })).filter((g) => g.head.severity === worst);
+  const said = [...new Set(heads.map((g) => g.head.text))]
+    .map((text) => (named ? `${gpuList(heads.filter((g) => g.head.text === text).map((g) => g.index))}: ${text}` : text))
+    .join('; ');
+  const reasonCount = new Set(all.map((r) => r.bit)).size;
   return (
     <div className={`nnote ${m.tone}`}>
       <Icon className="nnote__icon" aria-hidden="true" />
       <p className="nnote__text">
         {/* Only the worst reason's explanation: three explanations under one heading read as a wall of text,
             and the GPU tab lists every reason with its own. */}
-        <strong>{m.label}: {head.text}.</strong> <span className="nnote__msg">{worstFirst(active)[0]?.explanation}{active.length > 1 ? ' The GPU tab explains the others.' : ''}</span>
+        <strong>{m.label}: {said}.</strong> <span className="nnote__msg">{worstFirst(all)[0]?.explanation}{reasonCount > 1 || heads.length < limited.length ? ' The GPU tab explains the others.' : ''}</span>
       </p>
       <Link href={paths.node(nodeId, 'gpu')} className="nnote__link">
         GPU<ChevronRight aria-hidden="true" />

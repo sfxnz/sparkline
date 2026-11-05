@@ -1,11 +1,12 @@
 // Stable selectors for useLatest (module scope, so subscriptions keep their identity across renders).
-import type { GpuReading } from '../../../lib/metrics';
+import { gpuTotals, type GpuReading, type NodeTotal } from '../../../lib/metrics';
 import type { NodeInfo, Sample } from '../../../lib/types';
-import { gpuAt } from '../../../lib/gpu';
+import { gpuAt, gpuIndexes } from '../../../lib/gpu';
 
 type Select<T> = (s: Sample | null) => T;
 const readings = new Map<string, Select<number | null>>();
 const presence = new Map<number, Select<boolean | null>>();
+const totals = new Map<NodeTotal, Select<number | null>>();
 
 /** One reading of the GPU with this index (not array position), memoised per index and reading. */
 export function gpuSelector(index: number, reading: GpuReading): Select<number | null> {
@@ -22,12 +23,15 @@ export function gpuPresent(index: number): Select<boolean | null> {
   return sel;
 }
 
-export const gpuUtil = gpuSelector(0, 'util');
-export const gpuTemp = gpuSelector(0, 'temp_c');
-export const gpuPower = gpuSelector(0, 'power_w');
-export const gpuSm = gpuSelector(0, 'sm_mhz');
-export const gpuPstate = gpuSelector(0, 'pstate');
-export const gpuEnergy = gpuSelector(0, 'energy_j');
+/** The node's GPU `field` from the key nodeGpuKey names: its one GPU's reading, or the node total over several. */
+export function nodeGpuSelector(info: NodeInfo | null | undefined, field: NodeTotal): Select<number | null> {
+  const [only = 0, ...more] = gpuIndexes(info);
+  if (!more.length) return gpuSelector(only, field);
+  let sel = totals.get(field);
+  if (!sel) totals.set(field, (sel = (s) => (s ? gpuTotals(s)[field] : null)));
+  return sel;
+}
+
 export const memAvailable = (s: Sample | null) => s?.mem.available ?? null;
 export const memSwapUsed = (s: Sample | null) => s?.mem.swap_used ?? null;
 export const memPsiSome = (s: Sample | null) => s?.mem.psi_some ?? null;

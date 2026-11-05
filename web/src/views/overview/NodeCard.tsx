@@ -19,9 +19,9 @@ import { springs } from '../../design/motion';
 import { useNow } from '../../design/useNow';
 import { api } from '../../lib/api';
 import { bitrateParts, DASH, formatAgo, formatBytes, formatPercent, formatWatts, text, wattsParts } from '../../lib/format';
-import { tempRoom } from '../../lib/condition';
+import { headroomGpu, tempRoom } from '../../lib/condition';
 import type { NodeInfo, Sample } from '../../lib/types';
-import { interconnectGap, lostGpu, notReported, type NotReported } from '../../lib/capabilities';
+import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { useNodeDisplayStatus } from '../../store/attention';
@@ -30,7 +30,9 @@ import { preloadSummary } from '../node/tabs';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from './hooks';
 import { memSplit, topGpuProcess, workloadName } from './model';
 import { spanPhrase } from '../shared/live';
-import { gpuAt } from '../../lib/gpu';
+import { useTotalFrom, useTotalGap } from '../shared/totalGap';
+import { everyGpuLost, nodeGpuKey } from '../../lib/gpu';
+import { gpuKey } from '../../lib/metrics';
 
 interface CardCtx {
   id: string;
@@ -103,8 +105,8 @@ export function NodeCard({ id }: { id: string }) {
             <div className="ov-card__foot-main">
               <Interconnect />
               <div className="ov-card__sparks">
-                <Spark metric="gpu0.util" label="GPU utilisation" format={(n) => formatPercent(n)} min={0} max={100} />
-                <Spark metric="gpu0.power_w" label="GPU power" format={formatWatts} min={0} />
+                <UtilSpark />
+                <Spark metric={nodeGpuKey(info, 'power_w')} label="GPU power" format={formatWatts} min={0} />
               </div>
             </div>
             <CardNotice />
@@ -223,10 +225,11 @@ function CardNotice() {
 
 function UtilRing() {
   const { id, freshness, info } = useContext(Ctx);
-  const util = useLiveValue(id, 'gpu0.util', 1);
-  const lost = lostGpu(info, 0);
+  const util = useLiveValue(id, nodeGpuKey(info, 'util'), 1);
+  const from = useTotalFrom(id, 'util');
+  const lost = everyGpuLost(info);
   if (util === null && freshness === 'waiting' && !lost) return <Skeleton width={RING} height={RING} radius={RING / 2} />;
-  const said = lost ? lost.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%`;
+  const said = lost ? lost.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%${from ? `, from ${from}` : ''}`;
   return (
     <RingGauge value={lost ? null : util === null ? null : util / 100} size={RING} stroke={8} label={`GPU utilisation ${said}`}>
       <span className="ov-ring">
@@ -238,7 +241,7 @@ function UtilRing() {
             {util !== null ? <span className="ov-ring__unit">%</span> : null}
           </span>
         )}
-        <span className="ov-ring__label">GPU</span>
+        {from && !lost ? <span className="ov-ring__label ov-ring__label--from">{from}</span> : <span className="ov-ring__label">GPU</span>}
       </span>
     </RingGauge>
   );
@@ -265,46 +268,52 @@ function StatBlock({ label, value, unit, format, footer, unsupported }: { label:
 
 function Temperature() {
   const { id, info } = useContext(Ctx);
-  const temp = useLiveValue(id, 'gpu0.temp_c', 1);
-  const slowdown = gpuAt(info?.gpus, 0)?.temp_slowdown_c ?? null;
-  const room = tempRoom(temp, slowdown);
-  let footer: ReactNode = null;
-  if (room) {
-    const why = <span className="visually-hidden"> to the {slowdown} °C slowdown threshold</span>;
-    footer =
-      room.level === 'crit' ? (
-        <span className="ov-flag tone-crit"><OctagonAlert aria-hidden="true" />At slowdown{why}</span>
-      ) : room.level === 'warn' ? (
-        <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>
-      ) : (
-        <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</>
-      );
-  }
+  const temp = useLiveValue(id, nodeGpuKey(info, 'temp_c'), 1);
+  const gpu = useAcross([id], () => headroomGpu(info, temp, (i) => liveStore.latestValue(id, gpuKey(i, 'temp_c'))), shallowEqual, `${String(temp)}|${info?.node_id ?? ''}`);
+  const gap = useTotalGap(id, 'temp_c');
+  const from = useTotalFrom(id, 'temp_c');
+  const room = tempRoom(gpu.temp, gpu.slowdown);
+  const why = room ? <span className="visually-hidden"> to the {gpu.slowdown} °C slowdown threshold</span> : null;
+  const flag =
+    room?.level === 'crit' ? (
+      <span className="ov-flag tone-crit"><OctagonAlert aria-hidden="true" />At slowdown{why}</span>
+    ) : room?.level === 'warn' ? (
+      <span className="ov-flag tone-warn"><TriangleAlert aria-hidden="true" /><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</span>
+    ) : null;
+  const headroom = room && !flag ? <><span className="num">{room.degrees}&nbsp;°C</span> headroom{why}</> : null;
+  const name = flag && gpu.name ? gpu.name : null;
+  const toRowWhenNarrow = !!flag || (!!headroom && !!from);
+  const footer = flag || headroom || from ? (
+    <>
+      {flag ?? (headroom && toRowWhenNarrow ? <span className="ov-stat__to-row">{headroom}</span> : headroom)}
+      {name ? <span className="ov-stat__who ov-stat__to-row">{name}</span> : null}
+      {from ? <span className="ov-stat__who">{from}</span> : null}
+    </>
+  ) : null;
   return (
-    <StatBlock
-      label="GPU temp"
-      value={temp}
-      unit="°C"
-      format={intText}
-      footer={footer}
-      unsupported={notReported(info, 'gpu0.temp_c')}
-    />
+    <>
+      <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />
+      {toRowWhenNarrow && !gap ? <p className="ov-card__flag">{flag ?? headroom}{name ? <span className="ov-stat__who">{name}</span> : null}</p> : null}
+    </>
   );
 }
 
 function Power() {
   const { id, info } = useContext(Ctx);
-  const power = useLiveValue(id, 'gpu0.power_w', 0.1);
+  const key = nodeGpuKey(info, 'power_w');
+  const power = useLiveValue(id, key, 0.1);
+  const gap = useTotalGap(id, 'power_w');
   const peak = useAcross(
     [id],
     () => {
-      const w = liveStore.window(id, ['gpu0.power_w'], serverNow() - PEAK_WINDOW_S);
+      const w = liveStore.window(id, [key], serverNow() - PEAK_WINDOW_S);
       let max: number | null = null;
       for (const v of w.values[0] ?? []) if (v !== null && (max === null || v > max)) max = v;
       // The span the browser really holds (to the minute), so the words never claim 15 minutes of 3.
       return { max: max === null ? null : Math.round(max * 10) / 10, phrase: spanPhrase('live', w.ts[0], serverNow()) };
     },
     shallowEqual,
+    key,
   );
   return (
     <StatBlock
@@ -313,7 +322,7 @@ function Power() {
       unit="W"
       format={wattsText}
       footer={peak.max !== null ? <>Peak <span className="num">{formatWatts(peak.max)}</span><span className="visually-hidden"> in the {peak.phrase}</span></> : null}
-      unsupported={notReported(info, 'gpu0.power_w')}
+      unsupported={gap}
     />
   );
 }
@@ -434,7 +443,13 @@ function Interconnect() {
   );
 }
 
-function Spark({ metric, label, format, min, max }: { metric: string; label: string; format: (n: number) => string; min?: number; max?: number }) {
+function UtilSpark() {
+  const { id, info } = useContext(Ctx);
+  const from = useTotalFrom(id, 'util');
+  return <Spark metric={nodeGpuKey(info, 'util')} label="GPU utilisation" from={from} format={(n) => formatPercent(n)} min={0} max={100} />;
+}
+
+function Spark({ metric, label, from, format, min, max }: { metric: string; label: string; from?: string; format: (n: number) => string; min?: number; max?: number }) {
   const { id, freshness, info } = useContext(Ctx);
   const reason = notReported(info, metric);
   return (
@@ -445,7 +460,7 @@ function Spark({ metric, label, format, min, max }: { metric: string; label: str
       ) : freshness === 'waiting' ? (
         <Skeleton height={SPARK_H} radius={6} />
       ) : (
-        <Sparkline label={`${id} ${label}`} source={{ node: id, metric }} format={format} height={SPARK_H} min={min} max={max} />
+        <Sparkline label={`${id} ${label}${from ? ` (${from})` : ''}`} source={{ node: id, metric }} format={format} height={SPARK_H} min={min} max={max} />
       )}
     </div>
   );

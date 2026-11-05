@@ -242,6 +242,14 @@ function Toolbar({ location }: { location: string }) {
   const nodeId = /^\/node\/([^/]+)/.exec(location)?.[1];
   const apple = isApple();
   const [scrolled, setScrolled] = useState(false);
+  const bar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => { document.documentElement.style.setProperty('--toolbar-offset', `${String(el.offsetHeight)}px`); });
+    ro.observe(el);
+    return () => { ro.disconnect(); };
+  }, []);
   useEffect(() => {
     const onScroll = () => { setScrolled(window.scrollY > 0); };
     onScroll();
@@ -250,7 +258,7 @@ function Toolbar({ location }: { location: string }) {
   }, []);
 
   return (
-    <header className={`toolbar${scrolled ? ' is-scrolled' : ''}`}>
+    <header ref={bar} className={`toolbar${scrolled ? ' is-scrolled' : ''}`}>
       <div className="toolbar__title">
         {/* A node page shows its name and status in its own header (shared element with the overview card), so the
             toolbar keeps the page heading for assistive tech only instead of repeating it. */}

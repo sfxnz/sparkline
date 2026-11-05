@@ -1,4 +1,5 @@
 import { act, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
@@ -11,6 +12,7 @@ import { gpuAt } from '../../lib/gpu';
 import type { GpuInfo, GpuSample, NodeInfo, NodeState, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
+import { historyCache } from '../../store/history';
 import { liveStore } from '../../store/live';
 import { usePrefs } from '../../store/prefs';
 import sampleJson from '../../test/fixtures/sample.json';
@@ -169,8 +171,7 @@ describe('GPU tab on a multi-GPU node', () => {
     const empty = section(gone.index);
     expect(within(empty).getByText(`GPU ${gone.index} not responding`)).toBeInTheDocument();
     expect(within(empty).queryByText('Utilisation')).not.toBeInTheDocument();
-    const others = workstation.info.gpus.filter((g) => g.index !== gone.index).map((g) => g.index);
-    expect(empty).toHaveTextContent(`GPUs ${others.slice(0, -1).join(', ')} and ${String(others.at(-1))} still report.`);
+    expect(empty).toHaveTextContent('GPUs 0, 1 and 3 still report.');
     for (const g of workstation.info.gpus.filter((x) => x.index !== gone.index)) {
       expect(within(section(g.index)).queryByText(/not responding/)).not.toBeInTheDocument();
       expect(stat(section(g.index), 'Utilisation')).not.toHaveTextContent('—');
@@ -228,6 +229,50 @@ describe('GPU tab on a multi-GPU node', () => {
   });
 });
 
+describe('GPU needs attention on a multi-GPU node (ws1, slowdown 93 °C)', () => {
+  const attention = () => screen.queryByRole('list', { name: 'GPU needs attention' });
+  const rows = () => within(attention() as HTMLElement).getAllByRole('button');
+  const hot = (indexes: readonly number[], over: Partial<GpuSample> = { temp_c: 94 }) => indexes.reduce((s, i) => withGpu(s, i, over), workstation.sample);
+
+  it('says nothing while every GPU is fine', () => {
+    show(workstation);
+    expect(sections()).toHaveLength(4);
+    expect(attention()).toBeNull();
+  });
+
+  it("lists GPU 3 at slowdown with its reading, and jumps to GPU 3's section and its heading", async () => {
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this); };
+    show(workstation, { sample: hot([3]) });
+    expect(rows().map((r) => r.textContent)).toEqual(['Critical: GPU 3At slowdown, 94\u00a0°C (slows at 93\u00a0°C)']);
+    await userEvent.click(rows()[0] as HTMLElement);
+    expect(scrolled).toEqual([section(3)]);
+    expect(document.activeElement).toBe(within(section(3)).getByRole('heading', { name: 'GPU 3' }));
+    Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
+  });
+
+  it('lists a clock limit by what it does, critical rows first', () => {
+    show(workstation, { sample: withGpu(hot([3], { throttle_mask: 0x40 }), 1, { throttle_mask: 0x20 }) });
+    expect(rows().map((r) => r.textContent)).toEqual(['Critical: GPU 3Clocks limited by overheating', 'Warning: GPU 1Clocks limited by thermal limit']);
+  });
+
+  it('gives GPUs that share a condition one row once more than three need attention', () => {
+    show(workstation, { sample: hot([0, 1, 2, 3]) });
+    expect(rows().map((r) => r.textContent)).toEqual(['Critical: GPUs 0, 1, 2 and 3At slowdown']);
+  });
+
+  it('lists a lost GPU as not responding', () => {
+    const info = { ...workstation.info, unsupported: [{ metric: 'gpu0', reason: 'NVML could not open GPU 0 (NVML: GPU is lost)', kind: 'hardware' }] } as NodeInfo;
+    show(workstation, { info, sample: withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, throttle_mask: null }) });
+    expect(rows().map((r) => r.textContent)).toEqual(['Warning: GPU 0Not responding']);
+  });
+
+  it('says nothing once the node stops reporting, like the status pill', () => {
+    show(workstation, { sample: hot([3]), status: 'stale' });
+    expect(attention()).toBeNull();
+  });
+});
+
 describe('GPU tab on a single-GPU node', () => {
   it('keeps the single-GPU layout: no per-GPU sections, the "now" panel and the GPU’s own charts', () => {
     show(gb10);
@@ -277,16 +322,15 @@ describe('GPU tab on a node with two vendors', () => {
   });
 
   it.each([
-    ['Summary', 'At a glance', Summary, ['GPU utilisation', 'GPU temperature', 'GPU power']],
-    ['Thermals', `${NODE} thermals and power summary`, Thermals, ['GPU temperature', 'GPU power']],
-  ] as const)('says GPU 0 is not responding on %s too when its backend misses a tick', (_, panel, View, labels) => {
+    ['Summary', 'At a glance', Summary, { 'GPU utilisation': /^GPU utilisation47%/, 'GPU temperature': /^GPU temperature64°C/ }],
+    ['Thermals', `${NODE} thermals and power summary`, Thermals, { 'GPU temperature': /^GPU temperature64°C/ }],
+  ] as const)("reads the other GPUs on %s when GPU 0's backend misses a tick, and has no power total", (_, panel, View, values) => {
     const now = showHybrid({ ...base, gpu: [reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: { gpu: `nvml: ${NV_ERROR}` } }, hybrid, panel, View);
 
-    for (const label of labels) {
-      const stat = within(now).getByText(label).closest('.stat');
-      expect(stat).toHaveTextContent('Not responding');
-      expect(stat).not.toHaveTextContent('No data');
-    }
+    for (const [label, value] of Object.entries(values)) expect(within(now).getByText(label).closest('.stat')).toHaveTextContent(value);
+    const power = within(now).getByText('GPU power').closest('.stat') as HTMLElement;
+    expect(power).toHaveTextContent('No total');
+    expect(within(power).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0 not responding (${NV_ERROR}), so a sum would understate.`);
   });
 
   it('gives a lost GPU and GPUs whose backend missed a tick the same notice, and never says the others still report when none do', () => {
@@ -304,7 +348,7 @@ describe('GPU tab on a node with two vendors', () => {
 
   it('names a lost GPU the agent could not name once, in its title', () => {
     const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
-    const gpus = [gpuInfo(0, 'GPU 0', 'nvidia', 'nvml'), ...hybrid.gpus.slice(1)];
+    const gpus = [gpuInfo(0, 'GPU 0', 'nvidia', 'nvml'), ...hybrid.gpus.filter((g) => g.index !== 0)];
     showHybrid({ ...base, gpu: [reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: {} }, { ...hybrid, gpus, unsupported: [{ metric: 'gpu0', reason: lost, kind: 'hardware' }] });
 
     expect(within(section(0)).getAllByText('GPU 0')).toHaveLength(1);
@@ -338,5 +382,85 @@ describe('GPU tab on a node with two vendors', () => {
     expect(within(now).getAllByText('Not responding').length).toBeGreaterThanOrEqual(4);
     const why = within(now).getAllByRole('button', { name: 'Why is this not reported?' });
     for (const button of why) expect(button).toHaveAccessibleDescription(NV_ERROR);
+  });
+});
+
+describe('Summary and Thermals on a four-GPU workstation (ws1, slowdown 93 °C)', () => {
+  const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+  const showWs1 = (View: ComponentType<{ nodeId: string }>, sample: Sample = workstation.sample, info: NodeInfo = workstation.info) => {
+    liveStore.removeNode('ws1');
+    useCluster.setState({ clockOffset: 0, nodes: { ws1: { node_id: 'ws1', url: '', status: 'online', since: 0, last_sample_ts: TS, error: null, info, next_retry_ts: null } } });
+    act(() => {
+      liveStore.pushSample({ ...sample, ts: Date.now() / 1000 - 1 });
+      liveStore.flush();
+    });
+    render(
+      <Router hook={memoryLocation({ path: '/' }).hook}>
+        <View nodeId="ws1" />
+      </Router>,
+    );
+  };
+  const stat = (label: string) => screen.getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+  const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+
+  it('shows the mean utilisation, the hottest GPU with the closest one to slowdown named, the four powers summed, and charts the totals', () => {
+    showWs1(Summary);
+    expect(stat('GPU utilisation')).toHaveTextContent(/^GPU utilisation86%/);
+    expect(stat('GPU temperature')).toHaveTextContent(/^GPU temperature77°CGPU 2 · 16 °C below slowdown \(93 °C\)$/);
+    expect(stat('GPU power')).toHaveTextContent(/^GPU power1068W/);
+    expect(charts.find((c) => c.title === 'GPU utilisation')?.series.map((x) => x.key)).toEqual(['gpu.util']);
+    expect(charts.find((c) => c.title === 'GPU power')?.series.map((x) => x.key)).toEqual(['gpu.power_w']);
+  });
+
+  it.each([
+    ['Summary', Summary],
+    ['Thermals', Thermals],
+  ] as const)('says on %s that there is no power total, naming GPU 2, while GPU 2 sends no power reading', (_, View) => {
+    showWs1(View, withGpu(workstation.sample, 2, { power_w: null }));
+    const power = within(screen.getByRole('region', { name: View === Summary ? 'At a glance' : 'ws1 thermals and power summary' })).getByText('GPU power').closest('.stat') as HTMLElement;
+    expect(power).toHaveTextContent('No total');
+    expect(why(power)).toHaveAccessibleDescription('GPU 2 sent no power reading this tick, so a sum would understate.');
+  });
+
+  it('reads utilisation and temperature from GPUs 1 to 3 while GPU 0 is lost, and gives the lost GPU as the power gap', () => {
+    const info = { ...workstation.info, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    showWs1(Summary, withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null }), info);
+    expect(stat('GPU utilisation')).toHaveTextContent(/^GPU utilisation87%/);
+    expect(stat('GPU temperature')).toHaveTextContent(/^GPU temperature77°C/);
+    expect(stat('GPU power')).toHaveTextContent('No total');
+    expect(why(stat('GPU power'))).toHaveAccessibleDescription(`GPU 0: ${LOST}`);
+  });
+
+  it.each([
+    ['Summary', Summary],
+    ['Thermals', Thermals],
+  ] as const)('says on %s that utilisation and temperature come from 3 of 4 GPUs while GPU 0 is lost', (_, View) => {
+    const info = { ...workstation.info, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
+    showWs1(View, withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null }), info);
+    const scope = within(screen.getByRole('region', { name: View === Summary ? 'At a glance' : 'ws1 thermals and power summary' }));
+    expect(scope.getByText('GPU temperature', { selector: '.stat__label' }).closest('.stat')).toHaveTextContent(/below slowdown \(93 °C\) · 3 of 4 GPUs$/);
+    if (View === Summary) expect(stat('GPU utilisation')).toHaveTextContent(/^GPU utilisation87%Time the GPU was busy · 3 of 4 GPUs$/);
+  });
+
+  it("marks the Summary's GPU utilisation chart while it reads 3 of 4 GPUs", () => {
+    const info = { ...workstation.info, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
+    showWs1(Summary, withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null }), info);
+    expect(charts.findLast((c) => c.title === 'GPU utilisation')?.series.map((s) => s.label)).toEqual(['Utilisation (3 of 4 GPUs)']);
+  });
+
+  it('gives the GPU count alone under the temperature when the GPUs declare no slowdown', () => {
+    const info = { ...workstation.info, gpus: workstation.info.gpus.map((g) => ({ ...g, temp_slowdown_c: null, temp_shutdown_c: null })), unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
+    showWs1(Summary, withGpu(workstation.sample, 0, { util: null, temp_c: null, power_w: null, throttle_mask: null }), info);
+    expect(stat('GPU temperature')).toHaveTextContent(/^GPU temperature77°C3 of 4 GPUs$/);
+  });
+
+  it("sums every GPU's power limit and every GPU's energy counter on Thermals", async () => {
+    const series = Object.fromEntries(workstation.sample.gpu.map((g) => [`gpu${g.index}.energy_j`, [(g.energy_j ?? 0) - 360_000, g.energy_j]]));
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json({ node_id: 'ws1', resolution_s: 60, ts: [TS - 120, TS - 60], series, min: {}, max: {} }))));
+    historyCache.clear();
+    showWs1(Thermals);
+    expect(stat('Power limit')).toHaveTextContent(/^Power limit1200W$/);
+    expect(await within(screen.getByRole('region', { name: 'ws1 thermals and power summary' })).findByText('0.400')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'GPU energy' })).getByText('Today').nextSibling).toHaveTextContent(/^0\.400\skWh/);
   });
 });

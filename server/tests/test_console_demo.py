@@ -17,6 +17,7 @@ from sparkline.console.cluster import Cluster
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel, DemoSource, demo_history
 from sparkline.console.demo_fleets import FLEETS
+from sparkline.console.demo_workstation import POWER_DROPOUT_S
 from sparkline.console.hub import Hub
 from sparkline.console.store import Store
 
@@ -175,6 +176,7 @@ def test_workstation_samples_stay_plausible_over_a_long_span():
     assert gpu.power_limit_w == 300.0 and gpu.temp_shutdown_c is not None and gpu.temp_slowdown_c is not None
     last = [0.0] * 4
     bits = [0] * 4
+    unpowered = set()
     for i in range(0, 2 * 3600, 3):
         s = m.sample_at(T0 + i, i, procs=i % 300 == 0)
         if i % 300 == 0:
@@ -182,16 +184,51 @@ def test_workstation_samples_stay_plausible_over_a_long_span():
         assert [g.index for g in s.gpu] == [0, 1, 2, 3] and s.mem.gpu is None
         for g in s.gpu:
             assert 0 <= g.util <= 100
-            assert g.power_w <= gpu.power_limit_w * 1.02, (i, g)
+            if g.power_w is None:
+                unpowered.add(g.index)
+            else:
+                assert g.power_w <= gpu.power_limit_w * 1.02, (i, g)
             assert g.temp_c < gpu.temp_shutdown_c, (i, g)
             assert g.energy_j > last[g.index], (i, g)
             last[g.index] = g.energy_j
             bits[g.index] |= g.throttle_mask
     assert bits[3] & THERMAL_BITS == THERMAL_BITS
     assert [b & THERMAL_BITS for b in bits[:3]] == [0, 0, 0]
+    assert unpowered == {2}
     hot = m.sample_at(T0 + 115).gpu
     assert hot[3].temp_c > gpu.temp_slowdown_c and hot[3].sm_mhz < min(g.sm_mhz for g in hot[:3]) * 0.75
     assert max(hot[:3], key=lambda g: g.temp_c).index == 2
+
+
+def test_workstation_gpu_2_loses_its_power_reading_for_20_s_of_every_6_min_and_the_node_total_with_it():
+    m = ws1()
+    gap = []
+    for t in range(2 * 360):
+        s = m.sample_at(T0 + t)
+        flat = flatten(s)
+        unpowered = [g.index for g in s.gpu if g.power_w is None]
+        assert s.errors == {} and unpowered in ([], [2]), t
+        if unpowered:
+            gap.append(t)
+            assert "gpu2.power_w" not in flat and "gpu.power_w" not in flat, t
+            assert {"gpu2.energy_j", "gpu2.util", "gpu2.temp_c", "gpu.util", "gpu.temp_c"} <= set(flat), t
+        else:
+            assert flat["gpu.power_w"] == pytest.approx(sum(g.power_w or 0.0 for g in s.gpu)), t
+    assert len(gap) == 40 and gap[19] - gap[0] == 19 and [t - 360 for t in gap[20:]] == gap[:20]
+    assert gap[0] == POWER_DROPOUT_S[0]
+    assert all(m.thermal(T0 + t) == 0 for t in gap), "overlaps GPU 3's thermal episode"
+    assert 30 not in {t % 360 for t in gap}, "covers the web fixtures' instant"
+    energy = [m.sample_at(T0 + t).gpu[2].energy_j or 0.0 for t in range(gap[0] - 1, gap[19] + 2)]
+    assert all(b > a for a, b in zip(energy, energy[1:], strict=False)), "the energy counter runs on"
+
+
+def test_the_dgx_demo_nodes_never_drop_a_power_reading():
+    for node in ("spark1", "spark2", "spark3"):
+        m = DemoModel(node, T0)
+        for t in range(2 * 360):
+            s = m.sample_at(T0 + t)
+            assert [g.power_w is not None for g in s.gpu] == [True], (node, t)
+            assert flatten(s)["gpu.power_w"] == s.gpu[0].power_w, (node, t)
 
 
 def test_an_unlimited_workstation_gpu_runs_clear_of_the_full_speed_cut():
@@ -304,7 +341,7 @@ def test_the_workstation_reports_its_platform_gpu_backend_and_versions_as_an_nvm
 def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
     m = ws1()
     keys = flatten(m.sample_at(T0, procs=True))
-    assert {k.split(".")[0] for k in keys if k.startswith("gpu")} == {"gpu0", "gpu1", "gpu2", "gpu3"}
+    assert {k.split(".")[0] for k in keys if k.startswith("gpu")} == {"gpu", "gpu0", "gpu1", "gpu2", "gpu3"}
     assert "mem.gpu" not in keys
     assert not [n.name for n in m.info.net if n.rdma_device or n.role == "interconnect"]
     assert {u.metric for u in m.info.unsupported} == {
@@ -345,18 +382,29 @@ class _Collect:
         pass
 
 
-@pytest.mark.parametrize("node", ["spark1", "ws1"])
-async def test_the_live_energy_counter_of_every_gpu_integrates_its_power(node):
+@pytest.mark.parametrize(
+    ("node", "scenario_s", "speed", "samples"),
+    [("spark1", 0, 1.0, 8), ("ws1", 0, 1.0, 8), ("ws1", POWER_DROPOUT_S[0] - 10, 50.0, 40)],
+    ids=["spark1", "ws1", "ws1 into GPU 2's power dropout"],
+)
+async def test_the_live_energy_counter_of_every_gpu_integrates_its_power(node, scenario_s, speed, samples):
     listener = _Collect()
-    src = DemoSource(FLEETS["mixed"][node](time.time(), 1.0), listener)
+    src = DemoSource(FLEETS["mixed"][node](time.time() - scenario_s / speed, speed), listener)
     src.interval = 0.01
     task = asyncio.create_task(src.session())
     try:
-        while len(listener.samples) < 8:
+        while len(listener.samples) < samples:
             await asyncio.sleep(0.01)
     finally:
         task.cancel()
     first, rest = listener.samples[0], listener.samples[1:]
     for i, g in enumerate(first.gpu):
+        power, integral = g.power_w, 0.0
+        for s in rest:
+            power = s.gpu[i].power_w if s.gpu[i].power_w is not None else power
+            assert power is not None
+            integral += power * 0.01
         gained = rest[-1].gpu[i].energy_j - g.energy_j
-        assert gained == pytest.approx(sum(s.gpu[i].power_w for s in rest) * 0.01, abs=0.2), i
+        assert gained > 0 and gained == pytest.approx(integral, abs=0.2), i
+    if scenario_s:
+        assert any(s.gpu[2].power_w is None for s in rest), "no sample fell inside the dropout"

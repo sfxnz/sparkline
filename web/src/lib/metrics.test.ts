@@ -6,6 +6,7 @@ import { flatten, mountKey } from './metrics';
 import type { Sample } from './types';
 
 const s = sample as unknown as Sample;
+const gpuTotals = expected.gpu_totals as unknown as { case: string; gpu: Sample['gpu']; errors: Sample['errors']; flatten: Record<string, number> }[];
 
 describe('flatten', () => {
   it('produces exactly the keys and values of the Python flatten()', () => {
@@ -21,6 +22,11 @@ describe('flatten', () => {
     expect(got.has('cpu.core1.mhz')).toBe(false);
     expect(got.has('temp.nvme.composite')).toBe(false);
     expect(got.has('fs.data_models.used_pct')).toBe(false); // total 0
+  });
+
+  it.each(gpuTotals)('writes the node GPU totals like the Python flatten(): $case', ({ gpu, errors, flatten: want }) => {
+    const got = Object.fromEntries([...flatten({ ...s, gpu, errors })].filter(([k]) => k.startsWith('gpu')));
+    expect(got).toEqual(want);
   });
 
   it('writes no mem.* keys for the agent\'s placeholder reading (total 0), like the Python flatten()', () => {

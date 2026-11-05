@@ -2,18 +2,17 @@
 // on connect), so an offline node still shows its last known values after a reload. Each hook re-renders only its
 // own leaf, and only when its (quantised) value changes.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
-import type { HistoryResponse, NodeStatus } from '../../lib/types';
+import { gpuCountText, gpuSetGap, nodeGpuKey, nodeTotalGap, totalFrom } from '../../lib/gpu';
+import type { HistoryResponse, NodeState, NodeStatus } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
-import { historyPlusLive } from '../shared/energy';
+import { energyKeys, sumCounters } from '../shared/energy';
 import { loadSpan } from '../shared/live';
 import { useShallow } from 'zustand/react/shallow';
 import { useLiveConditions } from '../../store/attention';
 import { openAlertLevel, useEvents } from '../../store/events';
 import { breathLevel, clusterHealth, openAlertCounts, type Health } from './model';
-
-const ENERGY_KEY = 'gpu0.energy_j';
 
 const quantise = (v: number | null, q: number | undefined) => (v === null || !q ? v : Math.round(v / q) * q);
 
@@ -65,6 +64,51 @@ export function shallowEqual<T extends object>(a: T, b: T): boolean {
   return ka.length === Object.keys(b).length && ka.every((k) => Object.is(a[k], b[k]));
 }
 
+export interface ClusterGpuNow {
+  util: number | null;
+  power: number | null;
+  /** Nodes left out of `power` because `nodeTotalGap` explains their missing power, one per line. */
+  dropped: string;
+  utilFrom: string;
+}
+
+/** "4 of 5 GPUs": the GPUs the nodes' utilisation totals read, out of every GPU the nodes list, while any of them is
+ *  missing (a node reads only some of its GPUs, or has no utilisation at all); '' when every GPU is read. */
+export function utilGpusRead(ids: readonly string[], nodes: Readonly<Record<string, NodeState | undefined>>): string {
+  let from = 0;
+  let of = 0;
+  for (const id of ids) {
+    const info = nodes[id]?.info;
+    const listed = info?.gpus.length ?? 0;
+    const read = liveStore.latestValue(id, nodeGpuKey(info, 'util')) !== null;
+    from += read ? (totalFrom(info, liveStore.latest(id), 'util')?.from ?? listed) : 0;
+    of += listed;
+  }
+  return from < of ? gpuCountText({ from, of }) : '';
+}
+
+/** The live nodes' GPU load and power from each node's totals: mean utilisation and summed power. A node whose power
+ *  the agent declares not reported, or whose total dropped out this tick, is named in `dropped`, as the cluster
+ *  totals name it. */
+export function clusterGpuNow(ids: readonly string[], nodes: Readonly<Record<string, NodeState | undefined>>): ClusterGpuNow {
+  let utilSum = 0;
+  let utilN = 0;
+  let power: number | null = null;
+  const dropped: string[] = [];
+  for (const id of ids) {
+    const info = nodes[id]?.info;
+    const u = liveStore.latestValue(id, nodeGpuKey(info, 'util'));
+    const p = liveStore.latestValue(id, nodeGpuKey(info, 'power_w'));
+    if (u !== null) {
+      utilSum += u;
+      utilN++;
+    }
+    if (p !== null) power = (power ?? 0) + p;
+    else if (nodeTotalGap(info, liveStore.latest(id), 'power_w')) dropped.push(id);
+  }
+  return { util: utilN ? utilSum / utilN : null, power, dropped: dropped.join('\n'), utilFrom: utilGpusRead(ids, nodes) };
+}
+
 /** True once the browser holds any sample for the node (live or seeded). */
 export function useHasData(node: string): boolean {
   return useAcross([node], () => liveStore.lastTs(node) !== null, Object.is);
@@ -103,10 +147,10 @@ export function useClusterHealth(): Health {
   const consoleLive = useConnection((s) => s.status === 'live');
   const notLiveIds = order.filter((id) => nodes[id]?.status !== 'online');
   const alerts = useEvents(useShallow((s) => openAlertCounts(s.events, notLiveIds)));
-  const alerted = useEvents(useShallow((s) => order.map((id) => openAlertLevel(s.events, id) !== null)));
+  const levels = useEvents(useShallow((s) => order.map((id) => openAlertLevel(s.events, id))));
   const conditions = useLiveConditions(order);
   return clusterHealth(
-    order.map((id, i) => ({ id, status: nodes[id]?.status, condition: conditions[id] ?? null, alerted: alerted[i] ?? false })),
+    order.map((id, i) => ({ id, status: nodes[id]?.status, condition: conditions[id] ?? null, alert: levels[i] ?? null })),
     alerts,
     consoleLive,
   );
@@ -126,19 +170,21 @@ export interface EnergyToday {
 }
 
 /**
- * GPU (rail) energy since local midnight, summed over `ids`, computed exactly as the Thermals tab does
- * (historyPlusLive): the counter's history since midnight, refreshed every minute, extended with the live readings.
- * A node that stops reporting keeps its last good history, so the day's total never goes down; it counts up to its
- * last reading and is listed in `until`. Only a node whose history never loaded is left out (`missing`).
+ * GPU (rail) energy since local midnight, summed over `ids` and each node's GPUs, computed exactly as the Thermals
+ * tab does (sumCounters): the counters' history since midnight, refreshed every minute, extended with the live
+ * readings. A node that stops reporting keeps its last good history, so the day's total never goes down; it counts
+ * up to its last reading and is listed in `until`. Only a node whose history never loaded is left out (`missing`),
+ * and a node with a GPU that has no energy counter (a partial sum would understate).
  */
 export function useEnergyToday(ids: readonly string[]): EnergyToday {
-  const idsKey = ids.join('\u0000');
+  const nodes = useCluster((s) => s.nodes);
+  const keysOf = (id: string) => energyKeys(nodes[id]?.info);
+  const idsKey = ids.map((id) => `${id}\u0001${keysOf(id).join('\u0001')}`).join('\u0000');
   // Per node: undefined = not loaded yet, null = history unavailable and nothing loaded before.
   const [bases, setBases] = useState<{ key: string; at: number; data: Record<string, HistoryResponse | null | undefined> }>({ key: '', at: 0, data: {} });
-  const nodes = useCluster((s) => s.nodes);
 
   useEffect(() => {
-    const list = idsKey ? idsKey.split('\u0000') : [];
+    const list = (idsKey ? idsKey.split('\u0000') : []).map((entry) => entry.split('\u0001'));
     let cancelled = false;
     const put = (id: string, v: HistoryResponse | null) => {
       if (cancelled) return;
@@ -150,8 +196,8 @@ export function useEnergyToday(ids: readonly string[]): EnergyToday {
       });
     };
     const load = () => {
-      for (const id of list) {
-        loadSpan(id, ENERGY_KEY, 'today')
+      for (const [id = '', ...keys] of list) {
+        loadSpan(id, keys, 'today')
           .then((r) => { put(id, Array.isArray(r.ts) && typeof r.series === 'object' ? r : null); })
           .catch(() => { put(id, null); });
       }
@@ -172,8 +218,8 @@ export function useEnergyToday(ids: readonly string[]): EnergyToday {
       let sum: number | null = null;
       for (const id of ids) {
         const r = data[id];
-        if (!r) continue;
-        const j = historyPlusLive(r, ENERGY_KEY, (t) => liveStore.window(id, [ENERGY_KEY], t).values[0] ?? []);
+        if (!r || gpuSetGap(nodes[id]?.info, 'energy_j', 'every')) continue;
+        const j = sumCounters(r, keysOf(id), (k, t) => liveStore.window(id, [k], t).values[0] ?? []);
         if (j !== null) sum = (sum ?? 0) + j;
       }
       // 0.0001 kWh steps: the display has 3 significant figures, so finer changes are invisible.
@@ -204,7 +250,7 @@ export function useBreath(ref: RefObject<HTMLElement | null>, node: string, acti
     const el = ref.current;
     if (!el) return;
     const apply = () => {
-      const util = active ? liveStore.latestValue(node, 'gpu0.util') : null;
+      const util = active ? liveStore.latestValue(node, nodeGpuKey(useCluster.getState().nodes[node]?.info, 'util')) : null;
       el.style.setProperty('--glow', util === null ? '0' : (Math.round(Math.min(100, Math.max(0, util)) / 5) / 20).toFixed(2));
       el.dataset.breath = String(active ? breathLevel(util) : 0);
     };

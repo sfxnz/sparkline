@@ -6,6 +6,9 @@ omitted so unsupported metrics never masquerade as 0.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import NamedTuple
+
 from .schema import Sample
 
 # Keys whose rollup keeps the last value in a bucket instead of the average (monotonic counters).
@@ -14,6 +17,31 @@ COUNTER_KEYS_SUFFIX = (".energy_j",)
 BITMASK_KEYS_SUFFIX = (".throttle_mask",)
 # Per-interval event counts (new errors/drops in that tick): a bucket keeps their sum, so totals stay exact.
 SUM_KEYS_SUFFIX = (".errors", ".drops")
+
+
+def _total(values: list[float]) -> float:
+    # Plain addition in sample order, as web/src/lib/metrics.ts does; sum() compensates float rounding, so the
+    # two flattens would differ in the last bit.
+    out = 0.0
+    for v in values:
+        out += v
+    return out
+
+
+def _mean(values: list[float]) -> float:
+    return _total(values) / len(values)
+
+
+class GpuTotal(NamedTuple):
+    reduce: Callable[[list[float]], float]
+    needs_every_gpu: bool
+
+
+GPU_TOTALS: dict[str, GpuTotal] = {
+    "util": GpuTotal(_mean, needs_every_gpu=False),
+    "temp_c": GpuTotal(max, needs_every_gpu=False),
+    "power_w": GpuTotal(_total, needs_every_gpu=True),
+}
 
 
 def mount_key(mount: str) -> str:
@@ -39,6 +67,11 @@ def flatten(s: Sample) -> dict[str, float]:
         put(p + "throttle_mask", g.throttle_mask)
         put(p + "power_capped_pct", g.power_capped_pct)
         put(p + "thermal_capped_pct", g.thermal_capped_pct)
+    all_gpus = "gpu" not in s.errors  # a GPU backend that fails a tick drops its GPUs from the sample
+    for field, total in GPU_TOTALS.items():
+        values = [v for g in s.gpu if (v := getattr(g, field)) is not None]
+        if values and (not total.needs_every_gpu or (all_gpus and len(values) == len(s.gpu))):
+            put(f"gpu.{field}", total.reduce(values))
 
     m = s.mem
     if m.total:  # 0 only in the agent's placeholder for a memory collector with no reading yet

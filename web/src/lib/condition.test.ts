@@ -6,9 +6,11 @@ import { useEvents } from '../store/events';
 import { liveStore } from '../store/live';
 import { usePrefs } from '../store/prefs';
 import sampleJson from '../test/fixtures/sample.json';
+import wsInfo from '../test/fixtures/platforms/workstation/info.json';
+import wsSample from '../test/fixtures/platforms/workstation/sample.json';
 import Thermals from '../views/node/Thermals';
 import { NodeCard } from '../views/overview/NodeCard';
-import { liveCondition, tempRoom } from './condition';
+import { gpuConditions, nodeCondition, tempRoom } from './condition';
 import type { GpuSample, NodeInfo, NodeState, Sample } from './types';
 import { gpuAt } from './gpu';
 
@@ -38,23 +40,81 @@ describe('tempRoom', () => {
   });
 });
 
-describe('liveCondition', () => {
+type Reading = { temp_c: number | null; throttle_mask: number | null };
+const oneGpu = (gpu: Reading | null, slowdown: number | null) =>
+  nodeCondition({ gpus: [{ index: 0, temp_slowdown_c: slowdown }] } as unknown as NodeInfo, { gpu: gpu ? [{ index: 0, ...gpu }] : [] } as unknown as Sample);
+
+describe('nodeCondition on a one-GPU node', () => {
   it('is null for a calm GPU and when nothing is known', () => {
-    expect(liveCondition({ temp_c: 60, throttle_mask: 0 }, 86)).toBeNull();
-    expect(liveCondition(null, 86)).toBeNull();
-    expect(liveCondition({ temp_c: null, throttle_mask: null }, null)).toBeNull();
+    expect(oneGpu({ temp_c: 60, throttle_mask: 0 }, 86)).toBeNull();
+    expect(oneGpu(null, 86)).toBeNull();
+    expect(oneGpu({ temp_c: null, throttle_mask: null }, null)).toBeNull();
   });
 
   it('flags the slowdown temperature as critical, and closing in on it as a warning', () => {
-    expect(liveCondition({ temp_c: 86, throttle_mask: 0 }, 86)).toEqual({ level: 'critical', text: 'is at its GPU slowdown temperature' });
-    expect(liveCondition({ temp_c: 81, throttle_mask: 0 }, 86)).toEqual({ level: 'warning', text: 'is heating up' });
-    expect(liveCondition({ temp_c: 79, throttle_mask: 0 }, 86)).toBeNull();
+    expect(oneGpu({ temp_c: 86, throttle_mask: 0 }, 86)).toEqual({ level: 'critical', text: 'is at its GPU slowdown temperature' });
+    expect(oneGpu({ temp_c: 81, throttle_mask: 0 }, 86)).toEqual({ level: 'warning', text: 'is heating up' });
+    expect(oneGpu({ temp_c: 79, throttle_mask: 0 }, 86)).toBeNull();
   });
 
   it('raises on hardware and thermal clock limits, never on idle or the power cap', () => {
-    expect(liveCondition({ temp_c: 70, throttle_mask: 0x1 | 0x4 }, 86)).toBeNull();
-    expect(liveCondition({ temp_c: 70, throttle_mask: 0x20 }, 86)).toEqual({ level: 'warning', text: 'has GPU clocks limited by thermal limit' });
-    expect(liveCondition({ temp_c: 70, throttle_mask: 0x24 | 0x40 }, 86)).toEqual({ level: 'critical', text: 'has GPU clocks limited by overheating' });
+    expect(oneGpu({ temp_c: 70, throttle_mask: 0x1 | 0x4 }, 86)).toBeNull();
+    expect(oneGpu({ temp_c: 70, throttle_mask: 0x20 }, 86)).toEqual({ level: 'warning', text: 'has GPU clocks limited by thermal limit' });
+    expect(oneGpu({ temp_c: 70, throttle_mask: 0x24 | 0x40 }, 86)).toEqual({ level: 'critical', text: 'has GPU clocks limited by overheating' });
+  });
+
+  it('stays calm for its one lost GPU, which has a notice of its own', () => {
+    const info = { gpus: [{ index: 0, temp_slowdown_c: 86 }], unsupported: [{ metric: 'gpu0', reason: 'NVML could not open GPU 0 (NVML: GPU is lost)', kind: 'hardware' }] } as unknown as NodeInfo;
+    expect(nodeCondition(info, { gpu: [{ index: 0 }] } as unknown as Sample)).toBeNull();
+  });
+});
+
+const ws1 = wsInfo as unknown as NodeInfo;
+const wsReading = wsSample as unknown as Sample;
+const withGpus = (over: Record<number, Partial<GpuSample>>): Sample => ({ ...wsReading, gpu: wsReading.gpu.map((g) => ({ ...g, ...over[g.index] })) });
+
+describe('nodeCondition on a multi-GPU node (ws1, slowdown 93 °C)', () => {
+  it('is null while every GPU is calm', () => {
+    expect(nodeCondition(ws1, wsReading)).toBeNull();
+  });
+
+  it('names the one GPU at its slowdown temperature, judged against its own slowdown', () => {
+    expect(nodeCondition(ws1, withGpus({ 3: { temp_c: 94 } }))).toEqual({ level: 'critical', text: 'has GPU 3 at its slowdown temperature' });
+    expect(nodeCondition(ws1, withGpus({ 3: { temp_c: 89 } }))).toEqual({ level: 'warning', text: 'has GPU 3 heating up' });
+  });
+
+  it('names the one GPU whose clocks are limited', () => {
+    expect(nodeCondition(ws1, withGpus({ 3: { throttle_mask: 0x40 } }))).toEqual({ level: 'critical', text: 'has GPU 3 clocks limited by overheating' });
+  });
+
+  it('says only the worst level, grouping the GPUs that share a clause', () => {
+    expect(nodeCondition(ws1, withGpus({ 1: { temp_c: 89 }, 2: { temp_c: 93 }, 3: { temp_c: 95 } }))).toEqual({ level: 'critical', text: 'has GPUs 2 and 3 at their slowdown temperature' });
+    expect(nodeCondition(ws1, withGpus({ 1: { temp_c: 93 }, 2: { throttle_mask: 0x8 } }))).toEqual({ level: 'critical', text: 'has GPU 1 at its slowdown temperature and GPU 2 clocks limited by hardware slowdown' });
+    expect(nodeCondition(ws1, withGpus({ 0: { temp_c: 93 }, 1: { throttle_mask: 0x8 }, 2: { throttle_mask: 0x40 } }))).toEqual({ level: 'critical', text: 'has 3 GPUs needing attention' });
+  });
+
+  const lost = (index: number) => ({ ...ws1, unsupported: [{ metric: `gpu${String(index)}`, reason: `NVML could not open GPU ${String(index)} (NVML: GPU is lost)`, kind: 'hardware' }] }) as NodeInfo;
+  const empty = { util: null, temp_c: null, power_w: null, throttle_mask: null };
+
+  it('raises a warning naming a lost GPU, which a GPU at its slowdown temperature outranks', () => {
+    const outsideAlertRules = { level: 'warning', text: 'has GPU 0 not responding' };
+    expect(nodeCondition(lost(0), withGpus({ 0: empty }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding', outsideAlertRules });
+    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 89 } }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding and GPU 3 heating up', outsideAlertRules });
+    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 94 } }))).toEqual({ level: 'critical', text: 'has GPU 3 at its slowdown temperature', outsideAlertRules });
+  });
+
+  it('still names the GPU before the node info arrives, from the clock limit the sample shows', () => {
+    expect(nodeCondition(null, withGpus({ 3: { temp_c: 99, throttle_mask: 0x40 } }))).toEqual({ level: 'critical', text: 'has GPU 3 clocks limited by overheating' });
+  });
+});
+
+describe('gpuConditions', () => {
+  it('lists each GPU that needs attention in index order, with what its reading shows', () => {
+    const shuffled = withGpus({ 1: { throttle_mask: 0x20 }, 3: { temp_c: 94.2 } });
+    expect(gpuConditions(ws1, { ...shuffled, gpu: shuffled.gpu.toReversed() }).map((c) => [c.index, c.level, c.reading])).toEqual([
+      [1, 'warning', 'Clocks limited by thermal limit'],
+      [3, 'critical', 'At slowdown, 94\u00a0°C (slows at 93\u00a0°C)'],
+    ]);
   });
 });
 

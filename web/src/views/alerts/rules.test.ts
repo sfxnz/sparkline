@@ -1,5 +1,5 @@
 import type { AlertRule } from '../../lib/types';
-import { draftChanged, fromDisplay, fromDraft, GIB, maskReasons, ruleIdInError, toDisplay, toDraft, toggleBit, unitFor, validateDraft } from './rules';
+import { draftChanged, fromDisplay, fromDraft, GIB, maskReasons, metricMeta, ruleIdInError, toDisplay, toDraft, toggleBit, unitFor, validateDraft } from './rules';
 
 const rule = (patch: Partial<AlertRule> = {}): AlertRule => ({
   id: 'gpu_temp_high', name: 'GPU temperature high', enabled: true, kind: 'threshold', metric: 'gpu0.temp_c', op: '>', threshold: 80, for_s: 30, severity: 'warning', nodes: null, ...patch,
@@ -13,6 +13,10 @@ describe('units', () => {
     expect(unitFor('mem.psi_full')).toBe('percent');
     expect(unitFor('fs.data.used_pct')).toBe('percent');
     expect(unitFor('cpu.load1')).toBe('plain');
+  });
+  it('names the default GPU temperature rule, which watches every GPU, and keeps the GPU 0 entry', () => {
+    expect(metricMeta('gpu*.temp_c')).toEqual({ key: 'gpu*.temp_c', label: 'Any GPU temperature', unit: 'celsius' });
+    expect(metricMeta('gpu0.temp_c').label).toBe('GPU temperature');
   });
   it('edits bytes in GiB and round-trips', () => {
     expect(toDisplay(8 * GIB, 'gib')).toBe('8');

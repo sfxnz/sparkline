@@ -88,6 +88,17 @@ class Store:
     def kv_set(self, key: str, value: Any) -> None:
         self.db.execute("INSERT OR REPLACE INTO kv VALUES (?,?)", (key, json.dumps(value)))
 
+    def kv_set_atomically(self, rows: dict[str, Any]) -> None:
+        values = [(key, json.dumps(value)) for key, value in rows.items()]
+        self.db.execute("BEGIN")
+        try:
+            self.db.executemany("INSERT OR REPLACE INTO kv VALUES (?,?)", values)
+            self.db.execute("COMMIT")
+        except BaseException:
+            if self.db.in_transaction:  # SQLite rolls back by itself on some errors, such as SQLITE_FULL
+                self.db.execute("ROLLBACK")
+            raise
+
     # -- events -----------------------------------------------------------------------------------
     def add_event(self, ev: Event) -> Event:
         d = ev.model_dump(exclude={"id"})
