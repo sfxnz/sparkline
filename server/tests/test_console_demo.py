@@ -89,6 +89,15 @@ def test_demo_history_resolution_and_determinism():
     assert h.ts[0] % 10 == 5  # stamped at bucket centres, like agent rollups
 
 
+def test_demo_history_of_every_key_spans_a_storage_collector_error():
+    """spark2's disk keys vanish while its storage collector errors; each series still lines up with ts."""
+    now = T0 + 3600
+    h = demo_history(DemoModel("spark2", T0), None, now - 3600, now, 600, now=now)
+    busy = h.series["disk.nvme0n1.busy_pct"]
+    assert all(len(v) == len(h.ts) for d in (h.series, h.min, h.max) for v in d.values())
+    assert None in busy and busy[-1] is not None
+
+
 def test_demo_energy_integrates_the_power_series():
     """History energy must agree with the power chart, and differ between nodes with different loads."""
     now = T0 + 10
