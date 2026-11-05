@@ -355,13 +355,14 @@ describe('GPU tab on a node with two vendors', () => {
     expect(within(section(1)).getByText('Radeon 8060S')).toBeInTheDocument();
   });
 
-  it('does not count a lost GPU as still reporting when another backend misses a tick', () => {
+  it('names the GPUs another backend left silent, and does not count a lost GPU as still reporting', () => {
     const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
     showHybrid({ ...base, gpu: [{ index: 0 } as GpuSample], errors: { gpu: 'amdgpu-sysfs: RuntimeError: boom' } }, { ...hybrid, unsupported: [{ metric: 'gpu0', reason: lost, kind: 'hardware' }] });
 
     const note = screen.getByRole('list', { name: 'Metrics unavailable' });
+    expect(note).toHaveTextContent(/^GPUs 1 and 2 \(Radeon 8060S, Radeon RX 7900 XTX\) not responding: RuntimeError: boom\. The amdgpu-sysfs backend sent no reading this tick\.$/);
     expect(note).not.toHaveTextContent('still report');
-    expect(note).toHaveTextContent('GPU metrics unavailable: amdgpu-sysfs: RuntimeError: boom. Other panels are unaffected.');
+    expect(note).not.toHaveTextContent('GPU metrics unavailable');
   });
 
   it('shows GPU 0 as not responding when the agent declares it lost', () => {
@@ -462,5 +463,21 @@ describe('Summary and Thermals on a four-GPU workstation (ws1, slowdown 93 °C)'
     expect(stat('Power limit')).toHaveTextContent(/^Power limit1200W$/);
     expect(await within(screen.getByRole('region', { name: 'ws1 thermals and power summary' })).findByText('0.400')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'GPU energy' })).getByText('Today').nextSibling).toHaveTextContent(/^0\.400\skWh/);
+  });
+});
+
+describe('GPU notice on a one-GPU node whose backend fails a tick', () => {
+  it('names the GPU that sent no reading, and never says the others still report', () => {
+    show(gb10, { sample: { ...gb10.sample, gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } } });
+
+    const note = screen.getByRole('list', { name: 'Metrics unavailable' });
+    expect(note).toHaveTextContent(/^GPU 0 \(NVIDIA GB10\) not responding: RuntimeError: NVML read failed\. The nvml backend sent no reading this tick\.$/);
+    expect(note).not.toHaveTextContent('GPU metrics unavailable');
+  });
+
+  it('keeps the general note for a GPU error while every GPU reports', () => {
+    showHybrid({ ...base, gpu: [reading(0, 91, 71, 32.4), reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: { gpu: 'amdgpu-sysfs: RuntimeError: partial read' } });
+
+    expect(screen.getByRole('list', { name: 'Metrics unavailable' })).toHaveTextContent(/^GPU metrics unavailable: amdgpu-sysfs: RuntimeError: partial read\. Other panels are unaffected\.$/);
   });
 });
