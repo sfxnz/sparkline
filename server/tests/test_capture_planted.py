@@ -67,6 +67,23 @@ def os_release_line(line: str) -> Plant:
     return plant
 
 
+def full_name(gecos: str, *also: Plant) -> Plant:
+    def plant(copy: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (copy / "root/etc/passwd").write_text(f"{USER}:x:1000:1000:{gecos},,,:{HOME}:/bin/bash\n")
+        for other in also:
+            other(copy, monkeypatch)
+
+    return plant
+
+
+def mounted_at(point: str) -> Plant:
+    def plant(copy: Path, _: pytest.MonkeyPatch) -> None:
+        mounts = copy / "root/proc/self/mounts"
+        mounts.write_text(mounts.read_text() + f"/dev/sda1 {point} ext4 rw 0 0\n")
+
+    return plant
+
+
 def cpuinfo_lines(text: str) -> Plant:
     def plant(copy: Path, _: pytest.MonkeyPatch) -> None:
         cpuinfo = copy / "root/proc/cpuinfo"
@@ -444,6 +461,29 @@ CASES = [
         plant=cpuinfo_lines(f"Serial\t\t:\nmodel name\t: {HOST} CPU\n"),
         because="hostname",
     ),
+    Case(
+        "full name from passwd",
+        "refused",
+        ("Zorbina Quuxley",),
+        "owner Zorbina Quuxley",
+        full_name("Zorbina Quuxley"),
+        because="full name",
+    ),
+    Case(
+        "last name from passwd",
+        "refused",
+        ("Quuxley",),
+        "Quuxley lab",
+        full_name("Zorbina Quuxley"),
+        because="full name",
+    ),
+    Case(
+        "first name from passwd, in a mount point",
+        "refused",
+        ("Zorbina",),
+        plant=full_name("Zorbina Quuxley", mounted_at("/mnt/Zorbina-backup")),
+        because="full name",
+    ),
 ]
 
 
@@ -503,6 +543,14 @@ def written(red: Redacted) -> bytes:
         p.encode() + (n.target.encode() if isinstance(n, Link) else n.data if isinstance(n, File) else b"")
         for p, n in red.recording.tree.items()
     )
+
+
+def test_a_part_of_a_full_name_shorter_than_four_letters_is_not_taken_for_the_name(tmp_path, monkeypatch):
+    copy = base_copy(tmp_path, HOST)
+    full_name("Zorbina Li")(copy, monkeypatch)
+    with_free_text(copy, "li board")
+    capture_of(copy, tmp_path / "out")
+    assert "li board" in (tmp_path / "out/root/proc/cpuinfo").read_text()
 
 
 def test_a_mac_in_an_interface_name_is_replaced_in_the_path_and_the_link_target():
