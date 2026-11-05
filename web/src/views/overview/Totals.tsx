@@ -11,8 +11,9 @@ import type { NodeState } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { formatEnergyCost, formatKwh } from '../shared/energy';
+import { excl } from '../shared/totalGap';
 import { nodeUtil, shallowEqual, useAcross, useEnergyToday, useOnlineIds, utilGpusRead } from './hooks';
-import { clusterTotals, gpuProcesses, listNodes } from './model';
+import { clusterTotals, gpuProcesses } from './model';
 
 /** "16:13": the local time of a reading. */
 const formatHm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -29,7 +30,7 @@ function leftOut(ids: readonly string[], gapOf: (id: string) => NotReported | nu
 
 const droppedOut = (ids: readonly string[], nodes: Record<string, NodeState>, field: NodeTotal) =>
   ids.filter((id) => nodeTotalGap(nodes[id]?.info, liveStore.latest(id), field)).join('\n');
-const exclText = (excl: readonly string[]) => (excl.length ? ` · excl. ${listNodes(excl)}` : '');
+const exclText = (ids: readonly string[]) => (ids.length ? ` · ${excl(ids)}` : '');
 
 export function Totals() {
   const online = useOnlineIds();
@@ -93,7 +94,7 @@ export function Totals() {
   const energyGaps = leftOut(ids, (id) => gpuSetGap(infos[id]?.info, 'energy_j', 'every'));
   const energyExcl = [...new Set([...energyGaps.excl, ...energy.missing])];
   const powerOnly = power.excl.filter((id) => !energyExcl.includes(id));
-  const nowExcl = powerOnly.length ? `Now excl. ${listNodes(powerOnly)} · ` : '';
+  const nowExcl = powerOnly.length ? `Now ${excl(powerOnly)} · ` : '';
   const unified = ids.every((id) => memoryLayout(infos[id]?.info).name === 'Unified memory');
 
   return (
@@ -133,7 +134,7 @@ export function Totals() {
             totals.memUsed !== null && totals.memTotal ? (
               <span className="num">
                 {formatBytes(totals.memUsed).replace(/\s?GiB$/, '')} of {formatBytes(totals.memTotal)}
-                {memMissing.length ? ` · excl. ${listNodes(memMissing)}` : ''}
+                {exclText(memMissing)}
                 {totals.psi !== null ? (totals.psi < 0.05 ? ' · no memory pressure' : ` · waiting on memory ${formatPercent(totals.psi, totals.psi < 10 ? 1 : 0)} of the time`) : ''}
               </span>
             ) : stale ? (

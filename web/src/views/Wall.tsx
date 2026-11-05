@@ -13,7 +13,7 @@ import { useEvents } from '../store/events';
 import { SeverityBadge } from './alerts/parts/SeverityBadge';
 import { useTick } from './alerts/parts/tick';
 import { clusterGpuNow, shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './overview/hooks';
-import { listNodes } from './overview/model';
+import { excl } from './shared/totalGap';
 import { tickerAlerts, wallColumns } from './wall/model';
 import { useFullscreen, useIdle, useWakeLock } from './wall/useWallChrome';
 import { WallTile } from './wall/WallTile';
@@ -121,7 +121,7 @@ function ClusterLine() {
       ) : (
         <>
           <AnimatedNumber value={v.power} format={watts} />
-          <span> W GPU power{v.dropped ? ` · excl. ${listNodes(v.dropped.split('\n'))}` : ''}</span>
+          <span> W GPU power{v.dropped ? ` · ${excl(v.dropped.split('\n'))}` : ''}</span>
         </>
       )}
     </p>

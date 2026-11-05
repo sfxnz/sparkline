@@ -74,7 +74,7 @@ for (const linked of [false, true]) {
     for (const width of [1680, 1440, 375]) {
       await page.setViewportSize({ width, height: 900 });
       for (const label of ['Unified memory in use', 'GPU power']) {
-        await expect.poll(() => footer(label).evaluate(shows, 'excl. spark2'), { message: `${label} footer shows "excl. spark2" at ${width} px` }).toBe(true);
+        await expect.poll(() => footer(label).evaluate(shows, 'excl.\u00a0spark2'), { message: `${label} footer shows "excl. spark2" at ${width} px` }).toBe(true);
       }
     }
   });

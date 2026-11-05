@@ -5,6 +5,10 @@ import type { NodeTotal, ReadingTotal } from '../../lib/metrics';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useLatest } from '../../store/live';
+import { listNodes } from '../overview/model';
+
+/** "excl. spark2": the nodes a cluster figure leaves out, the first one never on the line after "excl.". */
+export const excl = (ids: readonly string[]) => `excl.\u00a0${listNodes(ids)}`;
 
 export const sameGap = (a: NotReported | null, b: NotReported | null) => a?.label === b?.label && a?.detail === b?.detail;
 
