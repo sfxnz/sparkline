@@ -39,6 +39,7 @@ from ..common.schema import (
     TempSample,
     Unsupported,
 )
+from .cluster import VERSION
 from .nodes import Listener, NodeSource
 
 GIB = 1 << 30
@@ -599,7 +600,7 @@ class DemoModel:
         return NodeInfo(
             node_id=self.node_id,
             hostname=self.node_id,
-            agent_version="0.1.0",
+            agent_version=VERSION,
             os="Ubuntu 24.04.4 LTS (DGX OS)",
             kernel="6.17.0-1032-nvidia",
             driver="580.173.02",
