@@ -82,11 +82,16 @@ for (const linked of [false, true]) {
 
 interface GpuReading { index: number; temp_c?: number | null }
 
-async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading, gaps: unknown[] = []) {
+interface StubNode { id: string; platform: 'gb10' | 'workstation'; gpus?: (g: GpuReading) => GpuReading | null; gaps?: unknown[]; errors?: Record<string, string> }
+
+/** A stubbed console with one online node per entry, each sending its recorded platform sample once; `gpus` returning
+ *  null drops that GPU from the sample. */
+async function stubbed(page: Page, nodes: StubNode[]) {
   const now = Date.now() / 1000;
-  const base = fixture('platforms/workstation/info.json');
-  const info = { ...base, node_id: 'ws1', unsupported: [...(base.unsupported as unknown[]), ...gaps] };
-  const reading = fixture('platforms/workstation/sample.json');
+  const infoOf = (n: StubNode) => {
+    const base = fixture(`platforms/${n.platform}/info.json`);
+    return { ...base, node_id: n.id, unsupported: [...(base.unsupported as unknown[]), ...(n.gaps ?? [])] };
+  };
   await page.route('**/api/**', (route) => route.fulfill({ status: 502, body: '' }));
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/v1/live**', (route) => route.fulfill({ status: 404, body: '' }));
@@ -94,16 +99,22 @@ async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading, gaps
     ws.send(JSON.stringify({
       type: 'hello',
       cluster: {
-        nodes: [{ node_id: 'ws1', url: '', status: 'online', since: now, last_sample_ts: now, error: null, info, next_retry_ts: null }],
+        nodes: nodes.map((n) => ({ node_id: n.id, url: '', status: 'online', since: now, last_sample_ts: now, error: null, info: infoOf(n), next_retry_ts: null })),
         settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 },
         demo: true,
         version: 'test',
         server_time: now,
       },
     }));
-    ws.send(JSON.stringify({ type: 'sample', node_id: 'ws1', sample: { ...reading, node_id: 'ws1', ts: now, gpu: (reading.gpu as GpuReading[]).map(gpus) } }));
+    for (const n of nodes) {
+      const reading = fixture(`platforms/${n.platform}/sample.json`);
+      const gpu = (reading.gpu as GpuReading[]).flatMap((g) => n.gpus?.(g) ?? (n.gpus ? [] : g));
+      ws.send(JSON.stringify({ type: 'sample', node_id: n.id, sample: { ...reading, node_id: n.id, ts: now, gpu, errors: n.errors ?? {} } }));
+    }
   });
 }
+
+const workstation = (page: Page, gpus: (g: GpuReading) => GpuReading, gaps: unknown[] = []) => stubbed(page, [{ id: 'ws1', platform: 'workstation', gpus, gaps }]);
 
 const paintsInFull = (el: Element, text: string) => {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -239,4 +250,17 @@ test('the ws1 card paints its plain headroom line in full at every width from 30
     if (!(await stats.evaluate(paintsInFull, 'headroom'))) clipped.push(`"headroom" at ${String(width)} px`);
   }
   expect(clipped).toEqual([]);
+});
+
+test('a healthy GB10 card keeps its plain headroom line beside its temperature at 375 px, as before the narrow-column rule', async ({ page }) => {
+  await stubbed(page, [{ id: 'spark1', platform: 'gb10' }]);
+  await page.goto('/');
+  const card = page.getByRole('region', { name: 'Node spark1' });
+  await expect(card).toContainText('headroom');
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    await expect(card.locator('.ov-stat__headroom'), `headroom in the temperature stat at ${String(width)} px`).toBeVisible();
+    await expect(card.locator('.ov-card__headroom'), `no headroom row under the stats at ${String(width)} px`).toBeHidden();
+  }
 });
