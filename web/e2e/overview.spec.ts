@@ -264,3 +264,30 @@ test('a healthy GB10 card keeps its plain headroom line beside its temperature a
     await expect(card.locator('.ov-card__headroom'), `no headroom row under the stats at ${String(width)} px`).toBeHidden();
   }
 });
+
+/** Each wrapped line of an element: [left of its first line, left of each later line], in px, plus 1em in px. */
+const lineStarts = (el: Element) => [...el.querySelectorAll('.unsupported__line')].map((line) => {
+  const range = document.createRange();
+  range.selectNodeContents(line);
+  const lefts = [...range.getClientRects()].reduce<{ top: number; left: number }[]>((rows, r) => {
+    const row = rows.find((x) => Math.abs(x.top - r.top) < 2);
+    if (row) row.left = Math.min(row.left, r.left);
+    else rows.push({ top: r.top, left: r.left });
+    return rows;
+  }, []).sort((a, b) => a.top - b.top).map((r) => Math.round(r.left));
+  return { lefts, em: parseFloat(getComputedStyle(line).fontSize) };
+});
+
+test("a tooltip over several nodes indents each line's wrapped part under its first word", async ({ page }) => {
+  await stubbed(page, ['ws1', 'ws2'].map((id) => ({ id, platform: 'workstation', gpus: () => null, errors: { gpu: `nvml: RuntimeError: the NVIDIA driver on ${id} stopped answering every query this tick` } })));
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.goto('/');
+  const tip = page.locator('.tooltip', { hasText: 'ws1: ' }).filter({ hasText: 'ws2: ' }).first();
+  await expect(tip, 'a tooltip names both nodes').toBeAttached();
+  await tip.locator('xpath=..').getByRole('button', { name: 'Why is this not reported?' }).focus();
+  await expect(tip).toBeVisible();
+  const lines = await tip.evaluate(lineStarts);
+  const wrapped = lines.filter((l) => l.lefts.length > 1);
+  expect(wrapped.length, 'at least one tooltip line wraps at 375 px').toBeGreaterThan(0);
+  for (const l of wrapped) for (const left of l.lefts.slice(1)) expect(left - (l.lefts[0] ?? 0)).toBeCloseTo(l.em, 0);
+});
