@@ -4,6 +4,8 @@ import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
 import gb10Sample from '../../test/fixtures/platforms/gb10/sample.json';
 import wsInfo from '../../test/fixtures/platforms/workstation/info.json';
 import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
+import oldAgentInfo from '../../../../server/tests/fixtures/console/node_info.json';
+import oldAgentSample from '../../../../server/tests/fixtures/console/sample.json';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
@@ -208,6 +210,12 @@ describe('Memory tab by memory model', () => {
     const s = gb10Sample as unknown as Sample;
     open(old, { ...s, gpu: s.gpu.map((g) => Object.fromEntries(Object.entries(g).filter(([k]) => k !== 'shared_used' && k !== 'vram_used')) as unknown as Sample['gpu'][number]) });
     gb10Strings();
+  });
+
+  it('reads the hello and sample of an agent that predates the memory model exactly as before', () => {
+    open({ ...(oldAgentInfo as unknown as NodeInfo), node_id: NODE }, oldAgentSample);
+    gb10Strings();
+    expect(screen.getByRole('list', { name: 'Memory breakdown' })).toHaveTextContent('GPU-allocated80.0 GiB');
   });
 });
 
