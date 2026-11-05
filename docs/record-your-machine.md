@@ -62,7 +62,7 @@ written composed (NFC, as Linux usually writes them) or decomposed (NFD, as macO
 | Value | Placeholder |
 | --- | --- |
 | Hostname, with any domain after it, also written with `_` for `-`, in its `xn--` form or, from 8 characters, inside a longer word | `host1` |
-| Domain of the hostname, each parent domain, the organization, and each label of 4 or more characters, on their own, also written with `_` for `-` or, from 8 characters, inside a longer word. The organization is the label before the top-level domain, or before a two-label public suffix such as `co.uk`, `com.au` or `co.jp` | `domain1` |
+| Domain of the hostname, each parent domain, the organization, and each label of 4 or more characters, on their own, also written with `_` for `-` or, from 8 characters, inside a longer word. The organization is the label before the top-level domain, or before a public suffix of two labels: `ts.net`, or a registry label such as `co`, `com`, `ac`, `edu`, `gov`, `net` or `org` under a two-letter country code, as in `co.uk` or `edu.cn` | `domain1` |
 | User name, the home directory, and a disk mounted under `/media/<user>` | `user1`, `/home/<user1>`, `/media/<user1>` |
 | Full name of an account in `/etc/passwd`, each word in that account's comment field that has a letter and 4 or more characters, also without accents, and each number there of 6 or more digits, such as a phone number, as written and as its digits alone | `person1` |
 | IPv4 address, private ranges included | `198.51.100.1`, then `203.0.113.x` and `192.0.2.x` |
@@ -133,6 +133,7 @@ name into every entry of an archive. `recording.tgz` holds no user names and no 
 | 2 | It met something that it cannot make safe, and wrote nothing. | Read the lines it printed. If they say that a name is also a word in what the agent reads, see the next section. Otherwise open an issue and paste the lines. They name the place and the kind of value, never the value. |
 | 3 | The output path is not a directory, its parent doesn't exist or isn't a directory, you can't write there, the directory already holds files, or the command got more than one argument. | Give it one new or empty directory that you can write to. |
 | 4 | It failed unexpectedly, or it could not turn off core dumps or load its own code. It keeps no partial recording. | Open an issue and paste the lines it printed. They hold no message text, only where it failed. |
+| 120 | Python could not write the last lines that the command printed, for example because the terminal or the pipe it printed to had closed. | If `recording.tgz` is in the directory, the recording is ready. Otherwise the command kept nothing. Run it again. |
 | 129 | The terminal closed (SIGHUP). | Run it again. It keeps no partial recording. |
 | 130 | You stopped it with Ctrl-C. | Nothing to do. It keeps no partial recording. |
 | 131 | You stopped it with `Ctrl-\` (SIGQUIT). | Nothing to do. It keeps no partial recording. |
@@ -182,9 +183,15 @@ run, and capture again:
 - For the hostname, run `sudo hostname sparkline-capture` before the capture, and set your hostname back after.
 - For a Docker container, run `docker rename <old name> <new name>`.
 - For a user name, run the capture from another account.
-- For a word or number of an account's comment field, such as its full name or phone number, note the field
-  with `getent passwd <account>`, run `sudo usermod -c '' <account>` before the capture, and set it back after
-  with `sudo usermod -c '<the old field>' <account>`.
+- For a word or number of an account's comment field, such as its full name or phone number, save the field,
+  clear it for the capture, and set it back after:
+
+  ```sh
+  old=$(getent passwd <account> | cut -d: -f5)
+  sudo usermod -c '' <account>
+  # run the capture here
+  sudo usermod -c "$old" <account>
+  ```
 
 The command no longer knows the old name. Before you attach, search the recording for it, for example with
 `grep -ri <old name> <recording directory>`. It can still appear as the ordinary word, but also read the mount
