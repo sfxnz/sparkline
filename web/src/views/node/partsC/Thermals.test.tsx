@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import sampleJson from '../../../test/fixtures/sample.json';
 import wsInfo from '../../../test/fixtures/platforms/workstation/info.json';
 import wsSample from '../../../test/fixtures/platforms/workstation/sample.json';
@@ -264,5 +264,36 @@ describe('GPU energy on a four-GPU workstation while GPU 2 sends nothing', () =>
     show([gpu2 + 3600, gpu2 + 7200], 1);
     await header().findByText('0.402');
     expect(energy()).toHaveTextContent(/^GPU energy today0\.402kWh$/);
+  });
+
+  const panel = () => within(screen.getByRole('region', { name: 'GPU energy' }));
+  const row = (label: string) => panel().getByText(label).closest('.tp-energy__row') as HTMLElement;
+
+  it('says under the GPU energy totals that they count GPU 2 until its last reading while it is quiet', async () => {
+    const last = show([gpu2 + 3600, gpu2 + 7200], 5);
+    await waitFor(() => { expect(row('Today')).toHaveTextContent(/^Today0\.402\skWh/); });
+    expect(panel().getByText(`These totals count GPU 2 until ${hm(last)}, as it is not responding.`)).toBeInTheDocument();
+  });
+
+  it('leaves the GPU energy totals unmarked while GPU 2 has missed one tick', async () => {
+    show([gpu2 + 3600, gpu2 + 7200], 1);
+    await waitFor(() => { expect(row('Today')).toHaveTextContent(/^Today0\.402\skWh/); });
+    expect(panel().queryByText(/^These totals count/)).not.toBeInTheDocument();
+  });
+
+  it('leaves the GPU energy totals of a healthy GB10 unmarked', async () => {
+    const now = Date.now() / 1000;
+    const counter = gpuAt((sampleJson as unknown as Sample).gpu, 0)?.energy_j ?? 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(Response.json({ node_id: NODE, resolution_s: 60, ts: [now - 180, now - 120], series: { 'gpu0.energy_j': [counter - 360_000, counter] }, min: {}, max: {} })));
+    historyCache.clear();
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: state('online') } });
+    act(() => {
+      liveStore.removeNode(NODE);
+      for (let ago = 6; ago >= 0; ago--) liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: NODE, ts: now - ago });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={NODE} />);
+    await waitFor(() => { expect(row('Today')).toHaveTextContent(/^Today0\.100\skWh/); });
+    expect(panel().queryByText(/^These totals count/)).not.toBeInTheDocument();
   });
 });
