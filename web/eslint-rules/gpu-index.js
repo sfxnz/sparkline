@@ -79,7 +79,9 @@ export default {
       },
       'ObjectPattern > Property'(node) {
         const value = node.value.type === 'AssignmentPattern' ? node.value.left : node.value;
-        if (value.type === 'ArrayPattern' && GPU.test(staticKey(node.key, node.computed))) report(node);
+        if (!GPU.test(staticKey(node.key, node.computed))) return;
+        if (value.type === 'ArrayPattern') report(node);
+        if (value.type === 'Identifier') copies.add(variableOf(value));
       },
     };
   },
