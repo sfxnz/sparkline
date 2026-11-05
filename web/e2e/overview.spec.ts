@@ -82,9 +82,10 @@ for (const linked of [false, true]) {
 
 interface GpuReading { index: number; temp_c?: number | null }
 
-async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading) {
+async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading, gaps: unknown[] = []) {
   const now = Date.now() / 1000;
-  const info = { ...fixture('platforms/workstation/info.json'), node_id: 'ws1' };
+  const base = fixture('platforms/workstation/info.json');
+  const info = { ...base, node_id: 'ws1', unsupported: [...(base.unsupported as unknown[]), ...gaps] };
   const reading = fixture('platforms/workstation/sample.json');
   await page.route('**/api/**', (route) => route.fulfill({ status: 502, body: '' }));
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { ok: true } }));
@@ -168,6 +169,22 @@ for (const [state, temp] of [['heating up', 88], ['at slowdown', 94]] as const) 
     for (const width of [1440, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await expect.poll(() => card.evaluate(strandedSeparators), { message: `separators starting a line at ${String(width)} px` }).toEqual([]);
+    }
+  });
+}
+
+const LOST_GPU0 = [{ metric: 'gpu0', reason: 'NVML could not open GPU 0 (NVML: GPU is lost)', kind: 'hardware' }];
+
+for (const [state, temp] of [['calm', 77], ['heating up', 89], ['at slowdown', 94]] as const) {
+  test(`the ws1 card says its temperature reads 3 of 4 GPUs while GPU 0 is lost and GPU 3 is ${state}`, async ({ page }) => {
+    await workstation(page, (g) => (g.index === 0 ? { index: 0 } : g.index === 3 ? { ...g, temp_c: temp } : g), LOST_GPU0);
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Node ws1' });
+    await expect(card).toContainText('GPU temp');
+    const stats = card.locator('.ov-card__stats');
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => stats.evaluate(paintsInFull, '3 of 4 GPUs'), { message: `"3 of 4 GPUs" under the temperature at ${String(width)} px` }).toBe(true);
     }
   });
 }
