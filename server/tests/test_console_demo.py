@@ -358,6 +358,18 @@ def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
     assert sorted(p.gpu_mem for p in procs if p.gpu_mem) == pytest.approx([43.4e9] * 4, rel=0.01)
 
 
+def test_each_workstation_gpu_holds_its_tp_workers_memory_and_a_fixed_reserve_of_its_own_vram():
+    m = ws1()
+    assert {(g.memory, g.vram_total) for g in m.info.gpus} == {("dedicated", 48 * 2**30)}
+    for t in range(0, 3600, 97):
+        s = m.sample_at(T0 + t, procs=True)
+        workers = {p.cmdline: p.gpu_mem or 0 for p in s.procs or [] if p.name == "VLLM::Worker_TP"}
+        reserve = {g.vram_used - workers[f"VLLM::Worker_TP{g.index}"] for g in s.gpu if g.vram_used}
+        assert len(reserve) == 1 and 0 < reserve.pop() < 2**30, t
+        assert all(g.shared_used is None for g in s.gpu) and s.mem.gpu is None
+        assert max(g.vram_used or 0 for g in s.gpu) < 48 * 2**30
+
+
 def test_demo_history_works_for_the_workstation():
     m = ws1()
     now = T0 + 600
