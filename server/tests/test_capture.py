@@ -1169,6 +1169,51 @@ def test_a_crash_prints_nothing_when_python_was_asked_for_faulthandler(tmp_path)
     assert run.stderr == ""
 
 
+def signalled_while_archiving(signum: int, *, while_cleaning_up: bool = False) -> str:
+    plant = (
+        "import os, shutil\n"
+        "write_archive = cli.write_archive\n"
+        "def stopped(out):\n"
+        f"    os.kill(os.getpid(), {int(signum)})\n"
+        "    return write_archive(out)\n"
+        "cli.write_archive = stopped\n"
+    )
+    if while_cleaning_up:
+        plant += (
+            "rmtree = shutil.rmtree\n"
+            "def again(path, *args, **kwargs):\n"
+            f"    os.kill(os.getpid(), {int(signum)})\n"
+            "    rmtree(path, *args, **kwargs)\n"
+            "shutil.rmtree = again\n"
+        )
+    return plant
+
+
+@pytest.mark.parametrize(
+    ("signum", "code", "while_cleaning_up"),
+    [
+        (signal.SIGTERM, 143, False),
+        (signal.SIGHUP, 129, False),
+        (signal.SIGTERM, 143, True),
+    ],
+    ids=["SIGTERM", "SIGHUP", "a second SIGTERM while cleaning up"],
+)
+def test_sigterm_or_a_closed_terminal_keeps_nothing_like_ctrl_c(signum, code, while_cleaning_up, tmp_path):
+    out = tmp_path / "out"
+    run = run_the_command(out, signalled_while_archiving(signum, while_cleaning_up=while_cleaning_up))
+    assert run.returncode == code
+    assert run.stderr == "sparkline-capture stopped. It keeps no partial recording.\n"
+    assert not out.exists()
+
+
+def test_a_hangup_ignored_before_the_command_started_stays_ignored(tmp_path):
+    out = tmp_path / "out"
+    nohup = "import signal\nsignal.signal(signal.SIGHUP, signal.SIG_IGN)\n"
+    run = run_the_command(out, nohup + signalled_while_archiving(signal.SIGHUP))
+    assert run.returncode == 0
+    assert (out / "recording.tgz").exists()
+
+
 def test_a_second_ctrl_c_while_cleaning_up_still_leaves_nothing(tmp_path, monkeypatch):
     import sparkline.agent.capture as cli
 
