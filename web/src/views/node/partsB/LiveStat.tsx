@@ -2,6 +2,7 @@
 // it keeps showing the last value (dimmed, "updated X ago") when the node or the collector stops reporting.
 import type { ReactNode } from 'react';
 import { Stat } from '../../../design/components/Stat';
+import type { NotReported } from '../../../lib/capabilities';
 import type { Formatter } from '../../../lib/format';
 import { liveStore } from '../../../store/live';
 import { useNodeStale } from '../../shared/live';
@@ -19,7 +20,7 @@ interface Props {
   stale?: boolean;
   /** When the value went stale, if not at the node's last sample. */
   updatedAt?: number | null;
-  unsupported?: string | null;
+  unsupported?: NotReported | null;
   size?: 'md' | 'lg';
   footer?: ReactNode;
 }
@@ -38,7 +39,7 @@ export function LiveStat({ node, label, format, metric, derive, stale, updatedAt
       size={size}
       stale={isStale}
       updatedAt={isStale ? (updatedAt ?? lastTs) : null}
-      unsupported={unsupported ?? undefined}
+      unsupported={unsupported}
       footer={footer}
     />
   );

@@ -1,5 +1,6 @@
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
 import { useCallback, type ReactNode } from 'react';
+import type { NotReported } from '../../lib/capabilities';
 import { DASH, formatAgo, type Formatter } from '../../lib/format';
 import { useNow } from '../useNow';
 import { AnimatedNumber } from './AnimatedNumber';
@@ -15,15 +16,12 @@ interface Props {
   /** Dim the value; without a footer, also show "updated 12 s ago" (epoch seconds of the last real update). */
   stale?: boolean;
   updatedAt?: number | null;
-  /** Reason text when the hardware does not report this metric. */
-  unsupported?: string;
-  /** Short label for the unsupported state (default "Not reported by this hardware"). */
-  unsupportedLabel?: string;
+  unsupported?: NotReported | null;
   size?: 'md' | 'lg';
   footer?: ReactNode;
 }
 
-export function Stat({ label, value, format, delta, stale, updatedAt, unsupported, unsupportedLabel, size = 'md', footer }: Props) {
+export function Stat({ label, value, format, delta, stale, updatedAt, unsupported, size = 'md', footer }: Props) {
   const target = value == null || !Number.isFinite(value) ? null : format(value);
   const unit = target?.unit ?? '';
   const textFor = useCallback((n: number) => format(n, unit || undefined).value, [format, unit]);
@@ -34,7 +32,7 @@ export function Stat({ label, value, format, delta, stale, updatedAt, unsupporte
       <div className="stat__label">{label}</div>
       {unsupported ? (
         <div className="stat__unsupported">
-          <Unsupported reason={unsupported} label={unsupportedLabel} />
+          <Unsupported gap={unsupported} />
         </div>
       ) : (
         <div className="stat__value">

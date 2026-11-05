@@ -20,6 +20,7 @@ import { Stat } from '../design/components/Stat';
 import { StatusPill } from '../design/components/StatusPill';
 import { Table } from '../design/components/Table';
 import { Tabs } from '../design/components/Tabs';
+import { notReportedByHardware } from '../lib/capabilities';
 import { bitrateParts, bytesParts, formatPercent, formatTemp, formatWatts, percentParts, tempParts, wattsParts } from '../lib/format';
 import type { CoreInfo, Sample } from '../lib/types';
 import { useCluster } from '../store/cluster';
@@ -78,7 +79,7 @@ function LatestStat() {
       <Stat label="GPU power" value={v?.gpu[0]?.power_w} format={wattsParts} />
       <Stat label="Memory used" value={v?.mem.used} format={bytesParts} />
       <Stat label="CX7 rail A rx" value={v?.net[0]?.rx_bps} format={bitrateParts} stale updatedAt={staleSince} />
-      <Stat label="Power limit" value={null} format={wattsParts} unsupported="Not reported by GB10 (NVML: Not Supported)." />
+      <Stat label="Power limit" value={null} format={wattsParts} unsupported={notReportedByHardware('Not reported by GB10 (NVML: Not Supported).')} />
     </div>
   );
 }

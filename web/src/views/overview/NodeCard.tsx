@@ -21,7 +21,7 @@ import { api } from '../../lib/api';
 import { bitrateParts, DASH, formatAgo, formatBytes, formatPercent, formatWatts, text, wattsParts } from '../../lib/format';
 import { tempRoom } from '../../lib/condition';
 import type { NodeInfo, Sample } from '../../lib/types';
-import { unsupportedReason } from '../../lib/unsupported';
+import { notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { useNodeDisplayStatus } from '../../store/attention';
@@ -237,14 +237,14 @@ function UtilRing() {
   );
 }
 
-function StatBlock({ label, value, unit, format, footer, unsupported }: { label: string; value: number | null; unit: string; format: (n: number) => string; footer?: ReactNode; unsupported?: string | null }) {
+function StatBlock({ label, value, unit, format, footer, unsupported }: { label: string; value: number | null; unit: string; format: (n: number) => string; footer?: ReactNode; unsupported?: NotReported | null }) {
   const { freshness } = useContext(Ctx);
   if (value === null && freshness === 'waiting' && !unsupported) return <StatSkel />;
   return (
     <div className="ov-stat">
       <span className="ov-stat__label">{label}</span>
       {unsupported ? (
-        <Unsupported reason={unsupported} />
+        <Unsupported gap={unsupported} />
       ) : (
         <span className="ov-stat__value">
           <AnimatedNumber value={value} format={format} scale={unit} className="ov-stat__number" />
@@ -280,7 +280,7 @@ function Temperature() {
       unit="°C"
       format={intText}
       footer={footer}
-      unsupported={unsupportedReason(info, 'gpu0.temp_c')}
+      unsupported={notReported(info, 'gpu0.temp_c')}
     />
   );
 }
@@ -306,7 +306,7 @@ function Power() {
       unit="W"
       format={wattsText}
       footer={peak.max !== null ? <>Peak <span className="num">{formatWatts(peak.max)}</span><span className="visually-hidden"> in the {peak.phrase}</span></> : null}
-      unsupported={unsupportedReason(info, 'gpu0.power_w')}
+      unsupported={notReported(info, 'gpu0.power_w')}
     />
   );
 }
@@ -417,12 +417,12 @@ function Interconnect() {
 
 function Spark({ metric, label, format, min, max }: { metric: string; label: string; format: (n: number) => string; min?: number; max?: number }) {
   const { id, freshness, info } = useContext(Ctx);
-  const reason = unsupportedReason(info, metric);
+  const reason = notReported(info, metric);
   return (
     <div className="ov-spark">
       <span className="ov-spark__label">{label} <span className="ov-dim">· 3 min</span></span>
       {reason ? (
-        <Unsupported reason={reason} />
+        <Unsupported gap={reason} />
       ) : freshness === 'waiting' ? (
         <Skeleton height={SPARK_H} radius={6} />
       ) : (

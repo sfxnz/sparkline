@@ -2,16 +2,17 @@
 
 Conventions:
 - Timestamps are Unix epoch seconds (float). Byte quantities are ints. Rates are per second.
-- A metric that the hardware does not report is ``None`` in samples AND listed in ``NodeInfo.unsupported``;
-  clients render it as "not reported by this hardware", never as 0.
+- A metric the node does not report is ``None`` in samples AND listed in ``NodeInfo.unsupported``, with a
+  kind; clients render it by kind ("not reported by this hardware", the privilege it needs, what to
+  install), never as 0.
 - Bump SCHEMA_VERSION on breaking changes.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 SCHEMA_VERSION = 1
 
@@ -21,9 +22,19 @@ SCHEMA_VERSION = 1
 # ---------------------------------------------------------------------------
 
 
+UnsupportedKind = Literal["hardware", "access", "dependency"]
+
+
 class Unsupported(BaseModel):
-    metric: str  # flattened key or prefix, e.g. "gpu0.power_limit_w", "fan"
+    metric: str  # flattened key or prefix, e.g. "gpu0.power_limit_w", "fan"; "*" is a GPU index: "gpu*"
     reason: str  # human readable, e.g. "Not reported by GB10 (NVML: Not Supported)"
+    kind: UnsupportedKind = "hardware"
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _unknown_kind_reads_as_hardware(cls, v: object) -> object:
+        # A newer agent may send a kind this console predates; rejecting it would drop the whole hello.
+        return v if v in get_args(UnsupportedKind) else "hardware"
 
 
 class CoreInfo(BaseModel):

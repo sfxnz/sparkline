@@ -30,14 +30,20 @@ class NVMLError_NotSupported(NVMLError):  # noqa: N801 - pynvml's name
     pass
 
 
+class NVMLError_NoPermission(NVMLError):  # noqa: N801 - pynvml's name
+    pass
+
+
 class FakeNvml:
     """Stands in for pynvml. ``fail``: the exception every device read raises (None: healthy)."""
 
     NVMLError = NVMLError
     NVMLError_NotSupported = NVMLError_NotSupported
+    NVMLError_NoPermission = NVMLError_NoPermission
 
     def __init__(self) -> None:
         self.fail: BaseException | None = None
+        self.fail_on: dict[str, BaseException] = {}
 
     def __getattr__(self, name: str):
         if name.startswith("NVML_"):
@@ -62,6 +68,8 @@ class FakeNvml:
         }
 
         def call(*_args):
+            if name in self.fail_on:
+                raise self.fail_on[name]
             device_read = name.startswith("nvmlDevice") and name != "nvmlDeviceGetHandleByIndex"
             if self.fail is not None and device_read:
                 raise self.fail
@@ -117,6 +125,36 @@ def test_nvml_init_failure_leaves_an_empty_gpu_list(monkeypatch):
     g = gpu_mod.GpuCollector()
     assert g.collect() == {"gpu": []}
     assert "NVML unavailable" in g.unsupported[0].reason
+
+
+def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missing(nvml):
+    nvml.fail_on = {
+        "nvmlDeviceGetPowerManagementLimit": NVMLError_NoPermission("Insufficient Permissions"),
+        "nvmlDeviceGetFanSpeed": NVMLError_NotSupported("Not Supported"),
+    }
+    gaps = {u.metric: u for u in gpu_mod.GpuCollector().unsupported}
+    assert set(gaps) == {"gpu0.power_limit_w", "gpu0.fan_pct"}
+    limit = gaps["gpu0.power_limit_w"]
+    assert limit.kind == "access"
+    assert limit.reason == "Permission denied to the agent's user (NVML: Insufficient Permissions)"
+    assert gaps["gpu0.fan_pct"].kind == "hardware"
+    assert gaps["gpu0.fan_pct"].reason == "Fan speed not reported by NVIDIA GB10 (NVML: Not Supported)"
+
+
+def test_nvml_refusing_access_at_startup_says_a_privilege_is_missing(nvml):
+    nvml.fail_on = {"nvmlInit": NVMLError_NoPermission("Insufficient Permissions")}
+    (gap,) = gpu_mod.GpuCollector().unsupported
+    assert (gap.metric, gap.kind) == ("gpu*", "access")
+    assert gap.reason == "Permission denied to the agent's user (NVML: Insufficient Permissions)"
+
+
+def test_missing_nvidia_ml_py_says_what_to_install(monkeypatch):
+    monkeypatch.setattr(gpu_mod, "nv", None)
+    g = gpu_mod.GpuCollector()
+    assert g.collect() == {"gpu": []}
+    (gap,) = g.unsupported
+    assert (gap.metric, gap.kind) == ("gpu*", "dependency")
+    assert gap.reason == "Install nvidia-ml-py to read NVIDIA GPU metrics"
 
 
 async def test_sampling_loop_keeps_running_through_collector_failures(tmp_path):

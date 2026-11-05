@@ -7,6 +7,7 @@ import { Skeleton } from '../../design/components/Skeleton';
 import { Sparkline } from '../../design/components/Sparkline';
 import { StatusPill } from '../../design/components/StatusPill';
 import { Unsupported } from '../../design/components/Unsupported';
+import { notReported } from '../../lib/capabilities';
 import { bytesParts, DASH, formatAgo, formatPercent, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import type { NodeInfo } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
@@ -16,8 +17,6 @@ import { liveStore } from '../../store/live';
 import { useTick } from '../alerts/parts/tick';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from '../overview/hooks';
 import { cx7Throughput, gbpsParts, interconnectNames } from './model';
-
-const unsupportedReason = (info: NodeInfo | null, key: string) => info?.unsupported.find((u) => u.metric === key)?.reason;
 
 /** Big number + unit; the unit is fixed while a value animates so the digits never jump between units. */
 function BigValue({ value, parts, className }: { value: number | null; parts: Formatter; className?: string }) {
@@ -37,8 +36,8 @@ const wParts: Formatter = (n) => wattsParts(n, 'W');
 
 function LiveMetric({ node, metric, parts, quantum, info }: { node: string; metric: string; parts: Formatter; quantum?: number; info: NodeInfo | null }) {
   const value = useLiveValue(node, metric, quantum);
-  const reason = unsupportedReason(info, metric);
-  if (reason) return <Unsupported reason={reason} />;
+  const gap = notReported(info, metric);
+  if (gap) return <Unsupported gap={gap} />;
   return <BigValue value={value} parts={parts} />;
 }
 
@@ -49,7 +48,7 @@ function Cx7({ node, info }: { node: string; info: NodeInfo | null }) {
     // 0.8 Mb/s steps (below display precision), but any traffic at all stays above zero.
     return { v: t === null ? null : t > 0 ? Math.max(1, Math.round(t / 1e5) * 1e5) : 0 };
   }, shallowEqual, names.join(','));
-  if (!names.length) return <Unsupported reason="No ConnectX-7 rail on this node is cabled to another node." label="No direct link" />;
+  if (!names.length) return <Unsupported gap={{ kind: 'hardware', label: 'No direct link', detail: 'No ConnectX-7 rail on this node is cabled to another node.' }} />;
   return <BigValue value={v.v} parts={gbpsParts} />;
 }
 

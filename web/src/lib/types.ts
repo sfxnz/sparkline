@@ -6,9 +6,14 @@ export const SCHEMA_VERSION = 1;
 
 // --- Static node description -------------------------------------------------------------------
 
+export const UNSUPPORTED_KINDS = ['hardware', 'access', 'dependency'] as const;
+export type UnsupportedKind = (typeof UNSUPPORTED_KINDS)[number];
+
 export interface Unsupported {
   metric: string;
   reason: string;
+  /** Absent from an older agent's payload; read it as 'hardware'. */
+  kind?: UnsupportedKind;
 }
 
 export interface CoreInfo {
