@@ -355,3 +355,9 @@ describe("clusterHealth: the node's hottest-GPU alert hides a condition only on 
     expect(sentence('ws1', ws1)).toBe('ws1 has GPUs 1 and 2 heating up · 1 warning');
   });
 });
+
+describe('the workload sentence on a phone', () => {
+  it('keeps its GPU count on one line', () => {
+    expect(workloadSentence([{ id: 'ws4', procs: [qwen], gpusRead: { from: 3, of: 4 } }])).toBe('Serving Qwen3-32B on ws4 (3 of 4 GPUs)');
+  });
+});
