@@ -127,6 +127,8 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
   // The threshold the console flagged this run's regressions with; the setting may have changed since.
   const regressionPct = typeof run.metadata.regression_pct === 'number' ? run.metadata.regression_pct : settingPct;
   const active = isActive(run.status);
+  // The agents' own estimate for these exact parameters once they report it, else the catalog-based guess; none when
+  // a node's agent gives none.
   const estimate = runEstimate(run, spec);
   const expected = estimate === null ? elapsed(run, now) : projectedTotal(run, now, estimate);
   const name = spec?.name ?? run.bench_id;

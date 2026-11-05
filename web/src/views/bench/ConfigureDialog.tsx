@@ -277,6 +277,8 @@ function PairPicker({ spec, known, statuses, nodes, onChange }: { spec: BenchSpe
   );
 }
 
+/** Live one-liner next to a node: "serving DeepSeek… · GPU 62%", or "GPU 2 3%" for the GPU chosen on a node with several
+ *  (refreshes every 2 s while the dialog is open). */
 function NodeLoad({ node, hint, gpu }: { node: string; hint: string; gpu: number | undefined }) {
   useNow(2000);
   const s = liveStore.latest(node);
