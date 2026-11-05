@@ -5,7 +5,7 @@ import posixpath
 import re
 import unicodedata
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
 from ipaddress import IPv4Address, IPv6Address, IPv6Network
@@ -14,7 +14,15 @@ from typing import Any, Literal
 from ..common.identifiers import CAPTURE, PUBLIC_HF_ORGS, Detector, scan, text_of
 from .collectors.procs import container_id
 from .collectors.storage import REAL_FS
-from .readset import DOCKER_APIS, HOST_READINGS, NVML_CALLS, admits, matching, parts_a_bare_star_matches
+from .readset import (
+    DOCKER_APIS,
+    HOST_READINGS,
+    NVML_CALLS,
+    admits,
+    fixed_parts,
+    matching,
+    parts_a_bare_star_matches,
+)
 
 
 @dataclass(frozen=True)
@@ -174,6 +182,15 @@ class Spelling:
     category: str
 
 
+Spans = Sequence[tuple[int, int]]
+Where = tuple[str, ...]
+Fixed = Callable[[Where, str], list[tuple[int, int]]]
+
+
+def _within(m: re.Match[str], spans: Spans) -> bool:
+    return any(start <= m.start() and m.end() <= end for start, end in spans)
+
+
 class Spellings:
     def __init__(self, spellings: Iterable[Spelling]) -> None:
         unique: dict[tuple[str, str], Spelling] = {}
@@ -193,8 +210,10 @@ class Spellings:
         assert m.lastindex is not None
         return self._items[m.lastindex - 1]
 
-    def sub(self, text: str) -> str:
-        return self._rx.sub(lambda m: self._spelling(m).placeholder, text) if self._rx else text
+    def sub(self, text: str, keep: Spans = ()) -> str:
+        if self._rx is None:
+            return text
+        return self._rx.sub(lambda m: m[0] if _within(m, keep) else self._spelling(m).placeholder, text)
 
     def categories_in(self, text: str) -> set[str]:
         return {self._spelling(m).category for m in self._rx.finditer(text)} if self._rx else set()
@@ -203,13 +222,9 @@ class Spellings:
         found = (self._spelling(m) for m in self._rx.finditer(text)) if self._rx else ()
         return {s.category for s in found if s.form in _WORDS}
 
-    def outside(self, text: str, slots: list[tuple[int, int]]) -> set[str]:
+    def outside(self, text: str, slots: Spans) -> set[str]:
         found = self._rx.finditer(text) if self._rx else ()
-        return {
-            self._spelling(m).category
-            for m in found
-            if not any(start <= m.start() and m.end() <= end for start, end in slots)
-        }
+        return {self._spelling(m).category for m in found if not _within(m, slots)}
 
     def categories_in_bytes(self, data: bytes) -> set[str]:
         low = data.lower()
@@ -819,6 +834,28 @@ _HOME_SLOT = re.compile(
 _SERIAL_LINE = re.compile(r"^Serial[ \t]*:[ \t]*(\S.*)$", re.MULTILINE)
 
 
+MOUNTS = "/proc/self/mounts"
+REPO_TAGS = ("docker", "/images/json", "result", "RepoTags")
+_DISK_SOURCE = re.compile(rf"^(?=(?:{DISK.pattern}) )/(dev)/", re.MULTILINE)
+
+
+def _fixed_parts_of(path: str) -> list[tuple[int, int]]:
+    fixed = fixed_parts(path)
+    return [m.span() for i, m in enumerate(re.finditer("[^/]+", path)) if i in fixed]
+
+
+def _fixed_text(path: str, text: str) -> list[tuple[int, int]]:
+    return [m.span(1) for m in _DISK_SOURCE.finditer(text)] if path == MOUNTS else []
+
+
+def _fixed_in_host(where: Where, text: str) -> list[tuple[int, int]]:
+    return [(0, len(NGC_PYTORCH))] if where == REPO_TAGS and text.startswith(NGC_PYTORCH) else []
+
+
+def _nothing_fixed(_where: Where, _text: str) -> list[tuple[int, int]]:
+    return []
+
+
 def _where_names_live(path: str, text: str) -> list[tuple[int, int]]:
     if path == HOSTNAME:
         return [(0, len(text))]
@@ -843,17 +880,17 @@ def _strings_at(doc: Any, where: tuple[str, ...] = ()) -> Iterable[tuple[tuple[s
 def _collisions(rec: Recording, names: Spellings) -> list[Leak]:
     found: set[str] = set()
     for path, node in rec.tree.items():
-        found |= names.outside(path, _where_names_live("", path))
+        found |= names.outside(path, _where_names_live("", path) + _fixed_parts_of(path))
         if isinstance(node, Link):
             found |= names.outside(node.target, _where_names_live("", node.target))
         elif isinstance(node, File):
             text = text_of(node.data)[0]
-            found |= names.outside(text, _where_names_live(path, text))
+            found |= names.outside(text, _where_names_live(path, text) + _fixed_text(path, text))
     readings = {k: rec.meta[k] for k in READING_META if k in rec.meta}
-    for doc in (rec.nvml, rec.host, readings):
+    for doc, fixed in ((rec.nvml, _nothing_fixed), (rec.host, _fixed_in_host), (readings, _nothing_fixed)):
         for where, text in _strings_at(doc):
             slots = [(0, len(text))] if where == CONTAINER_NAMES else _where_names_live("", text)
-            found |= names.outside(text, slots)
+            found |= names.outside(text, slots + fixed(where, text))
     return [Leak(IN_A_READING, c) for c in sorted(found)]
 
 
@@ -937,32 +974,32 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
         p = ph.uuid(m[0])
         return p.upper() if re.search("[A-F]", m[0]) else p
 
-    def rewrite(text: str) -> str:
-        text = originals.sub(text)
+    def rewrite(text: str, keep: Spans = ()) -> str:
+        text = originals.sub(text, keep)
         for detector, fix in passes:
             text = _sub_flagged(detector, fix, text)
         return _UUID.sub(plain_uuid, text)
 
-    def rewrite_doc(doc: Any) -> Any:
+    def rewrite_doc(doc: Any, fixed: Fixed = _nothing_fixed, where: Where = ()) -> Any:
         if isinstance(doc, str):
-            return rewrite(doc)
+            return rewrite(doc, fixed(where, doc))
         if isinstance(doc, dict):
-            return {rewrite(str(k)): rewrite_doc(v) for k, v in doc.items()}
+            return {rewrite(str(k)): rewrite_doc(v, fixed, (*where, str(k))) for k, v in doc.items()}
         if isinstance(doc, list):
-            return [rewrite_doc(v) for v in doc]
+            return [rewrite_doc(v, fixed, where) for v in doc]
         return doc
 
-    def rewrite_node(node: Node) -> Node:
+    def rewrite_node(path: str, node: Node) -> Node:
         if isinstance(node, Link):
             return Link(rewrite(node.target))
         if isinstance(node, File) and (text := _text(node)) is not None:
-            return File(rewrite(text).encode())
+            return File(rewrite(text, _fixed_text(path, text)).encode())
         return node
 
-    read_at = {rewrite(path): path for path in rec.tree}
-    tree = {path: rewrite_node(rec.tree[raw]) for path, raw in read_at.items()}
+    read_at = {rewrite(path, _fixed_parts_of(path)): path for path in rec.tree}
+    tree = {path: rewrite_node(raw, rec.tree[raw]) for path, raw in read_at.items()}
     nvml = rewrite_doc(rec.nvml)
-    host = rewrite_doc(rec.host)
+    host = rewrite_doc(rec.host, _fixed_in_host)
     meta = {k: rewrite_doc(v) if k in READING_META else v for k, v in rec.meta.items()}
     left = {**meta.get("left_out", {}), **left_out}
     counts = dict(sorted(ph.counts.items()))
@@ -972,11 +1009,30 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
     )
 
 
-def _categories(text: str, binary: bool, originals: Spellings) -> set[str]:
+def _categories(text: str, binary: bool, originals: Spellings, fixed: Spans = ()) -> set[str]:
     found = {category for _, category in scan(text, GATE, binary)}
     if any(not m[0].lower().startswith(_UUID_PLACEHOLDER) for m in _UUID.finditer(text)):
         found.add("UUID")
-    return found | originals.categories_in(text)
+    return found | originals.outside(text, fixed)
+
+
+def _without_fixed_strings(doc: Any, fixed: Fixed, where: Where = ()) -> Any:
+    if isinstance(doc, str):
+        return "" if fixed(where, doc) else doc
+    if isinstance(doc, dict):
+        return {k: _without_fixed_strings(v, fixed, (*where, str(k))) for k, v in doc.items()}
+    if isinstance(doc, list):
+        return [_without_fixed_strings(v, fixed, where) for v in doc]
+    return doc
+
+
+def _doc_categories(doc: Any, originals: Spellings, fixed: Fixed) -> set[str]:
+    found = _categories(dumps(doc), False, Spellings([]))
+    found |= originals.categories_in(dumps(_without_fixed_strings(doc, fixed)))
+    for where, text in _strings_at(doc):
+        if spans := fixed(where, text):
+            found |= originals.outside(text, spans)
+    return found
 
 
 def platform_doc(rec: Recording) -> dict[str, Any]:
@@ -1069,7 +1125,7 @@ def leaks(red: Redacted) -> list[Leak]:
     out: list[Leak] = []
     clean: set[str] = set()
     for path in rec.tree:
-        found = _categories(path, False, originals)
+        found = _categories(path, False, originals, _fixed_parts_of(path))
         out += [Leak("a path in root/", c) for c in sorted(found)]
         if not found:
             clean.add(path)
@@ -1088,15 +1144,18 @@ def leaks(red: Redacted) -> list[Leak]:
             ]
         elif isinstance(node, File):
             text, binary = text_of(node.data)
-            found = _categories(text, binary, originals)
+            found = _categories(text, binary, originals, _fixed_text(raw, text))
             if red.read_at[path] in ROUTE_TABLES:
                 found |= {category for _, category in scan(_route_addresses(text), [_HEX_IPV4])}
             if binary:
                 found |= originals.categories_in_bytes(node.data)
             out += [Leak(where, c) for c in sorted(found)]
     out += _unreviewed_readings(rec, originals)
-    for name, doc in (("nvml.json", rec.nvml), ("host.json", rec.host)):
-        out += [Leak(name, c) for c in sorted(_categories(dumps(doc), False, originals))]
+    for name, doc, fixed in (
+        ("nvml.json", rec.nvml, _nothing_fixed),
+        ("host.json", rec.host, _fixed_in_host),
+    ):
+        out += [Leak(name, c) for c in sorted(_doc_categories(doc, originals, fixed))]
     meta = platform_doc(rec)
     readings = {k: meta[k] for k in READING_META if k in meta}
     found = _categories(dumps(meta), False, Spellings([])) | _categories(dumps(readings), False, originals)
