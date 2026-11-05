@@ -4,7 +4,8 @@ It runs the agent's collectors once (startup, NodeInfo, one tick) with every rea
 read into a recorded-platform directory, and replaces every identifier with a placeholder. It refuses to
 write anything when a reading is outside the reviewed read set (readset.py), when an identifier would
 survive, or when replacing a name would change a reading. It then checks that the agent replays the result
-as it ran live. Read only: it writes nothing outside its output directory.
+as it ran live. Read only: it writes no file outside its output directory, apart from what libnvidia-ml does
+in any program that loads it (its device files under /dev and its thread name).
 
 usage: sparkline-capture [OUT]     (or: python -m sparkline.agent.capture [OUT])
 """
