@@ -486,20 +486,37 @@ describe('competition', () => {
   it('says when a node is idle or has no data', () => {
     const idle = sample({ gpu: [{ index: 0, util: 0 }] as Sample['gpu'], procs: [] });
     expect(competition(MATMUL, ['spark1'], () => idle)[0]).toMatchObject({ busy: false, text: 'spark1 GPU is idle (0%).' });
-    expect(competition(MATMUL, ['spark9'], () => null)[0]?.text).toMatch(/has not reported/);
+    expect(competition(MATMUL, ['spark9'], () => null)[0]).toStrictEqual({ node: 'spark9', busy: false, stale: true, text: 'spark9 has not reported live data, so its current load is unknown.' });
   });
   it("reads GPU 0's load by index, not another vendor's GPU that came first", () => {
     const amdOnly = sample({ gpu: [{ index: 1, util: 96 }] as Sample['gpu'], procs: [] });
     expect(competition(MATMUL, ['spark1'], () => amdOnly)[0]?.text).toBe('spark1 GPU is idle.');
   });
-  it('keeps the GB10 sentences word for word, also while the node is not reporting', () => {
-    const on = (s: Sample, status: NodeStatus) => competition(MATMUL, ['spark1'], () => s, undefined, undefined, undefined, () => status)[0];
-    for (const status of ['online', 'stale'] as const) {
-      expect(on(sample(), status)).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 is currently serving DeepSeek-V4.1-Flash-EXL3 at 96% GPU; results will be lower and the workload will slow down.' });
-      expect(on(sample({ gpu: [] }), status)).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 is currently serving DeepSeek-V4.1-Flash-EXL3; results will be lower and the workload will slow down.' });
-      expect(on(sample({ procs: [] }), status)).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 GPU is 96% busy; results will be lower and the workload will slow down.' });
-      expect(on(sample({ gpu: [{ index: 0, util: 3 }] as Sample['gpu'], procs: [] }), status)).toStrictEqual({ node: 'spark1', busy: false, text: 'spark1 GPU is idle (3%).' });
+  it('keeps the GB10 sentences word for word while the node reports', () => {
+    const on = (s: Sample) => competition(MATMUL, ['spark1'], () => s, undefined, undefined, undefined, () => 'online')[0];
+    expect(on(sample())).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 is currently serving DeepSeek-V4.1-Flash-EXL3 at 96% GPU; results will be lower and the workload will slow down.' });
+    expect(on(sample({ gpu: [] }))).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 is currently serving DeepSeek-V4.1-Flash-EXL3; results will be lower and the workload will slow down.' });
+    expect(on(sample({ procs: [] }))).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 GPU is 96% busy; results will be lower and the workload will slow down.' });
+    expect(on(sample({ gpu: [{ index: 0, util: 3 }] as Sample['gpu'], procs: [] }))).toStrictEqual({ node: 'spark1', busy: false, text: 'spark1 GPU is idle (3%).' });
+  });
+  it('never judges a node that is not reporting idle or busy, and says what it last saw', () => {
+    const CPU_BENCH = { ...MATMUL, category: 'cpu' as const };
+    const STORAGE = { ...MATMUL, category: 'storage' as const };
+    const railsInfo = () => [{ name: 'enp1s0f1np1', label: 'ConnectX-7 rail A' }] as never;
+    const on = (spec: Pick<BenchSpec, 'category' | 'impact'>, s: Sample, status: NodeStatus = 'stale') => competition(spec, ['spark1'], () => s, railsInfo, undefined, undefined, () => status)[0]?.text;
+    for (const status of ['stale', 'offline', 'error', 'connecting'] as const) {
+      for (const spec of [MATMUL, CPU_BENCH, STORAGE, RDMA]) expect(competition(spec, ['spark1'], () => sample(), railsInfo, undefined, undefined, () => status)[0]).toMatchObject({ busy: false, stale: true });
     }
+    expect(on(MATMUL, sample())).toBe('spark1 is not reporting; it was serving DeepSeek-V4.1-Flash-EXL3 at 96% GPU when it last reported, so its current GPU load is unknown.');
+    expect(on(MATMUL, sample({ gpu: [] }))).toBe('spark1 is not reporting; it was serving DeepSeek-V4.1-Flash-EXL3 when it last reported, so its current GPU load is unknown.');
+    expect(on(MATMUL, sample({ gpu: [{ index: 0, util: 3 }] as Sample['gpu'], procs: [] }))).toBe('spark1 is not reporting; its GPU was 3% busy when it last reported, so its current GPU load is unknown.');
+    expect(on(MATMUL, sample({ gpu: [], procs: [] }))).toBe('spark1 is not reporting, so its current GPU load is unknown.');
+    expect(on(CPU_BENCH, sample())).toBe('spark1 is not reporting; its CPUs were 12% busy when it last reported, so its current CPU load is unknown.');
+    expect(on(STORAGE, sample())).toBe('spark1 is not reporting; nvme0n1 was 3% busy when it last reported, so its current storage load is unknown.');
+    expect(on(STORAGE, sample({ disk: [] }))).toBe('spark1 is not reporting, so its current storage load is unknown.');
+    expect(on(RDMA, sample())).toBe('spark1 is not reporting; its link carried rail A 16.0 Gb/s in / 8.0 Gb/s out when it last reported, so its current ConnectX-7 traffic is unknown.');
+    expect(on(RDMA, sample({ net: [] }))).toBe('spark1 is not reporting; it was serving DeepSeek-V4.1-Flash-EXL3 when it last reported, so its current ConnectX-7 traffic is unknown.');
+    expect(on(RDMA, sample({ net: [], procs: [] }))).toBe('spark1 is not reporting; its link was quiet when it last reported, so its current ConnectX-7 traffic is unknown.');
   });
   it('looks at the CX7 link for interconnect benches', () => {
     const rails = () => [{ name: 'enp1s0f1np1' }] as never;

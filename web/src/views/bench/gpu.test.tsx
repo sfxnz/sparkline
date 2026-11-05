@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
 import gb10Sample from '../../test/fixtures/platforms/gb10/sample.json';
 import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
-import type { BenchCreate, BenchRun, NodeInfo, NodeStatus, Sample } from '../../lib/types';
+import type { BenchCreate, BenchRun, BenchSpec, NodeInfo, NodeStatus, Sample } from '../../lib/types';
 import { useBench } from '../../store/bench';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
 import { ConfigureDialog } from './ConfigureDialog';
-import { LLM, MAC_GPU, MATMUL, MEMBW, SOAK, WS1, WS_MATMUL, WS_MEMBW, run, wsGpuOptions } from './fixtures';
+import { LLM, MAC_GPU, MATMUL, MEMBW, RDMA, SOAK, WS1, WS_MATMUL, WS_MEMBW, run, wsGpuOptions } from './fixtures';
 import { Home } from './Home';
 import { Availability } from './parts';
 import type { ChartSeries } from './RunChart';
@@ -180,6 +180,53 @@ describe('choosing the GPU on a multi-GPU node', () => {
     expect(baseElement.textContent).not.toMatch(GPU_NUMBER);
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
     expect(onRun).toHaveBeenCalledWith(['spark1'], MATMUL_DEFAULTS, {});
+  });
+});
+
+describe('the review of a node whose reading Sparkline cannot vouch for', () => {
+  const SPARK2 = { ...GB10, node_id: 'spark2', hostname: 'spark2' };
+  const CPU_BENCH: BenchSpec = { ...SOAK, id: 'cpu-throughput', name: 'CPU throughput', category: 'cpu' };
+  const STORAGE: BenchSpec = { ...SOAK, id: 'storage-fio', name: 'NVMe storage profiles', category: 'storage' };
+  const spark = [{ info: GB10, sample: GB10_SAMPLE }];
+  const ws = [{ info: WS1, sample: wsWith({}) }];
+  const verdict = () => screen.getByRole('region', { name: /^(It will compete with running work|Nothing to compete with|Current load unknown)$/ });
+  const sentences = () => within(verdict()).getAllByRole('listitem').map((li) => li.textContent);
+  const markNodes = (status: NodeStatus) => {
+    act(() => { useCluster.setState((s) => ({ nodes: Object.fromEntries(Object.entries(s.nodes).map(([id, n]) => [id, { ...n, status }])) })); });
+  };
+
+  it.each([
+    { category: 'GPU, on a GB10', spec: MATMUL, nodes: spark, stale: ['spark1 is not reporting; it was serving DeepSeek-V4.1-Flash-EXL3 at 62% GPU when it last reported, so its current GPU load is unknown.'] },
+    { category: 'CPU', spec: CPU_BENCH, nodes: spark, stale: ['spark1 is not reporting; its CPUs were 20% busy when it last reported, so its current CPU load is unknown.'] },
+    { category: 'storage', spec: STORAGE, nodes: spark, stale: ['spark1 is not reporting; nvme0n1 was 1% busy when it last reported, so its current storage load is unknown.'] },
+    {
+      category: 'interconnect, on both nodes',
+      spec: RDMA,
+      nodes: [...spark, { info: SPARK2, sample: { ...GB10_SAMPLE, node_id: 'spark2' } }],
+      stale: ['spark1', 'spark2'].map((n) => `${n} is not reporting; its link carried rail A 2.9 Gb/s in / 3.0 Gb/s out, rail B 3.0 Gb/s in / 2.8 Gb/s out when it last reported, so its current ConnectX-7 traffic is unknown.`),
+    },
+    { category: 'the CPU side of memory bandwidth', spec: WS_MEMBW, nodes: ws, side: 'CPU', stale: ['ws1 is not reporting; its CPUs were 11% busy when it last reported, so its current CPU load is unknown.'] },
+    { category: 'LLM inference, on ws1', spec: { ...LLM, availability: { ws1: null } }, nodes: ws, stale: ['ws1 is not reporting; it was serving vllm-llama70b at 86% GPU when it last reported, so its current GPU load is unknown.'] },
+  ])('reads $category as unknown while the browser has lost the console or the console marks the node stale, and live again after', ({ spec, nodes, side, stale }) => {
+    cluster(nodes);
+    render(<ConfigureDialog spec={spec} open onClose={noop} onRun={noop} initialNodes={nodes.map((n) => n.info.node_id)} />);
+    if (side) fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Measure from' })).getByRole('radio', { name: side }));
+    review();
+    expect(verdict()).not.toHaveAccessibleName('Current load unknown');
+    const live = sentences();
+    expect(live.join(' ')).not.toMatch(/not reporting/);
+
+    act(() => { useConnection.setState({ status: 'reconnecting' }); });
+    expect(verdict()).toHaveAccessibleName('Current load unknown');
+    expect(sentences()).toEqual(stale);
+
+    act(() => { useConnection.setState({ status: 'live' }); });
+    expect(verdict()).not.toHaveAccessibleName('Current load unknown');
+    expect(sentences()).toEqual(live);
+
+    markNodes('stale');
+    expect(verdict()).toHaveAccessibleName('Current load unknown');
+    expect(sentences()).toEqual(stale);
   });
 });
 
