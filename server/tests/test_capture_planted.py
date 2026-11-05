@@ -580,6 +580,30 @@ CASES = [
         hostname=f"{HOST}.quuxlab.zorbcorp.example",
         because="domain name",
     ),
+    Case(
+        "part of a hyphenated last name from passwd",
+        "refused",
+        ("Quuxley",),
+        "Quuxley lab",
+        full_name("Zorbina Quuxley-Smythe"),
+        because="full name",
+    ),
+    Case(
+        "first name of a full name written last name first",
+        "refused",
+        ("Zorbina",),
+        "Zorbina lab",
+        full_name("Quuxley, Zorbina"),
+        because="full name",
+    ),
+    Case(
+        "accented last name written without its accent",
+        "refused",
+        ("Quuxlee",),
+        "Quuxlee lab",
+        full_name("Zorbina Quuxlée"),
+        because="full name",
+    ),
 ]
 
 
