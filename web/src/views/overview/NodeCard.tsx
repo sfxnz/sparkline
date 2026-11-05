@@ -502,7 +502,7 @@ function Spark({ metric, label, from, format, min, max }: { metric: string; labe
   const reason = notReported(info, metric);
   return (
     <div className="ov-spark">
-      <span className="ov-spark__label">{label} <span className="ov-dim">· 3 min</span></span>
+      <span className="ov-spark__label">{label} <span className="ov-dim">{from ? `· ${from.replaceAll(' ', '\u00a0')}\u00a0· 3 min` : '· 3 min'}</span></span>
       {reason ? (
         <Unsupported gap={reason} />
       ) : freshness === 'waiting' ? (
