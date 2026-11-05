@@ -1099,8 +1099,15 @@ def _numbers(doc: Any) -> Iterable[str]:
         yield json.dumps(doc)
 
 
+def _gated(doc: Any) -> set[str]:
+    found = _categories(dumps(doc), False, Spellings([]))
+    for _, text in _strings_at(doc):
+        found |= _categories(text, False, Spellings([]))
+    return found
+
+
 def _doc_categories(doc: Any, originals: Spellings, fixed: Fixed) -> set[str]:
-    found = _categories(dumps(doc), False, Spellings([])) | originals.categories_in(" ".join(_numbers(doc)))
+    found = _gated(doc) | originals.categories_in(" ".join(_numbers(doc)))
     for where, text in _strings_at(doc):
         found |= originals.outside(text, fixed(where, text))
     return found
@@ -1235,8 +1242,6 @@ def leaks(red: Redacted) -> list[Leak]:
         out += [Leak(name, c) for c in sorted(_doc_categories(doc, originals, fixed))]
     meta = platform_doc(rec)
     readings = {k: meta[k] for k in READING_META if k in meta}
-    found = _categories(dumps(meta), False, Spellings([])) | _doc_categories(
-        readings, originals, _fixed_in_meta
-    )
+    found = _gated(meta) | _doc_categories(readings, originals, _fixed_in_meta)
     out += [Leak("platform.json", c) for c in sorted(found)]
     return list(dict.fromkeys(out))
