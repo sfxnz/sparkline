@@ -118,4 +118,9 @@ describe('the wall says why it cannot read a node', () => {
     ]);
     expect(line()).toHaveTextContent(/^GPU utilisation: Not responding·GPU power: Not responding$/);
   });
+
+  it('keeps "excl." on the line of the first node the GPU power leaves out', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), gb10Reading('n1', { gpu: [] })]]);
+    expect(line()?.textContent).toContain('excl. n1');
+  });
 });

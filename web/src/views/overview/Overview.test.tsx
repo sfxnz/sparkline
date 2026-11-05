@@ -743,4 +743,15 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
       expect(why(tile(label))).toHaveAccessibleDescription(`spark1: NVMLError_GpuIsLost: GPU is lost\nspark2: ${NVML_DOWN}`);
     }
   });
+
+  it('keeps "excl." on the line of the first node each total leaves out', async () => {
+    energyHistory();
+    show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), noNvmlReading('n1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    const footer = (label: string) => tile(label).querySelector('.stat__footer')?.textContent ?? '';
+    expect(footer('Cluster compute')).toContain('excl. n1 and spark2');
+    expect(footer('Active GPU processes')).toContain('excl. n1');
+    expect(await within(tile('GPU power')).findByText(/^Now excl\. spark2 · Today \d/)).toHaveTextContent(/Today .* excl\. n1/);
+    expect(footer('GPU power')).toContain('Now excl. spark2');
+    expect(footer('GPU power')).toContain('excl. n1');
+  });
 });
