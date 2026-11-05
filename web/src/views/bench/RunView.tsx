@@ -1,7 +1,7 @@
 // /benchmarks/runs/:id — one run: live progress with telemetry overlaid, cancellation, then the completion moment,
 // results against the baseline, soak analysis, metadata, export, share card and delete.
 import { ArrowLeft, CircleSlash, Download, ImageDown, RotateCw, ScrollText, Square, Star, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { AnimatedNumber } from '../../design/components/AnimatedNumber';
 import { Button } from '../../design/components/Button';
@@ -33,6 +33,12 @@ import {
   baselineCoverage,
   metaLabel,
   metaText,
+  MODELLED_FIGURES,
+  MODELLED_MARK,
+  modelledNodes,
+  modelledNote,
+  modelledOn,
+  modelledResults,
   nodeMeta,
   nodesText,
   servedModel,
@@ -48,7 +54,7 @@ import {
   stopwatch,
   valueWithUnit,
 } from './model';
-import { BetterHint, DeltaBadge, RunStatusPill } from './parts';
+import { BetterHint, DeltaBadge, ModelledNote, RunStatusPill } from './parts';
 import { RunTelemetry } from './RunTelemetry';
 import { ShareCardDialog } from './ShareCard';
 import { SoakPanel } from './SoakPanel';
@@ -169,6 +175,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
   const runAgain = () => { navigate(`/benchmarks?configure=${encodeURIComponent(run.bench_id)}&from=${encodeURIComponent(run.id)}`); };
 
   const statusText = `${name} ${run.status === 'succeeded' ? 'finished' : run.status}`;
+  const modelled = modelledNodes(run);
 
   return (
     <div className="view bench-run">
@@ -244,8 +251,18 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
       )}
 
       {/* Per-benchmark views lead the page for these benchmarks, so they come before the telemetry. */}
-      {run.bench_id === 'llm-inference' || run.bench_id === 'llm-showcase' ? <StreamsSection run={run} spec={spec} /> : null}
-      {run.bench_id === 'tool-eval' ? <ToolEvalSection run={run} spec={spec} /> : null}
+      {run.bench_id === 'llm-inference' || run.bench_id === 'llm-showcase' ? (
+        <>
+          <ModelledNote modelled={modelled} figures={MODELLED_FIGURES.streams} />
+          <StreamsSection run={run} spec={spec} />
+        </>
+      ) : null}
+      {run.bench_id === 'tool-eval' ? (
+        <>
+          <ModelledNote modelled={modelled} figures={MODELLED_FIGURES.toolEval} />
+          <ToolEvalSection run={run} spec={spec} />
+        </>
+      ) : null}
 
       {active || run.started_ts != null ? (
         <Panel title={active ? 'Live telemetry' : 'Telemetry during the run'} subtitle={run.nodes.length > 1 ? 'One line per node · dashed rules mark the run' : 'Dashed rules mark the run'}>
@@ -356,6 +373,8 @@ function Completion({ run, celebrate, regressionPct }: { run: BenchRun; celebrat
   const dur = run.started_ts != null && run.finished_ts != null ? run.finished_ts - run.started_ts : null;
   const regressions = run.results.filter((r) => resultDelta(r, regressionPct)?.regression).length;
   const coverage = baselineCoverage(run.results);
+  const marked = modelledResults(heads);
+  const footnote = useId();
   return (
     <section className={`bench-done material-regular${celebrate ? ' is-celebrating' : ''}`} aria-label="Result">
       <svg className="bench-done__check" viewBox="0 0 52 52" aria-hidden="true">
@@ -372,15 +391,16 @@ function Completion({ run, celebrate, regressionPct }: { run: BenchRun; celebrat
               : 'No baseline yet for these parameters. Set this run as the baseline to compare future runs.'}
         </p>
         {isSmoke(run.results) ? <p className="bench-done__sub"><strong>Smoke run:</strong> the GPU payload ran on the CPU at tiny sizes to test the code path. These are not GPU measurements.</p> : null}
+        {marked ? <p id={footnote} className="bench-done__sub">{modelledNote(marked, `figures marked ${MODELLED_MARK}`)}</p> : null}
       </div>
       <ul className="bench-done__heads">
-        {heads.map((r) => <Headline key={`${r.metric}|${r.node_id ?? ''}`} result={r} showNode={run.nodes.length > 1} celebrate={celebrate} regressionPct={regressionPct} />)}
+        {heads.map((r) => <Headline key={`${r.metric}|${r.node_id ?? ''}`} result={r} showNode={run.nodes.length > 1} celebrate={celebrate} regressionPct={regressionPct} footnote={footnote} />)}
       </ul>
     </section>
   );
 }
 
-function Headline({ result: r, showNode, celebrate, regressionPct }: { result: BenchResult; showNode: boolean; celebrate: boolean; regressionPct: number }) {
+function Headline({ result: r, showNode, celebrate, regressionPct, footnote }: { result: BenchResult; showNode: boolean; celebrate: boolean; regressionPct: number; footnote: string }) {
   // Count up from zero once, when the run finished while on screen (AnimatedNumber is instant under reduced motion).
   const [shown, setShown] = useState(celebrate ? 0 : r.value);
   useEffect(() => {
@@ -391,6 +411,7 @@ function Headline({ result: r, showNode, celebrate, regressionPct }: { result: B
     <li className="bench-head">
       <span className="bench-head__label">
         {r.label}
+        <ModelledMark result={r} footnote={footnote} inline={showNode && !!r.node_id} />
         {showNode && r.node_id ? <span className="bench-head__node"> · {r.node_id}</span> : null}
       </span>
       <span className="bench-head__value">
@@ -414,6 +435,8 @@ function ResultsPanel({ run, regressionPct, onShare }: { run: BenchRun; regressi
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
   const multiNode = new Set(run.results.map((r) => r.node_id)).size > 1;
+  const marked = modelledResults(run.results);
+  const footnote = useId();
 
   const setBaseline = () => {
     setBusy(true);
@@ -442,7 +465,10 @@ function ResultsPanel({ run, regressionPct, onShare }: { run: BenchRun; regressi
       sortValue: (r) => r.label,
       render: (r) => (
         <span className="bench-res__metric">
-          <span>{r.label}</span>
+          <span>
+            {r.label}
+            <ModelledMark result={r} footnote={footnote} />
+          </span>
           <BetterHint better={r.better} />
         </span>
       ),
@@ -490,8 +516,22 @@ function ResultsPanel({ run, regressionPct, onShare }: { run: BenchRun; regressi
       }
     >
       {problem ? <div className="bench-res__problem"><ProblemBanner problem={problem} action={<Button size="sm" variant="ghost" onClick={() => { setProblem(null); }}>Dismiss</Button>} /></div> : null}
+      {marked ? <p id={footnote} className="bench-res__note">{modelledNote(marked, `figures marked ${MODELLED_MARK}`)}</p> : null}
       <Table caption={`Results of this run`} columns={columns} rows={run.results} rowKey={(r) => `${r.metric}|${r.node_id ?? ''}`} />
     </Panel>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------ modelled figures
+
+function ModelledMark({ result, footnote, inline = false }: { result: BenchResult; footnote: string; inline?: boolean }) {
+  const on = modelledOn(result.extras);
+  if (!on) return null;
+  return (
+    <span className={`bench-modelled${inline ? ' bench-modelled--inline' : ''}`}>
+      <span className="bench-modelled__mark" aria-describedby={footnote}>{MODELLED_MARK}</span>
+      <span className="visually-hidden">, modelled on {on}</span>
+    </span>
   );
 }
 

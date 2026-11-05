@@ -48,6 +48,11 @@
   border-bottom: var(--hairline) solid var(--separator);
 }
 .tp-sensors tbody tr:last-child th { border-bottom: 0; }
+/* Several GPUs: names such as "NVIDIA RTX 6000 Ada Generation #0" wrap, so the readings beside them stay in view. */
+.tp-sensors--wrap tbody th { white-space: normal; min-width: 7em; }
+.tp-sensors--wrap .tp-sensors__trend { width: auto; min-width: 80px; }
+.tp-sensors--wrap .tp-sensors__room { white-space: normal; width: auto; }
+.tp-sensors--wrap .tp-room { flex-wrap: wrap; justify-content: flex-end; column-gap: 0.25em; row-gap: 0; }
 .tp-sensors__now { font-weight: 620; font-size: var(--fs-headline); white-space: nowrap; width: 1%; }
 .tp-unit { margin-left: 2px; font-size: var(--fs-footnote); font-weight: 500; color: var(--text-2); }
 .tp-sensors__mm { color: var(--text-2); white-space: nowrap; width: 1%; }

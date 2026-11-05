@@ -1,0 +1,429 @@
+{
+  "schema_version": 1,
+  "node_id": "spark1",
+  "hostname": "spark1",
+  "agent_version": "0.1.0",
+  "os": "Ubuntu 24.04.4 LTS (DGX OS)",
+  "kernel": "6.17.0-1032-nvidia",
+  "platform": "linux",
+  "versions": {
+    "nvidia.Driver": "580.173.02",
+    "nvidia.CUDA": "13.0",
+    "nvidia.NVML": "13.580.173.02"
+  },
+  "driver": "580.173.02",
+  "cuda": "13.0",
+  "nvml": "13.580.173.02",
+  "cpu_model": "NVIDIA GB10 (10x Cortex-X925 + 10x Cortex-A725)",
+  "cores": [
+    {
+      "id": 0,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 0
+    },
+    {
+      "id": 1,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 1
+    },
+    {
+      "id": 2,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 1
+    },
+    {
+      "id": 3,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 1
+    },
+    {
+      "id": 4,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 1
+    },
+    {
+      "id": 5,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 1
+    },
+    {
+      "id": 6,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 1
+    },
+    {
+      "id": 7,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 1
+    },
+    {
+      "id": 8,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 1
+    },
+    {
+      "id": 9,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 1
+    },
+    {
+      "id": 10,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 1
+    },
+    {
+      "id": 11,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 0
+    },
+    {
+      "id": 12,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 0
+    },
+    {
+      "id": 13,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 0
+    },
+    {
+      "id": 14,
+      "kind": "efficiency",
+      "model": "Cortex-A725",
+      "max_mhz": 2808.0,
+      "cluster": 0
+    },
+    {
+      "id": 15,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 0
+    },
+    {
+      "id": 16,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 0
+    },
+    {
+      "id": 17,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 0
+    },
+    {
+      "id": 18,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 0
+    },
+    {
+      "id": 19,
+      "kind": "performance",
+      "model": "Cortex-X925",
+      "max_mhz": 3900.0,
+      "cluster": 0
+    }
+  ],
+  "mem_total": 130722492416,
+  "swap_total": 17179869184,
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA GB10",
+      "uuid": "GPU-00000000-0000-0000-0000-00006eb87eab",
+      "arch": "Blackwell",
+      "compute_capability": "12.1",
+      "cuda_cores": 6144,
+      "sm_mhz_max": 3003.0,
+      "temp_slowdown_c": 86.0,
+      "temp_shutdown_c": 90.0,
+      "temp_max_c": 99.0,
+      "power_limit_w": null,
+      "vendor": "nvidia",
+      "backend": "nvml"
+    }
+  ],
+  "net": [
+    {
+      "name": "enp1s0f1np1",
+      "role": "interconnect",
+      "label": "ConnectX-7 rail A",
+      "mac": "02:00:00:de:00:fd",
+      "ipv4": [
+        "203.0.113.1"
+      ],
+      "speed_mbps": 200000,
+      "rdma_device": "rocep1s0f1",
+      "counter_source": "netdev_rdma",
+      "peer": "spark2"
+    },
+    {
+      "name": "enP2p1s0f1np1",
+      "role": "interconnect",
+      "label": "ConnectX-7 rail B",
+      "mac": "02:00:00:de:01:67",
+      "ipv4": [
+        "192.0.2.1"
+      ],
+      "speed_mbps": 200000,
+      "rdma_device": "roceP2p1s0f1",
+      "counter_source": "netdev_rdma",
+      "peer": "spark2"
+    },
+    {
+      "name": "enp1s0f0np0",
+      "role": "interconnect",
+      "label": "ConnectX-7 port (no cable)",
+      "mac": "02:00:00:de:02:e8",
+      "ipv4": [],
+      "speed_mbps": null,
+      "rdma_device": "rocep1s0f0",
+      "counter_source": "netdev_rdma",
+      "peer": null
+    },
+    {
+      "name": "enP2p1s0f0np0",
+      "role": "interconnect",
+      "label": "ConnectX-7 port (no cable)",
+      "mac": "02:00:00:de:03:70",
+      "ipv4": [],
+      "speed_mbps": null,
+      "rdma_device": "roceP2p1s0f0",
+      "counter_source": "netdev_rdma",
+      "peer": null
+    },
+    {
+      "name": "enP7s7",
+      "role": "lan",
+      "label": "LAN",
+      "mac": "02:00:00:de:09:fa",
+      "ipv4": [
+        "198.51.100.48"
+      ],
+      "speed_mbps": 10000,
+      "rdma_device": null,
+      "counter_source": "netdev",
+      "peer": null
+    },
+    {
+      "name": "docker0",
+      "role": "virtual",
+      "label": "docker0",
+      "mac": "02:00:00:de:0a:38",
+      "ipv4": [],
+      "speed_mbps": null,
+      "rdma_device": null,
+      "counter_source": "netdev",
+      "peer": null
+    },
+    {
+      "name": "tailscale0",
+      "role": "virtual",
+      "label": "tailscale0",
+      "mac": "02:00:00:de:0b:39",
+      "ipv4": [],
+      "speed_mbps": null,
+      "rdma_device": null,
+      "counter_source": "netdev",
+      "peer": null
+    },
+    {
+      "name": "wlP9s9",
+      "role": "wireless",
+      "label": "wlP9s9",
+      "mac": "02:00:00:de:0c:4f",
+      "ipv4": [],
+      "speed_mbps": null,
+      "rdma_device": null,
+      "counter_source": "netdev",
+      "peer": null
+    }
+  ],
+  "disks": [
+    {
+      "name": "nvme0n1",
+      "model": "Samsung MZALC4T0HBL1-00B07",
+      "size_bytes": 4000787030016,
+      "mounts": [
+        "/",
+        "/boot/efi"
+      ]
+    }
+  ],
+  "sensors": [
+    {
+      "id": "acpitz.0",
+      "label": "ACPI zone 0",
+      "group": "soc",
+      "crit_c": null
+    },
+    {
+      "id": "acpitz.1",
+      "label": "ACPI zone 1",
+      "group": "soc",
+      "crit_c": null
+    },
+    {
+      "id": "acpitz.2",
+      "label": "ACPI zone 2",
+      "group": "soc",
+      "crit_c": null
+    },
+    {
+      "id": "acpitz.3",
+      "label": "ACPI zone 3",
+      "group": "soc",
+      "crit_c": null
+    },
+    {
+      "id": "acpitz.4",
+      "label": "ACPI zone 4",
+      "group": "soc",
+      "crit_c": null
+    },
+    {
+      "id": "acpitz.5",
+      "label": "ACPI zone 5",
+      "group": "soc",
+      "crit_c": null
+    },
+    {
+      "id": "acpitz.6",
+      "label": "ACPI zone 6",
+      "group": "soc",
+      "crit_c": null
+    },
+    {
+      "id": "nvme.composite",
+      "label": "NVMe Composite",
+      "group": "nvme",
+      "crit_c": 84.85
+    },
+    {
+      "id": "nvme.sensor_1",
+      "label": "NVMe Sensor 1",
+      "group": "nvme",
+      "crit_c": null
+    },
+    {
+      "id": "nvme.sensor_2",
+      "label": "NVMe Sensor 2",
+      "group": "nvme",
+      "crit_c": null
+    },
+    {
+      "id": "mlx5.0",
+      "label": "CX7 ASIC 0",
+      "group": "nic",
+      "crit_c": 105.0
+    },
+    {
+      "id": "mlx5.1",
+      "label": "CX7 ASIC 1",
+      "group": "nic",
+      "crit_c": 105.0
+    },
+    {
+      "id": "mlx5.2",
+      "label": "CX7 ASIC 2",
+      "group": "nic",
+      "crit_c": 105.0
+    },
+    {
+      "id": "mlx5.3",
+      "label": "CX7 ASIC 3",
+      "group": "nic",
+      "crit_c": 105.0
+    }
+  ],
+  "unsupported": [
+    {
+      "metric": "gpu0.power_limit_w",
+      "reason": "Power limit not reported by NVIDIA GB10 (NVML: Not Supported)",
+      "kind": "hardware"
+    },
+    {
+      "metric": "gpu0.mem_mhz",
+      "reason": "Memory clock not reported by NVIDIA GB10 (NVML: Not Supported)",
+      "kind": "hardware"
+    },
+    {
+      "metric": "gpu0.fan_pct",
+      "reason": "Fan speed not reported by NVIDIA GB10 (NVML: Not Supported)",
+      "kind": "hardware"
+    },
+    {
+      "metric": "gpu0.fb_memory",
+      "reason": "Dedicated GPU memory (FB) not reported by NVIDIA GB10 (NVML: Not Supported) — unified memory is reported under Memory instead",
+      "kind": "hardware"
+    },
+    {
+      "metric": "gpu0.ecc",
+      "reason": "ECC not reported by NVIDIA GB10 (NVML: Not Supported)",
+      "kind": "hardware"
+    },
+    {
+      "metric": "gpu0.pcie_bps",
+      "reason": "PCIe throughput not reported by NVIDIA GB10 (NVML: Not Supported)",
+      "kind": "hardware"
+    },
+    {
+      "metric": "cpu.temp",
+      "reason": "Per-core CPU temperature is not exposed (only unlabelled ACPI zones)",
+      "kind": "hardware"
+    },
+    {
+      "metric": "fan",
+      "reason": "Fan speed is not collected yet (hwmon exposes 2 fan sensors)",
+      "kind": "agent"
+    },
+    {
+      "metric": "system.power_w",
+      "reason": "Whole-system power is not exposed; only the GPU rail (NVML) is",
+      "kind": "hardware"
+    }
+  ],
+  "tools": {
+    "docker": true,
+    "fio": false,
+    "perftest": true,
+    "nccl_tests": false,
+    "nvcc": true,
+    "pytorch_image": true
+  },
+  "sample_interval_ms": 1000,
+  "boot_time": 1791005388.1029813
+}

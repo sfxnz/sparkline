@@ -16,9 +16,21 @@ from sparkline.common.schema import BenchRun, BenchSpec, Event, NodeBenchState
 from sparkline.console import demo_bench
 from sparkline.console.app import create_app
 from sparkline.console.bench import REGISTRY, params_key, validate_params
+from sparkline.console.bench_store import BenchStore
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel
-from sparkline.console.demo_bench import demo_catalog, demo_duration, make_results, validate
+from sparkline.console.demo_bench import (
+    demo_catalog,
+    demo_duration,
+    make_results,
+    seed_history,
+    soak_point,
+    soak_results,
+    validate,
+)
+from sparkline.console.demo_fleets import FLEETS
+from sparkline.console.demo_workstation import SM_MAX_MHZ
+from sparkline.console.store import Store
 
 T0 = 1_791_280_000.0
 
@@ -36,6 +48,60 @@ def test_demo_catalog_is_the_agents_catalog():
     desc = {s.id: s.description for s in s1}
     assert "fio is not installed, so the built-in O_DIRECT runner is used" in desc["storage-fio"]
     assert "torch.distributed (NCCL backend)" in desc["nccl-allreduce"]
+
+
+def test_a_node_without_rdma_cannot_run_multi_node_benchmarks_and_says_why():
+    info = FLEETS["mixed"]["ws1"](T0, 1.0).info
+    ws1 = {s.id: s.availability["ws1"] for s in demo_catalog("ws1", info)}
+    rdma = [ws1["nccl-allreduce"], ws1["rdma-bw-lat"]]
+    assert all(p and p.message == "ws1 has no RDMA interconnect" for p in rdma)
+    assert all(p and "ConnectX-7" not in p.cause for p in rdma)
+
+
+def test_demo_results_modelled_on_gb10_are_offered_only_on_gb10_nodes(tmp_path):
+    gb10_only = {"gpu-matmul", "mem-bandwidth", "cpu-throughput", "storage-fio"}
+    reason = "Demo results are modelled on GB10 only"
+    info = FLEETS["mixed"]["ws1"](T0, 1.0).info
+    ws1 = {s.id: s.availability["ws1"] for s in demo_catalog("ws1", info)}
+    assert {k for k, p in ws1.items() if p} == gb10_only | {"nccl-allreduce", "rdma-bw-lat"}
+    assert {ws1[b].message for b in gb10_only} == {reason}
+
+    cfg = ConsoleConfig(web_dist=tmp_path / "nodist")
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True, fleet="mixed")) as c:
+        catalog = {s["id"]: s["availability"] for s in c.get("/api/v1/bench/catalog").json()}
+        for bench in sorted(gb10_only):
+            assert catalog[bench]["ws1"]["message"] == reason
+            assert catalog[bench]["spark1"] is None
+            r = c.post("/api/v1/bench/runs", json={"bench_id": bench, "nodes": ["ws1"], "confirm": True})
+            assert r.status_code == 400 and r.json()["problem"]["message"] == reason
+
+
+def _soak(model) -> dict[str, float]:
+    series: dict[str, list[float]] = {}
+    rng = random.Random(0)
+    for k in range(0, 60, 2):
+        for key, v in soak_point(model, T0 + k, rng).items():
+            series.setdefault(key, []).append(v)
+    return {r.metric: r.value for r in soak_results(series)}
+
+
+def test_the_thermal_soak_reports_gb10_throughput_only_on_gb10():
+    ws1 = _soak(FLEETS["mixed"]["ws1"](T0, 1.0))
+    assert not any("tflops" in m for m in ws1)
+    assert {"sm_mhz_mean", "sm_mhz_min", "temp_max_c", "throttled_pct", "power_capped_pct"} <= set(ws1)
+    assert 2000 <= ws1["sm_mhz_mean"] <= SM_MAX_MHZ
+    spark1 = _soak(DemoModel("spark1", T0))
+    assert 80 <= spark1["tflops_first"] <= 100 and "tflops_change_pct" in spark1
+
+
+def test_seeded_history_stays_on_the_dgx_cluster_in_the_mixed_fleet(tmp_path):
+    store = Store(tmp_path / "c.sqlite")
+    bench = BenchStore(store.db)
+    models = {nid: make(T0, 1.0) for nid, make in FLEETS["mixed"].items()}
+    seed_history(bench, models, 5.0, store.add_event, now=T0)
+    runs = bench.run_list(limit=100)
+    assert len(runs) == len(demo_bench._SEED) and all("ws1" not in r.nodes for r in runs)
+    assert models["ws1"].bench_windows == [] and models["ws1"].disk_windows == []
 
 
 def test_demo_durations_are_compressed():
@@ -303,6 +369,112 @@ def test_demo_llm_sweep_streams_live_and_leaves_detail_and_results(demo):
     assert heads == ["peak_output_tok_s", "decode_tok_s_c1", "ttft_p50_ms_c4"]
     seeded = [x for x in demo.get("/api/v1/bench/runs").json() if x["bench_id"] == "llm-inference"]
     assert seeded and all("sweep" not in x["params_key"] for x in seeded if not x["params"]["sweep"])
+
+
+@pytest.fixture
+def mixed(tmp_path, monkeypatch):
+    monkeypatch.setattr(demo_bench, "demo_duration", lambda bench, p: 1.5)
+    cfg = ConsoleConfig(web_dist=tmp_path / "nodist")
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True, fleet="mixed")) as c:
+        yield c
+
+
+def _llm_run(c, node: str, sweep: bool) -> BenchRun:
+    body = {"bench_id": "llm-inference", "nodes": [node], "params": {"concurrency": 2, "sweep": sweep}}
+    r = c.post("/api/v1/bench/runs", json={**body, "confirm": True})
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(_wait(c, r.json()["id"]))
+    assert run.status == "succeeded", run.error
+    return run
+
+
+@pytest.mark.parametrize("sweep", [False, True])
+def test_ws1_llm_results_describe_ws1_and_say_which_figures_are_modelled_on_gb10(mixed, sweep):
+    run = _llm_run(mixed, "ws1", sweep)
+    res = {x.metric: x for x in run.results}
+    growth, serving = res.pop("mem_used_delta_gib"), res.pop("serving_gpu_mem_gib")
+    assert growth.label == "System memory growth during run"
+    st = run.node_states["ws1"]
+    assert st.started_ts and st.finished_ts
+    ws1 = FLEETS["mixed"]["ws1"](T0, 1.0)
+    span = [st.started_ts + k for k in range(int(st.finished_ts - st.started_ts) + 1)] + [st.finished_ts]
+    used = [ws1.sample_at(t).mem.used / 2**30 for t in span]
+    assert growth.value == pytest.approx(max(used) - used[0], abs=0.002)
+    assert growth.extras["mem_used_before_gib"] == pytest.approx(used[0], abs=0.002)
+    assert growth.extras["mem_used_peak_gib"] == pytest.approx(max(used), abs=0.002)
+    assert serving.extras["source"] == "pid 41022 and its children"
+    workers = [
+        p.gpu_mem for p in FLEETS["mixed"]["ws1"](T0, 1.0).sample_at(time.time(), procs=True).procs or []
+    ]
+    assert serving.value == pytest.approx(sum(m for m in workers if m) / 2**30, rel=0.01)
+    assert res and all(x.extras["modelled_on"] == "GB10" and "GB10" not in x.label for x in res.values())
+    assert "modelled_on" not in growth.extras and "modelled_on" not in serving.extras
+    assert st.metadata["modelled_on"] == run.metadata["nodes"]["ws1"]["modelled_on"] == "GB10"
+
+
+@pytest.mark.parametrize(
+    ("bench", "timed"),
+    [("llm-showcase", None), ("tool-eval", {"median_turn_ms", "responsiveness", "deployability"})],
+)
+def test_ws1_marks_every_speed_figure_of_a_demo_llm_benchmark_as_modelled_on_gb10(mixed, bench, timed):
+    r = mixed.post("/api/v1/bench/runs", json={"bench_id": bench, "nodes": ["ws1"], "confirm": True})
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(_wait(mixed, r.json()["id"]))
+    assert run.status == "succeeded", run.error
+    marked = {x.metric for x in run.results if x.extras.get("modelled_on") == "GB10"}
+    assert marked == (timed or {x.metric for x in run.results})
+    assert not any("GB10" in x.label for x in run.results)
+    assert run.node_states["ws1"].metadata["modelled_on"] == "GB10"
+    assert run.metadata["nodes"]["ws1"]["modelled_on"] == "GB10"
+
+
+def test_the_showcase_story_on_ws1_gives_no_sensor_reading_and_spark1_keeps_its_own(mixed):
+    body = {"bench_id": "llm-showcase", "params": {"streams": 1, "prompt_type": "text"}, "confirm": True}
+    told = {}
+    for node in ("ws1", "spark1"):
+        r = mixed.post("/api/v1/bench/runs", json={**body, "nodes": [node]})
+        assert r.status_code == 201, r.json()
+        st = BenchRun.model_validate(_wait(mixed, r.json()["id"])).node_states[node]
+        [story] = st.detail["showcase"]["streams"]
+        assert story["prompt"].startswith("Write a short story about a DGX Spark")
+        told[node] = " ".join([story["text"], *(s["text"] for s in st.live["streams"])])
+    assert "The Spark checked its sensors:" in told["ws1"]
+    assert "degrees" not in told["ws1"]
+    assert "The Spark checked its sensors: 41 degrees," in told["spark1"]
+
+
+@pytest.mark.parametrize("bench", ["llm-inference", "llm-showcase", "tool-eval"])
+def test_ws1_says_its_speeds_are_modelled_from_its_first_state_through_a_cancelled_run(mixed, bench):
+    r = mixed.post("/api/v1/bench/runs", json={"bench_id": bench, "nodes": ["ws1"], "confirm": True})
+    assert r.status_code == 201, r.json()
+    rid, first, deadline = r.json()["id"], None, time.time() + 15
+    while first is None and time.time() < deadline:
+        first = mixed.get(f"/api/v1/bench/runs/{rid}").json()["node_states"].get("ws1")
+        time.sleep(0.02)
+    assert first and first["status"] == "running" and first["metadata"]["modelled_on"] == "GB10"
+    mixed.post(f"/api/v1/bench/runs/{rid}/cancel")
+    run = BenchRun.model_validate(_wait(mixed, rid))
+    assert run.status == "cancelled" and run.results == []
+    assert run.node_states["ws1"].metadata["modelled_on"] == "GB10"
+    assert run.metadata["nodes"]["ws1"]["modelled_on"] == "GB10"
+
+
+def test_ws1_thermal_soak_is_its_own_telemetry_so_nothing_is_marked_modelled(mixed):
+    body = {"bench_id": "thermal-soak", "nodes": ["ws1"], "confirm": True}
+    r = mixed.post("/api/v1/bench/runs", json=body)
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(_wait(mixed, r.json()["id"]))
+    assert run.status == "succeeded" and run.results, run.error
+    assert "modelled_on" not in run.model_dump_json()
+
+
+def test_spark1_llm_results_keep_their_gb10_labels_and_serving_process(mixed):
+    run = _llm_run(mixed, "spark1", False)
+    res = {x.metric: x for x in run.results}
+    assert res["mem_used_delta_gib"].label == "Unified memory growth during run"
+    assert res["serving_gpu_mem_gib"].extras["source"] == "pid 4242 and its children"
+    assert not any("GB10" in x.label for x in res.values())
+    assert "modelled_on" not in run.model_dump_json()
 
 
 def test_demo_history_holds_a_finished_sweep(demo):

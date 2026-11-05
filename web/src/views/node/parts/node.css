@@ -388,6 +388,24 @@
 @media (max-width: 860px) {
   .ngpu__charts { grid-template-columns: minmax(0, 1fr); }
 }
+.ngpu__sections { display: grid; gap: var(--space-5); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1180px) {
+  .ngpu__sections { grid-template-columns: minmax(0, 1fr); }
+}
+.ngpu-section__swatch { display: inline-block; width: 10px; height: 10px; margin-right: var(--space-2); border-radius: 3px; vertical-align: 0.05em; }
+.ngpu-section__stats { row-gap: var(--space-5); }
+@media (max-width: 760px) {
+  .ngpu-section__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.ngpu-section .stat__value { flex-wrap: wrap; }
+.ngpu-section .stat__unit { white-space: nowrap; }
+.ngpu-section .stat__footer { text-wrap: pretty; }
+.ngpu-section__clock { margin-top: var(--space-5); padding-top: var(--space-4); border-top: var(--hairline) solid var(--separator); }
+.ngpu-section .throttle-head__text { font-size: var(--fs-callout); line-height: var(--lh-callout); }
+.ngpu-group { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.ngpu-group__head { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+.ngpu-group__title { font-size: var(--fs-title3); line-height: var(--lh-title3); font-weight: var(--fw-title3); letter-spacing: var(--ls-title3); color: var(--text-1); }
+.ngpu-group__note { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
 
 /* Not live: text drops to the tertiary colour, which still meets WCAG AA (opacity on text would not); graphics fade. */
 .nmem-hero--stale .nmem-hero__headline *,

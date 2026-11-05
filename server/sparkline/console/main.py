@@ -60,6 +60,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--port", type=int)
     p.add_argument("--data-dir", type=Path, help="events, settings and benchmark results (console.sqlite)")
     p.add_argument("--demo", action="store_true", help="simulate three nodes, including failures")
+    p.add_argument(
+        "--demo-mixed", action="store_true", help="simulate the DGX cluster plus a 4-GPU x86 workstation"
+    )
     p.add_argument("--demo-speed", type=float, default=1.0, help="compress the demo failure schedule")
     p.add_argument(
         "--demo-empty-bench",
@@ -72,6 +75,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--log-level", default="info", choices=["debug", "info", "warning", "error"])
     p.add_argument("--web-dist", type=Path, help="built web app directory (default <repo>/web/dist)")
     args = p.parse_args(argv)
+    args.demo = args.demo or args.demo_mixed
     logging.basicConfig(
         level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
@@ -124,7 +128,12 @@ def main(argv: list[str] | None = None) -> None:
     except OSError as e:
         fail(str(e))
     app = create_app(
-        cfg, data_dir, demo=args.demo, demo_speed=args.demo_speed, demo_empty_bench=args.demo_empty_bench
+        cfg,
+        data_dir,
+        demo=args.demo,
+        demo_speed=args.demo_speed,
+        demo_empty_bench=args.demo_empty_bench,
+        fleet="mixed" if args.demo_mixed else "dgx",
     )
     app.state.data_dir_lock = lock
     hint = container_hint(cfg.port, os.environ)

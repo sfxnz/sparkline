@@ -8,7 +8,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Panel } from '../../../design/components/Panel';
 import { SegmentedControl } from '../../../design/components/SegmentedControl';
 import type { BenchRun, BenchSpec, RunStatus } from '../../../lib/types';
-import { isActive, llmLevels } from '../model';
+import { isActive, llmLevels, modelledNodes, type Modelled } from '../model';
 import { Grid, LivePanel, LiveSkeleton } from './LivePanel';
 import { cardState, densityFor, parseDetail, parseLive, parseShowcase, recordedLevels, streamNodes, textsOf, type LiveSnapshot } from './model';
 import { ShowcaseOutputs } from './ShowcaseOutputs';
@@ -28,6 +28,7 @@ export function StreamsSection({ run }: { run: BenchRun; spec: BenchSpec | undef
   const detail = useMemo(() => parseDetail(detailRaw), [detailRaw]);
   const outputs = useMemo(() => parseShowcase(detailRaw), [detailRaw]);
   const showcase = run.bench_id === 'llm-showcase';
+  const modelled = node === undefined ? null : modelledNodes({ nodes: [node], node_states: run.node_states });
   const param = (k: string) => {
     const v = run.params[k];
     return typeof v === 'number' ? v : 1;
@@ -42,7 +43,7 @@ export function StreamsSection({ run }: { run: BenchRun; spec: BenchSpec | undef
     ) : null;
 
   if (isActive(run.status)) {
-    if (live) return <LivePanel key={node} snap={live} requests={requests} actions={picker} />;
+    if (live) return <LivePanel key={node} snap={live} requests={requests} actions={picker} modelled={modelled} />;
     // Placeholders only while the payload starts up (it reports streams as soon as requests go out, at progress
     // 0.05); an agent that sends no streams at all gets nothing here, and the progress panel covers its run.
     if (run.progress > 0.05) return null;
@@ -51,7 +52,7 @@ export function StreamsSection({ run }: { run: BenchRun; spec: BenchSpec | undef
   }
   if (showcase) {
     if (outputs?.streams.length) return <ShowcaseOutputs key={node} outputs={outputs} status={run.status} actions={picker} />;
-    return live?.streams.length ? <FinalOutputs key={node} snap={live} status={run.status} sweep={false} actions={picker} /> : null;
+    return live?.streams.length ? <FinalOutputs key={node} snap={live} status={run.status} sweep={false} actions={picker} modelled={modelled} /> : null;
   }
   if (!live && !detail) return null;
 
@@ -63,7 +64,7 @@ export function StreamsSection({ run }: { run: BenchRun; spec: BenchSpec | undef
     <>
       {sweep ? <SweepPanel levels={levels} planned={planned} status={run.status} actions={picker} /> : null}
       {timelines.length ? <TimelinePanel timelines={timelines} actions={sweep ? null : picker} /> : null}
-      {live?.streams.length ? <FinalOutputs key={node} snap={live} status={run.status} sweep={planned.length > 1} actions={sweep || timelines.length ? null : picker} /> : null}
+      {live?.streams.length ? <FinalOutputs key={node} snap={live} status={run.status} sweep={planned.length > 1} actions={sweep || timelines.length ? null : picker} modelled={modelled} /> : null}
     </>
   );
 }
@@ -71,7 +72,7 @@ export function StreamsSection({ run }: { run: BenchRun; spec: BenchSpec | undef
 const ENDED: Partial<Record<RunStatus, string>> = { succeeded: 'finished', cancelled: 'was cancelled', failed: 'failed' };
 
 /** The last snapshot's cards, static, behind a disclosure; streams cut off by a cancel or failure read "Stopped". */
-function FinalOutputs({ snap, status, sweep, actions }: { snap: LiveSnapshot; status: RunStatus; sweep: boolean; actions: ReactNode }) {
+function FinalOutputs({ snap, status, sweep, actions, modelled }: { snap: LiveSnapshot; status: RunStatus; sweep: boolean; actions: ReactNode; modelled: Modelled | null }) {
   const [shown, setShown] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const texts = useMemo(() => textsOf(snap), [snap]);
@@ -107,6 +108,7 @@ function FinalOutputs({ snap, status, sweep, actions }: { snap: LiveSnapshot; st
           requests={snap.requests}
           showcase={snap.showcase}
           context="Final output"
+          modelled={modelled}
           onClose={() => { setOpen(null); }}
         />
       ) : null}

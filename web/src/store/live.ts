@@ -1,14 +1,14 @@
 // High-frequency telemetry lives here, outside React.
 // Per node: one shared timestamp ring plus one Float64Array value ring per flattened metric key, all with the same
 // capacity and write head, so every series of a node is aligned by construction (NaN = no value at that tick).
-// Memory is strictly bounded: capacity x (1 + keys) x 8 bytes per node, with keys capped at MAX_KEYS_PER_NODE.
+// Memory is strictly bounded: capacity x (1 + keys) x 8 bytes per node.
 // Subscribers are notified at most once per animation frame, however many samples arrived.
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { flatten } from '../lib/metrics';
 import type { HistoryResponse, Sample } from '../lib/types';
 
 export const DEFAULT_CAPACITY = 3600;
-export const MAX_KEYS_PER_NODE = 512;
+export const KEY_CAP_FLOOR = 512;
 
 type Listener = () => void;
 
@@ -19,6 +19,7 @@ export class NodeBuffer {
   start = 0;
   length = 0;
   latest: Sample | null = null;
+  largestTick = 0;
 
   constructor(readonly capacity: number) {
     this.ts = new Float64Array(capacity);
@@ -31,9 +32,11 @@ export class NodeBuffer {
     if (this.length < this.capacity) this.length++;
     else this.start = (this.start + 1) % this.capacity;
     this.ts[i] = ts;
+    this.largestTick = Math.max(this.largestTick, flat.size);
+    const keyCap = Math.max(KEY_CAP_FLOOR, 2 * this.largestTick);
     for (const [key, ring] of this.values) ring[i] = flat.get(key) ?? NaN;
     for (const [key, v] of flat) {
-      if (this.values.has(key) || this.values.size >= MAX_KEYS_PER_NODE) continue;
+      if (this.values.has(key) || this.values.size >= keyCap) continue;
       const ring = new Float64Array(this.capacity).fill(NaN);
       ring[i] = v;
       this.values.set(key, ring);

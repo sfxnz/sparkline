@@ -1,0 +1,6 @@
+{
+  "node": "spark1",
+  "generated_by": "python tests/web_fixtures.py",
+  "synthesized": true,
+  "notes": "NodeInfo mirrors what a real spark1 agent (GB10) reports; ids such as MACs and the GPU UUID are synthesized, and the sample is simulated by the demo."
+}

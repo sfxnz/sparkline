@@ -17,7 +17,7 @@ import { useCluster } from './cluster';
 import { useConnection } from './connection';
 import { MAX_EVENTS, useEvents } from './events';
 import { historyCache } from './history';
-import { DEFAULT_CAPACITY, MAX_KEYS_PER_NODE, liveStore } from './live';
+import { DEFAULT_CAPACITY, KEY_CAP_FLOOR, liveStore } from './live';
 import { usePrefs } from './prefs';
 import { dispatch } from './session';
 import { gpuAt } from '../lib/gpu';
@@ -340,7 +340,7 @@ describe('24-hour session (simulated)', () => {
     expect(Object.keys(useBench.getState().runs)).toHaveLength(MAX_RUNS);
     expect(max.history).toBeLessThanOrEqual(64);
     expect(max.nodes).toBe(NODES.length);
-    expect(max.keys).toBeLessThanOrEqual(MAX_KEYS_PER_NODE);
+    expect(max.keys).toBeLessThanOrEqual(KEY_CAP_FLOOR);
     for (const id of NODES) {
       expect(liveStore.buffer(id)?.length).toBe(DEFAULT_CAPACITY);
       expect(liveStore.lastTs(id)).toBe(T0 + DAY_S);

@@ -7,7 +7,7 @@ import { Button } from '../../design/components/Button';
 import { Dialog } from '../../design/components/Dialog';
 import type { BenchRun, BenchSpec } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
-import { formatDateTime, headlineResults, nodesText, paramsSummary, resultDelta, runFacts, servedModel, signedFormat, unitText } from './model';
+import { formatDateTime, headlineResults, MODELLED_MARK, modelledNote, modelledOn, modelledResults, nodesText, paramsSummary, resultDelta, runFacts, servedModel, signedFormat, unitText } from './model';
 
 export const CARD_W = 600;
 export const CARD_H = 340;
@@ -130,7 +130,7 @@ export function drawShareCard(canvas: HTMLCanvasElement, run: BenchRun, spec: Be
     const nw = ctx.measureText(num).width;
     ctx.fillStyle = c.text2;
     ctx.font = `500 15px ${font}`;
-    ctx.fillText(unitText(r.unit), x + nw + 6, heads.length > 2 ? 214 : 220);
+    ctx.fillText(`${unitText(r.unit)}${modelledOn(r.extras) ? MODELLED_MARK : ''}`, x + nw + 6, heads.length > 2 ? 214 : 220);
     const d = resultDelta(r, regressionPct);
     ctx.font = `600 12px ${font}`;
     if (d) {
@@ -148,21 +148,24 @@ export function drawShareCard(canvas: HTMLCanvasElement, run: BenchRun, spec: Be
     ctx.fillText('No results', pad, 210);
   }
 
-  // Footer: environment.
+  const marked = modelledResults(heads);
+  const rule = marked ? 268.5 : 278.5;
+  const envY = marked ? 292 : 306;
   ctx.strokeStyle = c.sep;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(pad, 278.5);
-  ctx.lineTo(CARD_W - pad, 278.5);
+  ctx.moveTo(pad, rule);
+  ctx.lineTo(CARD_W - pad, rule);
   ctx.stroke();
   const f = runFacts(run);
   const env = [f.gpu, f.driver ? `Driver ${f.driver}` : null, f.cuda ? `CUDA ${f.cuda}` : null].filter(Boolean).join('  ·  ') || 'Environment not recorded';
   ctx.fillStyle = c.text2;
   ctx.font = `500 12px ${font}`;
-  ctx.fillText(fit(ctx, env, CARD_W - pad * 2 - 120), pad, 306);
+  ctx.fillText(fit(ctx, env, CARD_W - pad * 2 - 120), pad, envY);
+  if (marked) ctx.fillText(fit(ctx, modelledNote(marked, `figures marked ${MODELLED_MARK}`), CARD_W - pad * 2), pad, envY + 18);
   ctx.fillStyle = c.text3;
   ctx.textAlign = 'right';
-  ctx.fillText(`Run ${run.id.slice(0, 8)}`, CARD_W - pad, 306);
+  ctx.fillText(`Run ${run.id.slice(0, 8)}`, CARD_W - pad, envY);
   ctx.textAlign = 'left';
 }
 
@@ -198,7 +201,12 @@ export function ShareCardDialog({ run, spec, onClose }: { run: BenchRun; spec: B
       () => { setCopied('failed'); },
     );
   };
-  const heads = headlineResults(run.results, 3).map((r) => `${r.label} ${signedFormat(r)(r.value)} ${unitText(r.unit)}`).join(', ');
+  const heads = headlineResults(run.results, 3)
+    .map((r) => {
+      const on = modelledOn(r.extras);
+      return `${r.label} ${signedFormat(r)(r.value)} ${unitText(r.unit)}${on ? ` (modelled on ${on})` : ''}`;
+    })
+    .join(', ');
 
   return (
     <Dialog

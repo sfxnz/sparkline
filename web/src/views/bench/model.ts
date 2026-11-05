@@ -476,7 +476,9 @@ export function headlineCaption(all: readonly BenchResult[]): string {
   const first = same[0];
   if (!first) return '';
   const nodes = same.map((r) => r.node_id).filter((n): n is string => !!n);
-  return [first.label, nodes.join(' / ')].filter(Boolean).join(' · ');
+  const m = modelledResults(same);
+  const note = m ? `${m.nodes.length < same.length ? `${listNodes(m.nodes)} ` : ''}modelled on ${m.on}` : '';
+  return [first.label, nodes.join(' / '), note].filter(Boolean).join(' · ');
 }
 
 /** Hover detail: each node's value, and the work unit when the payload names one ("sha256 + zlib …"). */
@@ -484,10 +486,52 @@ export function headlineDetail(all: readonly BenchResult[]): string {
   const same = headlineSet(all);
   const first = same[0];
   if (!first) return '';
-  const values = same.map((r) => `${r.node_id ? `${r.node_id}: ` : ''}${valueWithUnit(r.value, r.unit)}`).join(', ');
+  const values = same
+    .map((r) => {
+      const on = modelledOn(r.extras);
+      return `${r.node_id ? `${r.node_id}: ` : ''}${valueWithUnit(r.value, r.unit)}${on ? ` (modelled on ${on})` : ''}`;
+    })
+    .join(', ');
   const work = typeof first.extras.workload === 'string' ? ` ${first.unit} = input bytes processed per second by ${first.extras.workload}.` : '';
   return `${first.label}. ${values}.${work}`;
 }
+
+export const MODELLED_MARK = '†';
+
+/** Figures the demo modelled on other hardware instead of measuring them. */
+export interface Modelled {
+  /** The hardware they follow, as the demo names it: "GB10". */
+  on: string;
+  /** The nodes they were shown for, in run order. Never empty. */
+  nodes: string[];
+}
+
+/** The demo's `modelled_on` key in a result's extras or a node's metadata; null means measured. */
+export function modelledOn(bag: Record<string, unknown> | undefined): string | null {
+  const on = bag?.modelled_on;
+  return typeof on === 'string' ? on : null;
+}
+
+function modelledAmong(pairs: readonly (readonly [string, string | null])[]): Modelled | null {
+  const hits = pairs.filter((p): p is readonly [string, string] => p[1] !== null);
+  const first = hits[0];
+  return first ? { on: first[1], nodes: [...new Set(hits.map(([n]) => n))] } : null;
+}
+
+/** The modelled rows among these, or null when every row was measured. */
+export const modelledResults = (results: readonly BenchResult[]) => modelledAmong(results.map((r) => [r.node_id ?? 'cluster', modelledOn(r.extras)] as const));
+
+/** Nodes whose state says their figures are modelled; null on run-list rows, which carry no states. */
+export const modelledNodes = (run: Pick<BenchRun, 'nodes' | 'node_states'>) => modelledAmong(run.nodes.map((n) => [n, modelledOn(run.node_states?.[n]?.metadata)] as const));
+
+/** "For ws1, token rates and timings are modelled on GB10, not measured." */
+export const modelledNote = (m: Modelled, figures: string) => `For ${listNodes(m.nodes)}, ${figures} are modelled on ${m.on}, not measured.`;
+
+export const MODELLED_FIGURES = {
+  streams: 'token rates and timings',
+  toolEval: 'timings and the Responsiveness and Deployability scores',
+  scenario: 'timings',
+} as const;
 
 /** Which nodes' results had a baseline to compare with, and which had none ("cluster" for cluster-wide results). */
 export function baselineCoverage(results: readonly BenchResult[]): { with: string[]; without: string[] } {

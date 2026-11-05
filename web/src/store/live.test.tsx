@@ -1,7 +1,8 @@
 import { act, render } from '@testing-library/react';
 import sampleJson from '../test/fixtures/sample.json';
-import type { GpuSample, Sample } from '../lib/types';
-import { LiveStore, MAX_KEYS_PER_NODE, useLatest } from './live';
+import type { DiskSample, FsSample, GpuSample, NetSample, Sample } from '../lib/types';
+import { flatten } from '../lib/metrics';
+import { KEY_CAP_FLOOR, LiveStore, useLatest } from './live';
 import { gpuAt } from '../lib/gpu';
 
 const base = sampleJson as unknown as Sample;
@@ -12,6 +13,23 @@ const mk = (ts: number, gpuUtil: number | null = 50, node = 'spark1'): Sample =>
   ts,
   gpu: [{ ...gpu0, util: gpuUtil }],
 });
+
+const netA = base.net[0] as NetSample;
+
+function bigNode(ts: number): Sample {
+  const n = (k: number) => Array.from({ length: k }, (_, i) => i);
+  return {
+    ...base,
+    node_id: 'ws8',
+    ts,
+    gpu: n(8).map((index) => ({ ...gpu0, index, util: 10 + index })),
+    cpu: { ...base.cpu, per_core: n(256).map((i) => i % 100), freq_mhz: n(256).map((i) => 3000 + i) },
+    net: n(6).map((i) => ({ ...netA, name: `enp${i}s0` })),
+    disk: n(4).map((i) => ({ ...(base.disk[0] as DiskSample), name: `nvme${i}n1` })),
+    fs: n(6).map((i) => ({ ...(base.fs[0] as FsSample), mount: `/mnt/d${i}`, key: `mnt_d${i}` })),
+    temps: n(40).map((i) => ({ id: `hwmon.s${i}`, c: 40 + i })),
+  };
+}
 
 /** A store whose notifications are flushed manually (deterministic frames). */
 function manual(capacity = 8) {
@@ -72,11 +90,27 @@ describe('LiveStore ring buffers', () => {
     expect(full).toBe((1 + keys) * 3600 * 8);
   });
 
-  it('caps the number of keys per node', () => {
+  it('keeps every metric of a 256-thread, 8-GPU node with several NICs, disks, filesystems and 40 sensors', () => {
     const { store } = manual(4);
-    const many = { ...mk(1), temps: Array.from({ length: MAX_KEYS_PER_NODE + 100 }, (_, i) => ({ id: `s${i}`, c: 1 })) };
-    store.pushSample(many);
-    expect(store.keys('spark1').length).toBe(MAX_KEYS_PER_NODE);
+    const big = bigNode(1);
+    const flat = flatten(big);
+    expect(flat.size, 'the node is larger than the old fixed cap').toBeGreaterThan(KEY_CAP_FLOOR);
+    store.pushSample(big);
+    const missing = [...flat].filter(([k, v]) => store.latestValue('ws8', k) !== v).map(([k]) => k);
+    expect(missing).toEqual([]);
+    store.seed({ node_id: 'ws8', resolution_s: 1, ts: [0], series: { 'gpu7.thermal_capped_pct': [12] }, min: {}, max: {} });
+    expect(store.window('ws8', ['gpu7.thermal_capped_pct']).values[0]).toEqual([12, null]);
+  });
+
+  it('stays bounded when keys churn: at most twice the largest tick, however many keys come and go', () => {
+    const { store } = manual(4);
+    const tick = (t: number) => ({ ...mk(t), net: Array.from({ length: 60 }, (_, i) => ({ ...netA, name: `veth${t}_${i}` })) });
+    const perTick = flatten(tick(1)).size;
+    for (let t = 1; t <= 200; t++) store.pushSample(tick(t));
+    const bound = Math.max(KEY_CAP_FLOOR, 2 * perTick);
+    expect(store.keys('spark1').length).toBeLessThanOrEqual(bound);
+    expect(store.byteSize()).toBeLessThanOrEqual((1 + bound) * 4 * 8);
+    expect(store.latestValue('spark1', 'gpu0.util'), 'keys present from the start keep updating').toBe(50);
   });
 
   it('seeds older history behind live ticks without duplicating', () => {

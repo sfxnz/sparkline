@@ -111,6 +111,7 @@
   --chart-2: #c5c9d2;
   --chart-3: #7c8190;
   --chart-4: #b4a4f5;
+  --gpu-0: #0365fd; --gpu-1: #0fa974; --gpu-2: #c116bb; --gpu-3: #a47de3; --gpu-4: #c22d6d; --gpu-5: #116fa8; --gpu-6: #6b7f09; --gpu-7: #7a5fd2;
   /* Sequential ramp (CPU heatmap): one hue, lightness rising with the value, stops at 0 / 20 / 45 / 70 / 100 %.
      From the 20 % stop on, cells clear 3:1 against every surface (contrast.test.ts). */
   --heat-0: #272b4f; --heat-1: #4b5ed8; --heat-2: #7b8dff; --heat-3: #abb7ff; --heat-4: #e0e4ff;
@@ -167,6 +168,7 @@
   --chart-2: #3a3e48;
   --chart-3: #787d87;
   --chart-4: #8a6fe0;
+  --gpu-0: #4183fa; --gpu-1: #03875b; --gpu-2: #e423dd; --gpu-3: #7502cd; --gpu-4: #7a354d; --gpu-5: #095482; --gpu-6: #495704; --gpu-7: #6f62a9;
   --heat-0: #dde2fa; --heat-1: #6a7eeb; --heat-2: #4a5ee2; --heat-3: #3140b6; --heat-4: #1e2574;
   --skeleton: rgba(20, 24, 36, 0.06);
   --skeleton-shine: rgba(255, 255, 255, 0.55);

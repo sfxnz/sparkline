@@ -17,7 +17,7 @@ import errno
 import hashlib
 import math
 import time
-from typing import Literal
+from typing import Literal, Protocol
 
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX, flatten
 from ..common.schema import (
@@ -141,6 +141,18 @@ def _episode(p: float, ramp: float, hold: float, fall: float) -> float:
     if p < ramp + hold + fall:
         return 1.0 - (p - ramp - hold) / fall
     return 0.0
+
+
+class DemoNode(Protocol):
+    node_id: str
+    lan_ip: str
+    info: NodeInfo
+    bench_windows: list[list[float]]
+    disk_windows: list[list[float]]
+
+    def link_state(self, t: float) -> str: ...
+
+    def sample_at(self, t: float, seq: int = 0, procs: bool = False) -> Sample: ...
 
 
 class DemoModel:
@@ -615,7 +627,7 @@ class DemoModel:
                 GpuInfo(
                     index=0,
                     name="NVIDIA GB10",
-                    uuid=f"GPU-{uuid_hex[:8]}-{uuid_hex[8:12]}-{uuid_hex[12:16]}-{uuid_hex[16:20]}-{uuid_hex[20:]}",
+                    uuid=f"GPU-00000000-0000-0000-0000-0000{uuid_hex[:8]}",
                     arch="Blackwell",
                     compute_capability="12.1",
                     cuda_cores=6144,
@@ -646,12 +658,11 @@ class DemoModel:
 class DemoSource(NodeSource):
     """A simulated agent connection; failures are raised/withheld exactly where a real link would fail."""
 
-    def __init__(self, node_id: str, listener: Listener, t0: float, speed: float = 1.0):
-        lan_ip = NODES[node_id][0]
-        super().__init__(node_id, f"http://{lan_ip}:9750", listener)
-        self.model = DemoModel(node_id, t0, speed)
+    def __init__(self, model: DemoNode, listener: Listener):
+        super().__init__(model.node_id, f"http://{model.lan_ip}:9750", listener)
+        self.model = model
         self.seq = 0
-        self.energy: float | None = None
+        self.energy: dict[int, float] = {}
         self.procs_ts: float | None = None
         self.interval = 1.0
 
@@ -676,12 +687,11 @@ class DemoSource(NodeSource):
             if state == "stall":
                 continue
             s = self.model.sample_at(now, self.seq, procs=self.seq % 5 == 0)
-            g = s.gpu[0]
-            # energy counter integrates the live power
-            self.energy = (
-                (g.energy_j or 0.0) if self.energy is None else self.energy + (g.power_w or 0) * self.interval
-            )
-            g.energy_j = round(self.energy, 1)
+            for g in s.gpu:
+                prev = self.energy.get(g.index)
+                e = (g.energy_j or 0.0) if prev is None else prev + (g.power_w or 0) * self.interval
+                self.energy[g.index] = e
+                g.energy_j = round(e, 1)
             if s.procs is not None:
                 self.procs_ts = now
             s.procs_ts = self.procs_ts
@@ -690,7 +700,7 @@ class DemoSource(NodeSource):
 
 
 def demo_history(
-    model: DemoModel,
+    model: DemoNode,
     keys: list[str] | None,
     t_from: float,
     t_to: float,

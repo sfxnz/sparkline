@@ -7,7 +7,8 @@ import { decodeThrottle, worstSeverity, type ThrottleReason } from '../../../lib
 import type { NodeInfo, Sample, Severity } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
-import { andList, gpuAt, reportingGpus, silentBackends, type SilentBackend } from '../../../lib/gpu';
+import { andList, gpuAt, reportingGpus, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
+import { gpuSelector } from './selectors';
 
 // ------------------------------------------------------------------ collector errors
 
@@ -30,13 +31,11 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
   return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 };
 
-const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
+export const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
 
 /** A lost GPU 0 declares `gpu0` too, but the GPU collector still runs and reads the other GPUs. */
 const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
   notReported(info, COLLECTORS[name]?.metric ?? name) !== null && !(name === 'gpu' && lostGpu(info, 0));
-
-const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
  *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. While
@@ -87,8 +86,7 @@ function SilentNote({ item, reporting, details }: { item: SilentBackend; reporti
         <strong>{indexes.length === 1 ? 'GPU' : 'GPUs'} {andList(indexes)} ({names}) not responding:</strong>{' '}
         <span className="nnote__msg">{sentence(item.message ?? 'no reading this tick')}</span>
         <span className="nnote__aside">
-          {' '}The <code>{item.backend}</code> backend sent no reading this tick. {others.length === 1 ? 'GPU' : 'GPUs'} {andList(others)} still{' '}
-          {others.length === 1 ? 'reports' : 'report'}.
+          {' '}The <code>{item.backend}</code> backend sent no reading this tick. {stillReport(others)}
         </span>
       </p>
       {details}
@@ -104,7 +102,7 @@ export const SEVERITY_META: Record<Severity, { label: string; icon: LucideIcon; 
   critical: { label: 'Critical', icon: OctagonAlert, tone: 'tone-crit' },
 };
 
-export const selectThrottleMask = (s: Sample | null) => gpuAt(s?.gpu, 0)?.throttle_mask ?? null;
+export const selectThrottleMask = gpuSelector(0, 'throttle_mask');
 
 /** Reasons that actually limit clocks ("Idle" only means there is no work). */
 export const limiting = (reasons: readonly ThrottleReason[]) => reasons.filter((r) => r.code !== 'gpu_idle');
@@ -112,8 +110,8 @@ export const limiting = (reasons: readonly ThrottleReason[]) => reasons.filter((
 /** Where the SM clock sits against its maximum: near it ('full'), well below it with no work ('idle') or with work
  *  ('low'), or unknown (null). An idle GB10 reports mask 0x0 at about 7% of its maximum clock. */
 export type ClockLevel = 'full' | 'idle' | 'low' | null;
-export function clockLevel(s: Sample | null, maxMhz: number | null): ClockLevel {
-  const g = gpuAt(s?.gpu, 0);
+export function clockLevel(s: Sample | null, maxMhz: number | null, index = 0): ClockLevel {
+  const g = gpuAt(s?.gpu, index);
   if (g?.sm_mhz == null || !maxMhz) return null;
   if (g.sm_mhz >= 0.8 * maxMhz) return 'full';
   return g.util == null || g.util < 10 ? 'idle' : 'low';
@@ -136,6 +134,14 @@ export function throttleHeadline(reasons: readonly ThrottleReason[], clocks: Clo
   const sev = worstSeverity(active) ?? 'info';
   const names = active.map((r) => r.title.toLowerCase()).join(', ');
   return { text: `Clocks limited by ${names}`, severity: sev };
+}
+
+/** The headline as a header badge: the worst limiting reason ("Thermal limit +1"), else "Idle" or "Not limited". */
+export function throttleBadge(reasons: readonly ThrottleReason[]): { label: string; severity: Severity | 'ok' } {
+  const active = worstFirst(limiting(reasons));
+  const worst = active[0];
+  if (!worst) return { label: reasons.length ? 'Idle' : 'Not limited', severity: 'ok' };
+  return { label: active.length > 1 ? `${worst.title} +${active.length - 1}` : worst.title, severity: worst.severity };
 }
 
 const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };

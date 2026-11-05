@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BenchCompare, BenchParam, BenchSpec, Sample } from '../../lib/types';
 import { boundRuns, mergeRun } from '../../store/bench';
 import { CATALOG, LLM, MATMUL, RDMA, SOAK, result, run } from './fixtures';
+import { LIVE_4, llmRun, nodeState } from './streams/fixtures';
 import {
   aboutDuration,
   baselineCoverage,
@@ -23,6 +24,11 @@ import {
   headlineText,
   isLanHost,
   llmLevels,
+  MODELLED_MARK,
+  modelledNodes,
+  modelledNote,
+  modelledOn,
+  modelledResults,
   nodesText,
   paramText,
   paramsSummary,
@@ -287,6 +293,49 @@ describe('values and deltas', () => {
     expect(resultText(bf16)).toBe('95.0 TFLOPS');
     expect(headlineResults([fp4, bf16])).toEqual([bf16]);
     expect(headlineText([fp4, bf16])).toBe('95.0 TFLOPS');
+  });
+});
+
+describe('figures modelled on other hardware', () => {
+  const GB10 = { modelled_on: 'GB10' };
+  const decode = (node: string, value: number, extras: Record<string, unknown>) => result({ metric: 'decode_tok_s', label: 'Decode tokens/s per request', value, unit: 'tok/s', node_id: node, extras: { headline: true, ...extras } });
+  const ws1 = decode('ws1', 46.2, GB10);
+  const spark1 = decode('spark1', 44.1, {});
+  const memory = result({ metric: 'mem_used_delta_gib', label: 'System memory growth during run', value: 0.4, unit: 'GiB', better: 'lower', node_id: 'ws1' });
+
+  it('reads the demo key only where it names the hardware', () => {
+    expect(modelledOn(GB10)).toBe('GB10');
+    expect(modelledOn({})).toBeNull();
+    expect(modelledOn({ modelled_on: 1 })).toBeNull();
+    expect(modelledOn(undefined)).toBeNull();
+  });
+
+  it('finds none on GB10 runs, live or finished, nor on run-list rows', () => {
+    expect(modelledResults([spark1, result({ metric: 'bf16_tflops', value: 94 })])).toBeNull();
+    expect(modelledNodes(llmRun({ live: LIVE_4 }))).toBeNull();
+    expect(modelledNodes(llmRun({ status: 'succeeded', live: LIVE_4 }))).toBeNull();
+    expect(modelledNodes(run({ id: 'listed', nodes: ['ws1'], node_states: {}, results: [ws1] }))).toBeNull();
+    expect(modelledNodes(run({ id: 'old', nodes: ['ws1'] }))).toBeNull();
+  });
+
+  it('names the modelled nodes in run order and the hardware they follow', () => {
+    const states = { ws1: nodeState({ node_id: 'ws1', metadata: GB10 }), spark1: nodeState() };
+    expect(modelledNodes(run({ id: 'mixed', nodes: ['spark1', 'ws1'], node_states: states }))).toEqual({ on: 'GB10', nodes: ['ws1'] });
+    expect(modelledResults([spark1, ws1, memory])).toEqual({ on: 'GB10', nodes: ['ws1'] });
+  });
+
+  it('says once which figures are modelled, for one node and for two', () => {
+    expect(modelledNote({ on: 'GB10', nodes: ['ws1'] }, 'token rates and timings')).toBe('For ws1, token rates and timings are modelled on GB10, not measured.');
+    expect(modelledNote({ on: 'GB10', nodes: ['ws1', 'ws2'] }, `figures marked ${MODELLED_MARK}`)).toBe('For ws1 and ws2, figures marked † are modelled on GB10, not measured.');
+  });
+
+  it('keeps the words in History and Catalog captions, which have no note beside them', () => {
+    expect(headlineCaption([ws1, memory])).toBe('Decode tokens/s per request · ws1 · modelled on GB10');
+    expect(headlineDetail([ws1, memory])).toBe('Decode tokens/s per request. ws1: 46.2 tok/s (modelled on GB10).');
+    expect(headlineCaption([ws1, spark1])).toBe('Decode tokens/s per request · ws1 / spark1 · ws1 modelled on GB10');
+    expect(headlineDetail([ws1, spark1])).toBe('Decode tokens/s per request. ws1: 46.2 tok/s (modelled on GB10), spark1: 44.1 tok/s.');
+    expect(headlineCaption([spark1])).toBe('Decode tokens/s per request · spark1');
+    expect(headlineDetail([spark1])).toBe('Decode tokens/s per request. spark1: 44.1 tok/s.');
   });
 });
 

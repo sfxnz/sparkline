@@ -1,6 +1,10 @@
 // Port of server/sparkline/common/metrics.py flatten(): Sample -> flat scalar metric keys.
 // null/undefined values are omitted so unsupported metrics never masquerade as 0. Keys must stay identical.
-import type { Sample } from './types';
+import type { GpuSample, Sample } from './types';
+
+export type GpuReading = Exclude<keyof GpuSample, 'index'>;
+export type GpuField = GpuReading | 'power_limit_w';
+export const gpuKey = (index: number, field: GpuField) => `gpu${index}.${field}`;
 
 export function mountKey(mount: string): string {
   const stripped = mount.replace(/^\/+|\/+$/g, '');

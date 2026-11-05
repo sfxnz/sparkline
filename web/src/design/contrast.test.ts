@@ -1,5 +1,7 @@
 // WCAG 2.2 AA contrast for the token pairs actually used, computed from tokens.css itself.
 // Text needs >= 4.5:1, non-text UI (status dots, focus ring, chart accent, control fills) >= 3:1.
+// The GPU palette is also held to the dataviz separation gates: OKLab distance x100, colour-vision deficiency
+// simulated with Machado, Oliveira & Fernandes 2009 at full severity.
 // Translucent tokens are composited over the surface they sit on; materials are checked via their opaque
 // surface (which is also their reduced-transparency fallback).
 import css from './tokens.css?raw';
@@ -43,6 +45,31 @@ function luminance([r, g, b]: RGBA): number {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
+const MACHADO: Record<string, number[][]> = {
+  protan: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+  deutan: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.01182, 0.04294, 0.968881]],
+  tritan: [[1.255528, -0.076749, -0.178779], [-0.078411, 0.930809, 0.147602], [0.004733, 0.691367, 0.3039]],
+};
+
+function oklab([r, g, b]: RGBA, vision: string): number[] {
+  const lin = [r, g, b].map((c) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  const m = MACHADO[vision];
+  const [R = 0, G = 0, B = 0] = m ? m.map((row) => Math.min(1, Math.max(0, row.reduce((sum, w, k) => sum + w * (lin[k] ?? 0), 0)))) : lin;
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const mm = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return [
+    0.2104542553 * l + 0.793617785 * mm - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * mm + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * mm - 0.808675766 * s,
+  ];
+}
+
+const separation = (a: RGBA, b: RGBA, vision: string) => 100 * Math.hypot(...oklab(a, vision).map((x, i) => x - (oklab(b, vision)[i] ?? 0)));
+
 export function contrast(a: RGBA, b: RGBA): number {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
   return (hi + 0.05) / (lo + 0.05);
@@ -56,6 +83,7 @@ const TEXT = ['text-1', 'text-2', 'text-3', 'accent-text', 'ok-text', 'warn-text
 const NON_TEXT = ['accent', 'focus-ring', 'ok', 'warn', 'crit', 'stale', 'chart-1', 'chart-2', 'chart-3', 'heat-1', 'heat-2', 'heat-3', 'heat-4'];
 const HEAT = ['heat-0', 'heat-1', 'heat-2', 'heat-3', 'heat-4'];
 const STATUS = ['ok', 'warn', 'crit', 'stale'];
+const GPU = Array.from({ length: 8 }, (_, i) => `gpu-${i}`);
 
 describe.each(Object.entries(themes))('%s theme contrast', (_name, t) => {
   const c = (name: string): RGBA => parse(t[name] ?? `missing --${name}`);
@@ -67,6 +95,11 @@ describe.each(Object.entries(themes))('%s theme contrast', (_name, t) => {
   });
 
   it.each(SURFACES.flatMap((s) => NON_TEXT.map((x) => [x, s])))('non-text %s on %s >= 3', (fg, bg) => {
+    const base = solid(bg, c('bg'));
+    expect(contrast(solid(fg, base), base)).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(SURFACES.flatMap((s) => GPU.map((x) => [x, s])))('GPU series %s on %s >= 3', (fg, bg) => {
     const base = solid(bg, c('bg'));
     expect(contrast(solid(fg, base), base)).toBeGreaterThanOrEqual(3);
   });
@@ -83,6 +116,34 @@ describe.each(Object.entries(themes))('%s theme contrast', (_name, t) => {
     const base = solid('surface-2', c('bg'));
     const steps = HEAT.map((h) => contrast(c(h), base));
     steps.slice(1).forEach((x, i) => { expect(x).toBeGreaterThan((steps[i] ?? 0) * 1.4); });
+  });
+
+  // The All GPUs charts draw every GPU together, so any two of the first four may cross: all pairs must separate
+  // under every simulated deficiency. Past four GPUs only neighbours are held apart, as for any line chart.
+  const CVD = ['protan', 'deutan', 'tritan'];
+  const pairs = (n: number) => Array.from({ length: n }, (_, i) => Array.from({ length: n - i - 1 }, (_, k) => [i, i + 1 + k] as const)).flat();
+
+  it.each(pairs(4).flatMap(([a, b]) => ['normal', ...CVD].map((v) => [`gpu-${a}`, `gpu-${b}`, v])))(
+    '%s and %s stay apart in %s vision',
+    (a, b, vision) => {
+      expect(separation(c(a), c(b), vision)).toBeGreaterThanOrEqual(vision === 'normal' ? 15 : 8);
+    },
+  );
+
+  const neighbours = [3, 4, 5, 6].map((i) => [`gpu-${i}`, `gpu-${i + 1}`] as const);
+  it.each(neighbours.flatMap(([a, b]) => ['normal', 'protan', 'deutan'].map((v) => [a, b, v])))(
+    'neighbours %s and %s stay apart in %s vision',
+    (a, b, vision) => {
+      expect(separation(c(a), c(b), vision)).toBeGreaterThanOrEqual(vision === 'normal' ? 15 : 8);
+    },
+  );
+
+  // A temperature chart draws the slowdown and shutdown points as dashed lines in --warn and --crit, labelled in
+  // the legend: no GPU line may look like one. The dash and label are the secondary encoding that makes the
+  // simulated-deficiency floor 6 rather than 8.
+  it.each(GPU.flatMap((g) => ['warn', 'crit'].map((s) => [g, s])))('%s stays apart from the %s threshold line', (g, s) => {
+    expect(separation(c(g), c(s), 'normal')).toBeGreaterThanOrEqual(15);
+    if (GPU.indexOf(g) < 4) for (const v of CVD) expect(separation(c(g), c(s), v)).toBeGreaterThanOrEqual(6);
   });
 
   it('text on accent fill (primary button) >= 4.5, including hover', () => {

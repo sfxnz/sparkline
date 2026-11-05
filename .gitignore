@@ -13,5 +13,6 @@ web/test-results/
 web/playwright-report/
 var/
 web/.e2e-demo/
+web/.e2e-mixed/
 web/screenshots/
 .env

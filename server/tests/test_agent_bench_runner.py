@@ -131,10 +131,12 @@ def fake(mode: str):
     return fn
 
 
-def make_runner(tmp_path, job_fns=None, msgs=None, env=None, latest=None, **kw) -> BenchRunner:
+def make_runner(
+    tmp_path, job_fns=None, msgs=None, env=None, latest=None, info=node_info, **kw
+) -> BenchRunner:
     return BenchRunner(
         "n1",
-        node_info,
+        info,
         latest or (lambda: None),
         (msgs if msgs is not None else []).append,
         "img:tag",
@@ -1452,6 +1454,36 @@ async def test_llm_inference_end_to_end(tmp_path, fake_llm):
     # the fake server listens in this process: its footprint comes from the newest sample with a process list
     mem = res["serving_gpu_mem_gib"]
     assert mem.value == 3 and mem.extras["source"] == f"pid {os.getpid()} and its children"
+
+
+@pytest.mark.parametrize(
+    ("gpu", "label"),
+    [
+        ("NVIDIA GB10", "Unified memory growth during run"),
+        ("NVIDIA RTX 6000 Ada Generation", "System memory growth during run"),
+    ],
+)
+async def test_llm_inference_names_memory_growth_for_the_nodes_gpu(tmp_path, fake_llm, gpu, label):
+    info = node_info().model_copy(update={"gpus": [GpuInfo(index=0, name=gpu, uuid="GPU-abc")]})
+    t = [time.time()]
+
+    def latest() -> Sample:
+        t[0] += 0.5
+        return sample(t[0], used=int((10 + t[0] % 1) * 2**30))
+
+    r = make_runner(tmp_path, latest=latest, info=lambda: info)
+    params = {
+        "base_url": fake_llm + "/v1",
+        "prompt_tokens": 128,
+        "max_tokens": 4,
+        "concurrency": 1,
+        "requests": 1,
+    }
+    await r.start(req(bench_id="llm-inference", params=params))
+    await r.current.task
+    st = r.get("r1")
+    assert st.status == "succeeded", st.error
+    assert {x.metric: x.label for x in st.results}["mem_used_delta_gib"] == label
 
 
 def test_serving_gpu_mem_falls_back_to_gpu_processes_when_the_pid_is_hidden(monkeypatch):

@@ -4,6 +4,8 @@ const PORT = Number(process.env.E2E_PORT ?? 5180);
 /** The demo console the flow tests run against (started below with a throwaway data dir). */
 const DEMO_PORT = Number(process.env.E2E_DEMO_PORT ?? 9702);
 const DEMO_DIR = '.e2e-demo'; // git-ignored; recreated on every run so acks and settings start clean
+const MIXED_PORT = Number(process.env.E2E_MIXED_PORT ?? 9703);
+const MIXED_DIR = '.e2e-mixed';
 
 export default defineConfig({
   testDir: './e2e',
@@ -26,6 +28,16 @@ export default defineConfig({
         `exec ../server/.venv/bin/sparkline --demo --config ${DEMO_DIR}/demo.toml --bind 127.0.0.1 --port ${DEMO_PORT}`,
       ].join(' && '),
       url: `http://127.0.0.1:${DEMO_PORT}/healthz`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+    {
+      command: [
+        `rm -rf ${MIXED_DIR} && mkdir -p ${MIXED_DIR}`,
+        `printf 'data_dir = "%s"\\n' "$PWD/${MIXED_DIR}/data" > ${MIXED_DIR}/demo.toml`,
+        `exec ../server/.venv/bin/sparkline --demo-mixed --config ${MIXED_DIR}/demo.toml --bind 127.0.0.1 --port ${MIXED_PORT} --web-dist dist`,
+      ].join(' && '),
+      url: `http://127.0.0.1:${MIXED_PORT}/healthz`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },

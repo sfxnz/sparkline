@@ -19,7 +19,7 @@ import annotated_types
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ...common.netutil import is_private
-from ...common.schema import BenchImpact, BenchParam, BenchSpec
+from ...common.schema import BenchImpact, BenchParam, BenchSpec, NodeInfo
 
 
 def _param(default: Any, label: str, help: str, unit: str | None = None, **bounds: Any) -> Any:
@@ -32,6 +32,12 @@ def _unique(v: list) -> list:
     if len(set(v)) != len(v):
         raise ValueError("duplicate choices")
     return v
+
+
+def mem_growth_label(info: NodeInfo | None) -> str:
+    """GB10's GPU shares system memory, so growth there is unified memory; a discrete GPU has its own."""
+    unified = info is None or any(g.name == "NVIDIA GB10" for g in info.gpus)
+    return f"{'Unified' if unified else 'System'} memory growth during run"
 
 
 class Params(BaseModel):

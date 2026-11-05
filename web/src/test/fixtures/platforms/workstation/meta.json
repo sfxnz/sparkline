@@ -1,0 +1,6 @@
+{
+  "node": "ws1",
+  "generated_by": "python tests/web_fixtures.py",
+  "synthesized": true,
+  "notes": "Synthesized: 4x NVIDIA RTX 6000 Ada Generation per the NVIDIA datasheet and https://lenovopress.lenovo.com/LP1940, with a Threadripper PRO 7975WX. Clocks, thresholds, curves, disks, NICs and versions have no primary source (server/sparkline/console/demo_workstation.py)."
+}

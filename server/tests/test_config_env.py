@@ -135,6 +135,25 @@ def test_console_cli_precedence(tmp_path, monkeypatch, no_server):
     assert no_server["port"] == 3333 and captured["data_dir"] == tmp_path / "flag-data" / "demo"
 
 
+def test_demo_mixed_implies_demo_and_runs_the_mixed_fleet(tmp_path, monkeypatch, no_server):
+    captured: dict = {}
+
+    def fake_app(cfg, data_dir, **kw):
+        captured.update(data_dir=data_dir, **kw)
+        return SimpleNamespace(state=SimpleNamespace())
+
+    monkeypatch.setattr(console_main, "create_app", fake_app)
+    monkeypatch.setattr(console_main, "lock_data_dir", lambda d: -1)
+    p = tmp_path / "console.toml"
+    p.write_text("")
+    monkeypatch.setenv("SPARKLINE_CONFIG", str(p))
+    console_main.main(["--demo-mixed", "--data-dir", str(tmp_path / "d")])
+    assert (captured["demo"], captured["fleet"]) == (True, "mixed")
+    assert captured["data_dir"] == tmp_path / "d" / "demo"
+    console_main.main(["--demo", "--data-dir", str(tmp_path / "d")])
+    assert (captured["demo"], captured["fleet"]) == (True, "dgx")
+
+
 def test_agent_cli_precedence(tmp_path, monkeypatch, no_server):
     captured: dict = {}
 

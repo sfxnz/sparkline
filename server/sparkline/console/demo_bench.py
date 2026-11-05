@@ -6,10 +6,12 @@ metric names and units. Runs are time-compressed (the agent's estimate / 10; the
 LLM inference plays its requests at double speed, 4-60 s per level, the LLM showcase its streams likewise),
 which the catalog says, and report
 plausible GB10 numbers with small run-to-run noise. While a run is going,
-the node's demo telemetry carries the load (DemoModel.bench_windows for the GPU, disk_windows for the storage
+the node's demo telemetry carries the load (DemoNode.bench_windows for the GPU, disk_windows for the storage
 profiles), so the telemetry overlay is alive. fio is "not
 installed" on the demo nodes (built-in runner, noted), and spark3 has no ConnectX-7 peer, so 2-node
-benchmarks are unavailable there.
+benchmarks are unavailable there. On other hardware, the GPU, memory, CPU and storage benchmarks
+(GB10_RESULTS) are unavailable, and the thermal soak reports only the node's own clock, temperature and
+throttle telemetry, with no throughput.
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ if TYPE_CHECKING:  # imported at run time only by demo tool-eval runs
 
 from ..agent.bench import probes
 from ..agent.bench.specs import REGISTRY as AGENT_REGISTRY
-from ..agent.bench.specs import levels, nccl_sizes, validation_message
+from ..agent.bench.specs import levels, mem_growth_label, nccl_sizes, validation_message
 from ..common.schema import (
     BenchResult,
     BenchRun,
@@ -49,6 +51,7 @@ from ..common.schema import (
 from ..common.throttle import LIMITING_MASK, POWER_CAP_BIT
 from .bench import (
     CLUSTER_RESULTS,
+    MODELLED_KEY,
     BenchError,
     StateCallback,
     apply_baseline,
@@ -60,7 +63,7 @@ from .bench import (
 )
 from .bench_store import BenchStore
 from .cluster import Cluster
-from .demo import DemoModel, DemoSource
+from .demo import GIB, DemoNode, DemoSource
 
 log = logging.getLogger("sparkline.console.demo_bench")
 SUITE_GIT = "demo"  # the real agent reports the suite's git hash
@@ -87,12 +90,19 @@ SERVED_MODEL = {
     "spark1": "DeepSeek-V4.1-Flash-EXL3",
     "spark2": "DeepSeek-V4.1-Flash-EXL3",
     "spark3": "Qwen3-32B",
+    "ws1": "nvidia/Llama-3.3-70B-Instruct-FP8",
 }
 
 
 def _env(node: str, info: NodeInfo | None) -> probes.Env:
     env = probes.Env()
-    if rail_ip(info, "A") is None:
+    if info is not None and not any(n.rdma_device for n in info.net):
+        env.rdma = Problem(
+            message=f"{node} has no RDMA interconnect",
+            cause="None of its network interfaces has an RDMA device, so it cannot reach a peer over RDMA",
+            fix="Run this benchmark on two nodes linked by RDMA, such as spark1 + spark2",
+        )
+    elif rail_ip(info, "A") is None:
         env.rdma = Problem(
             message=f"{node} has no ConnectX-7 peer",
             cause="Its ConnectX-7 ports have no cable or address, so it cannot reach another Spark",
@@ -115,11 +125,102 @@ DISK_LOAD = {
 }
 
 
+# make_results reports numbers measured on a DGX Spark for these; no other demo hardware has modelled results
+GB10_RESULTS = ("gpu-matmul", "mem-bandwidth", "cpu-throughput", "storage-fio")
+
+
+def _gb10(info: NodeInfo | None) -> bool:
+    return info is None or any(g.name == "NVIDIA GB10" for g in info.gpus)
+
+
+def _not_gb10(node: str, info: NodeInfo | None) -> Problem | None:
+    if _gb10(info):
+        return None
+    return Problem(
+        message="Demo results are modelled on GB10 only",
+        cause=f"The demo reports numbers measured on a DGX Spark, which would be false for {node}'s hardware",
+        fix="Run this benchmark on a DGX Spark demo node, such as spark1",
+    )
+
+
+MODELLED_ON = "GB10"
+GB10_SPEEDS = ("llm-inference", "llm-showcase", "tool-eval")
+# tool-eval rows that follow the demo's GB10 turn latency; its scores describe the model, not the node
+TE_SPEED = {"median_turn_ms", "responsiveness", "deployability"}
+
+
+def _modelled(bench: str, info: NodeInfo | None) -> dict[str, str]:
+    return {MODELLED_KEY: MODELLED_ON} if bench in GB10_SPEEDS and not _gb10(info) else {}
+
+
+def _gb10_modelled(
+    info: NodeInfo | None, rows: list[BenchResult], metrics: set[str] | None = None
+) -> list[BenchResult]:
+    if _gb10(info):
+        return rows
+    return [
+        r.model_copy(update={"extras": {**r.extras, MODELLED_KEY: MODELLED_ON}})
+        if metrics is None or r.metric in metrics
+        else r
+        for r in rows
+    ]
+
+
+@dataclass(frozen=True)
+class RunSpan:
+    """A run on one demo node: the node's model, and when the run started and ended."""
+
+    model: DemoNode
+    t0: float
+    t1: float
+
+
+def _llm_memory(
+    info: NodeInfo | None,
+    span: RunSpan | None,
+    served: str,
+    gb10: tuple[float, float],
+    ex: dict[str, Any],
+) -> list[BenchResult]:
+    """The agent's memory rows. On GB10, spark1's recorded footprint. Elsewhere, read off the node's own model
+    over the span as the agent reads its samples: the GPU memory of the served model's process and the rest
+    of its container at the end, and system memory's peak during the run less its use at the start, from at
+    most 61 samples (the demo's memory moves over tens of minutes). No such process: no serving row, as on a
+    real node."""
+    if _gb10(info):
+        serving, growth = gb10
+        found = [(serving, "pid 4242 and its children")]
+        mem: dict[str, float] = {}
+    elif span is None:
+        return []
+    else:
+        procs = span.model.sample_at(span.t1, procs=True).procs or []
+        root = next((p for p in procs if p.model == served), None)
+        tree = [
+            p for p in procs if root and (p is root or (root.container and p.container == root.container))
+        ]
+        found = (
+            [(sum(p.gpu_mem or 0 for p in tree) / GIB, f"pid {root.pid} and its children")] if root else []
+        )
+        n = max(2, min(61, int(span.t1 - span.t0) + 1))
+        used = [span.model.sample_at(span.t0 + (span.t1 - span.t0) * k / (n - 1)).mem.used for k in range(n)]
+        growth = (max(used) - used[0]) / GIB
+        mem = {"mem_used_before_gib": used[0] / GIB, "mem_used_peak_gib": max(used) / GIB}
+    out = [
+        _r("serving_gpu_mem_gib", "Serving process GPU memory", v, "GiB", "lower", **ex, source=src)
+        for v, src in found
+    ]
+    return [*out, _r("mem_used_delta_gib", mem_growth_label(info), growth, "GiB", "lower", **ex, **mem)]
+
+
 def demo_catalog(node: str, info: NodeInfo | None) -> list[BenchSpec]:
     env = _env(node, info)
+    not_gb10 = _not_gb10(node, info)
     out = []
     for b in AGENT_REGISTRY.values():
         problem, note = probes.availability(b.id, env)
+        if b.id in GB10_RESULTS:
+            problem = not_gb10 or problem
         notes = {"llm-inference": LLM_NOTE, "llm-showcase": SHOWCASE_NOTE, "tool-eval": TE_NOTE}
         demo = notes.get(b.id, COMPRESSED_NOTE)
         out.append(b.spec({node: problem}, f"{note} {demo}".strip()))
@@ -246,10 +347,17 @@ def _r(
 
 
 def make_results(
-    bench: str, p: dict[str, Any], node: str, rng: random.Random, role: str, info: NodeInfo | None = None
+    bench: str,
+    p: dict[str, Any],
+    node: str,
+    rng: random.Random,
+    role: str,
+    info: NodeInfo | None = None,
+    span: RunSpan | None = None,
 ) -> tuple[list[BenchResult], dict[str, list[float]]]:
     """Plausible GB10 results for one node. role: single | client | server | rank0 | rank1; the rdma server
-    and NCCL rank 1 report none (the client / rank 0 measure). The thermal soak's come from soak_results."""
+    and NCCL rank 1 report none (the client / rank 0 measure). The thermal soak's come from soak_results.
+    span: the run on the node, for llm-inference's memory rows."""
     if role in ("server", "rank1"):
         return [], {}
 
@@ -413,27 +521,26 @@ def make_results(
         ttft = (150 + p["prompt_tokens"] / 1024 * 170) * n(0.06) * (1 + 0.15 * (c - 1))
         decode = 46.0 * n(0.03) / (1 + 0.09 * (c - 1))
         prefill = p["prompt_tokens"] / ttft * 1000 * 0.92
-        mem = {**ex, "source": "pid 4242 and its children"}
-        return [
+        rates = [
             _r("decode_tok_s", "Decode tokens/s per request", decode, "tok/s", **head),
             _r("ttft_p50_ms", "Time to first token p50", ttft, "ms", "lower", **head),
             _r("prefill_tok_s", "Prefill tokens/s", prefill, "tok/s", **head),
             _r("ttft_p95_ms", "Time to first token p95", ttft * 1.28 * n(0.04), "ms", "lower", **ex),
             _r("decode_tok_s_total", "Output tokens/s, all requests", decode * c * 0.97, "tok/s", **ex),
-            _r("serving_gpu_mem_gib", "Serving process GPU memory", 80.1 * n(0.002), "GiB", "lower", **mem),
-            _r("mem_used_delta_gib", "Unified memory growth during run", 0.35 * n(0.2), "GiB", "lower", **ex),
-        ], {}
+        ]
+        mem = (80.1 * n(0.002), 0.35 * n(0.2))
+        return [*_gb10_modelled(info, rates), *_llm_memory(info, span, model, mem, ex)], {}
     if bench == "tool-eval":
-        return ToolEvalDemo(p, node, rng).bench_results(), {}
+        return _gb10_modelled(info, ToolEvalDemo(p, node, rng).bench_results(), TE_SPEED), {}
     return [], {}
 
 
-def soak_point(model: DemoModel, t: float, rng: random.Random) -> dict[str, float]:
+def soak_point(model: DemoNode, t: float, rng: random.Random) -> dict[str, float]:
     g = model.sample_at(t).gpu[0]
     vals = [g.sm_mhz, g.temp_c, g.power_w, g.throttle_mask, g.util]
     pt = {k: float(v or 0.0) for k, v in zip(SOAK_KEYS, vals, strict=True)}
-    # measured 10 min soaks at 8192: 94.6 TFLOPS at 2149 MHz, 95.5 at 2181 MHz
-    pt["tflops"] = round(96.5 * min(1.0, (g.sm_mhz or 0.0) / 2200) * (1 + rng.gauss(0, 0.004)), 3)
+    if _gb10(model.info):  # measured 10 min soaks at 8192: 94.6 TFLOPS at 2149 MHz, 95.5 at 2181 MHz
+        pt["tflops"] = round(96.5 * min(1.0, (g.sm_mhz or 0.0) / 2200) * (1 + rng.gauss(0, 0.004)), 3)
     return pt
 
 
@@ -444,15 +551,24 @@ def soak_results(s: dict[str, list[float]]) -> list[BenchResult]:
         s.get("gpu0.throttle_mask", []),
         s.get("tflops", []),
     )
-    if len(clk) < 2 or not tf:
+    if len(clk) < 2:
         return []
-    k = max(1, len(tf) // 10)
-    first, last = statistics.fmean(tf[:k]), statistics.fmean(tf[-k:])
+    out = []
+    if tf:
+        k = max(1, len(tf) // 10)
+        first, last = statistics.fmean(tf[:k]), statistics.fmean(tf[-k:])
+        out = [
+            _r("tflops_first", "BF16 TFLOPS, first window", first, "TFLOPS"),
+            _r("tflops_last", "BF16 TFLOPS, last window", last, "TFLOPS"),
+            _r(
+                "tflops_change_pct",
+                "Throughput change, last vs first window",
+                (last - first) / first * 100,
+                "%",
+            ),
+        ]
     mean = statistics.fmean(clk)
-    return [
-        _r("tflops_first", "BF16 TFLOPS, first window", first, "TFLOPS"),
-        _r("tflops_last", "BF16 TFLOPS, last window", last, "TFLOPS"),
-        _r("tflops_change_pct", "Throughput change, last vs first window", (last - first) / first * 100, "%"),
+    return out + [
         _r("sm_mhz_mean", "Mean SM clock", mean, "MHz", samples=len(clk)),
         _r("sm_mhz_min", "Lowest SM clock", min(clk), "MHz", samples=len(clk)),
         _r("sm_clock_cv_pct", "Clock variation (CV)", statistics.pstdev(clk) / mean * 100, "%", "lower"),
@@ -474,7 +590,7 @@ def soak_results(s: dict[str, list[float]]) -> list[BenchResult]:
     ]
 
 
-def node_metadata(info: NodeInfo | None, model: DemoModel, t0: float, t1: float, extra: dict) -> dict:
+def node_metadata(info: NodeInfo | None, model: DemoNode, t0: float, t1: float, extra: dict) -> dict:
     """The keys the real agent records (agent/bench/metadata.py), with telemetry snapshots at start/end."""
     g = info.gpus[0] if info and info.gpus else None
 
@@ -595,9 +711,9 @@ def _streams(n: int) -> str:
 class LlmDemo:
     """A simulated llm-inference run on one node with every request planned up front (simulated seconds from
     its level's start), so its live snapshots, detail and results describe the same requests. GB10-like
-    rates: about 46 tok/s for one stream and 1 / (1 + 0.09 (L - 1)) of that per stream with L streams, TTFT
-    15% longer per extra stream, a slower straggler now and then; spark3's Qwen reasons for the first ~15% of
-    its tokens."""
+    rates, which the results say on other hardware: about 46 tok/s for one stream and 1 / (1 + 0.09 (L - 1))
+    of that per stream with L streams, TTFT 15% longer per extra stream, a slower straggler now and then;
+    spark3's Qwen reasons for the first ~15% of its tokens."""
 
     def __init__(self, p: dict[str, Any], node: str, rng: random.Random) -> None:
         self.p = p
@@ -772,7 +888,7 @@ class LlmDemo:
             timeline[str(self.sizes[k])] = {"cols": cols, "rows": rows, "truncated": len(self.plan[k]) > 256}
         return {"levels": [self.summary(k) for k in range(upto)], "timeline": timeline}
 
-    def results(self) -> list[BenchResult]:
+    def results(self, info: NodeInfo | None = None, span: RunSpan | None = None) -> list[BenchResult]:
         """The payload's results for these requests (sweep or not), then the agent's memory results."""
         p = self.p
         base: dict[str, Any] = {"engine": LLM_ENGINE, "model": self.model, "simulated": True}
@@ -824,12 +940,7 @@ class LlmDemo:
                 out.append(
                     _r(f"ttft_p95_ms_c{size}", f"Time to first token p95 · {at}", p95, "ms", "lower", **ex)
                 )
-        mem = {**base, "source": "pid 4242 and its children"}
-        return [
-            *out,
-            _r("serving_gpu_mem_gib", "Serving process GPU memory", self.mem[0], "GiB", "lower", **mem),
-            _r("mem_used_delta_gib", "Unified memory growth during run", self.mem[1], "GiB", "lower", **base),
-        ]
+        return [*_gb10_modelled(info, out), *_llm_memory(info, span, self.model, self.mem, base)]
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -938,6 +1049,7 @@ SHOWCASE_STRUCTURAL = [
         ],
     ),
 ]
+SPARK_READING, NO_READING = "41 degrees", "cool air"
 SHOWCASE_THINKING = [
     "The user wants a long answer, so I should plan a few sections first.",
     "Start with the main idea, then add examples and concrete details.",
@@ -975,7 +1087,9 @@ class ShowcaseDemo:
     length every stream writes max_tokens, so they end within a few percent of each other; without it some end
     early. Thinking spends the first ~15% of each stream's tokens reasoning."""
 
-    def __init__(self, p: dict[str, Any], node: str, rng: random.Random) -> None:
+    def __init__(
+        self, p: dict[str, Any], node: str, rng: random.Random, info: NodeInfo | None = None
+    ) -> None:
         self.p = p
         self.model = p["model"] or SERVED_MODEL.get(node, "model")
         n = p["streams"]
@@ -987,6 +1101,8 @@ class ShowcaseDemo:
         for i in range(n):
             kind = pool[i % len(pool)]
             prompt, lines = kind[i // len(pool) % len(kind)]
+            if not _gb10(info):
+                lines = [x.replace(SPARK_READING, NO_READING) for x in lines]
             tokens = p["max_tokens"]
             if not p["fill_to_max"]:
                 tokens = max(1, round(tokens * rng.uniform(0.45, 1.0)))
@@ -1125,7 +1241,7 @@ class ShowcaseDemo:
             "truncated": False,
         }
 
-    def results(self) -> list[BenchResult]:
+    def results(self, info: NodeInfo | None = None) -> list[BenchResult]:
         p = self.p
         ex: dict[str, Any] = {"engine": LLM_ENGINE, "model": self.model, "streams": p["streams"]}
         ex |= {k: p[k] for k in ("prompt_type", "max_tokens", "fill_to_max", "temperature", "thinking")}
@@ -1143,7 +1259,7 @@ class ShowcaseDemo:
         if server:
             label = "Server generation tokens/s (median)"
             res.append(_r("server_tok_s_median", label, server["median"], "tok/s", **ex))
-        return res
+        return _gb10_modelled(info, res)
 
     def node_state(self, run_id: str, node: str, t0: float, t1: float) -> NodeBenchState:
         """A finished run's node state, for the seeded history."""
@@ -1795,6 +1911,7 @@ class DemoBench:
             status="running",
             phase="Starting",
             started_ts=time.time(),
+            metadata=_modelled(req.bench_id, self.cluster.sources[node].state.info),
         )
         sim = _Sim(
             node=node,
@@ -1863,9 +1980,9 @@ class DemoBench:
             if req.bench_id == "thermal-soak":
                 st.results = soak_results(st.series)
             elif sim.llm is not None:  # the requests the live view showed
-                st.results = sim.llm.results()
+                st.results = sim.llm.results(info, RunSpan(model, st.started_ts or t0, time.time()))
             elif sim.showcase is not None:
-                st.results = sim.showcase.results()
+                st.results = sim.showcase.results(info)
             else:
                 role = f"rank{req.rank}" if req.role == "rank" else req.role
                 st.results, series = make_results(req.bench_id, p, sim.node, rng, role, info)
@@ -1887,14 +2004,19 @@ class DemoBench:
                 sim.window[1] = min(sim.window[1], time.time())
             for w in sim.disk:  # a cancelled run stops loading the disk
                 w[1] = min(w[1], time.time())
-            extra = {"role": req.role, "params": p, **_extra(req.bench_id, info)}
+            extra = {
+                "role": req.role,
+                "params": p,
+                **_extra(req.bench_id, info),
+                **_modelled(req.bench_id, info),
+            }
             st.metadata = node_metadata(info, model, t0, time.time(), extra)
             if self.current.get(sim.node) is sim:
                 del self.current[sim.node]
             self.finished.setdefault(sim.node, deque(maxlen=FINISHED_KEEP)).append(sim)
             self._emit(sim)
 
-    async def _timeline(self, sim: _Sim, model: DemoModel, rng: random.Random, t0: float) -> None:
+    async def _timeline(self, sim: _Sim, model: DemoNode, rng: random.Random, t0: float) -> None:
         if sim.req.bench_id == "llm-inference":
             await self._llm_timeline(sim, rng, t0)
             return
@@ -1963,7 +2085,8 @@ class DemoBench:
         """llm-showcase plays its planned streams (ShowcaseDemo) in demo time; a cancel leaves the detail of
         where they were, as the payload does."""
         st = sim.state
-        show = sim.showcase = ShowcaseDemo(sim.req.params, sim.node, rng)
+        info = self.cluster.sources[sim.node].state.info
+        show = sim.showcase = ShowcaseDemo(sim.req.params, sim.node, rng, info)
         start = LLM_START_S * sim.duration / sum(show.walls())  # querying the endpoint, then the streams
         n, t = len(show.streams), 0.0
         st.log_tail = [f"model {show.model}, engine {LLM_ENGINE}"]
@@ -2014,7 +2137,7 @@ _SEED: list[tuple[str, list[str], dict, float, str, bool]] = [
 
 def seed_history(
     store: BenchStore,
-    models: dict[str, DemoModel],
+    models: dict[str, DemoNode],
     settings_pct: float,
     add_event: Callable[[Event], Event],
     now: float | None = None,
@@ -2072,10 +2195,11 @@ def seed_history(
                 results = soak_results(series)
             elif bench == "tool-eval":  # a finished evaluation: its board, scenario records and summary
                 te = ToolEvalDemo(params, n, rng)
-                results = te.bench_results()
+                results = _gb10_modelled(m.info, te.bench_results(), TE_SPEED)
                 run.node_states[n] = te.node_state(run.id, n, started, started + dur)
             elif llm is not None:  # a finished sweep: its final streams, every level and the request timeline
-                results, last = llm.results(), len(llm.sizes) - 1
+                results = llm.results(m.info, RunSpan(m, started, started + dur))
+                last = len(llm.sizes) - 1
                 lines = [f"model {llm.model}, engine {LLM_ENGINE}", f"{bench}: {len(results)} results"]
                 run.node_states[n] = NodeBenchState(
                     run_id=run.id,
@@ -2091,10 +2215,11 @@ def seed_history(
                     detail={"llm": llm.detail(last + 1)},
                 )
             elif show is not None:  # finished streams: their last snapshot and every full answer
-                results = show.results()
+                results = show.results(m.info)
                 run.node_states[n] = show.node_state(run.id, n, started, started + dur)
             else:
-                results, series = make_results(bench, params, n, rng, role.get(bench, "single"), m.info)
+                span = RunSpan(m, started, started + dur)
+                results, series = make_results(bench, params, n, rng, role.get(bench, "single"), m.info, span)
             if outcome != "succeeded":
                 results = []
             if i == len(_SEED) - 1:  # the regression run
@@ -2142,7 +2267,7 @@ def seed_history(
             store.set_baseline(bench, run.params_key, run.id, ts=run.finished_ts)
 
 
-def _telemetry(run: BenchRun, node: str, m: DemoModel, t0: float, t1: float) -> None:
+def _telemetry(run: BenchRun, node: str, m: DemoNode, t0: float, t1: float) -> None:
     """The overlay a real run would have recorded: 1 s points (<= 1800 by stepping)."""
     step = max(1.0, (t1 - t0) / 1800)
     pre = f"telemetry.{node}."
@@ -2161,7 +2286,7 @@ def _telemetry(run: BenchRun, node: str, m: DemoModel, t0: float, t1: float) -> 
         t += step
 
 
-def _register_windows(store: BenchStore, models: dict[str, DemoModel]) -> None:
+def _register_windows(store: BenchStore, models: dict[str, DemoNode]) -> None:
     """After a demo restart, put the stored runs' load back into the demo telemetry model."""
     for run in store.run_list(limit=60):
         if not run.started_ts or not run.finished_ts:

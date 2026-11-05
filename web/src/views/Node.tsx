@@ -16,6 +16,7 @@ import { useNow } from '../design/useNow';
 import { api } from '../lib/api';
 import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
+import { sentence } from '../lib/gpu';
 import { gpuHeadline } from '../lib/platform';
 import type { NodeInfo, NodeState } from '../lib/types';
 import { serverNow, useCluster } from '../store/cluster';
@@ -60,7 +61,7 @@ export default function Node() {
               {gap ? (
                 <div className="view">
                   <Panel label={`${tabLabel} not reported`}>
-                    <EmptyState icon={CircleSlash} title={gap.label}>{gap.detail}</EmptyState>
+                    <EmptyState icon={CircleSlash} title={gap.label}>{sentence(gap.detail)}</EmptyState>
                   </Panel>
                 </div>
               ) : (
