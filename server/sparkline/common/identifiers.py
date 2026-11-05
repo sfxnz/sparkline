@@ -100,7 +100,7 @@ _IPV4 = rf"{_OCTET}(?:\.{_OCTET}){{3}}"
 
 
 def _lone(body: str) -> re.Pattern[str]:
-    return re.compile(rf"(?<![\w:.-]){body}(?![\w:-]|\.\w)")
+    return re.compile(rf"(?<![\w:.-]){body}(?![\w:-]|\.\w)", re.ASCII)
 
 
 def detectors(allowed: Mapping[str, str]) -> list[Detector]:
@@ -142,7 +142,7 @@ def detectors(allowed: Mapping[str, str]) -> list[Detector]:
     return [
         Detector(
             "IPv4 address",
-            re.compile(rf"(?<![\d.]){_IPV4}(?!\d|\.\d)"),
+            re.compile(rf"(?<![\d.]){_IPV4}(?!\d|\.\d)", re.ASCII),
             lambda m: address_ok(IPv4Address(m[0])),
         ),
         Detector(
@@ -156,7 +156,9 @@ def detectors(allowed: Mapping[str, str]) -> list[Detector]:
             lambda m: ipv6_ok(m[0]),
         ),
         Detector("RoCE GID", _lone(r"(?:\d{1,3}:){15}\d{1,3}"), lambda m: decimal_gid_ok(m[0])),
-        Detector("RoCE GID", re.compile(rf"GID \d+ \(({_H}{{1,16}})/({_H}{{1,16}})\)"), nccl_gid_ok),
+        Detector(
+            "RoCE GID", re.compile(rf"GID \d+ \(({_H}{{1,16}})/({_H}{{1,16}})\)", re.ASCII), nccl_gid_ok
+        ),
         Detector(
             "MAC address",
             _lone(rf"{_H}{{2}}([:-]){_H}{{2}}(?:\1{_H}{{2}}){{4}}"),
@@ -170,18 +172,18 @@ def detectors(allowed: Mapping[str, str]) -> list[Detector]:
         ),
         Detector(
             "InfiniBand GUID",
-            re.compile(rf"(?<![\w:-])(?:0x)?({_H}{{16}})(?![\w:-]|\.\w)"),
+            re.compile(rf"(?<![\w:-])(?:0x)?({_H}{{16}})(?![\w:-]|\.\w)", re.ASCII),
             lambda m: _bare_hex_ok(m[1]),
         ),
         # NCCL's topology dump drops a GUID's leading zeros; the bare check above takes the 16-digit ones.
         Detector(
             "InfiniBand GUID",
-            re.compile(rf"NET/\d+-\d+ \(\d+/({_H}{{1,15}})/"),
+            re.compile(rf"NET/\d+-\d+ \(\d+/({_H}{{1,15}})/", re.ASCII),
             lambda m: _bare_hex_ok(m[1].zfill(16)),
         ),
         Detector(
             "GPU UUID",
-            re.compile(rf"\b(?:GPU|MIG)-{_H}{{8}}(?:-{_H}{{4}}){{3}}-{_H}{{12}}\b"),
+            re.compile(rf"\b(?:GPU|MIG)-{_H}{{8}}(?:-{_H}{{4}}){{3}}-{_H}{{12}}\b", re.ASCII),
             lambda m: m[0].lower().startswith(tuple(GPU_UUIDS_ALLOWED)),
         ),
         Detector("home directory", re.compile(r"(?<![\w.])/(?:home|Users)/[\w.-]+"), lambda m: False),

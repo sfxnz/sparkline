@@ -335,22 +335,22 @@ HF_REPO = Detector(
 )
 DOTTED_MAC = Detector(
     "MAC address",
-    re.compile(rf"(?<![\w:.-])({_HEX}{{4}})\.({_HEX}{{4}})\.({_HEX}{{4}})(?![\w:-]|\.\w)"),
+    re.compile(rf"(?<![\w:.-])({_HEX}{{4}})\.({_HEX}{{4}})\.({_HEX}{{4}})(?![\w:-]|\.\w)", re.ASCII),
     lambda m: not _flagged_as_an_identifier(_colon_mac(m)),
 )
 BRIDGE = Detector(
     "virtual interface name",
-    re.compile(r"(?<![\w-])br-([0-9a-f]{12})(?![\w-])"),
+    re.compile(r"(?<![\w-])br-([0-9a-f]{12})(?![\w-])", re.ASCII),
     lambda m: m[1].startswith("0" * 8),
 )
 VETH = Detector(
     "virtual interface name",
-    re.compile(r"(?<![\w-])veth([0-9a-f]{7})(?![\w-])"),
+    re.compile(r"(?<![\w-])veth([0-9a-f]{7})(?![\w-])", re.ASCII),
     lambda m: m[1].startswith("000"),
 )
 VOLUME_ID = Detector(
     "volume id",
-    re.compile(r"(?<![\w-])(?:([0-9A-F]{4})-[0-9A-F]{4}|([0-9a-f]{4})-[0-9a-f]{4})(?![\w-])"),
+    re.compile(r"(?<![\w-])(?:([0-9A-F]{4})-[0-9A-F]{4}|([0-9a-f]{4})-[0-9a-f]{4})(?![\w-])", re.ASCII),
     lambda m: (m[1] or m[2]) == "0000",
 )
 ROUTE_TABLES = ("/proc/net/route", "/proc/self/net/route")
