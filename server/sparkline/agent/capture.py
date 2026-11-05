@@ -780,7 +780,8 @@ def _run(argv: list[str] | None) -> int:
     try:
         src = live()
         report = capture(src, Path(os.path.expanduser(args.out)), _session_facts(facts_of(src)))
-        print(_summary(report, default if args.out == default else None))
+        with _stop_signals_held():
+            print(_summary(report, default if args.out == default else None))
     except OutputUnusable as e:
         parser.print_usage(sys.stderr)
         print(e, file=sys.stderr)
