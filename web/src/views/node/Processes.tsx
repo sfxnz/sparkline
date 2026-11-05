@@ -34,7 +34,7 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   // Same array on ticks without a refresh, so this re-renders only when the list changes (~every 5 s).
   const procs = useLatest(nodeId, (s) => s?.procs ?? null);
   const hasSample = useLatest(nodeId, (s) => s !== null);
-  const memTotal = useCluster((s) => s.nodes[nodeId]?.info?.mem_total ?? null);
+  const info = useCluster((s) => s.nodes[nodeId]?.info);
   const status = useCluster((s) => s.nodes[nodeId]?.status);
   const stale = useNodeStale(nodeId);
   const [view, setView] = useState<ProcView>(loadView);
@@ -70,7 +70,7 @@ export default function Processes({ nodeId }: { nodeId: string }) {
           rows={rows}
           sort={view.sort}
           onSort={(sort) => { setView((v) => ({ ...v, sort })); }}
-          memTotal={memTotal}
+          info={info}
           empty={
             procs.length === 0 ? (
               <EmptyState icon={ListX} title="No processes reported" compact>

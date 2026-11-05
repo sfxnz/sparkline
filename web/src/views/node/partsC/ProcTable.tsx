@@ -3,7 +3,8 @@ import { Fragment, useState, type ReactNode } from 'react';
 import '../../../design/components/Table.css';
 import { Tooltip } from '../../../design/components/Tooltip';
 import { DASH, formatBytes } from '../../../lib/format';
-import type { ProcSample } from '../../../lib/types';
+import { memoryLayout } from '../../../lib/memoryLayout';
+import type { NodeInfo, ProcSample } from '../../../lib/types';
 import { nextSort, shortCmd, type ProcSort, type ProcSortId } from './procs';
 
 interface Col {
@@ -27,14 +28,16 @@ interface Props {
   rows: readonly ProcSample[];
   sort: ProcSort;
   onSort: (s: ProcSort) => void;
-  /** Unified memory total, for the GPU-memory share bar. */
-  memTotal: number | null;
+  /** The node, for the GPU-memory share bar: a share of system memory, drawn only where the GPU keeps its memory
+   *  there (a dedicated GPU's per-process memory is VRAM, with no per-GPU split yet). */
+  info: NodeInfo | null | undefined;
   /** Shown in place of the body when there are no rows. */
   empty?: ReactNode;
 }
 
 /** Sortable process table with expandable rows (full command line, PID, user). Sorting is controlled by the parent. */
-export function ProcTable({ rows, sort, onSort, memTotal, empty }: Props) {
+export function ProcTable({ rows, sort, onSort, info, empty }: Props) {
+  const memTotal = info && memoryLayout(info).sharesRam ? info.mem_total : null;
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
   const toggle = (pid: number) => {
     setOpen((s) => {

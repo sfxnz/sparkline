@@ -1,7 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import sampleJson from '../../../test/fixtures/sample.json';
-import type { NodeState, ProcSample, Sample } from '../../../lib/types';
+import type { MemoryModel, NodeInfo, NodeState, ProcSample, Sample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useConnection } from '../../../store/connection';
 import { liveStore } from '../../../store/live';
@@ -76,6 +76,20 @@ describe('Processes tab', () => {
     push(PROCS);
     render(<Processes nodeId={NODE} />);
     expect(screen.getAllByRole('button', { name: 'GPU utilisation not reported for this process' })).toHaveLength(1);
+  });
+
+  it("draws a process's GPU memory as a share of system memory only where the GPU keeps its memory there", () => {
+    const withModel = (memory: MemoryModel) => {
+      const info = { gpus: [{ index: 0, name: 'GPU', memory }], mem_total: 128 * GiB, unsupported: [] } as unknown as NodeInfo;
+      useCluster.setState({ nodes: { [NODE]: { ...node, info } } });
+      return render(<Processes nodeId={NODE} />);
+    };
+    push(PROCS);
+    const { container, unmount } = withModel('unified');
+    expect(container.querySelectorAll('.procs__bar')).toHaveLength(2);
+    unmount();
+    expect(withModel('dedicated').container.querySelectorAll('.procs__bar')).toHaveLength(0);
+    expect(bodyRows()[0]).toHaveTextContent('80.0 GiB');
   });
 
   it('shows an empty state for an empty list and a loading state before the first list', () => {
