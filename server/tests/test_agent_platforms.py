@@ -10,7 +10,7 @@ from pathlib import Path
 import pynvml
 import pytest
 from fastapi.testclient import TestClient
-from platforms import GB10, WORKSTATION, gb10_without, paths_read, workstation
+from platforms import AMD_THREADRIPPER, GB10, INTEL_HYBRID, WORKSTATION, gb10_without, paths_read, workstation
 from synthesized_workstation import stat_line
 
 from sparkline.agent.app import create_app
@@ -104,6 +104,61 @@ def start(src: Sources, tmp: Path) -> tuple[NodeInfo, Sample, Collectors]:
         sample = Sampler(cfg.node_id, collectors.ordered(), ring_seconds=10).tick()
     assert outside(seen, Path(src.fs.root).parent) == []
     return info, sample, collectors
+
+
+NO_SPLIT = "This CPU has no performance/efficiency core split"
+AMD_CPU = "AMD Ryzen Threadripper PRO 7975WX 32-Cores"
+INTEL_CPU = "13th Gen Intel(R) Core(TM) i9-13900K"
+
+
+def hwmon_readings(recording: Path, chip: str) -> list[float]:
+    return [
+        int(t.read_text()) / 1000
+        for d in (recording / "root/sys/class/hwmon").iterdir()
+        if (d / "name").read_text().strip() == chip
+        for t in d.glob("temp*_input")
+    ]
+
+
+def test_an_amd_threadripper_names_its_cores_has_no_split_and_reports_its_k10temp_readings(offline, tmp_path):
+    src = recorded(AMD_THREADRIPPER)
+    info, sample, _ = start(src, tmp_path)
+    flat = flatten(sample)
+
+    assert info.cpu_model == AMD_CPU
+    assert len(info.cores) == 64 and {(c.kind, c.model) for c in info.cores} == {("unknown", AMD_CPU)}
+    gaps = {u.metric: u.reason for u in info.unsupported}
+    assert (gaps["cpu.perf_util"], gaps["cpu.eff_util"]) == (NO_SPLIT, NO_SPLIT)
+    assert [(s.id, s.label, s.group) for s in info.sensors] == [
+        ("k10temp.tctl", "CPU control (Tctl)", "other"),
+        *((f"k10temp.tccd{n}", f"CPU CCD {n}", "other") for n in range(1, 5)),
+    ]
+    assert "cpu.temp" not in gaps
+    assert flat["cpu.temp"] == max(hwmon_readings(AMD_THREADRIPPER, "k10temp"))
+    assert "Arm core" not in info.model_dump_json()
+    assert src.nvml.misses == []
+
+
+def test_an_intel_hybrid_splits_by_its_pmus_not_by_its_favoured_cores_higher_clock(offline, tmp_path):
+    src = recorded(INTEL_HYBRID)
+    info, sample, _ = start(src, tmp_path)
+    flat = flatten(sample)
+
+    favoured = [c.max_mhz or 0 for c in info.cores if c.id in (4, 5, 6, 7)]
+    other_p_cores = [c.max_mhz or 0 for c in info.cores if c.id < 16 and c.id not in (4, 5, 6, 7)]
+    assert min(favoured) > max(other_p_cores), "the favoured pair clocks highest, the old rule's trap"
+    assert [c.id for c in info.cores if c.kind == "performance"] == list(range(16))
+    assert [c.id for c in info.cores if c.kind == "efficiency"] == list(range(16, 32))
+    assert {"cpu.perf_util", "cpu.eff_util"} <= set(flat)
+    assert info.cpu_model == INTEL_CPU and {c.model for c in info.cores} == {INTEL_CPU}
+    assert [s.label for s in info.sensors] == ["CPU package"] + [
+        f"CPU core {n}" for n in (*range(0, 32, 4), *range(32, 48))
+    ]
+    assert {(s.group, s.crit_c) for s in info.sensors} == {("other", 100.0)}
+    assert "cpu.temp" not in {u.metric for u in info.unsupported}
+    assert flat["cpu.temp"] == max(hwmon_readings(INTEL_HYBRID, "coretemp"))
+    assert "Arm core" not in info.model_dump_json()
+    assert src.nvml.misses == []
 
 
 def test_a_degraded_box_without_pressure_or_network_files_serves_everything_else(tmp_path):

@@ -26,6 +26,7 @@ UnsupportedKind = Literal["hardware", "access", "dependency", "agent"]
 Platform = Literal["linux", "darwin"]
 Vendor = Literal["nvidia", "amd", "apple"]
 MemoryModel = Literal["unified", "dedicated", "carveout"]
+CoreKind = Literal["performance", "efficiency", "unknown"]
 
 LEGACY_VERSION_KEYS = {"driver": "nvidia.Driver", "cuda": "nvidia.CUDA", "nvml": "nvidia.NVML"}
 
@@ -44,7 +45,7 @@ class Unsupported(BaseModel):
 
 class CoreInfo(BaseModel):
     id: int
-    kind: Literal["performance", "efficiency", "unknown"]
+    kind: CoreKind
     model: str | None = None  # "Cortex-X925"
     max_mhz: float | None = None
     cluster: int | None = None
@@ -245,6 +246,9 @@ class Sample(BaseModel):
     disk: list[DiskSample]
     fs: list[FsSample]
     temps: list[TempSample]
+    # Highest coretemp or k10temp reading, °C. k10temp's Tctl counts when the chip has no Tdie, and Tctl is a
+    # fan-control value on an arbitrary scale, not a measured die temperature.
+    cpu_temp_c: float | None = None
     procs: list[ProcSample] | None = None  # only on ticks where processes were refreshed
     procs_ts: float | None = None  # when the process list was last refreshed (on every tick)
     errors: dict[str, str] = Field(default_factory=dict)  # collector name -> error; others still report

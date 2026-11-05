@@ -1,0 +1,25 @@
+{
+ "assumed": [
+  "CPU numbering: cpu0-31 the 32 cores' first threads, cpu32-63 their SMT siblings",
+  "The four CCDs report in slots Tccd1-4 (k10temp shows each of its 12 slots that reads valid)",
+  "cpuinfo_max_freq 5300000 (the 5.3 GHz boost) on every CPU, and the scaling_cur_freq values",
+  "cluster_id 65535 on every CPU, read from the code paths above, not observed on a 7975WX",
+  "No cpu_capacity and no hybrid PMU, read from the code, not observed",
+  "Every temperature",
+  "No NVIDIA driver: no /proc/driver/nvidia, and nvidia-ml-py's nvmlInit fails as it does without libnvidia-ml.so.1 (NVML_ERROR_LIBRARY_NOT_FOUND)",
+  "Everything outside the CPU and its sensor is a placeholder: memory, disk, NIC, addresses, /proc/stat counters, load, pressure, hostname and boot time"
+ ],
+ "built": "Synthesized by server/tests/synthesized_platforms.py from documented sysfs layouts and kernel source; no real device was read",
+ "device": "AMD Ryzen Threadripper PRO 7975WX workstation (Zen 4, family 25 model 24), no NVIDIA driver",
+ "generated_by": "python tests/synthesized_platforms.py",
+ "platform": "linux",
+ "sources": {
+  "https://docs.kernel.org/hwmon/k10temp.html": "k10temp: Tctl on an arbitrary scale, Tdie, Tccd",
+  "https://github.com/torvalds/linux/blob/v6.14/Documentation/ABI/testing/sysfs-devices-system-cpu": "cpu_capacity, from drivers/base/arch_topology.c, which x86 does not build",
+  "https://github.com/torvalds/linux/blob/v6.14/arch/x86/kernel/cpu/cacheinfo.c": "only init_intel_cacheinfo sets l2c_id (cluster_id)",
+  "https://github.com/torvalds/linux/blob/v6.14/arch/x86/kernel/cpu/topology_common.c": "l2c_id defaults to BAD_APICID (65535)",
+  "https://github.com/torvalds/linux/blob/v6.14/drivers/cpufreq/cpufreq.c": "no cpuinfo_avg_freq in 6.14, so scaling_cur_freq",
+  "https://github.com/torvalds/linux/blob/v6.14/drivers/hwmon/k10temp.c": "temp1 Tctl; temp2 Tdie only with a family 17h Tctl offset; family 19h models 10h-1Fh probe Tccd1-12 as temp3-14; labels on Zen; no max or crit on Zen"
+ },
+ "synthesized": true
+}

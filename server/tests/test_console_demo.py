@@ -8,7 +8,11 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+from platforms import AMD_THREADRIPPER
 
+from sparkline.agent.config import AgentConfig
+from sparkline.agent.info import Collectors
+from sparkline.agent.sources import recorded
 from sparkline.common.metrics import flatten
 from sparkline.common.schema import ConsoleSettings, NodeInfo, Sample
 from sparkline.common.throttle import POWER_CAP_BIT
@@ -361,7 +365,7 @@ def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
         "mem.gpu",
         *(f"gpu{i}.shared_used" for i in range(4)),
     }
-    assert len(m.info.cores) == 64 and {c.cluster for c in m.info.cores} == {0, 1, 2, 3}
+    assert len(m.info.cores) == 64 and {c.cluster for c in m.info.cores} == {None}
     assert {"temp.k10temp.tctl", "temp.nvme.composite", "temp.nvme1.composite"} <= set(keys)
     procs = m.sample_at(T0, procs=True).procs or []
     assert sorted(p.gpu_mem for p in procs if p.gpu_mem) == pytest.approx([43.4e9] * 4, rel=0.01)
@@ -377,6 +381,23 @@ def test_each_workstation_gpu_holds_its_tp_workers_memory_and_a_fixed_reserve_of
         assert len(reserve) == 1 and 0 < reserve.pop() < 2**30, t
         assert all(g.shared_used is None for g in s.gpu) and s.mem.gpu is None
         assert max(g.vram_used or 0 for g in s.gpu) < 48 * 2**30
+
+
+def test_the_workstation_reports_its_cpu_as_the_agent_does_on_a_threadripper_pro_7975wx(tmp_path):
+    cfg = AgentConfig(node_id="ws1", data_dir=str(tmp_path / "data"))
+    agent = Collectors(cfg, recorded(AMD_THREADRIPPER)).node_info(cfg)
+    m = ws1()
+
+    def k10temp(info: NodeInfo) -> list:
+        return [s for s in info.sensors if s.id.startswith("k10temp.")]
+
+    assert (m.info.cpu_model, m.info.cores) == (agent.cpu_model, agent.cores)
+    assert [u for u in m.info.unsupported if u.metric.startswith("cpu.")] == [
+        u for u in agent.unsupported if u.metric.startswith("cpu.")
+    ]
+    assert k10temp(m.info) == k10temp(agent) and k10temp(agent)
+    flat = flatten(m.sample_at(T0))
+    assert flat["cpu.temp"] == max(v for k, v in flat.items() if k.startswith("temp.k10temp."))
 
 
 def test_demo_history_works_for_the_workstation():

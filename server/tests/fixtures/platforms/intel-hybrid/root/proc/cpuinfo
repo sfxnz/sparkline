@@ -1,0 +1,319 @@
+processor	: 0
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 0
+cpu cores	: 24
+
+processor	: 1
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 0
+cpu cores	: 24
+
+processor	: 2
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 4
+cpu cores	: 24
+
+processor	: 3
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 4
+cpu cores	: 24
+
+processor	: 4
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 8
+cpu cores	: 24
+
+processor	: 5
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 8
+cpu cores	: 24
+
+processor	: 6
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 12
+cpu cores	: 24
+
+processor	: 7
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 12
+cpu cores	: 24
+
+processor	: 8
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 16
+cpu cores	: 24
+
+processor	: 9
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 16
+cpu cores	: 24
+
+processor	: 10
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 20
+cpu cores	: 24
+
+processor	: 11
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 20
+cpu cores	: 24
+
+processor	: 12
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 24
+cpu cores	: 24
+
+processor	: 13
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 24
+cpu cores	: 24
+
+processor	: 14
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 28
+cpu cores	: 24
+
+processor	: 15
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 28
+cpu cores	: 24
+
+processor	: 16
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 32
+cpu cores	: 24
+
+processor	: 17
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 33
+cpu cores	: 24
+
+processor	: 18
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 34
+cpu cores	: 24
+
+processor	: 19
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 35
+cpu cores	: 24
+
+processor	: 20
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 36
+cpu cores	: 24
+
+processor	: 21
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 37
+cpu cores	: 24
+
+processor	: 22
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 38
+cpu cores	: 24
+
+processor	: 23
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 39
+cpu cores	: 24
+
+processor	: 24
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 40
+cpu cores	: 24
+
+processor	: 25
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 41
+cpu cores	: 24
+
+processor	: 26
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 42
+cpu cores	: 24
+
+processor	: 27
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 43
+cpu cores	: 24
+
+processor	: 28
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 44
+cpu cores	: 24
+
+processor	: 29
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 45
+cpu cores	: 24
+
+processor	: 30
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 46
+cpu cores	: 24
+
+processor	: 31
+vendor_id	: GenuineIntel
+cpu family	: 6
+model	: 183
+model name	: 13th Gen Intel(R) Core(TM) i9-13900K
+physical id	: 0
+siblings	: 32
+core id	: 47
+cpu cores	: 24

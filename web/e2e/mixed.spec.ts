@@ -92,6 +92,84 @@ for (const width of [375, 1440]) {
   });
 }
 
+const WIDEST_FIGURES = { 'nb-core__util': '100%', 'nb-core__ghz': '5.30', 'nb-core__id': '127' };
+const CORES_NOW = { spark1: 20, ws1: 64 };
+const SPARK1_WIDTHS_WITH_ID_BESIDE_CLOCK = [768, 1440];
+
+interface CoreCellLayout {
+  core: string;
+  idUnderClock: boolean;
+  roomBesideClock: number;
+  idWidth: number;
+  overflow: string[];
+}
+
+for (const scheme of ['dark', 'light'] as const) {
+  test.describe(`Cores now in the ${scheme} theme`, () => {
+    test.use({ colorScheme: scheme });
+
+    for (const [node, cores] of Object.entries(CORES_NOW)) {
+      for (const width of [375, 768, 1280, 1440]) {
+        test(`${node} at ${width} px fits every figure in its cell and moves ids under the clocks only when they do not fit beside them`, async ({ page }) => {
+          await page.setViewportSize({ width, height: 900 });
+          await page.goto(`${MIXED}/node/${node}/cpu`);
+          await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
+          const cells = page.locator('.nb-core__cell');
+          await expect(cells).toHaveCount(cores, { timeout: 15_000 });
+          await expect(cells.first().locator('.nb-core__util')).toHaveText(/^\d+%$/, { timeout: 15_000 });
+          await page.evaluate(async () => { await document.fonts.ready; });
+
+          const measure = (widest: Record<string, string> | null) => cells.evaluateAll((els, widest) => {
+            const figures = (cell: Element) => [...cell.querySelectorAll<HTMLElement>('.nb-core__util, .nb-core__ghz, .nb-core__id')];
+            const cores = els.map((cell) => cell.querySelector('.nb-core__id')?.textContent ?? '');
+            for (const f of widest ? els.flatMap(figures) : []) {
+              const text = Object.entries(widest ?? {}).find(([cls]) => f.classList.contains(cls))?.[1];
+              if (f.firstChild && text) f.firstChild.nodeValue = text;
+            }
+            const textBox = (el: Element) => {
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              return range.getBoundingClientRect();
+            };
+            return els.map((cell, i): CoreCellLayout => {
+              const clock = cell.querySelector('.nb-core__ghz');
+              const id = cell.querySelector('.nb-core__id');
+              if (!clock || !id) throw new Error('a Cores now cell without its clock or id');
+              const box = cell.getBoundingClientRect();
+              const style = getComputedStyle(cell);
+              const left = box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+              const right = box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+              return {
+                core: cores[i] ?? '',
+                idUnderClock: id.getBoundingClientRect().top > clock.getBoundingClientRect().top + 2,
+                roomBesideClock: right - left - clock.getBoundingClientRect().width - parseFloat(style.columnGap),
+                idWidth: textBox(id).width,
+                overflow: figures(cell).flatMap((f) => {
+                  const t = textBox(f);
+                  const by = Math.max(left - t.left, t.right - right);
+                  return by > 0.01 ? [`"${f.textContent}" crosses its cell's content box by ${by.toFixed(2)} px`] : [];
+                }),
+              };
+            });
+          }, widest);
+
+          const live = await measure(null);
+          const widestId = Math.max(...live.map((c) => c.idWidth));
+          const needless = live.filter((c) => c.idUnderClock && widestId < c.roomBesideClock - 0.05);
+          expect(needless.map((c) => `core ${c.core}: id under the clock with ${c.roomBesideClock.toFixed(2)} px beside it for a ${widestId.toFixed(2)} px id`)).toEqual([]);
+          expect(new Set(live.map((c) => c.idUnderClock)).size, 'every id sits the same way').toBe(1);
+          if (node === 'spark1' && SPARK1_WIDTHS_WITH_ID_BESIDE_CLOCK.includes(width)) {
+            expect(live.filter((c) => c.idUnderClock).map((c) => c.core)).toEqual([]);
+          }
+          for (const layout of [live, await measure(WIDEST_FIGURES)]) {
+            expect(layout.flatMap((c) => c.overflow.map((o) => `core ${c.core}: ${o}`))).toEqual([]);
+          }
+        });
+      }
+    }
+  });
+}
+
 interface RunJson {
   id: string;
   status: string;

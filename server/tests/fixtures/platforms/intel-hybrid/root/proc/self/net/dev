@@ -1,0 +1,4 @@
+Inter-| Receive | Transmit
+ face |bytes packets errs drop fifo frame compressed multicast|bytes packets errs drop fifo
+lo: 18452231 120344 0 0 0 0 0 0 18452231 120344 0 0 0 0 0 0
+enp5s0: 9123456789 7012345 0 12 0 0 0 40123 1234567890 3012345 0 0 0 0 0 0

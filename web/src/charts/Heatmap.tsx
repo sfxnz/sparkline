@@ -5,12 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import type { CoreInfo } from '../lib/types';
 import { serverNow } from '../store/cluster';
 import { liveStore, type LiveStore } from '../store/live';
+import { coreLayout } from '../lib/cores';
 import { fontScale, heatLut, readChartTheme, setupCanvas, useThemeVersion, withAlpha } from './theme';
 import './chart.css';
 
 interface Props {
   node: string;
   cores: readonly CoreInfo[];
+  cpuModel?: string;
   windowS?: number;
   rowHeight?: number;
   store?: LiveStore;
@@ -19,14 +21,8 @@ interface Props {
   cellAlign?: 'end' | 'center';
 }
 
-interface Row {
-  core: CoreInfo;
-  group: CoreInfo['kind'];
-}
-
 const LABEL_W = 92;
 const GROUP_GAP = 10;
-const GROUP_NAME: Record<CoreInfo['kind'], string> = { performance: 'Performance', efficiency: 'Efficiency', unknown: 'Other' };
 
 /**
  * Integer x edges [x0, x1] of each cell (flat array, two per point). Each cell starts exactly where its neighbour
@@ -50,12 +46,7 @@ export function cellEdges(ts: ArrayLike<number>, step: number, align: 'end' | 'c
   return out;
 }
 
-export function orderCores(cores: readonly CoreInfo[]): Row[] {
-  const rank = { performance: 0, efficiency: 1, unknown: 2 } as const;
-  return [...cores].sort((a, b) => rank[a.kind] - rank[b.kind] || a.id - b.id).map((core) => ({ core, group: core.kind }));
-}
-
-export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight = 13, store = liveStore, cellAlign = 'end' }: Props) {
+export function Heatmap({ node, cores, cpuModel, windowS = 180, rowHeight: baseRowHeight = 13, store = liveStore, cellAlign = 'end' }: Props) {
   // Rows and the label column grow with the user's font size so the canvas labels stay legible and unclipped.
   const scale = fontScale();
   const rowHeight = Math.round(baseRowHeight * scale);
@@ -66,7 +57,7 @@ export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight =
   const [focusRow, setFocusRow] = useState<number | null>(null);
   const [summary, setSummary] = useState('Per-core CPU utilisation');
   const themeVersion = useThemeVersion();
-  const rows = useMemo(() => orderCores(cores), [cores]);
+  const rows = useMemo(() => coreLayout(cores, cpuModel ?? null).groups.flatMap((group) => group.cores.map((core) => ({ core, group }))), [cores, cpuModel]);
   const keys = useMemo(() => rows.map((r) => `cpu.core${r.core.id}.util`), [rows]);
   const groupBreaks = rows.reduce((n, r, i) => n + (i > 0 && rows[i - 1]?.group !== r.group ? 1 : 0), 0);
   const height = rows.length * rowHeight + groupBreaks * GROUP_GAP;
@@ -101,7 +92,7 @@ export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight =
       const first = i === 0 || rows[i - 1]?.group !== r.group;
       ctx.fillStyle = theme.axis;
       ctx.textAlign = 'left';
-      if (first) ctx.fillText(GROUP_NAME[r.group], 0, y + rowHeight / 2);
+      if (first) ctx.fillText(r.group.name, 0, y + rowHeight / 2);
       ctx.textAlign = 'right';
       ctx.fillText(String(r.core.id), labelW - 8, y + rowHeight / 2);
       // Track (no data) then cells.
@@ -134,7 +125,7 @@ export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight =
   const describe = useCallback(() => {
     const latest = keys.map((k) => store.latestValue(node, k));
     const avg = (kind: CoreInfo['kind']) => {
-      const v = rows.map((r, i) => (r.group === kind ? latest[i] : null)).filter((x): x is number => x != null);
+      const v = rows.map((r, i) => (r.group.kind === kind ? latest[i] : null)).filter((x): x is number => x != null);
       return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null;
     };
     let hot = -1;
@@ -189,7 +180,7 @@ export function Heatmap({ node, cores, windowS = 180, rowHeight: baseRowHeight =
     const vals = (store.window(node, [key], serverNow() - windowS).values[0] ?? []).filter((v): v is number => v != null);
     const now = store.latestValue(node, key);
     const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    return `Core ${r.core.id} · ${GROUP_NAME[r.group]}${r.core.model ? ` (${r.core.model})` : ''}: ${now === null ? 'no data' : `${Math.round(now)}% now`}${avg === null ? '' : `, ${Math.round(avg)}% average`}`;
+    return `Core ${r.core.id} · ${r.group.name}${r.core.model ? ` (${r.core.model})` : ''}: ${now === null ? 'no data' : `${Math.round(now)}% now`}${avg === null ? '' : `, ${Math.round(avg)}% average`}`;
   };
 
   const onKeyDown = (e: KeyboardEvent) => {

@@ -21,6 +21,9 @@ if (typeof window !== 'undefined') {
 
   Element.prototype.scrollIntoView = () => undefined;
 
+  // jsdom has no FontFaceSet, so web fonts count as loaded.
+  Object.defineProperty(document, 'fonts', { value: { ready: Promise.resolve() }, configurable: true });
+
   // jsdom has no <dialog> behaviour; emulate the open attribute and close event.
   Object.assign(HTMLDialogElement.prototype, {
     showModal(this: HTMLDialogElement) {

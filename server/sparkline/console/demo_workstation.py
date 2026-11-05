@@ -74,10 +74,6 @@ MODEL_ID = "nvidia/Llama-3.3-70B-Instruct-FP8"
 VRAM_ONLY = "NVML does not report the system memory this GPU uses; its memory is dedicated VRAM"
 
 
-def _ccd(cpu: int) -> int:
-    return (cpu % 32) // 8
-
-
 class WorkstationModel:
     ENERGY_STEP_S = 30.0
     PREV_SESSION_S = 40 * 86400.0
@@ -359,6 +355,7 @@ class WorkstationModel:
             TempSample(id=f"k10temp.tccd{k + 1}", c=round(tctl - 4 + off + 0.5 * j(f"ccd{k}"), 1))
             for k, off in enumerate(CCD_HEAT_C)
         ]
+        cpu_temp = max(t.c for t in temps if t.c is not None)
         for prefix, base in (("nvme", nvme), ("nvme1", nvme - 3)):
             temps += [
                 TempSample(id=f"{prefix}.composite", c=round(base, 1)),
@@ -378,6 +375,7 @@ class WorkstationModel:
             disk=disk,
             fs=fs,
             temps=temps,
+            cpu_temp_c=cpu_temp,
             procs=self._procs(t, gpus, b) if procs else None,
         )
 
@@ -448,7 +446,7 @@ class WorkstationModel:
 
     def _info(self) -> NodeInfo:
         cores = [
-            CoreInfo(id=c, kind="unknown", model=CPU_MODEL, max_mhz=CPU_MAX_MHZ, cluster=_ccd(c))
+            CoreInfo(id=c, kind="unknown", model=CPU_MODEL, max_mhz=CPU_MAX_MHZ, cluster=None)
             for c in range(THREADS)
         ]
 
@@ -461,9 +459,9 @@ class WorkstationModel:
             NetIfInfo(name=SPARE_PORT, role="other", label=SPARE_PORT, mac=mac(1)),
             NetIfInfo(name="docker0", role="virtual", label="docker0", mac=mac(2)),
         ]
-        sensors = [SensorInfo(id="k10temp.tctl", label="k10temp Tctl", group="other")]
+        sensors = [SensorInfo(id="k10temp.tctl", label="CPU control (Tctl)", group="other")]
         sensors += [
-            SensorInfo(id=f"k10temp.tccd{k}", label=f"k10temp Tccd{k}", group="other") for k in range(1, 5)
+            SensorInfo(id=f"k10temp.tccd{k}", label=f"CPU CCD {k}", group="other") for k in range(1, 5)
         ]
         for prefix in ("nvme", "nvme1"):
             sensors += [

@@ -35,11 +35,11 @@ function heatmapHeight(cores: readonly CoreInfo[]): number {
   return cores.length * Math.round(ROW_H * fontScale()) + Math.max(0, kinds - 1) * GROUP_GAP;
 }
 
-export function RangeHeatmap({ node, cores }: { node: string; cores: readonly CoreInfo[] }) {
+export function RangeHeatmap({ node, cores, cpuModel }: { node: string; cores: readonly CoreInfo[]; cpuModel: string }) {
   const range = usePrefs((s) => s.timeRange);
   return (
     <div className="nb-heatmap">
-      {range === 'live' ? <Heatmap node={node} cores={cores} windowS={LIVE_WINDOW_S} rowHeight={ROW_H} /> : <HistoryHeatmap key={range} node={node} cores={cores} range={range} />}
+      {range === 'live' ? <Heatmap node={node} cores={cores} cpuModel={cpuModel} windowS={LIVE_WINDOW_S} rowHeight={ROW_H} /> : <HistoryHeatmap key={range} node={node} cores={cores} cpuModel={cpuModel} range={range} />}
       <div className="nb-heatmap__time" aria-hidden="true">
         <span>{AGO[range]}</span>
         <span>Now</span>
@@ -48,7 +48,7 @@ export function RangeHeatmap({ node, cores }: { node: string; cores: readonly Co
   );
 }
 
-function HistoryHeatmap({ node, cores, range }: { node: string; cores: readonly CoreInfo[]; range: HistoryRange }) {
+function HistoryHeatmap({ node, cores, cpuModel, range }: { node: string; cores: readonly CoreInfo[]; cpuModel: string; range: HistoryRange }) {
   const keys = useMemo(() => cores.map((c) => `cpu.core${c.id}.util`), [cores]);
   const [state, setState] = useState<{ store: LiveStore; empty: boolean } | { error: unknown } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -95,5 +95,5 @@ function HistoryHeatmap({ node, cores, range }: { node: string; cores: readonly 
       </div>
     );
   }
-  return <Heatmap node={node} cores={cores} windowS={RANGE_SECONDS[range]} rowHeight={ROW_H} store={state.store} cellAlign="center" />;
+  return <Heatmap node={node} cores={cores} cpuModel={cpuModel} windowS={RANGE_SECONDS[range]} rowHeight={ROW_H} store={state.store} cellAlign="center" />;
 }
