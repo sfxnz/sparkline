@@ -6,14 +6,15 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import time
-from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 
 import psutil
 
 from ..common.metrics import flatten
+from ..common.ring import SampleRing
 from ..common.schema import CpuSample, HistoryResponse, MemSample, Sample
 from .collectors import Collector
 from .store import Rollup, Store, bucket_width, choose_resolution, downsample
@@ -61,8 +62,7 @@ class Sampler:
         self.node_id = node_id
         self.collectors = collectors
         self.interval_ms = interval_ms
-        # (ts, sample JSON): ~3 kB per entry instead of ~22 kB as live pydantic objects
-        self.ring: deque[tuple[float, str]] = deque(maxlen=max(1, ring_seconds * 1000 // interval_ms))
+        self.ring = SampleRing(seconds=math.inf, max_rows=max(1, ring_seconds * 1000 // interval_ms))
         self.latest: Sample | None = None
         self.seq = 0
         self.subscribers: set[asyncio.Queue] = set()
@@ -113,11 +113,11 @@ class Sampler:
     def _record(self, s: Sample) -> str:
         """Ring + rollups (worker thread). Closed buckets are written on the store thread."""
         js = s.model_dump_json()
-        self.ring.append((s.ts, js))
+        flat = flatten(s)
+        self.ring.add(s.ts, flat)
         self.latest = s
         if self.store is None:
             return js
-        flat = flatten(s)
         for r in self.rollups:
             done = r.add(s.ts, flat)
             if done:
@@ -220,7 +220,7 @@ class Sampler:
         t_to = t_to if t_to is not None else now
         t_from = t_from if t_from is not None else t_to - 900
         points = max(1, min(points, 5000))
-        ring = list(self.ring)
+        ring = self.ring.rows()
         interval = self.interval_ms / 1000
         # The ring's oldest sample (not its nominal window) decides: just after an agent restart the ring
         # holds a minute or two, and older data in the range is read from SQLite instead of being dropped.
@@ -267,15 +267,9 @@ class Sampler:
 
 
 def _ring_rows(
-    ring: list[tuple[float, str]], t0: float, t1: float, keys: list[str] | None = None
+    ring: list[tuple[float, Mapping[str, float]]], t0: float, t1: float, keys: list[str] | None = None
 ) -> list[tuple[float, dict]]:
-    """Ring samples in [t0, t1] as rows of {key: [avg, min, max]}, holding only ``keys`` (None: all). A full
-    250 ms ring is 3600 samples of ~150 keys: keeping every key for a 2-key chart costs ~90 MB of RSS."""
-    out = []
-    for ts, js in ring:
-        if t0 <= ts <= t1:
-            flat = flatten(Sample.model_validate_json(js))
-            if keys is not None:
-                flat = {k: flat[k] for k in keys if k in flat}
-            out.append((ts, {k: [v, v, v] for k, v in flat.items()}))
-    return out
+    """Ring rows in [t0, t1] as rows of {key: [avg, min, max]}, holding only ``keys`` (None: all)."""
+    if keys is None:
+        return [(ts, {k: [v, v, v] for k, v in f.items()}) for ts, f in ring if t0 <= ts <= t1]
+    return [(ts, {k: [f[k], f[k], f[k]] for k in keys if k in f}) for ts, f in ring if t0 <= ts <= t1]

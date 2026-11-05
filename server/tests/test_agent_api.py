@@ -14,6 +14,7 @@ from sparkline.agent.app import create_app
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.store import Store
+from sparkline.common.metrics import flatten
 from sparkline.common.schema import CpuSample, GpuSample, MemSample, NetSample, NodeInfo, Sample
 
 TOKEN = "s3cret"
@@ -112,13 +113,14 @@ def make(tmp_path, interval_ms=1000, collectors=None, ring_seconds=10):
 
 def test_fault_isolation_and_ring(tmp_path):
     s = make(tmp_path)
-    assert s.ring.maxlen == 10
     for _ in range(15):
-        js = s.collect_once()
+        s.collect_once()
     smp = s.latest
     assert smp.errors == {"thermal": "OSError: hwmon vanished"}
     assert smp.gpu[0].util == 15 and smp.temps == [] and smp.mem.used == 60
-    assert len(s.ring) == 10 and json.loads(s.ring[0][1])["seq"] == 6 and s.ring[-1] == (smp.ts, js)
+    rows = s.ring.rows()
+    assert [d["gpu0.util"] for _, d in rows] == [float(n) for n in range(6, 16)]
+    assert rows[-1] == (smp.ts, flatten(smp))
 
 
 def test_missing_mem_uses_last_good_and_flags(tmp_path):
@@ -164,7 +166,7 @@ def test_rest_auth_snapshot_history(tmp_path):
         assert c.request("DELETE", "/api/v1/history", headers=AUTH, json={}).status_code == 400
         assert c.request("DELETE", "/api/v1/history", json={"confirm": "DELETE"}).status_code == 401
         r = c.request("DELETE", "/api/v1/history", headers=AUTH, json={"confirm": "DELETE"})
-        assert r.status_code == 200 and len(s.ring) == 0
+        assert r.status_code == 200 and s.ring.rows() == []
 
 
 def test_history_serves_any_stored_key_and_any_key_count(tmp_path):
@@ -260,11 +262,13 @@ async def test_run_discards_warmup_tick():
     """The first tick only primes delta collectors (their 'no previous reading' 0.0 is not data)."""
     gpu = FakeGpu()
     s = Sampler("n1", [gpu, FakeMem(), FakeCpu()], interval_ms=250)
+    q = s.subscribe()
     s.start()
     await asyncio.sleep(0.4)
     await s.stop()
-    first = Sample.model_validate_json(s.ring[0][1])
+    first = Sample.model_validate(json.loads(q.get_nowait())["sample"])
     assert first.seq == 1 and first.gpu[0].util == 2.0  # call 1 was the warm-up
+    assert s.ring.rows()[0][1]["gpu0.util"] == 2.0
 
 
 def test_procs_ts_marks_the_last_process_refresh():
@@ -320,6 +324,20 @@ async def test_history_after_agent_restart_keeps_older_sqlite_rows(tmp_path):
     assert max(h.ts) > now - 10  # and the newest seconds come from the ring
 
 
+async def test_a_ring_that_falls_behind_keeps_its_last_samples(tmp_path):
+    s = make(tmp_path, ring_seconds=10)
+    gap, ticks, held = 2.0, 30, 10
+    now = float(int(time.time()))
+    stamps = [now - gap * (ticks - 1 - i) for i in range(ticks)]
+    for ts in stamps:
+        smp = s.tick()
+        smp.ts = ts
+        s._record(smp)
+    h = await s.history(["gpu0.util"], now - gap * held, now, points=600)
+    assert h.resolution_s == 1.0 and h.ts == stamps[-held:]
+    assert h.series["gpu0.util"] == [float(n) for n in range(ticks - held + 1, ticks + 1)]
+
+
 async def test_young_agent_serves_recent_ranges_from_the_ring(tmp_path):
     s = make(tmp_path, ring_seconds=900)
     now = float(int(time.time()))
@@ -365,6 +383,6 @@ def test_ring_rows_hold_only_the_requested_keys(tmp_path):
     s = make(tmp_path)
     for _ in range(3):
         s.collect_once()
-    ring, now = list(s.ring), time.time() + 1
+    ring, now = s.ring.rows(), time.time() + 1
     assert [set(d) for _, d in _ring_rows(ring, 0, now, ["gpu0.util", "nope"])] == [{"gpu0.util"}] * 3
     assert {"gpu0.util", "mem.used", "cpu.util"} <= set(_ring_rows(ring, 0, now)[0][1])

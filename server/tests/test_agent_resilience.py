@@ -222,13 +222,14 @@ async def test_sampling_loop_keeps_running_through_collector_failures(tmp_path):
             return {}
 
     s = Sampler("n1", [Flaky()], 250, ring_seconds=10)
+    q = s.subscribe()
     s.start()
     try:
         await asyncio.sleep(1.6)
         assert s._task is not None and not s._task.done()
         assert s.seq >= 4  # warm-up tick discarded; ~6 ticks in 1.6 s
-        failed = ["flaky" in json.loads(js)["errors"] for _, js in s.ring]
-        assert any(failed) and not all(failed)  # failing ticks recorded with the error, others clean
+        failed = ["flaky" in json.loads(q.get_nowait())["sample"]["errors"] for _ in range(q.qsize())]
+        assert any(failed) and not all(failed)
     finally:
         await s.stop()
 
