@@ -8,6 +8,7 @@ import { Panel } from '../../design/components/Panel';
 import { formatBytes } from '../../lib/format';
 import { gpuProcessesGap } from '../../lib/gpu';
 import type { ProcSample, Sample } from '../../lib/types';
+import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore, useLatest } from '../../store/live';
 import { RowsSkeleton } from '../placeholders';
@@ -36,7 +37,7 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const procs = useLatest(nodeId, (s) => s?.procs ?? null);
   const hasSample = useLatest(nodeId, (s) => s !== null);
   const info = useCluster((s) => s.nodes[nodeId]?.info);
-  const cannotTell = useLatest(nodeId, useCallback((s: Sample | null) => gpuProcessesGap(info, s) !== null, [info]));
+  const cannotTell = useLatest(nodeId, useCallback((s: Sample | null) => gpuProcessesGap(info, s, quietGpusOf(nodeId, info)) !== null, [nodeId, info]));
   const status = useCluster((s) => s.nodes[nodeId]?.status);
   const stale = useNodeStale(nodeId);
   const [view, setView] = useState<ProcView>(loadView);

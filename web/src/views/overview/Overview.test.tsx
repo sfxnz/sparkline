@@ -479,12 +479,12 @@ describe('GPU processes a node cannot tell, on the Overview', () => {
     unsupported: [{ metric: 'gpu*', reason: NO_NVML, kind: 'dependency' }, { metric: 'mem.gpu', reason: NO_NVML, kind: 'dependency' }],
   } as unknown as NodeInfo;
   const idle = gb10.procs?.filter((p) => !p.gpu_mem) ?? [];
-  const show = (nodes: [NodeInfo, Partial<Sample>][]) => {
+  const show = (nodes: [NodeInfo, Partial<Sample>][], ticks = 1) => {
     useCluster.getState().setHello(cluster(nodes.map(([info]) => node(info.node_id, { info }))));
     act(() => {
       for (const [info, over] of nodes) {
         liveStore.removeNode(info.node_id);
-        liveStore.pushSample({ ...gb10, node_id: info.node_id, ts: now, ...over });
+        for (let i = 0; i < ticks; i++) liveStore.pushSample({ ...gb10, node_id: info.node_id, ts: now - ticks + 1 + i, ...over });
       }
       liveStore.flush();
     });
@@ -512,8 +512,8 @@ describe('GPU processes a node cannot tell, on the Overview', () => {
     expect(subtitle('amd1')).toHaveTextContent(/^GPU processes Helper tool missing/);
   });
 
-  it('says the GPU processes of a GB10 whose GPU is missing from the sample are not responding, not that it runs none', () => {
-    show([[gb10Info as unknown as NodeInfo, { gpu: [], procs: idle, errors: { gpu: `nvml: ${NV_ERROR}` } }]]);
+  it('says the GPU processes of a GB10 whose GPU has been missing from the samples for 5 s are not responding, not that it runs none', () => {
+    show([[gb10Info as unknown as NodeInfo, { gpu: [], procs: idle, errors: { gpu: `nvml: ${NV_ERROR}` } }]], 6);
     expect(within(screen.getByRole('region', { name: 'Node spark1' })).queryByText('No GPU processes')).not.toBeInTheDocument();
     expect(subtitle('spark1')).toHaveTextContent(/^GPU processes Not responding/);
     expect(within(subtitle('spark1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(NV_ERROR);

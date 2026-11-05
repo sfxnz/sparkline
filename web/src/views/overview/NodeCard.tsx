@@ -25,7 +25,7 @@ import type { GpuInfo, NodeInfo, Sample } from '../../lib/types';
 import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
-import { useNodeDisplayStatus } from '../../store/attention';
+import { quietGpusOf, useNodeDisplayStatus } from '../../store/attention';
 import { liveStore, useLatest } from '../../store/live';
 import { preloadSummary } from '../node/tabs';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from './hooks';
@@ -179,8 +179,8 @@ function CardTitle({ id }: { id: string }) {
 /** The node's top GPU workload, null for none, undefined before its first process list, or why it cannot tell. */
 type WorkloadSeen = NotReported | string | null | undefined;
 
-const workloadSelector = (info: NodeInfo | null) => (s: Sample | null): WorkloadSeen => {
-  const gap = gpuProcessesGap(info, s);
+const workloadSelector = (id: string, info: NodeInfo | null) => (s: Sample | null): WorkloadSeen => {
+  const gap = gpuProcessesGap(info, s, quietGpusOf(id, info));
   if (gap) return gap;
   if (!s?.procs) return undefined; // not reported yet
   const top = topGpuProcess(s.procs);
@@ -192,7 +192,7 @@ const sameWorkload = (a: WorkloadSeen, b: WorkloadSeen) => a === b || (typeof a 
 
 function Workload() {
   const { id, freshness, info } = useContext(Ctx);
-  const w = useLatest(id, useMemo(() => workloadSelector(info), [info]), sameWorkload);
+  const w = useLatest(id, useMemo(() => workloadSelector(id, info), [id, info]), sameWorkload);
   if (w && typeof w === 'object') return <>GPU processes <Unsupported gap={w} /></>;
   // Processes refresh every few seconds: while live, wait for them; when not live, say we don't know.
   if (w === undefined) return freshness === 'waiting' || freshness === 'live' ? <Skeleton width={180} height={12} style={{ marginTop: 3 }} /> : <span className="ov-card__workload ov-dim">Workload unknown</span>;

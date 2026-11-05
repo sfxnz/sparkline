@@ -101,10 +101,11 @@ const silentCondition = (index: number): GpuCondition => ({
 
 /** The GPUs the node lists, not lost, that have sent no reading for as long as the console takes to call a whole node
  *  not reporting: stale_after_s (5 s without the console's settings), never under two sample intervals and a second.
- *  `silentFor` is how long a GPU has been missing from the live samples (null before any). */
-export function quietGpus(info: NodeInfo | null | undefined, staleAfterS: number | undefined, silentFor: (index: number) => number | null): number[] {
+ *  `silentFor` is how long a GPU has been missing from the live samples (null before any), counted again after a gap
+ *  in the samples of at least `gapS`. */
+export function quietGpus(info: NodeInfo | null | undefined, staleAfterS: number | undefined, silentFor: (index: number, gapS: number) => number | null): number[] {
   const afterS = Math.max(staleAfterS ?? 5, (2 * (info?.sample_interval_ms ?? 1000)) / 1000 + 1);
-  return (info?.gpus ?? []).filter((g) => !lostGpu(info, g.index) && (silentFor(g.index) ?? 0) >= afterS).map((g) => g.index);
+  return (info?.gpus ?? []).filter((g) => !lostGpu(info, g.index) && (silentFor(g.index, afterS) ?? 0) >= afterS).map((g) => g.index);
 }
 
 /** Each GPU's live condition in the sample, in index order; GPUs with nothing on screen to flag are left out. A lost

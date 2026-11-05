@@ -164,14 +164,14 @@ export function stillReport(indexes: readonly number[]): string {
 export const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 
 /** Why the node cannot tell which processes use its GPUs, or null when it can: the agent declares its process list or
- *  per-process GPU memory not reported, or none of the GPUs the node lists sent a reading in this sample (lost, or its
- *  backend failed), so no process in the list can show GPU memory. */
-export function gpuProcessesGap(info: NodeInfo | null | undefined, s: Sample | null): NotReported | null {
+ *  per-process GPU memory not reported, or every GPU the node lists is lost or `quiet` (quietGpus: its backend has
+ *  failed for as long as the pill waits), so no process in the list can show GPU memory. */
+export function gpuProcessesGap(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): NotReported | null {
   const declared = notReported(info, 'procs') ?? gpuSetGap(info, 'proc_mem', 'any');
   if (declared || !info?.gpus.length) return declared;
   const indexes = gpuIndexes(info);
   const gaps = indexes.flatMap((i) => {
-    const gap = lostGpu(info, i) ?? notResponding(info, s, i);
+    const gap = lostGpu(info, i) ?? (quiet.includes(i) ? notResponding(info, s, i) : null);
     return gap ? [{ index: i, gap }] : [];
   });
   const [first] = gaps;

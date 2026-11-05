@@ -107,13 +107,15 @@ describe('Processes tab on a node that cannot tell its GPU processes', () => {
   const NO_NVML = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
   const idle = [proc(10, { name: 'dockerd' }), proc(11, { name: 'bash' })];
   const gb10 = { gpus: [{ index: 0, name: 'NVIDIA GB10', vendor: 'nvidia', backend: 'nvml', memory: 'unified' }], mem_total: 128 * GiB, unsupported: [] } as unknown as NodeInfo;
-  const show = (info: NodeInfo, sample: Partial<Sample>) => {
+  const show = (info: NodeInfo, sample: Partial<Sample>, ticks = 1) => {
     sessionStorage.clear();
     liveStore.removeNode(NODE);
     useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { ...node, info } } });
-    ts += 1;
     act(() => {
-      liveStore.pushSample({ ...base, node_id: NODE, ts, procs: idle, ...sample });
+      for (let i = 0; i < ticks; i++) {
+        ts += 1;
+        liveStore.pushSample({ ...base, node_id: NODE, ts, procs: idle, ...sample });
+      }
       liveStore.flush();
     });
     return render(<Processes nodeId={NODE} />);
@@ -126,8 +128,8 @@ describe('Processes tab on a node that cannot tell its GPU processes', () => {
     expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers$/);
   });
 
-  it('says only how many consumers it lists while the GPU sends no reading', () => {
-    show(gb10, { gpu: [], errors: { gpu: 'nvml: RuntimeError: NVML read failed' } });
+  it('says only how many consumers it lists once the GPU has sent no reading for 5 s', () => {
+    show(gb10, { gpu: [], errors: { gpu: 'nvml: RuntimeError: NVML read failed' } }, 6);
     expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers$/);
   });
 

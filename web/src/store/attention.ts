@@ -17,7 +17,7 @@ export const worstLevel = (a: Level, b: Level): Level => (a === 'critical' || b 
 
 /** The GPUs node `id` lists that have sent no reading for as long as the console takes to call a node not reporting. */
 export const quietGpusOf = (id: string, info: NodeInfo | null | undefined) =>
-  quietGpus(info, useCluster.getState().cluster?.settings.stale_after_s, (index) => liveStore.gpuSilentFor(id, index));
+  quietGpus(info, useCluster.getState().cluster?.settings.stale_after_s, (index, gapS) => liveStore.gpuSilentFor(id, index, gapS));
 
 /** Live condition of one node's GPUs; null unless the node is online (stale values never raise a pill). */
 export function useLiveCondition(id: string): LiveCondition | null {

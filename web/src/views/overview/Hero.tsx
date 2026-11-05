@@ -4,6 +4,7 @@ import { Skeleton } from '../../design/components/Skeleton';
 import { StatusPill } from '../../design/components/StatusPill';
 import { wattsParts } from '../../lib/format';
 import { gpuProcessesGap } from '../../lib/gpu';
+import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { clusterGpuNow, shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './hooks';
@@ -37,7 +38,7 @@ function Activity() {
       return {
         workload: workloadSentence(online.map((id) => {
           const s = liveStore.latest(id);
-          return { id, procs: s?.procs ?? null, cannotTell: gpuProcessesGap(nodes[id]?.info, s) !== null };
+          return { id, procs: s?.procs ?? null, cannotTell: gpuProcessesGap(nodes[id]?.info, s, quietGpusOf(id, nodes[id]?.info)) !== null };
         })),
         util: now.util === null ? null : Math.round(now.util),
         power: now.power === null ? null : Math.round(now.power * 10) / 10,

@@ -164,12 +164,22 @@ export class LiveStore {
   }
 
   /** Seconds GPU `index` has been missing from the node's live samples, up to the latest one: since the last one it was
-   *  in, or since the first live sample when none had it. Null before any live sample. */
-  gpuSilentFor(node: string, index: number): number | null {
+   *  in, or since the first live sample when none had it, and never across a gap of `gapS` or more between samples (the
+   *  node was not reporting then, so its GPUs were not either). Null before any live sample. */
+  gpuSilentFor(node: string, index: number, gapS = Infinity): number | null {
     const b = this.nodes.get(node);
     const first = b?.firstLive;
     if (!b?.latest || first == null) return null;
-    return b.latest.ts - (b.gpuSeen.get(index) ?? first);
+    let from = b.gpuSeen.get(index) ?? first;
+    for (let n = b.length - 1; n > 0; n--) {
+      const t = b.ts[b.index(n)] ?? 0;
+      if (t <= from) break;
+      if (t - (b.ts[b.index(n - 1)] ?? 0) >= gapS) {
+        from = t;
+        break;
+      }
+    }
+    return b.latest.ts - from;
   }
 
   lastTs(node: string): number | null {
