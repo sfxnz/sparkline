@@ -60,9 +60,9 @@ file, so the recording still reads as one machine.
 | Value | Placeholder |
 | --- | --- |
 | Hostname, with any domain after it, also written with `_` for `-`, in its `xn--` form or, from 8 characters, inside a longer word | `host1` |
-| Domain of the hostname, each parent domain, and the label before the top-level domain, on their own | `domain1` |
+| Domain of the hostname, each parent domain, the label before the top-level domain, and each label of 4 or more characters, on their own | `domain1` |
 | User name, the home directory, and a disk mounted under `/media/<user>` | `user1`, `/home/<user1>`, `/media/<user1>` |
-| Full name of an account in `/etc/passwd`, and each part of it of 4 or more letters | `person1` |
+| Full name of an account in `/etc/passwd`, and each word of 4 or more characters in that account's comment field, also without accents | `person1` |
 | IPv4 address, private ranges included | `198.51.100.1`, then `203.0.113.x` and `192.0.2.x` |
 | IPv6 address | `2001:db8::1` |
 | Link-local IPv6 address, which holds the MAC | `fe80::ff:fe00:1`, or `fe80::200:0:0:1` |
@@ -129,14 +129,16 @@ name into every entry of an archive. `recording.tgz` holds no user names and no 
 | 0 | The recording is ready. | Attach `recording.tgz`. |
 | 1 | The recording is ready, but the agent reads it differently from your machine. | Attach `recording.tgz` and paste the lines it printed. |
 | 2 | It met something that it cannot make safe, and wrote nothing. | Read the lines it printed. If they say that a name is also a word in what the agent reads, see the next section. Otherwise open an issue and paste the lines. They name the place and the kind of value, never the value. |
-| 3 | The output path is a file, its parent directory doesn't exist or can't be written, the directory already holds files, or the command got more than one argument. | Give it one new or empty directory that you can write to. |
+| 3 | The output path is not a directory, its parent doesn't exist or isn't a directory, you can't write there, the directory already holds files, or the command got more than one argument. | Give it one new or empty directory that you can write to. |
 | 4 | It failed unexpectedly. It keeps no partial recording. | Open an issue and paste the lines it printed. They hold no message text, only where it failed. |
 | 129 | The terminal closed (SIGHUP). | Run it again. It keeps no partial recording. |
 | 130 | You stopped it with Ctrl-C. | Nothing to do. It keeps no partial recording. |
+| 131 | You stopped it with `Ctrl-\` (SIGQUIT). | Nothing to do. It keeps no partial recording. |
 | 143 | Something stopped it with SIGTERM, such as `kill` or `timeout`. | Run it again. It keeps no partial recording. |
 
-`kill -9` can't be caught, so it can leave a partial directory behind. Delete that directory before you run the
-command again.
+A stop that comes after the recording is complete lets the command finish, so the recording is ready. `kill -9`
+can't be caught, so it can leave a partial directory behind. Delete that directory before you run the command
+again.
 
 Exit code 2 has these causes:
 
@@ -153,9 +155,10 @@ Exit code 2 has these causes:
 Your hostname may appear only in the hostname file, your user name or full name only in a home directory, and a
 Docker container name only in Docker's list of containers. A name may also be a fixed word that the command
 writes the same on every machine: a part of a file path on the reviewed list, such as the `dev` of
-`/proc/self/net/dev` or the `max` of `cpuinfo_max_freq`, the `/dev/` of a disk, or the `nvcr.io/nvidia/pytorch:`
-of an image name. There the word says nothing about you, so the command leaves it as it is. A hostname `dev` or a
-container named `pytorch` therefore records fine.
+`/proc/self/net/dev` or the `max` of `cpuinfo_max_freq`, the `/dev/` of a disk, the `nvcr.io/nvidia/pytorch:` of
+an image name, or the name of an NVIDIA driver call in `nvml.json`. There the word says nothing about you, so the
+command leaves it as it is. A hostname `dev` or `computer`, or a container named `pytorch`, therefore records
+fine.
 
 If a name appears anywhere else as a word, the command cannot tell your name from an ordinary word, and
 replacing it would show your name by its place. A hostname `GB10` would turn the GPU name into `NVIDIA host1`,
