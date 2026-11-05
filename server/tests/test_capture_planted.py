@@ -667,6 +667,34 @@ CASES = [
         hostname=f"{HOST}.zrb.co.jp",
         because="domain name",
     ),
+    *(
+        Case(
+            f"three-letter organization right under {suffix}",
+            "refused",
+            ("zrb",),
+            "zrb vpn",
+            hostname=f"{HOST}.zrb.{suffix}",
+            because="domain name",
+        )
+        for suffix in (
+            "nhs.uk",
+            "me.uk",
+            "sch.ae",
+            "info.pl",
+            "biz.pl",
+            "nom.fr",
+            "lancs.sch.uk",
+            "k12.ca.us",
+        )
+    ),
+    Case(
+        "domain that is exactly a registry label under a country code",
+        "refused",
+        ("org.ch",),
+        "see org.ch",
+        hostname=f"{HOST}.org.ch",
+        because="domain name",
+    ),
     Case(
         "domain label with - written with _",
         "refused",
@@ -966,21 +994,24 @@ def test_a_domain_label_shorter_than_four_characters_is_not_taken_for_the_name(t
 
 
 @pytest.mark.parametrize(
-    "domain",
+    ("domain", "label"),
     [
-        "zorbcorp.co.uk",
-        "zorbcorp.com.au",
-        "zorbcorp.co.jp",
-        "zorbcorp.edu.cn",
-        j(".", "tail7f3a9c", "ts", "net"),
+        ("zorbcorp.co.uk", "co"),
+        ("zorbcorp.com.au", "com"),
+        ("zorbcorp.co.jp", "co"),
+        ("zorbcorp.edu.cn", "edu"),
+        (j(".", "tail7f3a9c", "ts", "net"), "ts"),
+        ("zrb.nhs.uk", "nhs"),
+        ("zrb.lancs.sch.uk", "lancs"),
+        ("zrb.lancs.sch.uk", "sch"),
+        ("zrb.k12.tx.us", "tx"),
     ],
 )
-def test_the_labels_of_a_public_suffix_are_not_taken_for_the_name(domain, tmp_path):
-    registry = domain.split(".")[1]
+def test_the_labels_of_a_public_suffix_are_not_taken_for_the_name(domain, label, tmp_path):
     copy = base_copy(tmp_path, f"{HOST}.{domain}")
-    with_free_text(copy, f"{registry} port")
+    with_free_text(copy, f"{label} port")
     capture_of(copy, tmp_path / "out")
-    assert f"{registry} port" in (tmp_path / "out/root/proc/cpuinfo").read_text()
+    assert f"{label} port" in (tmp_path / "out/root/proc/cpuinfo").read_text()
 
 
 def test_a_hostname_shorter_than_eight_letters_is_not_found_inside_a_longer_word(tmp_path):
