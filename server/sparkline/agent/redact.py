@@ -519,8 +519,7 @@ class Redacted:
     rewrite: Callable[[str], str] = field(repr=False)
 
     def printable(self, line: str) -> str | None:
-        text = self.rewrite(line)
-        return None if _categories(text, False, self.originals) else text
+        return None if self.rewrite(line) != line or _categories(line, False, self.originals) else line
 
 
 def _text(node: Node | None) -> str | None:
