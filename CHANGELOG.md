@@ -12,6 +12,10 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 The first tagged release. It includes all earlier work on `main`, which had no version tags. The lists
 below name the changes merged last before the release.
 
+Sparkline 0.1.0 has run only on a DGX Spark. Its x86, discrete NVIDIA, AMD and Mac paths are tested against
+recordings built from vendor and kernel documentation, against fake GPU backends and against simulated demo
+nodes. Reports from real hardware are welcome, and `sparkline-capture` records a Linux machine for one.
+
 ### Upgrading
 
 If you run Sparkline from a checkout older than 0.1.0, upgrade the console first and the agents after it,
@@ -20,11 +24,13 @@ agent in two ways:
 
 - When the memory collector of a 0.1.0 agent cannot start, the agent keeps running and sends an empty memory
   reading. An older console reads that as no free memory and raises a false "Memory running low" alert.
-- A 0.1.0 agent behind an older console refuses an RDMA benchmark on rail B when rail A has no address.
+- An older console refuses an RDMA benchmark on rail B of a 0.1.0 agent when rail A has no address.
 
 The agent's history database upgrades itself on first start, and an older agent can still write to it after a
 rollback. If you go back to an older console, its two GPU throttle alerts watch GPU 0 only, and an alert rule
-on a node-wide GPU total (`gpu.util`, `gpu.temp_c` or `gpu.power_w`) never fires there.
+on a node-wide GPU total (`gpu.util`, `gpu.temp_c` or `gpu.power_w`) never fires there. If that older console
+saves its own default alert rules, the two GPU temperature defaults stay on GPU 0 after you upgrade again. To
+make them watch every GPU, pick **Any GPU temperature** for both rules in the rule editor.
 [docs/RELEASING.md](https://github.com/sfxnz/sparkline/blob/main/docs/RELEASING.md#upgrade-the-console-before-the-agents)
 gives the upgrade commands.
 
@@ -32,17 +38,19 @@ gives the upgrade commands.
 
 - Each metric that a node does not report says why: the hardware lacks it, the agent's user lacks a
   permission, or a helper tool is missing (#66).
+- A metric that the machine exposes but Sparkline does not read yet says "Not collected yet" (#71).
 - `sparkline --demo-mixed` adds a simulated 4-GPU x86 workstation to the demo, and the GPU tab shows one
   section per GPU (#70).
 - Node details show which GPU backend the agent uses, and why it passed over the others (#75).
-- `sparkline-capture` records a machine into a redacted archive that you can attach to an issue, so that
-  Sparkline can learn hardware the maintainers do not have (#76).
-- On x86, the agent names the CPU, splits cores by the kernel's core types and reads CPU temperature from
-  k10temp and coretemp (#77).
-- On a node with several NVIDIA GPUs, a GPU benchmark runs on the GPU that you pick. On AMD and Mac nodes,
-  the GPU benchmarks say why they cannot run (#79).
-- On discrete GPUs, the agent reads VRAM and the Memory tab shows a VRAM bar per GPU. System memory no longer
-  counts VRAM as GPU memory in RAM (#80).
+- `sparkline-capture` records a Linux machine into a redacted directory and archive, so that Sparkline can
+  learn hardware the maintainers do not have. You read the recording before you attach the archive to an
+  issue, as `docs/record-your-machine.md` says (#76).
+- On x86 Linux hosts, the agent names the CPU, splits cores by the kernel's core types and reads CPU
+  temperature from k10temp and coretemp (#77).
+- On a node with several NVIDIA GPUs, a GPU benchmark runs on the GPU that you pick. On a node without a
+  usable NVIDIA GPU, the GPU benchmarks say why they cannot run (#79).
+- On discrete NVIDIA GPUs, the agent reads VRAM and the Memory tab shows a VRAM bar per GPU. System memory no
+  longer counts VRAM as GPU memory in RAM (#80).
 
 ### Changed
 
@@ -78,6 +86,8 @@ gives the upgrade commands.
 - A panel whose metric a node lacks says why, instead of a skeleton that never ends or a blank chart (#71).
 - A node whose GPUs stop sending readings says so in its stats, its status pill and the overview, and every
   figure that leaves a node out names that node (#81).
+- The console starts when a stored settings or alert rules row is unreadable. It keeps a copy of the row and
+  uses the defaults, and the Alerts page says when it reset the rules (#81).
 
 ### Security
 
@@ -85,6 +95,8 @@ gives the upgrade commands.
   moving an action's tag cannot change the code that CI runs (#72).
 - The docs, demo, test data and screenshots use placeholders instead of real machine and network identifiers.
   CI fails when a real-looking identifier, a tool cache or a build output is committed (#74).
+- The web tests' copy of undici, which jsdom pulls in, moves from 8.11.2 to 8.12.3 and gets the security fixes
+  of undici 8.12.2. The built web app does not include undici (#73).
 
 [Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.0
