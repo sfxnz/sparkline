@@ -4,6 +4,7 @@ import json
 import posixpath
 import re
 import unicodedata
+from bisect import bisect_left
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import suppress
@@ -930,12 +931,14 @@ def _depth(path: str) -> int:
 
 
 def _fixed_parts_in(tree: dict[str, Node]) -> Callable[[str], frozenset[int]]:
-    leads_to = list(tree)
+    paths = sorted(tree)
+    leads_to = list(paths)
     for link, node in tree.items():
         if isinstance(node, Link):
             at = _resolve(tree, posixpath.join(posixpath.dirname(link), node.target))
             if at is not None:
-                leads_to += [link + path[len(at) :] for path in tree if path.startswith(at + "/")]
+                below = paths[bisect_left(paths, at + "/") : bisect_left(paths, at + "0")]
+                leads_to += [link + path[len(at) :] for path in below]
     ending_in_a_fixed_word = {
         "/" + "/".join(path.split("/")[1 : i + 2]) for path in leads_to for i in fixed_parts(path)
     }
