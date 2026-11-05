@@ -142,6 +142,11 @@ REAL_LOOKING = {
     "home /Users/alice": "home directory",
     "tailnet spark1.tail1234ab.ts.net": "Tailscale hostname",
     "/root/.cache/huggingface/hub/models--alice--M/snapshots/a": "Hugging Face cache path",
+    "mac after an accented letter é4caabbccddee": "MAC address",
+    "mac before an accented letter 4c:aa:bb:cc:dd:eeé": "MAC address",
+    "guid after an accented letter ü0x4caabb0300ccddee": "InfiniBand GUID",
+    "uuid after an accented letter éGPU-6a1b2c3d-1234-5678-9abc-def012345678": "GPU UUID",
+    "lan after a digit of another script \u066310.1.2.3": "IPv4 address",
 }
 PLACEHOLDER_LINES = (
     "198.51.100.48 203.0.113.1 192.0.2.1 127.0.0.1 172.17.0.2 255.255.255.0 192.168.1.11 0.100.51.198",
