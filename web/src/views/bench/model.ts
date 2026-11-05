@@ -309,21 +309,25 @@ export function paramText(p: BenchParam | undefined, v: unknown): string {
   return p?.unit ? `${s} ${p.unit}` : s;
 }
 
-/** Short summary of the params that differ from the defaults ("BF16, FP8 · 16384"), or "Default parameters". */
-export function paramsSummary(spec: BenchSpec | undefined, params: Record<string, unknown>, max = 3): string {
-  if (!spec) return Object.entries(params).slice(0, max).map(([k, v]) => `${k} ${paramText(undefined, v)}`).join(' · ') || 'Default parameters';
+/** The params that differ from the defaults, one entry each ("Precisions BF16, FP8", "Matrix size 16384"), or
+ *  ["Default parameters"]. */
+export function paramParts(spec: BenchSpec | undefined, params: Record<string, unknown>, max = 3): string[] {
+  if (!spec) {
+    const raw = Object.entries(params).slice(0, max).map(([k, v]) => `${k} ${paramText(undefined, v)}`);
+    return raw.length ? raw : ['Default parameters'];
+  }
   const defaults = defaultParams(spec);
   const changed = spec.params.filter((p) => p.name in params && JSON.stringify(params[p.name]) !== JSON.stringify(defaults[p.name]));
-  if (!changed.length) return 'Default parameters';
-  return changed
-    .slice(0, max)
-    .map((p) => {
-      const text = paramText(p, params[p.name]);
-      // A value that already names itself ("Rail B") is not prefixed with its label again ("Rail Rail B").
-      return text.toLowerCase().startsWith(`${p.label.toLowerCase()} `) ? text : `${p.label} ${text}`;
-    })
-    .join(' · ');
+  if (!changed.length) return ['Default parameters'];
+  return changed.slice(0, max).map((p) => {
+    const text = paramText(p, params[p.name]);
+    // A value that already names itself ("Rail B") is not prefixed with its label again ("Rail Rail B").
+    return text.toLowerCase().startsWith(`${p.label.toLowerCase()} `) ? text : `${p.label} ${text}`;
+  });
 }
+
+/** Short summary of the params that differ from the defaults ("BF16, FP8 · 16384"), or "Default parameters". */
+export const paramsSummary = (spec: BenchSpec | undefined, params: Record<string, unknown>, max = 3): string => paramParts(spec, params, max).join(' · ');
 
 export type GpuIndex = Readonly<Record<string, number>>;
 
@@ -345,16 +349,16 @@ export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly st
 
 export const runGpu = (run: Pick<BenchRun, 'gpu_index'>, node: string): number | undefined => run.gpu_index?.[node];
 
-export function runGpuLabel(run: Pick<BenchRun, 'gpu_index' | 'nodes' | 'metadata' | 'node_states'>): string | null {
+/** For the run header, the GPU of each node that had a choice: [["GPU 2", "NVIDIA RTX 6000 Ada Generation"]]. */
+export function runGpuParts(run: Pick<BenchRun, 'gpu_index' | 'nodes' | 'metadata' | 'node_states'>): string[][] {
   const meta = nodeMeta(run);
-  const parts = run.nodes.flatMap((n) => {
+  return run.nodes.flatMap((n) => {
     const index = runGpu(run, n);
     if (index === undefined) return [];
     const name = meta[n]?.gpu_name;
-    const text = typeof name === 'string' && name ? `GPU ${index} · ${name}` : `GPU ${index}`;
-    return [run.nodes.length > 1 ? `${n} ${text}` : text];
+    const gpu = run.nodes.length > 1 ? `${n} GPU ${index}` : `GPU ${index}`;
+    return [typeof name === 'string' && name ? [gpu, name] : [gpu]];
   });
-  return parts.length ? parts.join(', ') : null;
 }
 
 // ------------------------------------------------------------------------------------------------ run state
@@ -596,9 +600,14 @@ export function baselineCoverage(results: readonly BenchResult[]): { with: strin
 
 /** "OpenAI-compatible · Qwen3-8B": the engine and model an LLM run measured, from its results' extras. */
 export function servedModel(results: readonly BenchResult[]): string | null {
+  const parts = servedParts(results);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+export function servedParts(results: readonly BenchResult[]): string[] {
   const ex = results.find((r) => typeof r.extras.model === 'string' && r.extras.model)?.extras;
-  if (!ex) return null;
-  return [ex.engine, ex.model].filter((x): x is string => typeof x === 'string' && !!x).join(' · ');
+  if (!ex) return [];
+  return [ex.engine, ex.model].filter((x): x is string => typeof x === 'string' && !!x);
 }
 
 /** Benchmarks where one node acts on the other (source → target); the rest are symmetric. */

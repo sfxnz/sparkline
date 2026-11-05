@@ -40,17 +40,17 @@ import {
   modelledResults,
   nodeMeta,
   nodesText,
-  servedModel,
+  servedParts,
   signedFormat,
   unitText,
   orderedMeta,
   paramText,
-  paramsSummary,
+  paramParts,
   projectedTotal,
   resultDelta,
   resultText,
   runEstimate,
-  runGpuLabel,
+  runGpuParts,
   runLog,
   stopwatch,
   valueWithUnit,
@@ -176,7 +176,13 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
   const statusText = `${name} ${run.status === 'succeeded' ? 'finished' : run.status}`;
   const modelled = modelledNodes(run);
-  const gpuLabel = runGpuLabel(run);
+  const sub = [
+    [nodesText(run.bench_id, run.nodes)],
+    ...runGpuParts(run),
+    servedParts(run.results),
+    [`Started ${formatDateTime(run.started_ts ?? run.created_ts)}`],
+    spec?.params.length ? paramParts(spec, run.params, 4) : [],
+  ].filter((item) => item.length);
 
   return (
     <div className="view bench-run">
@@ -188,27 +194,19 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
             <RunStatusPill status={run.status} />
           </div>
           <p className="bench-run__sub">
-            <span>{nodesText(run.bench_id, run.nodes)}</span>
-            {gpuLabel ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{gpuLabel}</span>
-              </>
-            ) : null}
-            {servedModel(run.results) ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{servedModel(run.results)}</span>
-              </>
-            ) : null}
-            <span aria-hidden="true">·</span>
-            <span>Started {formatDateTime(run.started_ts ?? run.created_ts)}</span>
-            {spec?.params.length ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{paramsSummary(spec, run.params, 4)}</span>
-              </>
-            ) : null}
+            {sub.map((item, i) => (
+              <span key={i}>
+                {i ? <span className="bench-run__sep" aria-hidden="true"> · </span> : null}
+                <span className="bench-run__item">
+                  {item.map((part, j) => (
+                    <span key={j}>
+                      {j ? <span className="bench-run__sep" aria-hidden="true"> · </span> : null}
+                      {part}
+                    </span>
+                  ))}
+                </span>
+              </span>
+            ))}
           </p>
         </div>
         <div className="bench-run__actions">

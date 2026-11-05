@@ -194,7 +194,14 @@
 .bench-run__head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
 .bench-run__titles { display: grid; gap: var(--space-1); min-width: 0; }
 .bench-run__title-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
-.bench-run__sub { display: flex; flex-wrap: wrap; gap: 0 var(--space-2); font-size: var(--fs-callout); color: var(--text-2); }
+/* Each part after the first carries its "·" in a leading gutter. A line is shifted left by one gutter and clipped
+   there, so the part that starts a visual line has its "·" cut off and no line starts or ends with one. Items get a
+   wide gutter, the parts within an item ("Trials 4 · Seed 42") a narrow one. */
+.bench-run__sub, .bench-run__item { display: flex; flex-wrap: wrap; margin-left: calc(-1 * var(--sep)); clip-path: inset(0 0 0 var(--sep)); }
+.bench-run__sub { --sep: calc(2 * var(--space-2) + 0.28em); font-size: var(--fs-callout); color: var(--text-2); }
+.bench-run__item { --sep: 0.84em; }
+.bench-run__sub > span, .bench-run__item > span { position: relative; padding-left: var(--sep); }
+.bench-run__sep { position: absolute; left: 0; width: var(--sep); text-align: center; white-space: pre; }
 .bench-run__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 .bench-progress { display: grid; gap: var(--space-3); }
