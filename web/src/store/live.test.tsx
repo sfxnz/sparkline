@@ -268,13 +268,15 @@ describe('LiveStore GPU silence', () => {
     expect(store.gpuSilentFor('spark1', 0)).toBe(0);
   });
 
-  it('counts a GPU no live sample has held from the first live sample, never from seeded history', () => {
+  it("counts a GPU's silence from its last seeded reading, and again from the first sample after a gap of gapS", () => {
     const { store } = manual(8);
     store.seed({ node_id: 'spark1', resolution_s: 1, ts: [1, 2, 3], series: { 'gpu0.util': [10, 20, 30] }, min: {}, max: {} });
     expect(store.gpuSilentFor('spark1', 0)).toBeNull();
     for (let t = 10; t <= 13; t++) store.pushSample(without(t));
-    expect(store.gpuSilentFor('spark1', 0)).toBe(3);
-    expect(store.gpuSilentFor('spark1', 7)).toBe(3);
+    expect(store.gpuSilentFor('spark1', 0)).toBe(10);
+    expect(store.gpuSilentFor('spark1', 7)).toBe(12);
+    expect(store.gpuSilentFor('spark1', 0, 5)).toBe(3);
+    expect(store.gpuSilentFor('spark1', 7, 5)).toBe(3);
   });
 
   it('knows nothing of a node with no live sample, and forgets a removed node', () => {

@@ -20,8 +20,7 @@ export class NodeBuffer {
   length = 0;
   latest: Sample | null = null;
   largestTick = 0;
-  /** Ts of the first live sample, and of the last live sample each GPU index was in (seeded history never counts). */
-  firstLive: number | null = null;
+  /** Ts of the last live sample each GPU index was in, readings or not. */
   readonly gpuSeen = new Map<number, number>();
 
   constructor(readonly capacity: number) {
@@ -115,7 +114,6 @@ export class LiveStore {
     b.push(sample.ts, flat);
     // procs is null on ticks between process refreshes: keep the last known list.
     b.latest = sample.procs == null && b.latest?.procs ? { ...sample, procs: b.latest.procs } : sample;
-    b.firstLive ??= sample.ts;
     for (const g of sample.gpu) b.gpuSeen.set(g.index, sample.ts);
     this.markDirty(sample.node_id, flat.keys());
   }
@@ -163,23 +161,24 @@ export class LiveStore {
     return this.nodes.get(node)?.latest ?? null;
   }
 
-  /** Seconds GPU `index` has been missing from the node's live samples, up to the latest one: since the last one it was
-   *  in, or since the first live sample when none had it, and never across a gap of `gapS` or more between samples (the
-   *  node was not reporting then, so its GPUs were not either). Null before any live sample. */
+  /** Seconds GPU `index` has sent nothing, up to the latest live sample: since the last tick that holds one of its
+   *  readings (live, or seeded from the console's recent history) or that a live sample had it in. A gap of `gapS` or
+   *  more between ticks starts the count again (the node was not reporting then, so its GPUs were not either), and the
+   *  walk stops once the silence reaches `gapS`. Null before any live sample. */
   gpuSilentFor(node: string, index: number, gapS = Infinity): number | null {
     const b = this.nodes.get(node);
-    const first = b?.firstLive;
-    if (!b?.latest || first == null) return null;
-    let from = b.gpuSeen.get(index) ?? first;
-    for (let n = b.length - 1; n > 0; n--) {
-      const t = b.ts[b.index(n)] ?? 0;
-      if (t <= from) break;
-      if (t - (b.ts[b.index(n - 1)] ?? 0) >= gapS) {
-        from = t;
-        break;
-      }
+    if (!b?.latest) return null;
+    const prefix = `gpu${String(index)}.`;
+    const rings = [...b.values].filter(([k]) => k.startsWith(prefix)).map(([, ring]) => ring);
+    const seen = b.gpuSeen.get(index) ?? -Infinity;
+    const end = b.latest.ts;
+    for (let n = b.length - 1; n >= 0; n--) {
+      const i = b.index(n);
+      const t = b.ts[i] ?? 0;
+      if (t <= seen || rings.some((ring) => !Number.isNaN(ring[i] ?? NaN))) return end - Math.max(t, seen);
+      if (end - t >= gapS || (n > 0 && t - (b.ts[b.index(n - 1)] ?? 0) >= gapS)) return end - t;
     }
-    return b.latest.ts - from;
+    return end - (b.ts[b.index(0)] ?? end);
   }
 
   lastTs(node: string): number | null {
