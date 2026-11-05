@@ -4,6 +4,7 @@ __pycache__/
 node_modules/
 web/dist/
 *.sqlite
+!server/tests/fixtures/**/*.sqlite
 *.sqlite-*
 *.db
 .pytest_cache/

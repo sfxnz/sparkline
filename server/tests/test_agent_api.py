@@ -176,7 +176,7 @@ def test_history_serves_any_stored_key_and_any_key_count(tmp_path):
     t = int(time.time()) // 60 * 60 - 8 * 86400
     row = {quoted: [41.5, 41.0, 42.0], "mem.used": [5.0, 5.0, 5.0]}
     row |= {k: [i, i, i] for i, k in enumerate(many)}
-    s._db.submit(s.store.write, 60, t, row).result()
+    s._db.submit(s.store.write, 60, t, row, 60.0).result()
     span = {"from": t - 3600, "to": t + 3600}
     with TestClient(create_app(s, info, TOKEN, manage_sampler=False)) as c:
         r = c.get("/api/v1/history", params={**span, "keys": f"{quoted},nope"}, headers=AUTH)
@@ -253,9 +253,10 @@ def test_rollups_reach_sqlite(tmp_path):
         smp.ts = t0 + i
         s._record(smp)
     s._db.submit(lambda: None).result()
-    rows = s._db.submit(s.store.query, 10, t0, t0 + 100).result()
+    rows, covered = s._db.submit(s.store.query, 10, t0, t0 + 100).result()
     assert [ts for ts, _ in rows] == [t0 + 5, t0 + 15]  # served at bucket centres
     assert rows[0][1]["gpu0.util"] == [5.5, 1.0, 10.0]
+    assert covered == [10.0, 10.0]
 
 
 async def test_run_discards_warmup_tick():
@@ -346,21 +347,22 @@ async def test_young_agent_serves_recent_ranges_from_the_ring(tmp_path):
     assert h.resolution_s == 1.0 and len(h.ts) == 60
 
 
+class StepGpu:
+    name = "gpu"
+    util = 0.0
+
+    def caps(self) -> dict:
+        return {}
+
+    def collect(self) -> dict:
+        return {
+            "gpu": [GpuSample(index=0, util=self.util, temp_c=60.0, throttle_mask=0)],
+            "net": [NetSample(name="x", up=True, rx_bps=0, tx_bps=0, errors=1)],
+        }
+
+
 async def test_history_weights_rollups_and_ring_samples_by_the_time_they_cover(tmp_path):
-    class Gpu:
-        name = "gpu"
-        util = 0.0
-
-        def caps(self) -> dict:
-            return {}
-
-        def collect(self) -> dict:
-            return {
-                "gpu": [GpuSample(index=0, util=self.util, temp_c=60.0, throttle_mask=0)],
-                "net": [NetSample(name="x", up=True, rx_bps=0, tx_bps=0, errors=1)],
-            }
-
-    gpu, ring_s, width = Gpu(), 600, 180
+    gpu, ring_s, width = StepGpu(), 600, 180
     s = make(tmp_path, collectors=[gpu, FakeMem(), FakeCpu()], ring_seconds=ring_s)
     edge = int(time.time()) // width * width - 5 * width
     _fill(s, edge - 600, 720)
@@ -374,6 +376,41 @@ async def test_history_weights_rollups_and_ring_samples_by_the_time_they_cover(t
     assert (h.min["gpu0.util"][i], h.max["gpu0.util"][i]) == (0.0, 100.0)
     assert h.series["net.x.errors"][i] == 180, "one error a second, summed, not weighted"
     assert h.ts[i] == pytest.approx(edge + width / 2, abs=1)
+
+
+@pytest.mark.parametrize("downtime_s", [60, 150])
+async def test_history_weights_the_minute_a_graceful_stop_wrote_by_its_samples(tmp_path, downtime_s):
+    gpu, width, idle_into_minute = StepGpu(), 180, 2
+    edge = int(time.time()) // width * width - 5 * width
+    s = make(tmp_path, collectors=[gpu, FakeMem(), FakeCpu()], ring_seconds=600)
+    _fill(s, edge - 600, 600 + idle_into_minute)
+    await s.stop()
+    gpu.util = 100.0
+    s = make(tmp_path, collectors=[gpu, FakeMem(), FakeCpu()], ring_seconds=600)
+    _fill(s, edge + idle_into_minute + downtime_s, 600)
+    now = time.time()
+    h = await s.history(["gpu0.util"], now - 86400, now, points=600)
+    assert h.resolution_s == width
+    i = next(i for i, t in enumerate(h.ts) if edge <= t < edge + width)
+    busy = width - idle_into_minute - downtime_s
+    assert h.series["gpu0.util"][i] == pytest.approx(100 * busy / (busy + idle_into_minute), abs=0.01)
+    assert (h.min["gpu0.util"][i], h.max["gpu0.util"][i]) == (0.0, 100.0)
+
+
+async def test_history_from_one_table_weights_a_partial_minute_by_its_samples(tmp_path):
+    gpu, width, idle_s, busy_s = StepGpu(), 720, 11 * 60, 2
+    edge = int(time.time()) // width * width - 2 * width
+    s = make(tmp_path, collectors=[gpu, FakeMem(), FakeCpu()], ring_seconds=600)
+    _fill(s, edge, idle_s)
+    gpu.util = 100.0
+    _fill(s, edge + idle_s, busy_s)
+    await s.stop()
+    s = make(tmp_path, collectors=[gpu, FakeMem(), FakeCpu()], ring_seconds=600)
+    now = time.time()
+    h = await s.history(["gpu0.util"], now - 7200, now, points=10)
+    assert h.resolution_s == width, "all 12 minute rows in one point"
+    i = next(i for i, t in enumerate(h.ts) if edge <= t < edge + width)
+    assert h.series["gpu0.util"][i] == pytest.approx(100 * busy_s / (idle_s + busy_s), abs=0.01)
 
 
 def test_ring_rows_hold_only_the_requested_keys(tmp_path):
