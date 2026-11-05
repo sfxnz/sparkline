@@ -188,3 +188,27 @@ for (const [state, temp] of [['calm', 77], ['heating up', 89], ['at slowdown', 9
     }
   });
 }
+
+for (const [state, temp, flag, gaps] of [
+  ['heating up', 89, 'headroom', []],
+  ['at slowdown', 94, 'At slowdown', []],
+  ['heating up beside a lost GPU 0', 89, 'headroom', LOST_GPU0],
+  ['at slowdown beside a lost GPU 0', 94, 'At slowdown', LOST_GPU0],
+] as const) {
+  test(`the ws1 card paints its flag in full at every width from 320 to 1440 px while GPU 3 is ${state}`, async ({ page }) => {
+    await workstation(page, (g) => (gaps.length && g.index === 0 ? { index: 0 } : g.index === 3 ? { ...g, temp_c: temp } : g), [...gaps]);
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Node ws1' });
+    await expect(card).toContainText(flag);
+    const stats = card.locator('.ov-card__stats');
+    const texts = [flag, 'GPU 3', ...(gaps.length ? ['3 of 4 GPUs'] : [])];
+    const clipped: string[] = [];
+    const sweep = Array.from({ length: 141 }, (_, i) => 320 + 8 * i);
+    for (const width of [...sweep, 455, 460, 465, 470, 650]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      for (const text of texts) if (!(await stats.evaluate(paintsInFull, text))) clipped.push(`"${text}" at ${String(width)} px`);
+    }
+    expect(clipped).toEqual([]);
+  });
+}
