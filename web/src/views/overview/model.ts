@@ -195,7 +195,7 @@ export function workloadSentence(nodes: readonly NodeActivityInput[]): string | 
   const tellers = nodes.filter((n) => !n.cannotTell);
   if (!tellers.length) return nodes.length ? 'GPU workloads not reported' : null;
   const read = tellers.reduce((c, n) => ({ from: c.from + (n.gpusRead?.from ?? 0), of: c.of + (n.gpusRead?.of ?? 0) }), { from: 0, of: 0 });
-  const mark = read.from < read.of ? ` (${gpuCountText(read)})` : '';
+  const mark = read.from < read.of ? ` (${gpuCountText(read).replaceAll(' ', '\u00a0')})` : '';
   const groups = new Map<string, { nodes: string[]; serving: boolean }>();
   for (const n of tellers) {
     const top = topGpuProcess(n.procs);
