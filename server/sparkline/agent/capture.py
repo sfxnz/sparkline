@@ -11,6 +11,11 @@ usage: sparkline-capture [OUT]     (or: python -m sparkline.agent.capture [OUT])
 
 from __future__ import annotations
 
+if __name__ == "__main__":
+    from sparkline.agent.capture_entry import main as run_as_sparkline_capture
+
+    raise SystemExit(run_as_sparkline_capture())
+
 import argparse
 import ctypes
 import dataclasses
@@ -772,7 +777,3 @@ def _run(argv: list[str] | None) -> int:
         print(f"Please open an issue with these lines: {ISSUE_URL}", file=sys.stderr)
         return 4
     return 1 if report.differences else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
