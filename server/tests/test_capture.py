@@ -1270,7 +1270,9 @@ def test_ctrl_c_at_the_first_import_after_the_command_starts_prints_no_traceback
         "sys.meta_path.insert(0, CtrlC())\n"
         f"{start}"
     )
-    run = subprocess.run([sys.executable, "-c", ctrl_c_on_import], capture_output=True, text=True, check=False)
+    run = subprocess.run(
+        [sys.executable, "-c", ctrl_c_on_import], capture_output=True, text=True, check=False
+    )
     assert run.returncode == 130
     assert run.stderr == "sparkline-capture stopped. It keeps no partial recording.\n"
 
@@ -1308,7 +1310,7 @@ def test_ctrl_c_while_python_loads_the_capture_prints_no_traceback(start):
 
 
 def run_the_command(
-    out: Path, before: str, env: dict[str, str] | None = None
+    out: Path, before: str, env: dict[str, str] | None = None, after: str = ""
 ) -> subprocess.CompletedProcess[str]:
     script = (
         "import sys\n"
@@ -1319,7 +1321,9 @@ def run_the_command(
         f"{before}"
         "from sparkline.agent.capture_entry import main\n"
         f"sys.argv = ['sparkline-capture', {str(out)!r}]\n"
-        "sys.exit(main())\n"
+        "code = main()\n"
+        f"{after}"
+        "sys.exit(code)\n"
     )
 
     def no_core_file() -> None:
@@ -1425,8 +1429,15 @@ def signalled_while_archiving(signum: int, *, while_cleaning_up: bool = False) -
         (signal.SIGHUP, 129, False),
         (signal.SIGQUIT, 131, False),
         (signal.SIGTERM, 143, True),
+        (signal.SIGINT, 130, True),
     ],
-    ids=["SIGTERM", "SIGHUP", "SIGQUIT", "a second SIGTERM while cleaning up"],
+    ids=[
+        "SIGTERM",
+        "SIGHUP",
+        "SIGQUIT",
+        "a second SIGTERM while cleaning up",
+        "a second Ctrl-C while cleaning up",
+    ],
 )
 def test_sigterm_or_a_closed_terminal_keeps_nothing_like_ctrl_c(signum, code, while_cleaning_up, tmp_path):
     out = tmp_path / "out"
@@ -1452,29 +1463,65 @@ def test_a_stop_after_the_recording_is_complete_lets_the_command_finish(tmp_path
     assert (out / "recording.tgz").exists()
 
 
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGHUP, signal.SIGTERM], ids=lambda s: s.name)
+def test_a_stop_after_the_command_finished_while_python_shuts_down_is_ignored(signum, tmp_path):
+    out = tmp_path / "out"
+    run = run_the_command(out, "", after=f"import os\nos.kill(os.getpid(), {int(signum)})\n")
+    assert run.returncode == 0
+    assert run.stderr == ""
+    assert (out / "recording.tgz").exists()
+
+
+def stopped_at_a_call_after(planted: str, calls: int) -> str:
+    return (
+        "import os, signal, sys\n"
+        "def stop_at_a_later_call():\n"
+        f"    left = {calls}\n"
+        "    def counted(frame, event, arg):\n"
+        "        nonlocal left\n"
+        "        if event == 'call':\n"
+        "            left -= 1\n"
+        "            if left == 0:\n"
+        "                sys.setprofile(None)\n"
+        "                os.kill(os.getpid(), signal.SIGTERM)\n"
+        "    sys.setprofile(counted)\n"
+        "write_archive = cli.write_archive\n"
+        f"{planted}"
+    )
+
+
+ARCHIVE_WRITTEN = (
+    "def planted(out):\n    archive = write_archive(out)\n    stop_at_a_later_call()\n    return archive\n"
+    "cli.write_archive = planted\n"
+)
+ARCHIVE_FAILED = (
+    "def planted(out):\n    stop_at_a_later_call()\n    raise MemoryError\ncli.write_archive = planted\n"
+)
+
+
+@pytest.mark.parametrize("calls", [1, 2])
+@pytest.mark.parametrize(
+    "planted", [ARCHIVE_WRITTEN, ARCHIVE_FAILED], ids=["after the archive is written", "after a failure"]
+)
+def test_a_late_stop_keeps_what_the_command_says_it_keeps(planted, calls, tmp_path):
+    out = tmp_path / "out"
+    run = run_the_command(out, stopped_at_a_call_after(planted, calls))
+    if (out / "recording.tgz").exists():
+        assert run.returncode == 0
+        assert "Attach recording.tgz from that directory to a new issue:" in run.stdout
+        assert run.stderr == ""
+    else:
+        assert run.returncode == 143
+        assert run.stderr == "sparkline-capture stopped. It keeps no partial recording.\n"
+        assert not out.exists()
+
+
 def test_a_hangup_ignored_before_the_command_started_stays_ignored(tmp_path):
     out = tmp_path / "out"
     nohup = "import signal\nsignal.signal(signal.SIGHUP, signal.SIG_IGN)\n"
     run = run_the_command(out, nohup + signalled_while_archiving(signal.SIGHUP))
     assert run.returncode == 0
     assert (out / "recording.tgz").exists()
-
-
-def test_a_second_ctrl_c_while_cleaning_up_still_leaves_nothing(tmp_path, monkeypatch):
-    import sparkline.agent.capture as cli
-
-    raising_on_the_replay(monkeypatch, KeyboardInterrupt())
-    rmtree = shutil.rmtree
-
-    def interrupted(path: Path, *args: Any, **kwargs: Any) -> None:
-        os.kill(os.getpid(), signal.SIGINT)
-        rmtree(path, *args, **kwargs)
-
-    monkeypatch.setattr(cli.shutil, "rmtree", interrupted)
-    out = tmp_path / "out"
-    with pytest.raises(KeyboardInterrupt):
-        capture(recorded(GB10), out, Facts())
-    assert not out.exists()
 
 
 def test_only_the_ngc_pytorch_image_tags_the_agent_looks_for_are_kept(tmp_path):
