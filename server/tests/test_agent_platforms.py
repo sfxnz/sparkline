@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import shutil
 import socket
 from pathlib import Path
 
 import pynvml
 import pytest
-from platforms import GB10, paths_read
+from fastapi.testclient import TestClient
+from platforms import GB10, gb10_without, paths_read
 
+from sparkline.agent.app import create_app
 from sparkline.agent.collectors.net import NetCollector
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import AGENT_VERSION, Collectors
 from sparkline.agent.sampler import Sampler
-from sparkline.agent.sources import RootFs, recorded
+from sparkline.agent.sources import RootFs, Sources, recorded
 from sparkline.common.metrics import flatten
+from sparkline.common.schema import NodeInfo, Sample, Unsupported
 
 
 @pytest.fixture
@@ -74,3 +79,85 @@ def test_a_recording_missing_an_ethtool_stat_loses_only_those_counters(offline, 
         in caplog.messages
     )
     assert "enp1s0f0np0" in {s.name for s in net.collect()["net"]}
+
+
+GOLDEN = json.loads((GB10 / "golden.json").read_text())
+PSI = ("cpu.psi_some", "mem.psi_some", "mem.psi_full")
+
+
+def outside(seen: list[str], recording: Path) -> list[str]:
+    inside = (str(recording) + "/", str(recording.resolve()) + "/")
+    return [p for p in seen if not p.startswith(inside)]
+
+
+def start(src: Sources, tmp: Path) -> tuple[NodeInfo, Sample, Collectors]:
+    cfg = AgentConfig(node_id="gb10", data_dir=str(tmp / "data"))
+    with paths_read() as seen:
+        collectors = Collectors(cfg, src)
+        info = collectors.node_info(cfg)
+        sample = Sampler(cfg.node_id, collectors.ordered(), ring_seconds=10).tick()
+    assert outside(seen, tmp / "gb10") == []
+    return info, sample, collectors
+
+
+def test_a_degraded_box_without_pressure_or_network_files_serves_everything_else(tmp_path):
+    src = gb10_without(tmp_path, "/proc/pressure", "/sys/class/net", "/proc/self/net/dev")
+    cfg = AgentConfig(node_id="gb10", data_dir=str(tmp_path / "data"))
+    with paths_read() as seen:
+        collectors = Collectors(cfg, src)
+        sampler = Sampler(cfg.node_id, collectors.ordered(), ring_seconds=10)
+        sampler.collect_once()
+    assert outside(seen, tmp_path / "gb10") == []
+    with TestClient(create_app(sampler, lambda: collectors.node_info(cfg), "t", manage_sampler=False)) as c:
+        auth = {"Authorization": "Bearer t"}
+        info = c.get("/api/v1/info", headers=auth).json()
+        snap = Sample.model_validate(c.get("/api/v1/snapshot", headers=auth).json())
+
+    assert [u for u in info["unsupported"] if u["metric"] == "net"] == [
+        {
+            "metric": "net",
+            "reason": "The net collector could not start: /sys/class/net: No such file or directory",
+            "kind": "hardware",
+        }
+    ]
+    assert info["net"] == []
+    want = {k: v for k, v in GOLDEN["flat"].items() if not k.startswith("net.") and k not in PSI}
+    assert flatten(snap) == want
+    assert snap.errors == {}
+
+
+def test_a_memory_collector_that_cannot_start_writes_no_mem_keys(tmp_path):
+    info, sample, _ = start(gb10_without(tmp_path, "/proc/meminfo"), tmp_path)
+
+    gap = next(u for u in info.unsupported if u.metric == "mem")
+    assert (gap.kind, gap.reason) == (
+        "hardware",
+        "The memory collector could not start: /proc/meminfo: No such file or directory",
+    )
+    flat = flatten(sample)
+    assert not [k for k in flat if k.startswith("mem.")]
+    assert {k: v for k, v in GOLDEN["flat"].items() if not k.startswith("mem.")} == flat
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads files regardless of their mode")
+def test_a_collector_without_read_permission_is_declared_unsupported_for_access(offline, tmp_path):
+    src = gb10_without(tmp_path)
+    (tmp_path / "gb10/root/proc/diskstats").chmod(0)
+    info, sample, collectors = start(src, tmp_path)
+
+    assert [u for u in info.unsupported if u.metric in ("disk", "fs")] == [
+        Unsupported(metric="disk", reason="Needs read access to /proc/diskstats", kind="access"),
+        Unsupported(metric="fs", reason="Needs read access to /proc/diskstats", kind="access"),
+    ]
+    assert info.disks == [] and sample.disk == [] and sample.fs == []
+    assert collectors.gpu is not None and sample.gpu
+
+
+def test_a_collector_that_cannot_start_logs_its_traceback_at_debug(offline, tmp_path, caplog):
+    caplog.set_level(logging.DEBUG, logger="sparkline.agent.info")
+    cfg = AgentConfig(node_id="gb10", data_dir=str(tmp_path / "data"))
+    Collectors(cfg, gb10_without(tmp_path, "/sys/class/net"))
+
+    net = [r for r in caplog.records if r.getMessage().startswith("collector net could not start")]
+    assert [(r.levelno, r.exc_info is None) for r in net] == [(logging.WARNING, True), (logging.DEBUG, False)]
+    assert net[1].exc_info and isinstance(net[1].exc_info[1], FileNotFoundError)

@@ -22,6 +22,12 @@ describe('flatten', () => {
     expect(got.has('temp.nvme.composite')).toBe(false);
     expect(got.has('fs.data_models.used_pct')).toBe(false); // total 0
   });
+
+  it('writes no mem.* keys for the agent\'s placeholder reading (total 0), like the Python flatten()', () => {
+    const got = Object.fromEntries(flatten({ ...s, mem: expected.mem_placeholder.mem }));
+    expect(got).toEqual(expected.mem_placeholder.flatten);
+    expect(Object.keys(got).filter((k) => k.startsWith('mem.'))).toEqual([]);
+  });
 });
 
 describe('mountKey', () => {

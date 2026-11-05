@@ -1,6 +1,6 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ClusterState, NodeState, Sample } from '../../lib/types';
+import type { ClusterState, NodeInfo, NodeState, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { useEvents } from '../../store/events';
@@ -88,5 +88,43 @@ describe('Overview', () => {
     useCluster.getState().setHello(cluster([node('spark1')]));
     render(<Overview />);
     expect(screen.getByText('No alerts. Everything’s quiet.')).toBeInTheDocument();
+  });
+
+  describe('unified memory tile', () => {
+    const reason = 'The memory collector could not start: /proc/meminfo: No such file or directory';
+    const info = (id: string, memTotal: number, unsupported: NodeInfo['unsupported'] = []) =>
+      ({ node_id: id, hostname: id, gpus: [], net: [], cores: [], disks: [], sensors: [], mem_total: memTotal, unsupported }) as unknown as NodeInfo;
+    const placeholder = { total: 0, available: 0, used: 0, free: 0, anon: 0, cache: 0, shmem: 0, kernel: 0, other: 0, swap_total: 0, swap_used: 0 } as Sample['mem'];
+    const push = (id: string, mem?: Sample['mem']) => {
+      liveStore.removeNode(id);
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: id, ts: now, ...(mem ? { mem } : {}) });
+    };
+    const tile = () => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText('Unified memory in use').closest('.stat');
+
+    it('says memory is not reported, not that every node is reporting, when the only node has no memory reading', () => {
+      useCluster.getState().setHello(cluster([node('mem1', { info: info('mem1', 0, [{ metric: 'mem', reason, kind: 'hardware' }]) })]));
+      act(() => {
+        push('mem1', placeholder);
+        liveStore.flush();
+      });
+      render(<Overview />);
+      expect(tile()).toHaveTextContent('Not reported by this hardware');
+      expect(tile()).not.toHaveTextContent('reporting');
+    });
+
+    it('names the node it leaves out of the total', () => {
+      const memTotal = (sampleJson as unknown as Sample).mem.total;
+      useCluster.getState().setHello(
+        cluster([node('mem1', { info: info('mem1', memTotal) }), node('mem2', { info: info('mem2', 0, [{ metric: 'mem', reason, kind: 'hardware' }]) })]),
+      );
+      act(() => {
+        push('mem1');
+        push('mem2', placeholder);
+        liveStore.flush();
+      });
+      render(<Overview />);
+      expect(tile()).toHaveTextContent('of 121.7 GiB');
+      expect(tile()).toHaveTextContent('excl. mem2');
+    });
   });
 });

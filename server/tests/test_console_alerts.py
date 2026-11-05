@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from platforms import gb10_without
 
+from sparkline.agent.config import AgentConfig
+from sparkline.agent.info import Collectors
+from sparkline.agent.sampler import Sampler
 from sparkline.common.schema import AlertRule, Event, Problem
 from sparkline.console.alerts import DEFAULT_RULES, AlertEngine, validate_rules
 from sparkline.console.demo import DemoModel
@@ -96,6 +100,15 @@ def test_memory_below_threshold(eng):
     feed(engine, T0, 31, avail=6 * 2**30)
     ev = next(e for e in sink.events if e.rule_id == "mem_available_low")
     assert ev.detail == "6.0 GiB for 30 s (threshold 8.0 GiB)"
+
+
+def test_a_memory_collector_that_cannot_start_fires_no_memory_alert(eng, tmp_path):
+    engine, sink = eng
+    collectors = Collectors(AgentConfig(node_id="spark2"), gb10_without(tmp_path, "/proc/meminfo"))
+    sampler = Sampler("spark2", collectors.ordered(), ring_seconds=10)
+    for i in range(61):
+        engine.evaluate_sample("spark2", sampler.tick().model_copy(update={"ts": T0 + i}))
+    assert [e.rule_id for e in sink.events if e.rule_id.startswith("mem_")] == []
 
 
 def test_per_core_clock_alert_text_carries_units(eng):

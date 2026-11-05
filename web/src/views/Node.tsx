@@ -1,4 +1,4 @@
-import { Clock, RotateCw, ServerOff, Unplug } from 'lucide-react';
+import { CircleSlash, Clock, RotateCw, ServerOff, Unplug } from 'lucide-react';
 import { m } from 'motion/react';
 import { Suspense } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
@@ -14,6 +14,7 @@ import { Tabs } from '../design/components/Tabs';
 import { springs } from '../design/motion';
 import { useNow } from '../design/useNow';
 import { api } from '../lib/api';
+import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
 import type { NodeState } from '../lib/types';
 import { serverNow, useCluster } from '../store/cluster';
@@ -25,6 +26,10 @@ import { ChartPanelSkeleton, StatSkeleton } from './placeholders';
 import './node/parts/node.css';
 import './views.css';
 
+// The metric prefix each tab's data comes from. When the agent declares one unsupported (its collector could not
+// start), the tab says why instead of drawing the agent's placeholder zeros.
+const TAB_METRIC: Partial<Record<NodeTab, string>> = { memory: 'mem', cpu: 'cpu', network: 'net', storage: 'disk', processes: 'procs' };
+
 export default function Node() {
   const params = useParams<{ id: string; tab?: string }>();
   const [, navigate] = useLocation();
@@ -33,6 +38,9 @@ export default function Node() {
   const tabLabel = NODE_TABS.find((t) => t.id === tab)?.label ?? 'Summary';
   const known = useCluster((s) => s.cluster !== null);
   const exists = useCluster((s) => id in s.nodes);
+  const info = useCluster((s) => s.nodes[id]?.info);
+  const tabMetric = TAB_METRIC[tab];
+  const gap = tabMetric ? notReported(info, tabMetric) : null;
 
   if (known && !exists) return <NodeNotFound id={id} />;
 
@@ -45,7 +53,15 @@ export default function Node() {
         {exists ? (
           <Suspense fallback={<TabSkeleton label={tabLabel} tab={tab} />}>
             <ErrorBoundary what={`The ${tabLabel} tab`} resetKey={`${id}/${tab}`}>
-              <TabComponent nodeId={id} />
+              {gap ? (
+                <div className="view">
+                  <Panel label={`${tabLabel} not reported`}>
+                    <EmptyState icon={CircleSlash} title={gap.label}>{gap.detail}</EmptyState>
+                  </Panel>
+                </div>
+              ) : (
+                <TabComponent nodeId={id} />
+              )}
             </ErrorBoundary>
           </Suspense>
         ) : (

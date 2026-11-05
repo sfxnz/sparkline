@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
-import type { ClusterState, NodeState } from '../lib/types';
+import type { ClusterState, NodeInfo, NodeState } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import Node, { NodeNotice } from './Node';
@@ -95,6 +95,32 @@ describe('Node page', () => {
     expect(screen.getByText('There is no node called “nope”')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'spark1' })).toHaveAttribute('href', '/node/spark1');
     expect(screen.getByRole('link', { name: 'Go to Overview' })).toBeInTheDocument();
+  });
+
+  it('says why a tab is not reported when its collector could not start, and leaves the other tabs and Thermals alone', async () => {
+    const info = {
+      hostname: 'spark2', agent_version: '0', boot_time: 0, gpus: [], net: [], cores: [], disks: [], sensors: [],
+      unsupported: [
+        { metric: 'mem', reason: 'The memory collector could not start: /proc/meminfo: No such file or directory', kind: 'hardware' },
+        { metric: 'disk', reason: 'Needs read access to /proc/diskstats', kind: 'access' },
+        { metric: 'temp', reason: 'The thermal collector could not start: /sys/class/hwmon: No such file or directory', kind: 'hardware' },
+      ],
+    } as unknown as NodeInfo;
+    useCluster.getState().setHello(hello([{ ...base, info }]));
+    const loc = renderAt('/node/spark2/memory');
+    expect(screen.getByRole('region', { name: 'Memory not reported' })).toHaveTextContent('Not reported by this hardware');
+    expect(screen.getByText('The memory collector could not start: /proc/meminfo: No such file or directory')).toBeInTheDocument();
+    expect(screen.queryByText('Memory of spark2')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Storage' }));
+    expect(loc.history.at(-1)).toBe('/node/spark2/storage');
+    expect(screen.getByRole('region', { name: 'Storage not reported' })).toHaveTextContent('Needs read access to /proc/diskstats');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'CPU' }));
+    expect(await screen.findByText('CPU of spark2')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: /^Thermals/ }));
+    expect(await screen.findByText('Thermals of spark2')).toBeInTheDocument();
   });
 
   it('selects the tab from the URL, defaults to Summary, and moves with the arrow keys', async () => {

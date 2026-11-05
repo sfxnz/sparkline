@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from sparkline.common.metrics import flatten, mount_key
@@ -11,6 +14,8 @@ from sparkline.common.schema import (
     Sample,
     TempSample,
 )
+
+WEB_FIXTURES = Path(__file__).parents[2] / "web" / "src" / "test" / "fixtures"
 
 
 def make_sample() -> Sample:
@@ -76,3 +81,14 @@ def test_flatten_omits_none():
 
 def test_mount_key():
     assert mount_key("/") == "root" and mount_key("/data/models") == "data_models"
+
+
+def test_flatten_matches_the_fixture_the_web_flatten_is_tested_against():
+    sample = Sample.model_validate_json((WEB_FIXTURES / "sample.json").read_text())
+    expected = json.loads((WEB_FIXTURES / "flatten.expected.json").read_text())
+    assert flatten(sample) == pytest.approx(expected["flatten"])
+    placeholder = expected["mem_placeholder"]
+    got = flatten(sample.model_copy(update={"mem": MemSample.model_validate(placeholder["mem"])}))
+    assert got == pytest.approx(placeholder["flatten"])
+    assert [k for k in got if k.startswith("mem.")] == []
+    assert {path: mount_key(path) for path in expected["mount_key"]} == expected["mount_key"]

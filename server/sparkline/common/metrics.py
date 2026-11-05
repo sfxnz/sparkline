@@ -41,11 +41,11 @@ def flatten(s: Sample) -> dict[str, float]:
         put(p + "thermal_capped_pct", g.thermal_capped_pct)
 
     m = s.mem
-    for name in ("used", "available", "gpu", "anon", "cache", "shmem", "kernel", "other", "swap_used"):
-        put(f"mem.{name}", getattr(m, name))
-    put("mem.psi_some", m.psi_some)
-    put("mem.psi_full", m.psi_full)
-    if m.total:
+    if m.total:  # 0 only in the agent's placeholder for a memory collector with no reading yet
+        for name in ("used", "available", "gpu", "anon", "cache", "shmem", "kernel", "other", "swap_used"):
+            put(f"mem.{name}", getattr(m, name))
+        put("mem.psi_some", m.psi_some)
+        put("mem.psi_full", m.psi_full)
         put("mem.used_pct", 100.0 * m.used / m.total)
 
     c = s.cpu
