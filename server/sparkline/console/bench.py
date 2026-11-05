@@ -200,7 +200,7 @@ def validate_gpu_index(
             raise BenchError(
                 400,
                 Problem(
-                    message=f"The CPU side of {spec.name} runs on no GPU",
+                    message=f"{spec.name} measured from the CPU uses no GPU",
                     cause=f"GPU {i} was chosen for {n}, and the run measures from the CPU only",
                     fix=f"Leave out the GPU for {n}, or measure from the GPU",
                 ),

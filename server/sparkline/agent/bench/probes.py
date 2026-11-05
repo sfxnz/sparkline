@@ -140,7 +140,7 @@ def _not_responding(node: str, index: int, reason: str) -> Problem:
 def _no_uuid(node: str, index: int) -> Problem:
     return Problem(
         message=f"GPU {index} on {node} has no UUID",
-        cause="NVML reported no UUID for it, and Docker needs one to give a benchmark this GPU alone",
+        cause="NVML reported no UUID for it, and Sparkline gives a benchmark container one GPU by its UUID",
         fix=_nvidia_smi_fix(node),
     )
 
@@ -213,7 +213,9 @@ def gpu_problem(node: str, info: NodeInfo) -> Problem | None:
 
 def unused_gpu(bench: str, gpu_bench: bool, asked: int) -> Problem:
     return Problem(
-        message=f"The CPU side of {bench} runs on no GPU" if gpu_bench else f"{bench} does not run on a GPU",
+        message=f"{bench} measured from the CPU uses no GPU"
+        if gpu_bench
+        else f"{bench} does not run on a GPU",
         cause=f"The request chose GPU {asked}",
         fix="Start it from the Sparkline console, which offers a GPU only to runs that use one",
     )

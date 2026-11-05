@@ -744,7 +744,7 @@ async def test_start_refuses_a_gpu_the_benchmark_cannot_run_on(tmp_path):
         (req(bench_id="cpu-throughput", gpu_index=0), "CPU throughput by core type does not run on a GPU"),
         (
             req(bench_id="mem-bandwidth", params={"side": "cpu"}, gpu_index=1),
-            "The CPU side of Unified memory bandwidth runs on no GPU",
+            "Unified memory bandwidth measured from the CPU uses no GPU",
         ),
     ]
     for rq, msg in cases:
