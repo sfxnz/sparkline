@@ -24,6 +24,8 @@ export class NodeBuffer {
   /** Bumped by every live sample and seed, from one counter for all nodes, so a node removed and added again never
    *  repeats a revision. */
   revision = 0;
+  /** The node left online and has sent no live sample since (LiveStore.endRun). */
+  runEnded = false;
   /** Ts of the last live sample each GPU index answered in (answeredIndexes). Its rings alone cannot tell: some
    *  readings that answer (pstate, the graphics and video clocks) have no ring. */
   readonly gpuSeen = new Map<number, number>();
@@ -121,6 +123,7 @@ export class LiveStore {
     // procs is null on ticks between process refreshes: keep the last known list.
     b.latest = sample.procs == null && b.latest?.procs ? { ...sample, procs: b.latest.procs } : sample;
     for (const i of answeredIndexes(sample)) b.gpuSeen.set(i, sample.ts);
+    b.runEnded = false;
     b.revision = ++this.revisions;
     this.markDirty(sample.node_id, flat.keys());
   }
@@ -161,6 +164,16 @@ export class LiveStore {
     this.markDirty(resp.node_id, keys);
   }
 
+  /** The node's status left online. Until its next live sample, its GPUs' silence is unknown, so a node coming back is
+   *  not flagged on the samples from before it left. */
+  endRun(node: string): void {
+    const b = this.nodes.get(node);
+    if (!b || b.runEnded) return;
+    b.runEnded = true;
+    b.revision = ++this.revisions;
+    this.markDirty(node, []);
+  }
+
   removeNode(node: string): void {
     this.nodes.delete(node);
   }
@@ -176,10 +189,11 @@ export class LiveStore {
 
   /** Seconds GPU `index` has sent nothing, up to the latest live sample: since its last fresh reading (live or seeded;
    *  HELD_READINGS do not count) or the last live sample it answered in. A gap of `gapS` or more between ticks starts
-   *  the count again. The walk stops once the silence reaches `atMost`. Null before any live sample. */
+   *  the count again. The walk stops once the silence reaches `atMost`. Null before any live sample, and from endRun to
+   *  the next one. */
   gpuSilentFor(node: string, index: number, gapS = Infinity, atMost = gapS): number | null {
     const b = this.nodes.get(node);
-    if (!b?.latest) return null;
+    if (!b?.latest || b.runEnded) return null;
     const prefix = `gpu${String(index)}.`;
     const held = HELD_READINGS.map((f) => gpuKey(index, f));
     const rings = [...b.values].filter(([k]) => k.startsWith(prefix) && !held.includes(k)).map(([, ring]) => ring);

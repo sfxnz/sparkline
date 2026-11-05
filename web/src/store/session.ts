@@ -35,6 +35,7 @@ export function dispatch(msg: WsMessage): void {
       liveStore.pushSample(msg.sample);
       break;
     case 'node_status':
+      if (msg.node.status !== 'online') liveStore.endRun(msg.node.node_id);
       useCluster.getState().setNode(msg.node);
       break;
     case 'event':
