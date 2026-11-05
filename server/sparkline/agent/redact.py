@@ -720,12 +720,13 @@ class _Harvest:
         elif category == "serial number" and len(value) >= LONG_NAME:
             form = "anywhere"
         self._pairs(form, [value], [placeholder], category)
-        if category == "hostname" and len(value) >= LONG_NAME:
+        spelled_like_a_hostname = category in ("hostname", "domain name")
+        if spelled_like_a_hostname and len(value) >= LONG_NAME:
             self._pairs("anywhere", [value], [placeholder], category)
         if not value.isascii():
             forms = [*_idna_forms(value), *_normal_forms(value)]
             self._pairs(form, forms, [placeholder] * len(forms), category)
-        if category == "hostname" and "-" in value:
+        if spelled_like_a_hostname and "-" in value:
             self._pairs(form, [value.replace("-", "--")], [placeholder.replace("-", "--")], category)
             self._pairs(form, [value.replace("-", "_")], [placeholder], category)
 
