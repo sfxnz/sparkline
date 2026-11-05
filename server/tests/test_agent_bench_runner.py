@@ -98,8 +98,12 @@ def node_info() -> NodeInfo:
 RTX = "NVIDIA RTX 6000 Ada Generation"
 
 
+def ws_uuid(index: int) -> str:
+    return f"GPU-00000000-0000-0000-0000-{index:012x}"
+
+
 def workstation_info(lost: dict[int, str] | None = None) -> NodeInfo:
-    gpus = [GpuInfo(index=i, name=RTX, uuid=f"GPU-{i}", compute_capability="8.9") for i in range(4)]
+    gpus = [GpuInfo(index=i, name=RTX, uuid=ws_uuid(i), compute_capability="8.9") for i in range(4)]
     gaps = [Unsupported(metric=f"gpu{i}", reason=why) for i, why in (lost or {}).items()]
     return node_info().model_copy(update={"gpus": gpus, "unsupported": gaps})
 
@@ -684,7 +688,11 @@ GPU_RUNS = [
 @pytest.mark.parametrize(("bench_id", "params", "role"), GPU_RUNS)
 @pytest.mark.parametrize(
     ("info", "asked", "gpus"),
-    [(workstation_info, 2, "device=2"), (workstation_info, None, "device=0"), (node_info, None, "all")],
+    [
+        (workstation_info, 2, f"device={ws_uuid(2)}"),
+        (workstation_info, None, f"device={ws_uuid(0)}"),
+        (node_info, None, "all"),
+    ],
     ids=["ws-chosen", "ws-default", "gb10"],
 )
 async def test_a_gpu_container_sees_the_chosen_gpu_on_a_workstation_and_every_gpu_on_gb10(
@@ -716,7 +724,7 @@ async def test_a_workstation_run_records_its_gpu_and_that_gpus_telemetry(tmp_pat
         latest=lambda: workstation_sample(time.time()),
     )
     md = (await finish(r, req(bench_id="thermal-soak", gpu_index=2))).metadata
-    assert (md["gpu_index"], md["gpu_uuid"], md["gpu_name"]) == (2, "GPU-2", RTX)
+    assert (md["gpu_index"], md["gpu_uuid"], md["gpu_name"]) == (2, ws_uuid(2), RTX)
     assert md["start"]["sm_mhz"] == md["end"]["sm_mhz"] == 1200.0
 
 
@@ -725,7 +733,7 @@ async def test_only_a_gpu_benchmark_on_a_node_with_a_choice_records_gpu_index(tm
     assert "gpu_index" not in (await finish(gb10, req(bench_id="thermal-soak"))).metadata
     ws = make_runner(tmp_path, {"cpu-throughput": fake("ok")}, info=workstation_info)
     md = (await finish(ws, req(bench_id="cpu-throughput"))).metadata
-    assert "gpu_index" not in md and md["gpu_uuid"] == "GPU-0"
+    assert "gpu_index" not in md and md["gpu_uuid"] == ws_uuid(0)
 
 
 async def test_start_refuses_a_gpu_the_benchmark_cannot_run_on(tmp_path):

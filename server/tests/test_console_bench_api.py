@@ -450,8 +450,9 @@ LOST = {
     "cause": "NVML: Unknown Error",
     "fix": "Check nvidia-smi",
 }
-WS1_OPTIONS = [{"index": 0, "name": "RTX", "problem": LOST}] + [
-    {"index": i, "name": "RTX", "problem": None} for i in (1, 2, 3)
+WS1_UUID = [f"GPU-00000000-0000-0000-0000-{i:012x}" for i in range(4)]
+WS1_OPTIONS = [{"index": 0, "name": "RTX", "uuid": WS1_UUID[0], "problem": LOST}] + [
+    {"index": i, "name": "RTX", "uuid": WS1_UUID[i], "problem": None} for i in (1, 2, 3)
 ]
 
 
@@ -509,7 +510,7 @@ def test_a_run_on_a_chosen_gpu_sends_it_to_that_agent_and_compares_only_with_tha
     assert r.status_code == 201, r.json()
     run = BenchRun.model_validate(r.json())
     assert run.gpu_index == {"w1": 3}
-    assert json.loads(run.params_key) == {**run.params, "@gpu_index": {"w1": 3}}
+    assert json.loads(run.params_key) == {**run.params, "@gpu_uuid": {"w1": WS1_UUID[3]}}
     ((_, w1),), ((_, s1),) = gpus["apps"]["w1"].state.bench_starts, gpus["apps"]["s1"].state.bench_starts
     assert (w1["gpu_index"], s1["gpu_index"]) == (3, None)
     assert finished(gpus, run.id)["gpu_index"] == {"w1": 3}
@@ -519,6 +520,7 @@ def test_a_run_without_a_choice_goes_to_the_first_gpu_that_responds(gpus):
     r = gpu_run(gpus, ["w1"])
     assert r.status_code == 201, r.json()
     assert r.json()["gpu_index"] == {"w1": 1}
+    assert json.loads(r.json()["params_key"])["@gpu_uuid"] == {"w1": WS1_UUID[1]}
     ((_, req),) = gpus["apps"]["w1"].state.bench_starts
     assert req["gpu_index"] == 1
     finished(gpus, r.json()["id"])
@@ -541,6 +543,14 @@ def test_a_gpu_the_run_cannot_use_is_refused_before_any_agent_hears_of_it(gpus, 
     r = gpu_run(gpus, ["w1", "s1"], gpu_index)
     assert r.status_code == 400 and r.json()["problem"]["message"] == message
     assert all(not a.state.bench_starts for a in gpus["apps"].values())
+
+
+def test_a_gb10_run_keeps_the_baseline_key_it_had_before_gpu_choice(gpus):
+    r = gpu_run(gpus, ["s1"])
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(r.json())
+    assert run.gpu_index == {} and run.params_key == bench_mod.params_key("gpu-matmul", run.params)
+    finished(gpus, run.id)
 
 
 def test_a_node_without_a_gpu_choice_says_to_update_its_agent(gpus):

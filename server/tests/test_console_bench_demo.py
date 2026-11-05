@@ -115,6 +115,7 @@ def test_a_ws1_thermal_soak_on_gpu_2_records_gpu_2(mixed):
     md = run.metadata["nodes"]["ws1"]
     gpu2 = next(g for g in FLEETS["mixed"]["ws1"](T0, 1.0).info.gpus if g.index == 2)
     assert run.gpu_index == {"ws1": 2} and (md["gpu_index"], md["gpu_uuid"]) == (2, gpu2.uuid)
+    assert json.loads(run.params_key) == {**run.params, "@gpu_uuid": {"ws1": gpu2.uuid}}
     assert "ws1.gpu2.sm_mhz" in run.series and not any(k.startswith("ws1.gpu0.") for k in run.series)
     assert {"sm_mhz_mean", "temp_max_c", "throttled_pct"} <= {x.metric for x in run.results}
 

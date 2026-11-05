@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from test_agent_bench_runner import RTX, amd_info, mac_info, node_info, workstation_info
+from test_agent_bench_runner import RTX, amd_info, mac_info, node_info, workstation_info, ws_uuid
 
 from sparkline.agent.bench.probes import GpuTarget, gpu_options, gpu_problem, resolve_gpu
 from sparkline.common.schema import GpuOption, Problem
@@ -17,7 +17,9 @@ def test_gb10_and_other_single_gpu_nodes_offer_no_choice():
 
 
 def test_a_workstation_offers_every_nvidia_gpu_by_index_and_says_why_a_lost_one_is_blocked():
-    assert gpu_options("ws1", workstation_info()) == [GpuOption(index=i, name=RTX) for i in range(4)]
+    assert gpu_options("ws1", workstation_info()) == [
+        GpuOption(index=i, name=RTX, uuid=ws_uuid(i)) for i in range(4)
+    ]
     lost = gpu_options("ws1", workstation_info({2: "NVML: Unknown Error"}))
     assert [(o.index, o.problem is None) for o in lost] == [(0, True), (1, True), (2, False), (3, True)]
     assert lost[2].problem == Problem(
@@ -76,9 +78,45 @@ def test_gb10_runs_on_all_its_gpus_whatever_was_asked():
 def test_a_workstation_pins_the_asked_gpu_or_the_first_that_responds():
     ws1 = workstation_info({0: "NVML: Unknown Error"})
     asked = resolve_gpu("ws1", ws1, 2)
-    assert isinstance(asked, GpuTarget) and (asked.gpu.index, asked.docker_gpus) == (2, "device=2")
+    assert isinstance(asked, GpuTarget) and (asked.gpu.index, asked.docker_gpus) == (
+        2,
+        f"device={ws_uuid(2)}",
+    )
     first = resolve_gpu("ws1", ws1, None)
-    assert isinstance(first, GpuTarget) and (first.gpu.index, first.docker_gpus) == (1, "device=1")
+    assert isinstance(first, GpuTarget) and (first.gpu.index, first.docker_gpus) == (
+        1,
+        f"device={ws_uuid(1)}",
+    )
+
+
+def without_uuid(info, *indices: int):
+    gpus = [g.model_copy(update={"uuid": None}) if g.index in indices else g for g in info.gpus]
+    return info.model_copy(update={"gpus": gpus})
+
+
+def test_a_workstation_gpu_without_a_uuid_cannot_be_pinned_so_is_blocked_and_refused():
+    ws1 = without_uuid(workstation_info({0: "NVML: Unknown Error"}), 1)
+    opts = {o.index: o for o in gpu_options("ws1", ws1)}
+    assert opts[1].uuid is None and opts[1].problem is not None and opts[1].problem.fix == NVIDIA_SMI
+    assert [i for i, o in opts.items() if o.problem is None] == [2, 3]
+    refused = resolve_gpu("ws1", ws1, 1)
+    assert isinstance(refused, Problem) and refused == opts[1].problem
+    first = resolve_gpu("ws1", ws1, None)
+    assert isinstance(first, GpuTarget) and first.docker_gpus == f"device={ws_uuid(2)}"
+
+
+def test_a_workstation_where_no_gpu_can_be_pinned_cannot_run_gpu_benchmarks():
+    ws1 = without_uuid(workstation_info({0: "NVML: Unknown Error"}), 1, 2, 3)
+    p = gpu_problem("ws1", ws1)
+    assert p is not None and p.fix == NVIDIA_SMI and "GPU 0: NVML: Unknown Error" in p.cause
+    assert resolve_gpu("ws1", ws1, None) == p
+
+
+def test_gb10_without_a_uuid_still_runs_on_all_its_gpus():
+    gb10 = without_uuid(node_info(), 0)
+    assert gpu_problem("spark1", gb10) is None and gpu_options("spark1", gb10) == []
+    target = resolve_gpu("spark1", gb10, None)
+    assert isinstance(target, GpuTarget) and target.docker_gpus == "all"
 
 
 @pytest.mark.parametrize(
