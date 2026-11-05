@@ -9,6 +9,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
+from fnmatch import fnmatchcase
 from ipaddress import IPv4Address, IPv6Address, IPv6Network
 from typing import Any, Literal
 
@@ -129,10 +130,12 @@ GENERIC_NAMES = {
     "home",
     "sparkline-capture",
 }
-# Labels that the ICANN section of the Public Suffix List has as registries under country codes, as in co.uk,
-# com.au, edu.cn and ac.jp, and ts.net from its private section: https://publicsuffix.org/list/
+# A domain's organization is the label before the longest of these public suffixes that leaves a label
+# before it. Each registry label is a suffix under any two-letter country code, as in co.uk or edu.cn. This
+# is a short list, not the Public Suffix List.
 REGISTRY_LABELS = {
     "ac",
+    "biz",
     "co",
     "com",
     "edu",
@@ -140,15 +143,25 @@ REGISTRY_LABELS = {
     "gob",
     "gov",
     "govt",
+    "info",
     "ltd",
+    "me",
     "mil",
     "ne",
     "net",
+    "nhs",
+    "nom",
     "or",
     "org",
     "plc",
+    "sch",
 }
-PRIVATE_SUFFIXES = {"ts.net"}
+PUBLIC_SUFFIXES = {
+    "ts.net",
+    "k12.[a-z][a-z].us",
+    "*.sch.uk",
+    *(f"{label}.[a-z][a-z]" for label in REGISTRY_LABELS),
+}
 OS_RELEASE = ("/etc/os-release", "/usr/lib/os-release")
 OS_RELEASE_KEYS = {"PRETTY_NAME"}
 SYSTEM_BIN = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin", "/snap/bin"}
@@ -740,16 +753,18 @@ class _Harvest:
         self._pairs("hex", values, placeholders, category)
 
 
-def _ends_in_a_two_label_suffix(labels: list[str]) -> bool:
-    second, top = [label.lower() for label in labels[-2:]] if len(labels) >= 2 else ("", "")
-    country = len(top) == 2 and top.isalpha()
-    return f"{second}.{top}" in PRIVATE_SUFFIXES or (country and second in REGISTRY_LABELS)
+def _public_suffix_labels(labels: list[str]) -> int:
+    for n in (3, 2):
+        end = ".".join(labels[-n:]).lower()
+        if len(labels) > n and any(fnmatchcase(end, suffix) for suffix in PUBLIC_SUFFIXES):
+            return n
+    return 0
 
 
 def _domain_names(domain: str) -> list[str]:
     labels = domain.split(".")
-    if _ends_in_a_two_label_suffix(labels):
-        owned = labels[:-2]
+    if n := _public_suffix_labels(labels):
+        owned = labels[:-n]
         parents = [".".join(labels[i:]) for i in range(len(owned))]
         return parents + owned[-1:] + [label for label in owned if len(label) >= NAME_PART]
     parents = [".".join(labels[i:]) for i in range(max(len(labels) - 1, 1))]
