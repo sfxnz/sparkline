@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -11,9 +12,11 @@ from test_agent_bench_runner import node_info, workstation_info
 from sparkline.agent.bench import probes
 from sparkline.agent.bench.specs import (
     REGISTRY,
+    Bench,
     GpuMatmulParams,
     LlmInferenceParams,
     LlmShowcaseParams,
+    Params,
     StorageParams,
     bench_params,
     check_base_url,
@@ -55,15 +58,40 @@ def test_registry_ids_and_specs():
     assert REGISTRY["gpu-matmul"].requires == ("docker", "pytorch_image")
 
 
-def test_estimates_from_gb10_rates_only_hold_on_gb10_and_off_it_only_guard_the_timeout():
-    on_gb10_rates = {"gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio"}
-    on_gb10_rates |= {"llm-inference", "llm-showcase", "tool-eval"}
+ON_GB10_RATES = {"gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio"}
+ON_GB10_RATES |= {"llm-inference", "llm-showcase", "tool-eval"}
+
+
+def at_max(b: Bench) -> Params:
+    ps = bench_params(b.params)
+    raw: dict[str, Any] = {p.name: p.max for p in ps if p.max is not None}
+    raw |= {p.name: p.choices for p in ps if p.type == "multi"}
+    for p in ps:
+        choices = p.choices if p.type == "enum" else [False, True] if p.type == "bool" else None
+        if choices:
+            raw[p.name] = max(choices, key=lambda c, n=p.name: b.estimate(b.validate({**raw, n: c})))
+    return b.validate(raw)
+
+
+def test_estimates_from_gb10_rates_only_hold_on_gb10():
     for b in REGISTRY.values():
         s = b.estimate(b.params())
         gb10, ws = b.estimate_on(b.params(), node_info()), b.estimate_on(b.params(), workstation_info())
         assert gb10.seconds == ws.seconds == s and gb10.grounded, b.id
-        assert ws.grounded == (b.id not in on_gb10_rates), b.id
-        assert ws.timeout_s == (s * 3 + 120 if ws.grounded else s * 10 + 600), b.id
+        assert ws.grounded == (b.id not in ON_GB10_RATES), b.id
+
+
+@pytest.mark.parametrize("bench_id", IDS)
+def test_off_gb10_a_run_on_gb10_rates_gets_the_gb10_timeout_and_at_most_an_hour_more(bench_id):
+    b = REGISTRY[bench_id]
+    for p in (b.params(), at_max(b)):
+        guard = b.estimate(p) * 3 + 120
+        assert b.estimate_on(p, node_info()).timeout_s == guard, p
+        off = b.estimate_on(p, workstation_info()).timeout_s
+        if bench_id in ON_GB10_RATES:
+            assert min(guard, 3600) <= off - guard <= 3600, p
+        else:
+            assert off == guard, p
 
 
 def test_bench_params_derivation():

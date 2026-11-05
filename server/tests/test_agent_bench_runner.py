@@ -784,7 +784,8 @@ async def test_off_gb10_a_run_estimated_from_gb10_rates_reports_no_estimate(tmp_
     assert (md["est_duration_s"], md["timeout_s"]) == (round(est, 1), est * 3 + 120)
     ws = make_runner(tmp_path, {"storage-fio": fake("ok"), "thermal-soak": fake("ok")}, info=workstation_info)
     md = (await finish(ws, req(bench_id="storage-fio"))).metadata
-    assert "est_duration_s" in md and md["est_duration_s"] is None and md["timeout_s"] == est * 10 + 600
+    guard = est * 3 + 120
+    assert "est_duration_s" in md and md["est_duration_s"] is None and md["timeout_s"] == guard * 2
     soak = (await finish(ws, req("t", "thermal-soak", params={"minutes": 1}))).metadata
     assert soak["est_duration_s"] == round(specs.est_soak(specs.ThermalSoakParams(minutes=1)), 1)
 
