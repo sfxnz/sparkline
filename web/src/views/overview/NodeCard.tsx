@@ -32,7 +32,8 @@ import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Fr
 import { memSplit, topGpuProcess, workloadName } from './model';
 import { spanPhrase } from '../shared/live';
 import { sameGap, useTotalFrom, useTotalGap } from '../shared/totalGap';
-import { everyGpuLost, gpuProcessesGap, nodeGpuKey } from '../../lib/gpu';
+import { useNodeGpuGap } from '../node/parts/useGpuGap';
+import { gpuProcessesGap, nodeGpuKey } from '../../lib/gpu';
 import { gpuKey } from '../../lib/metrics';
 
 interface CardCtx {
@@ -237,21 +238,22 @@ function UtilRing() {
   const { id, freshness, info } = useContext(Ctx);
   const util = useLiveValue(id, nodeGpuKey(info, 'util'), 1);
   const from = useTotalFrom(id, 'util');
-  const lost = everyGpuLost(info);
-  if (util === null && freshness === 'waiting' && !lost) return <Skeleton width={RING} height={RING} radius={RING / 2} />;
-  const said = lost ? lost.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%${from ? `, from ${from}` : ''}`;
+  const utilGap = useNodeGpuGap(id, 'util');
+  const gap = util === null ? utilGap : null;
+  if (util === null && freshness === 'waiting' && !gap) return <Skeleton width={RING} height={RING} radius={RING / 2} />;
+  const said = gap ? gap.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%${from ? `, from ${from}` : ''}`;
   return (
-    <RingGauge value={lost ? null : util === null ? null : util / 100} size={RING} stroke={8} label={`GPU utilisation ${said}`}>
+    <RingGauge value={util === null ? null : util / 100} size={RING} stroke={8} label={`GPU utilisation ${said}`}>
       <span className="ov-ring">
-        {lost ? (
-          <span className="ov-ring__gap">{lost.label}</span>
+        {gap ? (
+          <span className="ov-ring__gap">{gap.label}</span>
         ) : (
           <span className="ov-ring__value">
             <AnimatedNumber value={util} format={intText} />
             {util !== null ? <span className="ov-ring__unit">%</span> : null}
           </span>
         )}
-        {from && !lost ? <span className="ov-ring__label ov-ring__label--from">{from}</span> : <span className="ov-ring__label">GPU</span>}
+        {from && !gap ? <span className="ov-ring__label ov-ring__label--from">{from}</span> : <span className="ov-ring__label">GPU</span>}
       </span>
     </RingGauge>
   );
@@ -280,7 +282,7 @@ function Temperature() {
   const { id, info } = useContext(Ctx);
   const temp = useLiveValue(id, nodeGpuKey(info, 'temp_c'), 1);
   const gpu = useAcross([id], () => headroomGpu(info, temp, (i) => liveStore.latestValue(id, gpuKey(i, 'temp_c'))), shallowEqual, `${String(temp)}|${info?.node_id ?? ''}`);
-  const gap = useTotalGap(id, 'temp_c');
+  const gap = useNodeGpuGap(id, 'temp_c');
   const from = useTotalFrom(id, 'temp_c');
   const room = tempRoom(gpu.temp, gpu.slowdown);
   const why = room ? <span className="visually-hidden"> to the {gpu.slowdown} °C slowdown threshold</span> : null;
@@ -312,7 +314,7 @@ function Power() {
   const { id, info } = useContext(Ctx);
   const key = nodeGpuKey(info, 'power_w');
   const power = useLiveValue(id, key, 0.1);
-  const gap = useTotalGap(id, 'power_w');
+  const gap = useNodeGpuGap(id, 'power_w');
   const peak = useAcross(
     [id],
     () => {

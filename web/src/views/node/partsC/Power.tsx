@@ -14,7 +14,7 @@ import { paths } from '../../../app/routes';
 import { serverNow, useCluster } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
 import { counterDelta, energyKeys, formatEnergyAuto, formatEnergyCost, formatKwh, historyEnergy } from '../../shared/energy';
-import { useTotalGap } from '../../shared/totalGap';
+import { useNodeGpuGap } from '../parts/useGpuGap';
 import { powerStats } from './energy';
 import { useRangeHistory, type Loadable } from '../../shared/live';
 import { useLiveDerived, useSpanEnergy } from './hooks';
@@ -58,7 +58,7 @@ export function PowerPanel({ nodeId, info, range, stale, updatedAt, store = live
   const span = RANGE_SHORT[range];
   const limit = powerLimit(info);
   const powerReason = notReported(info, key);
-  const nowReason = useTotalGap(nodeId, 'power_w');
+  const nowReason = useNodeGpuGap(nodeId, 'power_w');
 
   return (
     <Panel

@@ -10,14 +10,15 @@ import { Unsupported } from '../../design/components/Unsupported';
 import { interconnectGap, notReported } from '../../lib/capabilities';
 import { bytesParts, DASH, formatAgo, formatPercent, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { nodeGpuKey } from '../../lib/gpu';
-import type { NodeTotal, ReadingTotal } from '../../lib/metrics';
+import type { ReadingTotal } from '../../lib/metrics';
 import type { NodeInfo } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { useNodeDisplayStatus } from '../../store/attention';
 import { liveStore } from '../../store/live';
 import { useTick } from '../alerts/parts/tick';
-import { useTotalFrom, useTotalGap } from '../shared/totalGap';
+import { useTotalFrom } from '../shared/totalGap';
+import { useNodeGpuGap } from '../node/parts/useGpuGap';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from '../overview/hooks';
 import { cx7Throughput, gbpsParts, interconnectNames } from './model';
 
@@ -44,9 +45,9 @@ function LiveMetric({ node, metric, parts, quantum, info }: { node: string; metr
   return <BigValue value={value} parts={parts} />;
 }
 
-function LiveTotal({ node, field, parts, quantum, info }: { node: string; field: NodeTotal; parts: Formatter; quantum: number; info: NodeInfo | null }) {
+function LiveTotal({ node, field, parts, quantum, info }: { node: string; field: ReadingTotal; parts: Formatter; quantum: number; info: NodeInfo | null }) {
   const value = useLiveValue(node, nodeGpuKey(info, field), quantum);
-  const gap = useTotalGap(node, field);
+  const gap = useNodeGpuGap(node, field);
   if (gap) return <Unsupported gap={gap} />;
   return <BigValue value={value} parts={parts} />;
 }
