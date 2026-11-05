@@ -47,6 +47,7 @@ class Recording:
 class User:
     name: str
     home: str
+    full_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -81,7 +82,8 @@ RENAME = (
     "A name of this machine is also an ordinary word in what the agent reads, so replacing the name "
     "would change a reading and show the name. Give that name another value for the run, then capture "
     "again. For the hostname, run sudo hostname sparkline-capture and set it back after. For a Docker "
-    "container, run docker rename. For a user name, capture from another account. Before you attach, "
+    "container, run docker rename. For a user name, capture from another account. For the full name of an "
+    "account, run sudo chfn -f '' <account> and set it back after. Before you attach, "
     "search the recording for the old name, for example with grep -ri, and read the mount points in "
     "root/proc/self/mounts and the statvfs keys in host.json. Or open an issue and paste these lines."
 )
@@ -122,6 +124,7 @@ SYSTEM_BIN = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/
 ELSEWHERE = "<elsewhere>"
 DISK = re.compile(r"/dev/(?:nvme\d+n\d+(?:p\d+)?|(?:sd|vd|xvd|hd)[a-z]+\d*|mmcblk\d+(?:p\d+)?|md\d+|dm-\d+)")
 SERIAL_ANYWHERE = 8
+FULL_NAME_PART = 4
 
 _HEX = "[0-9A-Fa-f]"
 Form = Literal["hex", "name", "host", "anywhere", "ipv4", "ipv6", "path"]
@@ -144,10 +147,11 @@ _NOT_ADJACENT: dict[Form, tuple[str, str]] = {
     "ipv6": (r"(?<![0-9A-Fa-f:])", r"(?![0-9A-Fa-f:])"),
     "path": (r"(?<![\w.])", r"(?![\w.-])"),
 }
-_NAME_PLACEHOLDER = re.compile(r"(?:host|user|serial|container|domain)\d+|<(?:org|model)\d+>")
+_NAME_PLACEHOLDER = re.compile(r"(?:host|user|person|serial|container|domain)\d+|<(?:org|model)\d+>")
 _NAME_FORMATS = {
     "hostname": "host{}",
     "user": "user{}",
+    "full name": "person{}",
     "serial number": "serial{}",
     "container name": "container{}",
     "domain name": "domain{}",
@@ -691,6 +695,12 @@ class _Harvest:
         self._pairs("hex", values, placeholders, category)
 
 
+def _full_name_spellings(user: User) -> list[str]:
+    parts = user.full_name.split()
+    whole = [user.full_name.strip()] if len(parts) > 1 else []
+    return whole + [p for p in parts if len(p) >= FULL_NAME_PART and p.lower() != user.name.lower()]
+
+
 def _harvest(rec: Recording, facts: Facts, ph: Placeholders) -> list[Spelling]:
     h = _Harvest(ph)
     tree = rec.tree
@@ -702,6 +712,8 @@ def _harvest(rec: Recording, facts: Facts, ph: Placeholders) -> list[Spelling]:
             top = "/Users/" if user.home.startswith("/Users/") else "/home/"
             placeholder = f"{top}<{ph.name('user', user.name)}>"
             h.spellings.append(Spelling("path", user.home.rstrip("/"), placeholder, "home directory"))
+        for name in _full_name_spellings(user):
+            h.name("full name", name)
     addrs = rec.host["net_if_addrs"]
     for entries in addrs.values():
         for a in entries:
