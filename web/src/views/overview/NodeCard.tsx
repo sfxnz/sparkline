@@ -297,7 +297,7 @@ function Temperature() {
   const toRowWhenNarrow = !!flag || (!!headroom && !!from);
   const footer = flag || headroom || from ? (
     <>
-      {flag ?? (headroom && toRowWhenNarrow ? <span className="ov-stat__to-row">{headroom}</span> : headroom)}
+      {flag ?? (headroom ? <span className={toRowWhenNarrow ? 'ov-stat__to-row' : 'ov-stat__headroom'}>{headroom}</span> : null)}
       {name ? <span className="ov-stat__who ov-stat__to-row">{name}</span> : null}
       {from ? <span className="ov-stat__who">{from}</span> : null}
     </>
@@ -305,7 +305,11 @@ function Temperature() {
   return (
     <>
       <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />
-      {toRowWhenNarrow && !gap ? <p className="ov-card__flag">{flag ?? headroom}{name ? <span className="ov-stat__who">{name}</span> : null}</p> : null}
+      {gap ? null : toRowWhenNarrow ? (
+        <p className="ov-card__flag">{flag ?? headroom}{name ? <span className="ov-stat__who">{name}</span> : null}</p>
+      ) : headroom ? (
+        <p className="ov-card__headroom">{headroom}</p>
+      ) : null}
     </>
   );
 }
