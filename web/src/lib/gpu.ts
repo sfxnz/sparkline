@@ -95,7 +95,7 @@ export function everyGpuSilent(info: NodeInfo | null | undefined, s: Sample | nu
     const gap = lostGpu(info, g.index);
     return gap ? [`GPU ${String(g.index)}: ${gap.detail}`] : [];
   });
-  return { kind: 'hardware', label: 'Not responding', detail: sentence([...lost, ...silentClauses(info, s, silentFor)].join('; ')) };
+  return { kind: 'hardware', label: 'Not responding', detail: sentence([...lost, ...silentClauses(info, s, silentFor)].join('; ')), silent: true };
 }
 
 /** Why the node's figure of `field` (nodeGpuKey) is missing from this sample, when no declared gap explains it. */
@@ -107,7 +107,7 @@ export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, fi
     const [only = 0] = gpuIndexes(info);
     const reading = answeredGpu(s, only);
     if (!reading) return notResponding(info, s, only, silentFor);
-    return gpuValue(reading, field) === null ? { kind: 'hardware', label: 'No total', detail: `GPU ${String(only)} sent no ${READING[field]} reading this tick.` } : null;
+    return gpuValue(reading, field) === null ? { kind: 'hardware', label: 'No total', detail: `GPU ${String(only)} sent no ${READING[field]} reading this tick.`, silent: true } : null;
   }
   if (gpuTotals(s)[field] !== null) return null;
   const silent = everyGpuSilent(info, s, silentFor);
@@ -122,7 +122,7 @@ export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, fi
     clauses.push(`A GPU backend failed this tick (${s.errors.gpu})`);
   }
   const why = GPU_TOTALS[field].every ? ', so a sum would understate' : '';
-  return { kind: 'hardware', label: 'No total', detail: `${clauses.join('; ')}${why}.` };
+  return { kind: 'hardware', label: 'No total', detail: `${clauses.join('; ')}${why}.`, silent: true };
 }
 
 /** Why the node's GPU `field` has no value: every GPU silent (everyGpuSilent), declared not reported, or dropped out
@@ -192,7 +192,7 @@ export function silentBackends(info: NodeInfo | null | undefined, errors: string
 export function notResponding(info: NodeInfo | null | undefined, s: Sample | null, index: number, silentFor?: SilentFor): NotReported | null {
   if (!s || !gpuAt(info?.gpus, index) || answeredGpu(s, index) || lostGpu(info, index)) return null;
   const silent = silentBackends(info, s.errors.gpu, answeredIndexes(s)).find((b) => b.gpus.some((g) => g.index === index));
-  return { kind: 'hardware', label: 'Not responding', detail: sentence(silentClause([index], silent?.message ?? null, silentFor)) };
+  return { kind: 'hardware', label: 'Not responding', detail: sentence(silentClause([index], silent?.message ?? null, silentFor)), silent: true };
 }
 
 /** "1", "1 and 2", "1, 2 and 3". */

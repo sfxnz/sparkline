@@ -5,6 +5,9 @@ export interface NotReported {
   kind: UnsupportedKind;
   label: string;
   detail: string;
+  /** The node can report this but went quiet (a lost GPU, a GPU that sent no reading, a backend that failed), as
+   *  opposed to a gap the node declares. */
+  silent?: true;
 }
 
 const LABEL: Record<UnsupportedKind, string> = {
@@ -33,7 +36,7 @@ function moreSpecific(a: Unsupported, b: Unsupported): boolean {
 /** Why the agent cannot read GPU `index` at all, though its backend sees it (a lost GPU): its `gpu<i>` entry. */
 export function lostGpu(info: NodeInfo | null | undefined, index: number): NotReported | null {
   const u = info?.unsupported.find((x) => x.metric === `gpu${String(index)}`);
-  return u ? { ...describeGap(u), label: 'Not responding' } : null;
+  return u ? { ...describeGap(u), label: 'Not responding', silent: true } : null;
 }
 
 export function notReported(info: NodeInfo | null | undefined, key: string): NotReported | null {
@@ -61,14 +64,19 @@ export function interconnectGap(info: NodeInfo | null | undefined): NotReported 
   return gap && (gap.kind !== 'agent' || (info?.net ?? []).some((n) => n.role === 'interconnect')) ? gap : null;
 }
 
-/** One gap that holds for every node in `gaps` (display order). Nodes that share a kind and reason keep it. Otherwise
- *  the tooltip names each node's reason, one line per node, under the label the nodes share or a neutral one. */
+/** One gap that holds for every node in `gaps` (display order). Nodes that declare the same kind and reason keep it.
+ *  Otherwise, and for nodes that went quiet, the tooltip names each node's reason, one line per node. The label is the
+ *  one the nodes share; else "Not responding" when every node went quiet, "Not reported on any node" when every node
+ *  declares the gap, and "No total" for a mix, which claims neither. */
 export function gapAcross(gaps: readonly (readonly [string, NotReported])[]): NotReported | null {
   const first = gaps[0]?.[1];
   if (!first) return null;
-  if (gaps.every(([, g]) => g.kind === first.kind && g.detail === first.detail)) return first;
+  const silent = gaps.filter(([, g]) => g.silent).length;
+  const same = gaps.every(([, g]) => g.kind === first.kind && g.detail === first.detail);
+  if (same && (gaps.length === 1 || !first.silent)) return first;
   const kind = ACTIONABLE.find((k) => gaps.some(([, g]) => g.kind === k)) ?? first.kind;
-  return { kind, label: gaps.every(([, g]) => g.label === first.label) ? first.label : 'Not reported on any node', detail: gaps.map(([id, g]) => `${id}: ${g.detail}`).join('\n') };
+  const label = gaps.every(([, g]) => g.label === first.label) ? first.label : silent === gaps.length ? 'Not responding' : silent ? 'No total' : 'Not reported on any node';
+  return { kind, label, detail: gaps.map(([id, g]) => `${id}: ${g.detail}`).join('\n'), ...(silent === gaps.length ? { silent: true } : {}) };
 }
 
 export function notReportedByHardware(reason: string): NotReported {
