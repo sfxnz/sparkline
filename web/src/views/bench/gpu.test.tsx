@@ -368,6 +368,19 @@ describe('a run on a chosen GPU', () => {
     expect(screen.getByText('Expected total').nextElementSibling).toHaveTextContent(/^≈ /);
   });
 
+  it('says why it gives no time left, naming only the nodes that are not DGX Sparks', () => {
+    const progress = () => screen.getByRole('region', { name: 'Progress' });
+    const { unmount } = show(live({ id: 'r-ws1', nodes: ['ws1'], gpu_index: { ws1: 2 }, node_states: metaOf('ws1', { est_duration_s: null }) }));
+    expect(within(progress()).getByText('Sparkline estimates run time from DGX Spark rates, and ws1 is not a DGX Spark.')).toBeInTheDocument();
+    unmount();
+    const both = { ...metaOf('spark1', { est_duration_s: 120 }), ...metaOf('ws1', { est_duration_s: null }) };
+    const second = show(live({ id: 'r-both', nodes: ['spark1', 'ws1'], gpu_index: { ws1: 2 }, node_states: both }));
+    expect(within(progress()).getByText('Sparkline estimates run time from DGX Spark rates, and ws1 is not a DGX Spark.')).toBeInTheDocument();
+    second.unmount();
+    show(live({ id: 'r-spark1', node_states: metaOf('spark1', { est_duration_s: 120 }) }));
+    expect(within(progress()).queryByText(/DGX Spark/)).toBeNull();
+  });
+
   it('gives no time left in the list of runs in progress either', () => {
     useBench.setState({ runs: { a: live({ id: 'a', nodes: ['ws1'], gpu_index: { ws1: 2 }, node_states: metaOf('ws1', { est_duration_s: null }) }), b: live({ id: 'b', node_states: metaOf('spark1', { est_duration_s: 120 }) }) } });
     home('/benchmarks');

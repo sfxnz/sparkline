@@ -46,6 +46,7 @@ import {
   soakStats,
   splitDescription,
   toForm,
+  unestimatedRun,
   unitText,
   validateParams,
   valueWithUnit,
@@ -669,6 +670,12 @@ describe('run estimate', () => {
   it('is unknown when an agent reports none, never the GB10 catalog figure', () => {
     const states = { spark1: st('spark1', { est_duration_s: 120 }), ws1: st('ws1', { est_duration_s: null }) };
     expect(runEstimate(run({ id: 'd', status: 'running', nodes: ['spark1', 'ws1'], node_states: states }), MATMUL)).toBeNull();
+  });
+  it('names the nodes it has no estimate for, from their agents or the catalog', () => {
+    const spec = { ...WS_MATMUL, no_estimate: ['ws2'] };
+    const states = { spark1: st('spark1', { est_duration_s: 120 }), ws1: st('ws1', { est_duration_s: null }) };
+    expect(unestimatedRun(run({ id: 'h', status: 'running', nodes: ['spark1', 'ws1', 'ws2'], node_states: states }), spec)).toEqual(['ws1', 'ws2']);
+    expect(unestimatedRun(run({ id: 'i', status: 'running', node_states: { spark1: states.spark1 } }), spec)).toEqual([]);
   });
   it('is unknown from the start on a node the catalog gives no estimate for, and kept on the others', () => {
     const spec = { ...WS_MATMUL, no_estimate: ['ws1'] };
