@@ -319,6 +319,15 @@ describe('judging what the CPU side of memory bandwidth competes with', () => {
     expect(screen.getByText('ws2 CPUs are mostly idle (11%).')).toBeInTheDocument();
     expect(screen.getByText('spark1 is currently serving DeepSeek-V4.1-Flash-EXL3 at 62% GPU; results will be lower and the workload will slow down.')).toBeInTheDocument();
   });
+
+  it('judges the GPU on a node that is not a GB10 when its GPU keeps its memory in system RAM', () => {
+    const thor = { ...GB10, node_id: 'thor1', hostname: 'thor1', gpus: GB10.gpus.map((g) => ({ ...g, name: 'NVIDIA Thor', memory: 'unified' as const })) };
+    cluster([{ info: thor, sample: { ...GB10_SAMPLE, node_id: 'thor1' } }]);
+    render(<ConfigureDialog spec={{ ...MEMBW, availability: { thor1: null } }} open onClose={noop} onRun={noop} initialNodes={['thor1']} />);
+    side('CPU');
+    review();
+    expect(screen.getByText('thor1 is currently serving DeepSeek-V4.1-Flash-EXL3 at 62% GPU; results will be lower and the workload will slow down.')).toBeInTheDocument();
+  });
 });
 
 describe('a node that cannot run GPU benchmarks', () => {
