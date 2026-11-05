@@ -8,7 +8,7 @@ serving the production build, and drive it with headless Chromium.
 | What | Command | Output |
 |---|---|---|
 | Memory soak | `SOAK_MINUTES=1440 npm run soak` (default 60 min) | `perf/soak.csv`, `perf/soak.svg`, exit 1 on an upward trend |
-| Frame budget | `npm run perf:frames` (`--seconds 60 --throttle 1,4`) | table: fps, frame-time percentiles, long tasks, main-thread % |
+| Frame budget | `npm run perf:frames` (`--seconds 60 --throttle 1,4`) | table: fps, app rAF callbacks/s, frame-time percentiles, long tasks, main-thread % |
 | Initial load | `npm run perf:load` (`--runs 5`) | table: first contentful paint, overview with live numbers |
 | Startup bundle | `npm run perf:bundle` (`--budget-kb 200`) | gzip size of everything a cold load fetches before rendering |
 
@@ -118,6 +118,13 @@ Fixed:
 5. **Live charts polled every frame.** Each chart kept a requestAnimationFrame loop running to check whether it had
    scrolled half a pixel, which made Chromium run a full main-thread frame at 60 Hz. The loop now sleeps until the
    next half-pixel step, on a grid shared by all charts. Wall-mode main thread at 4x dropped from 21.8% to 9.6%.
+6. **AnimatedNumber springs ran on after the text settled.** Motion's rest thresholds are absolute (0.5 in the
+   value's units), so a spring over bytes ran for about a second after a sub-pixel change, and a new sample arrived
+   before it ended. The Memory tab ran a frame loop for as long as it was open. The spring now runs over progress
+   from 0 to 1, and a change that leaves the text the same does not animate. `app rAF/s` counts the app's own frame
+   callbacks, apart from the script's tick, which keeps Chromium producing frames anyway. Median of 5 alternating
+   30 s runs per side at 1x: Memory tab 42.2 → 12.1 callbacks/s (the rest are the charts' half-pixel steps), wall
+   mode 49.9 → 23.6, overview and node GPU unchanged.
 
 ## Initial load
 

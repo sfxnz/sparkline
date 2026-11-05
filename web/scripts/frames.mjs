@@ -2,7 +2,7 @@
 // long task (PerformanceObserver 'longtask') over a window, at 1x and 4x CPU throttling (CDP; 4x approximates a
 // mid-range laptop on a fast desktop). Uses the production build behind a throwaway demo console (3 nodes).
 //
-//   npm run build && node scripts/frames.mjs [--seconds 60] [--throttle 1,4] [--views overview,gpu,cpu,wall,bench]
+//   npm run build && node scripts/frames.mjs [--seconds 60] [--throttle 1,4] [--views overview,gpu,cpu,memory,wall,bench]
 //                                            [--port 9711] [--dist dist] [--json out.json] [--css 'extra rules (A/B)']
 import { writeFileSync } from 'node:fs';
 import { chromium } from '@playwright/test';
@@ -10,7 +10,7 @@ import { navigate, option, quantile, startBench, startDemo, waitLive } from './l
 
 const seconds = Number(option('seconds', 60));
 const throttles = String(option('throttle', '1,4')).split(',').map(Number);
-const viewNames = String(option('views', 'overview,gpu,cpu,wall,bench')).split(',');
+const viewNames = String(option('views', 'overview,gpu,cpu,memory,wall,bench')).split(',');
 const port = Number(option('port', process.env.PERF_PORT ?? 9711));
 const dist = option('dist', process.env.PERF_DIST);
 const jsonOut = option('json', null);
@@ -18,7 +18,7 @@ const css = option('css', null);
 
 /** Installed before any app code: frame deltas and long tasks, reset per measurement window. */
 function instrument() {
-  const perf = { frames: [], long: [], loaf: [] };
+  const perf = { frames: [], long: [], loaf: [], appRaf: 0 };
   window.__perf = perf;
   new PerformanceObserver((list) => {
     for (const e of list.getEntries()) perf.long.push(e.duration);
@@ -34,13 +34,15 @@ function instrument() {
   } catch {
     /* unsupported */
   }
+  const nativeRaf = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (cb) => nativeRaf((t) => { perf.appRaf++; cb(t); });
   let last = 0;
   const tick = (t) => {
     if (last) perf.frames.push(t - last);
     last = t;
-    requestAnimationFrame(tick);
+    nativeRaf(tick);
   };
-  requestAnimationFrame(tick);
+  nativeRaf(tick);
 }
 
 const demo = await startDemo({ port, ...(dist ? { dist } : {}) });
@@ -61,6 +63,7 @@ try {
     overview: '/',
     gpu: '/node/spark1/gpu',
     cpu: '/node/spark1/cpu',
+    memory: '/node/spark1/memory',
     wall: '/wall',
     bench: async () => {
       // A long simulated thermal soak keeps the run view streaming for the whole window.
@@ -75,7 +78,7 @@ try {
       const path = typeof v === 'function' ? await v() : v;
       await navigate(page, path);
       await page.waitForTimeout(5000); // route change, lazy chunks, first data
-      await page.evaluate(() => { const p = window.__perf; p.frames.length = p.long.length = p.loaf.length = 0; });
+      await page.evaluate(() => { const p = window.__perf; p.frames.length = p.long.length = p.loaf.length = 0; p.appRaf = 0; });
       const m0 = await mainThread();
       await page.waitForTimeout(seconds * 1000);
       const raw = await page.evaluate(() => window.__perf);
@@ -87,6 +90,7 @@ try {
         throttle: rate,
         frames: f.length,
         fps: +(f.length / seconds).toFixed(1),
+        appRafPerS: +(raw.appRaf / seconds).toFixed(1),
         p50: +quantile(f, 0.5).toFixed(1),
         p95: +quantile(f, 0.95).toFixed(1),
         p99: +quantile(f, 0.99).toFixed(1),
@@ -112,9 +116,9 @@ try {
   await demo.stop();
 }
 
-console.log('\n| view | CPU | fps | p50 ms | p95 ms | p99 ms | frames > 25 ms | frames > 50 ms | long tasks (max ms) | main thread % (script, layout+style) |');
-console.log('|---|---|---|---|---|---|---|---|---|---|');
+console.log('\n| view | CPU | fps | app rAF/s | p50 ms | p95 ms | p99 ms | frames > 25 ms | frames > 50 ms | long tasks (max ms) | main thread % (script, layout+style) |');
+console.log('|---|---|---|---|---|---|---|---|---|---|---|');
 for (const r of results) {
-  console.log(`| ${r.view} | ${r.throttle}x | ${r.fps} | ${r.p50} | ${r.p95} | ${r.p99} | ${r.dropped}% | ${r.over50}% | ${r.longTasks} (${r.longMax}) | ${r.mainPct} (${r.scriptPct}, ${r.layoutStylePct}) |`);
+  console.log(`| ${r.view} | ${r.throttle}x | ${r.fps} | ${r.appRafPerS} | ${r.p50} | ${r.p95} | ${r.p99} | ${r.dropped}% | ${r.over50}% | ${r.longTasks} (${r.longMax}) | ${r.mainPct} (${r.scriptPct}, ${r.layoutStylePct}) |`);
 }
 if (jsonOut) writeFileSync(jsonOut, JSON.stringify(results, null, 2));

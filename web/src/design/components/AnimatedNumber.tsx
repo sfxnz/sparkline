@@ -47,19 +47,19 @@ export function AnimatedNumber({ value, format, className, scale }: Props) {
     const from = shown.current;
     const rescaled = scaleRef.current !== scale;
     scaleRef.current = scale;
-    if (rescaled || !animate || target === null || from === null || from === target || prefersReducedMotion() || document.hidden) {
+    if (rescaled || !animate || target === null || from === null || format(from) === format(target) || prefersReducedMotion() || document.hidden) {
       shown.current = target;
       setText(el, target === null ? DASH : format(target));
       return;
     }
-    // Clamped to the interval being crossed: a spring's slight overshoot must never show a value that was never
-    // measured (e.g. "-4 B/s" while a throughput settles at 0).
-    const lo = Math.min(from, target);
-    const hi = Math.max(from, target);
-    const controls = animate(from, target, {
+    // The spring runs over progress from 0 to 1, not over the value: motion's rest thresholds are absolute (0.5 in
+    // the value's units), so a spring over bytes would keep its frame loop running long after the text settles.
+    // Progress is clamped to the interval being crossed: a spring's slight overshoot must never show a value that
+    // was never measured (e.g. "-4 B/s" while a throughput settles at 0).
+    const controls = animate(0, 1, {
       ...springs.snappy,
-      onUpdate: (v) => {
-        const c = Math.min(hi, Math.max(lo, v));
+      onUpdate: (p) => {
+        const c = from + (target - from) * Math.min(1, Math.max(0, p));
         shown.current = c;
         setText(el, formatRef.current(c));
       },
