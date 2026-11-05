@@ -471,3 +471,24 @@ def test_rules_an_older_console_saved_after_a_downgrade_keep_this_consoles_choic
         "gpu_power_cap": "gpu*.throttle_mask",
     }
     assert loaded["mem_pressure"].threshold == 20.0
+
+
+def started_with_rule_metrics(tmp_path, row: object) -> Cluster:
+    store = Store(tmp_path / "console.sqlite")
+    store.kv_set(
+        "alert_rules", [{**r.model_dump(), "metric": GPU0_METRICS.get(r.id, r.metric)} for r in DEFAULT_RULES]
+    )
+    store.kv_set("alert_rule_metrics", row)
+    return Cluster(store, Hub(), ConsoleSettings())
+
+
+@pytest.mark.parametrize("row", [["gpu_temp_high", "gpu_throttle"], "gpu_temp_high=gpu0.temp_c", 7])
+def test_a_rule_metrics_row_that_is_not_an_object_loads_the_saved_rules_as_if_it_were_absent(tmp_path, row):
+    assert started_with_rule_metrics(tmp_path, row).alerts.rules == DEFAULT_RULES
+
+
+def test_a_rule_metrics_entry_that_is_not_a_metric_loads_its_rule_as_if_it_had_none(tmp_path):
+    row = {"gpu_temp_high": 5, "gpu_throttle": ["gpu*.throttle_mask"], "gpu_temp_critical": "gpu0.temp_c"}
+    assert started_with_rule_metrics(tmp_path, row).alerts.rules == edited(
+        DEFAULT_RULES, "gpu_temp_critical", metric="gpu0.temp_c"
+    )
