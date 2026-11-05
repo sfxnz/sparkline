@@ -566,6 +566,69 @@ def test_a_name_that_is_a_word_of_a_kept_reading_refuses(plants, tmp_path):
     assert "a word in what the agent reads" in refusal_of(copy, tmp_path / "out")
 
 
+def an_interface(name: str) -> Callable[[Path], None]:
+    def plant(copy: Path) -> None:
+        root = copy / "root"
+        net = root / "sys/devices/virtual/net" / name
+        net.mkdir(parents=True)
+        (net / "operstate").write_text("up\n")
+        (root / "sys/class/net" / name).symlink_to(f"../../devices/virtual/net/{name}")
+
+    return plant
+
+
+def in_free_text(text: str) -> Callable[[Path], None]:
+    def plant(copy: Path) -> None:
+        with_free_text(copy, text)
+
+    return plant
+
+
+FIXED_WORDS = {
+    "hostname dev, the /dev/ of a disk and the net/dev file": ("hostname", "dev", "zorbhost"),
+    "hostname pytorch, the NGC image name": ("hostname", "pytorch", "zorbhost"),
+    "container pytorch, the NGC image name": ("container", "pytorch", "zorbcontainer"),
+}
+
+
+def captured_with(kind: str, name: str, tmp: Path) -> dict[str, bytes]:
+    copy = gb10_copy(tmp / name)
+    if kind == "hostname":
+        named("hostname", name)(copy)
+    else:
+        in_a_container(name, "python3", b"python3\0train.py\0")(copy)
+    report = capture_of(copy, tmp / name / "out")
+    assert report.differences == []
+    return tree(tmp / name / "out")
+
+
+@pytest.mark.parametrize(("kind", "name", "no_word"), FIXED_WORDS.values(), ids=FIXED_WORDS)
+def test_a_name_that_is_only_a_fixed_word_of_the_recording_records_as_a_name_that_is_no_word(
+    kind, name, no_word, tmp_path
+):
+    assert captured_with(kind, name, tmp_path) == captured_with(kind, no_word, tmp_path)
+
+
+STILL_A_WORD = {
+    "hostname dev, also a mount point": [named("hostname", "dev"), mounted_at("/mnt/dev")],
+    "hostname dev, also in the CPU description": [named("hostname", "dev"), in_free_text("dev board")],
+    "hostname dev, also an interface name": [named("hostname", "dev"), an_interface("dev")],
+    "hostname pytorch, also in the CPU description": [
+        named("hostname", "pytorch"),
+        in_free_text("pytorch rig"),
+    ],
+    "container pytorch, also its process name": [in_a_container("pytorch", "pytorch", b"pytorch\0")],
+}
+
+
+@pytest.mark.parametrize("plants", STILL_A_WORD.values(), ids=STILL_A_WORD)
+def test_a_name_that_is_a_fixed_word_and_appears_anywhere_else_refuses(plants, tmp_path):
+    copy = gb10_copy(tmp_path)
+    for plant in plants:
+        plant(copy)
+    assert "a word in what the agent reads" in refusal_of(copy, tmp_path / "out")
+
+
 def test_a_name_that_is_a_word_of_the_captures_own_text_leaves_that_text_alone(tmp_path):
     copy = gb10_copy(tmp_path)
     named("hostname", "other")(copy)
