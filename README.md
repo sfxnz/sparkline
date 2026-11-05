@@ -126,8 +126,8 @@ The console picks up the agent token from the agent's config on the same host.
 | ![A tool-calling evaluation running: the score so far, the scenario board and the latest verdicts](docs/screenshots/bench-tool-eval-dark.png) | ![A finished tool-calling evaluation: score, rating, safety gate and share graded, light theme](docs/screenshots/bench-tool-eval-score-light.png) |
 | ![A node whose agent is unreachable: cause, fix and retry](docs/screenshots/offline-state-dark.png) | ![Wall mode at 1920×1080](docs/screenshots/wall-dark.png) |
 
-The memory, CPU, network and offline screenshots come from a real two-node cluster (taken while spark2's agent
-was stopped). The others come from `--demo`, which can show load, a thermal episode and benchmark runs on demand.
+Every screenshot comes from `--demo`, which can show load, a thermal episode, an offline node and benchmark runs
+on demand.
 The concurrency-stream and tool-calling screenshots show its simulated runs: no model was involved.
 
 ## Features
@@ -200,7 +200,7 @@ turns benchmarks back off.
 |---|---|
 | `--enable-benchmarks` | Allow benchmarks: Docker access for the agent and lifted CPU/memory caps. Asks for confirmation. |
 | `--nodes LIST` | Console: the agents to poll, as `id=url` pairs, e.g. `spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750`. |
-| `--peers LIST` | Agent: the far ends of the ConnectX-7 rails as `id=ip` pairs, e.g. `spark2=10.100.8.2,spark2=10.100.9.2`. Written to `peers` in a new config. |
+| `--peers LIST` | Agent: the far ends of the ConnectX-7 rails as `id=ip` pairs, e.g. `spark2=10.0.8.2,spark2=10.0.9.2`. Written to `peers` in a new config. |
 | `--agent-token TOKEN` | Use this token instead of generating one (or set `SPARKLINE_AGENT_TOKEN`). |
 | `--bind ADDR`, `--port N` | Written into a new config. Defaults are `auto` and 9750 (agent) or 9700 (console). |
 | `--prefix DIR` | Code and venv location (default `/opt/sparkline`). |
@@ -281,7 +281,7 @@ Restart the service after editing: `sudo systemctl restart sparkline-agent` (or 
 | `retention_10s_days` | `7` | Days of 10-second rollups. |
 | `retention_60s_days` | `30` | Days of 1-minute rollups. |
 | `procs_interval_s` | `5` | Process table refresh. It is the most expensive collector. |
-| `peers` | `{}` | Far ends of the ConnectX-7 rails, so the link can be named. Example: `{ spark2 = ["10.100.8.2", "10.100.9.2"] }` |
+| `peers` | `{}` | Far ends of the ConnectX-7 rails, so the link can be named. Example: `{ spark2 = ["10.0.8.2", "10.0.9.2"] }` |
 | `include_virtual` | `false` | Also show virtual and Wi-Fi interfaces (docker0, tailscale0, ...). |
 | `allow_public` | `false` | Allow binding a public address or 0.0.0.0. Avoid. |
 | `bench_image` | `nvcr.io/nvidia/pytorch:26.07-py3` | Container image for GPU benchmarks. It must already be pulled. |

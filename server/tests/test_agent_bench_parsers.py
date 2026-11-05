@@ -54,7 +54,7 @@ def test_perftest_bw_mib_units_converted():
 
 
 def test_perftest_missing_table():
-    assert parse_perftest_bw("Couldn't connect to 10.100.8.2:18515\n") is None
+    assert parse_perftest_bw("Couldn't connect to 203.0.113.2:18515\n") is None
     assert parse_perftest_lat("ethernet_read_keys: Couldn't read remote address\n") is None
 
 
@@ -122,8 +122,8 @@ def _gid(root: Path, dev: str, i: int, gid: str, kind: str | None) -> None:
 
 
 def test_roce_v2_ipv4_gid(tmp_path):
-    ll = "fe80:0000:0000:0000:4ebb:47ff:fe7e:8173"
-    v4 = "0000:0000:0000:0000:0000:ffff:0a64:0801"
+    ll = "fe80:0000:0000:0000:0000:00ff:fe00:0006"
+    v4 = "0000:0000:0000:0000:0000:ffff:cb00:7101"
     _gid(tmp_path, "rocep1s0f1", 0, ll, "IB/RoCE v1")
     _gid(tmp_path, "rocep1s0f1", 1, ll, "RoCE v2")
     _gid(tmp_path, "rocep1s0f1", 2, v4, "IB/RoCE v1")

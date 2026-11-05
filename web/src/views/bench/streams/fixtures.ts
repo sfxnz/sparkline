@@ -356,7 +356,7 @@ export function llmRun(p: Partial<BenchRun> & { live?: Record<string, unknown>; 
   return run({
     id: 'llm1',
     bench_id: 'llm-inference',
-    params: { base_url: 'http://10.20.20.48:8000', model: '', api: 'chat', prompt_tokens: 512, max_tokens: 128, concurrency: 8, requests: 8, sweep: false },
+    params: { base_url: 'http://10.0.0.48:8000', model: '', api: 'chat', prompt_tokens: 512, max_tokens: 128, concurrency: 8, requests: 8, sweep: false },
     status,
     finished_ts: status === 'running' || status === 'queued' ? null : 1_759_750_092,
     progress: status === 'running' ? 0.4 : 1,
@@ -400,7 +400,7 @@ export const SHOWCASE_SPEC: BenchSpec = {
   ],
 };
 
-export const showcaseParams = (streams: number, maxTokens = 512) => ({ base_url: 'http://10.20.20.48:8000', model: '', streams, prompt_type: 'text', max_tokens: maxTokens, fill_to_max: true, temperature: 0.7, thinking: false });
+export const showcaseParams = (streams: number, maxTokens = 512) => ({ base_url: 'http://10.0.0.48:8000', model: '', streams, prompt_type: 'text', max_tokens: maxTokens, fill_to_max: true, temperature: 0.7, thinking: false });
 
 /** An llm-inference snapshot made a showcase one: the flag, the server's rate and each stream's prompt. `promptOf`
  * picks a slot's prompt, to match its answer (stream() writes answer `slot`, the simulator `req + slot`). */

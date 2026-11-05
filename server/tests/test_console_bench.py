@@ -190,11 +190,11 @@ def test_run_ids_are_short_and_sortable():
 
 
 def test_rail_ip_by_label_and_position():
-    assert rail_ip(INFO, "A") == "10.100.8.1" and rail_ip(INFO, "B") == "10.100.9.1"
+    assert rail_ip(INFO, "A") == "203.0.113.1" and rail_ip(INFO, "B") == "192.0.2.1"
     unlabelled = INFO.model_copy(deep=True)
     for n in unlabelled.net:
         n.label = n.name
-    assert rail_ip(unlabelled, "B") == "10.100.9.1"
+    assert rail_ip(unlabelled, "B") == "192.0.2.1"
     no_rails = INFO.model_copy(deep=True)
     for n in no_rails.net:
         if n.role == "interconnect":

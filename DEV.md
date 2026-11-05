@@ -48,7 +48,7 @@ bind = "192.168.1.11"       # LAN IP. 0.0.0.0 and public addresses are refused.
 port = 9750
 token = "<agent token>"
 data_dir = "var/agent-data"
-peers = { spark2 = ["10.100.8.2", "10.100.9.2"] }   # far ends of CX7 rails A and B
+peers = { spark2 = ["10.0.8.2", "10.0.9.2"] }   # far ends of CX7 rails A and B
 ```
 
 ```sh

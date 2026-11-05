@@ -72,17 +72,17 @@ def node_info() -> NodeInfo:
                 name="enp1s0f1np1",
                 role="interconnect",
                 label="ConnectX-7 rail A",
-                ipv4=["10.100.8.1"],
+                ipv4=["10.0.8.1"],
                 rdma_device="rocep1s0f1",
             ),
             NetIfInfo(
                 name="enP2p1s0f1np1",
                 role="interconnect",
                 label="ConnectX-7 rail B",
-                ipv4=["10.100.9.1"],
+                ipv4=["10.0.9.1"],
                 rdma_device="roceP2p1s0f1",
             ),
-            NetIfInfo(name="enP7s7", role="lan", label="LAN", ipv4=["10.20.20.48"]),
+            NetIfInfo(name="enP7s7", role="lan", label="LAN", ipv4=["10.0.0.48"]),
         ],
         disks=[],
         sensors=[],
@@ -638,7 +638,7 @@ async def test_nccl_job_env_and_roles(tmp_path):
     calls = capture(job)
     await jobs.nccl_allreduce(job, job.params)
     assert "NCCL_IB_GID_INDEX=3" in calls[0]["argv"]
-    assert argv[argv.index("--master") + 1] == "10.100.8.1"  # rank 0 without peer_ip: its own rail A
+    assert argv[argv.index("--master") + 1] == "10.0.8.1"  # rank 0 without peer_ip: its own rail A
     assert argv[argv.index("--port") + 1] == str(jobs.NCCL_DEFAULT_PORT)
     assert argv[argv.index("--max-bytes") + 1] == str(16 * 2**20)
     assert job.expect_results
@@ -649,7 +649,7 @@ async def test_nccl_job_env_and_roles(tmp_path):
         role="rank",
         rank=1,
         world_size=2,
-        peer_ip="10.100.8.1",
+        peer_ip="10.0.8.1",
         peer_port=29600,
     )
     calls = capture(job)
@@ -685,11 +685,11 @@ async def test_rdma_server_and_client(tmp_path):
     assert calls[1]["argv"][:1] == ["ib_write_lat"] and "-n" in calls[1]["argv"]
     assert srv.state.results == [] and not srv.expect_results
 
-    cli = make_job(tmp_path, "rdma-bw-lat", {}, role="client", peer_ip="10.100.8.2", peer_node="spark2")
-    calls = capture(cli, [(1, ["Couldn't connect to 10.100.8.2:18515"]), (0, bw), (0, lat)])
+    cli = make_job(tmp_path, "rdma-bw-lat", {}, role="client", peer_ip="10.0.8.2", peer_node="spark2")
+    calls = capture(cli, [(1, ["Couldn't connect to 10.0.8.2:18515"]), (0, bw), (0, lat)])
     await jobs.rdma_bw_lat(cli, cli.params)
     assert len(calls) == 3  # retried the first connection
-    assert calls[1]["argv"][-1] == "10.100.8.2" and calls[1]["argv"][:5] == [
+    assert calls[1]["argv"][-1] == "10.0.8.2" and calls[1]["argv"][:5] == [
         "ib_write_bw",
         "-d",
         "rocep1s0f1",

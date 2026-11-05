@@ -7,7 +7,7 @@ import { asShowcase, LIVE_12, LIVE_32, LIVE_4, LLM_SPEC, llmRun, nodeState, SHOW
 import { StreamsSection } from './StreamsSection';
 
 const frozen = typeof location !== 'undefined' && new URLSearchParams(location.search).has('strm-freeze');
-const params = (o: Partial<SimOptions>) => ({ base_url: 'http://10.20.20.48:8000', model: '', api: 'chat', prompt_tokens: 512, max_tokens: o.maxTokens ?? 128, concurrency: o.concurrency ?? 1, requests: o.requests ?? 8, sweep: o.sweep ?? false });
+const params = (o: Partial<SimOptions>) => ({ base_url: 'http://10.0.0.48:8000', model: '', api: 'chat', prompt_tokens: 512, max_tokens: o.maxTokens ?? 128, concurrency: o.concurrency ?? 1, requests: o.requests ?? 8, sweep: o.sweep ?? false });
 
 /** A run of these options, live: the snapshot `offset` seconds in, then advancing in real time (looping). `showcase`:
  * as an llm-showcase run (one request per stream, each with its prompt). */

@@ -64,8 +64,8 @@ def console_cfg(tmp, nodes: dict[str, int]) -> ConsoleConfig:
 @pytest.fixture(scope="module")
 def env(tmp_path_factory):
     apps = {
-        "n1": make_fake_agent("agent-tok", info=info_for("spark1", "10.100.8.1", "10.100.9.1")),
-        "n2": make_fake_agent("agent-tok", info=info_for("spark2", "10.100.8.2", "10.100.9.2")),
+        "n1": make_fake_agent("agent-tok", info=info_for("spark1", "203.0.113.1", "192.0.2.1")),
+        "n2": make_fake_agent("agent-tok", info=info_for("spark2", "203.0.113.2", "192.0.2.2")),
         "n3": make_fake_agent("agent-tok"),
     }
     threads = {
@@ -207,7 +207,7 @@ def test_rdma_starts_server_then_client_after_ready(env):
     ((ts_client, client),) = env["apps"]["n1"].state.bench_starts
     assert server["role"] == "server" and server["peer_node"] == "n1"
     assert client["role"] == "client" and client["peer_node"] == "n2"
-    assert client["peer_ip"] == "10.100.9.2"  # the server's rail B address
+    assert client["peer_ip"] == "192.0.2.2"  # the server's rail B address
     assert ts_client - ts_server >= 0.8  # not before the server said ready
     assert [x["node_id"] for x in done["results"]] == ["n1"]  # the client measures
 
@@ -220,7 +220,7 @@ def test_nccl_starts_both_ranks(env):
     assert abs(t0 - t1) < 0.5
     for i, req in enumerate((r0, r1)):
         assert (req["role"], req["rank"], req["world_size"]) == ("rank", i, 2)
-        assert (req["peer_ip"], req["peer_port"]) == ("10.100.8.1", 29620)  # rank 0's rail A
+        assert (req["peer_ip"], req["peer_port"]) == ("203.0.113.1", 29620)  # rank 0's rail A
     assert done["results"] and all(r["node_id"] is None for r in done["results"])  # a cluster measurement
 
 

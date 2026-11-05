@@ -209,7 +209,7 @@ describe('ErrorBoundary', () => {
 
 describe('ProblemState', () => {
   it('renders cause and fix with inline code', () => {
-    render(<ProblemState message="Agent unreachable on spark2" cause="Connection refused on 10.20.20.195:9750" fix="Check `systemctl status sparkline-agent` on spark2" onRetry={() => undefined} />);
+    render(<ProblemState message="Agent unreachable on spark2" cause="Connection refused on 198.51.100.195:9750" fix="Check `systemctl status sparkline-agent` on spark2" onRetry={() => undefined} />);
     expect(screen.getByText('systemctl status sparkline-agent').tagName).toBe('CODE');
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });

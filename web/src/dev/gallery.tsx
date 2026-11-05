@@ -145,7 +145,7 @@ function Gallery() {
           <Panel title="States">
             <div className="grid grid--2">
               <EmptyState compact icon={Gauge} title="No benchmark runs yet" action={<Button size="sm" variant="primary">Run your first baseline</Button>}>Baselines make regressions visible.</EmptyState>
-              <ProblemState compact message="Agent unreachable on spark2" cause="Connection refused on 10.20.20.195:9750" fix="Check `systemctl status sparkline-agent` on spark2" onRetry={() => undefined} icon={Cpu} />
+              <ProblemState compact message="Agent unreachable on spark2" cause="Connection refused on 198.51.100.195:9750" fix="Check `systemctl status sparkline-agent` on spark2" onRetry={() => undefined} icon={Cpu} />
             </div>
           </Panel>
         </div>

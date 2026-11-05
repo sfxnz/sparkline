@@ -116,7 +116,7 @@ async def test_demo_failure_schedule_drives_stale_and_offline(tmp_path):
         await cluster.stop()
     assert seen[-4:] == ["online", "stale", "offline", "online"], seen
     assert problem is not None and problem.message == "Agent unreachable on spark3"
-    assert problem.cause == "Connection refused at 10.20.20.61:9750"
+    assert problem.cause == "Connection refused at 198.51.100.61:9750"
 
 
 def test_demo_gpu_matches_discovery_numbers():

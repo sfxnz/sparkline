@@ -10,7 +10,7 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 });
 
-const params = (concurrency: number, sweep = false) => ({ base_url: 'http://10.20.20.48:8000', model: '', api: 'chat', prompt_tokens: 512, max_tokens: 128, concurrency, requests: 8, sweep });
+const params = (concurrency: number, sweep = false) => ({ base_url: 'http://10.0.0.48:8000', model: '', api: 'chat', prompt_tokens: 512, max_tokens: 128, concurrency, requests: 8, sweep });
 const show = (run: BenchRun) => render(<StreamsSection run={run} spec={LLM_SPEC} />);
 const cards = () => within(screen.getByRole('list', { name: /^Streams:/ })).getAllByRole('button');
 
@@ -25,7 +25,7 @@ describe('StreamsSection', () => {
     const { container, unmount } = show(llmRun({ params: params(8), progress: 0.02 }));
     const panel = screen.getByRole('region', { name: 'Concurrency streams' });
     expect(panel).toHaveAttribute('aria-busy', 'true');
-    expect(within(panel).getByText('Connecting to http://10.20.20.48:8000…')).toBeInTheDocument();
+    expect(within(panel).getByText('Connecting to http://10.0.0.48:8000…')).toBeInTheDocument();
     expect(container.querySelectorAll('.strm-card.is-skeleton')).toHaveLength(8);
     unmount();
     // A sweep starts with one stream, and every level is already on the rail.

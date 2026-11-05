@@ -12,7 +12,7 @@ spark1:1:1 [0] NCCL INFO Successfully loaded external network plugin /opt/hpcx/n
 spark1:1:1 [0] NCCL INFO Failed to initialize NET plugin SPCX
 spark1:1:1 [0] NCCL INFO transport/net_ib/init.cc:526 (ncclIbInit) -> 3
 spark1:1:1 [0] NCCL INFO Failed to initialize NET plugin IB
-spark1:1:1 [0] NCCL INFO NET/Socket : Using [0]enp1s0f1np1:10.100.8.1<0> [1]enP2p1s0f1np1:10.100.9.1<0>
+spark1:1:1 [0] NCCL INFO NET/Socket : Using [0]enp1s0f1np1:203.0.113.1<0> [1]enP2p1s0f1np1:192.0.2.1<0>
 spark1:1:1 [0] NCCL INFO Initialized NET plugin Socket
 spark1:1:1 [0] NCCL INFO Assigned NET plugin Socket to comm
 spark1:1:1 [0] NCCL INFO ncclOsDlopen(libnccl-rma.so) failed: libnccl-rma.so: cannot open shared object file: No such file or directory
@@ -130,7 +130,7 @@ spark1:1:1 [0] NCCL INFO ncclOsDlsym(ncclProfiler_v1) failed: /opt/hpcx/nccl_spe
 spark1:1:1 [0] NCCL INFO Check P2P Type isAllDirectP2p 1 directMode 0 isAllCudaP2p 1
 spark1:1:211 [0] NCCL INFO [Proxy Service UDS] Device 0 CPU core 9
 spark1:1:210 [0] NCCL INFO [Proxy Service] Device 0 CPU core 15
-spark1:1:210 [0] NCCL INFO proxy listening socket at 10.100.8.1<39105>
+spark1:1:210 [0] NCCL INFO proxy listening socket at 203.0.113.1<39105>
 spark1:1:1 [0] NCCL INFO ncclOsDlopen(libnccl-tuner.so) failed: libnccl-tuner.so: cannot open shared object file: No such file or directory
 spark1:1:1 [0] NCCL INFO TUNER/Plugin: Could not find: libnccl-tuner.so
 spark1:1:1 [0] NCCL INFO TUNER/Plugin: Using SPCX (v5)

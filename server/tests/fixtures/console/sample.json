@@ -235,7 +235,7 @@
   {
    "pid": 48213,
    "name": "python",
-   "cmdline": "python serve_stats.py --model /root/.cache/huggingface/hub/models--sfxnz--DeepSeek-V4.1-Flash-EXL3/snapshots/3f2a9c1e --tp 2 --rank 0 --host 0.0.0.0 --port 8000 --max-batch 32",
+   "cmdline": "python serve_stats.py --model /root/.cache/huggingface/hub/models--turboderp--DeepSeek-V4.1-Flash-EXL3/snapshots/3f2a9c1e --tp 2 --rank 0 --host 0.0.0.0 --port 8000 --max-batch 32",
    "user": "root",
    "cpu_pct": 104.3,
    "rss": 4939212390,

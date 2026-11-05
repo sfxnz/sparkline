@@ -7,7 +7,7 @@ import { usePrefs } from '../store/prefs';
 import { HistoryUnavailable } from './HistoryUnavailable';
 
 const node = (status: NodeState['status']): NodeState => ({ node_id: 'spark3', url: '', status, since: 0, last_sample_ts: null, error: null, info: null, next_retry_ts: null });
-const body = JSON.stringify({ problem: { message: 'Agent unreachable on spark3', cause: 'Connection refused at 10.20.20.61:9750', fix: 'Check `systemctl status sparkline-agent` on spark3' } });
+const body = JSON.stringify({ problem: { message: 'Agent unreachable on spark3', cause: 'Connection refused at 198.51.100.61:9750', fix: 'Check `systemctl status sparkline-agent` on spark3' } });
 const apiError = new ApiError('server', 503, body.slice(0, 300), body);
 
 describe('HistoryUnavailable', () => {
@@ -17,7 +17,7 @@ describe('HistoryUnavailable', () => {
     useCluster.setState({ nodes: { spark3: node('online') } });
     const { container } = render(<HistoryUnavailable node="spark3" error={apiError} onRetry={() => undefined} />);
     expect(screen.getByText('Agent unreachable on spark3')).toBeInTheDocument();
-    expect(screen.getByText('Connection refused at 10.20.20.61:9750')).toBeInTheDocument();
+    expect(screen.getByText('Connection refused at 198.51.100.61:9750')).toBeInTheDocument();
     expect(container.textContent).not.toContain('{');
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
