@@ -484,6 +484,53 @@ CASES = [
         plant=full_name("Zorbina Quuxley", mounted_at("/mnt/Zorbina-backup")),
         because="full name",
     ),
+    Case(
+        "parent domain of a three-label domain",
+        "refused",
+        ("zorbcorp.example",),
+        "mail.zorbcorp.example",
+        hostname=f"{HOST}.lab.zorbcorp.example",
+        because="domain name",
+    ),
+    Case(
+        "organization label of the domain, alone",
+        "refused",
+        ("zorbcorp",),
+        "zorbcorp vpn",
+        hostname=f"{HOST}.zorbcorp.example",
+        because="domain name",
+    ),
+    Case(
+        "organization label of a three-label domain, alone",
+        "refused",
+        ("zorbcorp",),
+        "zorbcorp vpn",
+        hostname=f"{HOST}.lab.zorbcorp.example",
+        because="domain name",
+    ),
+    Case(
+        "IDNA2008 form of a hostname with a sharp s",
+        "refused",
+        ("xn--zorbstrae-n1a",),
+        "xn--zorbstrae-n1a.example",
+        hostname="zorbstraße",
+        because="hostname",
+    ),
+    Case(
+        "hostname with - written with _",
+        "refused",
+        ("zorb_host",),
+        "zorb_host",
+        hostname="zorb-host",
+        because="hostname",
+    ),
+    Case(
+        "hostname of eight letters inside a longer word",
+        "refused",
+        (f"{HOST}2",),
+        f"vm {HOST}2",
+        because="hostname",
+    ),
 ]
 
 
@@ -551,6 +598,13 @@ def test_a_part_of_a_full_name_shorter_than_four_letters_is_not_taken_for_the_na
     with_free_text(copy, "li board")
     capture_of(copy, tmp_path / "out")
     assert "li board" in (tmp_path / "out/root/proc/cpuinfo").read_text()
+
+
+def test_a_hostname_shorter_than_eight_letters_is_not_found_inside_a_longer_word(tmp_path):
+    copy = base_copy(tmp_path, "zorbq")
+    with_free_text(copy, "vm zorbq2")
+    capture_of(copy, tmp_path / "out")
+    assert "vm zorbq2" in (tmp_path / "out/root/proc/cpuinfo").read_text()
 
 
 def test_a_mac_in_an_interface_name_is_replaced_in_the_path_and_the_link_target():
