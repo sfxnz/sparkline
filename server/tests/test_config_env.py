@@ -7,6 +7,7 @@ import pytest
 
 from sparkline.agent import main as agent_main
 from sparkline.agent.config import load_config as load_agent
+from sparkline.console import config as console_config
 from sparkline.console import main as console_main
 from sparkline.console.config import load_config as load_console
 
@@ -189,3 +190,29 @@ def test_agent_cli_precedence(tmp_path, monkeypatch, no_server):
     )
     assert agent_main.main(["--port", "3333", "--data-dir", str(tmp_path / "flag")]) == 0
     assert no_server["port"] == 3333 and captured["cfg"].data_dir == str(tmp_path / "flag")
+
+
+def test_console_unreadable_default_config_falls_back_to_defaults(tmp_path, monkeypatch):
+    """`sparkline --demo` must survive a default config the user cannot read (#54).
+
+    /etc/sparkline is commonly root:sparkline 0750, and on Python 3.13
+    Path.exists() propagates that EACCES instead of reporting the file absent.
+    An unreadable default counts as absent; an explicit path still errors loudly.
+    """
+    # exists() itself raises (EACCES on the parent directory)
+    raising = SimpleNamespace(exists=lambda: (_ for _ in ()).throw(PermissionError(13, "Permission denied")))
+    monkeypatch.setattr(console_config, "DEFAULT_CONFIG", raising)
+    assert load_console(None, {}) == console_config.ConsoleConfig()
+
+    # exists() succeeds but the file cannot be opened: a directory in its place
+    # fails to open on every platform (IsADirectoryError / PermissionError)
+    blocker = tmp_path / "console.toml"
+    blocker.mkdir()
+    monkeypatch.setattr(console_config, "DEFAULT_CONFIG", blocker)
+    assert load_console(None, {}) == console_config.ConsoleConfig()
+
+    # a readable default still loads
+    good = tmp_path / "console-good.toml"
+    good.write_text("port = 9701\n")
+    monkeypatch.setattr(console_config, "DEFAULT_CONFIG", good)
+    assert load_console(None, {}).port == 9701
