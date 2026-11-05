@@ -554,10 +554,9 @@ def test_a_name_that_is_also_a_word_shows_its_placeholder_only_where_the_name_li
         NAMES_THAT_ARE_WORDS["hostname atomics, a cpuinfo flag"],
         NAMES_THAT_ARE_WORDS["hostname 2000, the BogoMIPS"],
         NAMES_THAT_ARE_WORDS["hostname bookworm, the codename in a Debian PRETTY_NAME"],
-        NAMES_THAT_ARE_WORDS["container pytorch, a word of the image tag"],
         NAMES_THAT_ARE_WORDS["container vllm, the program of its command line"],
     ],
-    ids=["atomics", "2000", "bookworm", "pytorch", "vllm"],
+    ids=["atomics", "2000", "bookworm", "vllm"],
 )
 def test_a_name_that_is_a_word_of_a_kept_reading_refuses(plants, tmp_path):
     copy = gb10_copy(tmp_path)
@@ -588,15 +587,16 @@ FIXED_WORDS = {
     "hostname dev, the /dev/ of a disk and the net/dev file": ("hostname", "dev", "zorbhost"),
     "hostname pytorch, the NGC image name": ("hostname", "pytorch", "zorbhost"),
     "container pytorch, the NGC image name": ("container", "pytorch", "zorbcontainer"),
+    "user max, a word of the cpuinfo_max_freq files": ("user", "max", "zorbuser"),
 }
 
 
 def captured_with(kind: str, name: str, tmp: Path) -> dict[str, bytes]:
     copy = gb10_copy(tmp / name)
-    if kind == "hostname":
-        named("hostname", name)(copy)
-    else:
+    if kind == "container":
         in_a_container(name, "python3", b"python3\0train.py\0")(copy)
+    else:
+        named(kind, name)(copy)
     report = capture_of(copy, tmp / name / "out")
     assert report.differences == []
     return tree(tmp / name / "out")

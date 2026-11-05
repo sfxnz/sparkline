@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from fnmatch import fnmatchcase
 from functools import cache
 from typing import Literal
@@ -144,6 +145,7 @@ def _parts(path: str) -> tuple[str, ...]:
 
 
 _PATTERNS = [(pattern, _parts(pattern), holds) for pattern, holds in PATHS.items()]
+_GLOB = re.compile(r"[*?[]")
 
 
 def _match(path: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
@@ -160,6 +162,29 @@ def _match(path: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
 def matching(path: str) -> tuple[tuple[str, Holds], ...]:
     parts = _parts(path)
     return tuple((pattern, holds) for pattern, pat, holds in _PATTERNS if _match(parts, pat))
+
+
+@cache
+def fixed_parts(path: str) -> frozenset[int]:
+    parts = _parts(path)
+    matches: list[frozenset[int]] = []
+    prefixes: list[frozenset[int]] = []
+
+    def walk(i: int, pattern: tuple[str, ...], literal: frozenset[int]) -> None:
+        if i == len(parts):
+            (matches if all(p == "**" for p in pattern) else prefixes).append(literal)
+        elif not pattern:
+            return
+        elif pattern[0] == "**":
+            walk(i, pattern[1:], literal)
+            walk(i + 1, pattern, literal)
+        elif fnmatchcase(parts[i], pattern[0]):
+            walk(i + 1, pattern[1:], literal if _GLOB.search(pattern[0]) else literal | {i})
+
+    for _, pattern, _ in _PATTERNS:
+        walk(0, pattern, frozenset())
+    ways = matches or prefixes
+    return frozenset.intersection(*ways) if ways else frozenset()
 
 
 @cache
