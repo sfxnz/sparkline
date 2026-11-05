@@ -21,6 +21,9 @@ export class NodeBuffer {
   length = 0;
   latest: Sample | null = null;
   largestTick = 0;
+  /** Bumped by every live sample and seed, from one counter for all nodes, so a node removed and added again never
+   *  repeats a revision. */
+  revision = 0;
   /** Ts of the last live sample each GPU index answered in (answeredIndexes). Its rings alone cannot tell: some
    *  readings that answer (pstate, the graphics and video clocks) have no ring. */
   readonly gpuSeen = new Map<number, number>();
@@ -83,6 +86,7 @@ export class LiveStore {
   private readonly dirtyKeys = new Set<string>();
   private scheduled = false;
   private readonly schedule: (cb: () => void) => void;
+  private revisions = 0;
 
   constructor(
     readonly capacity: number = DEFAULT_CAPACITY,
@@ -117,6 +121,7 @@ export class LiveStore {
     // procs is null on ticks between process refreshes: keep the last known list.
     b.latest = sample.procs == null && b.latest?.procs ? { ...sample, procs: b.latest.procs } : sample;
     for (const i of answeredIndexes(sample)) b.gpuSeen.set(i, sample.ts);
+    b.revision = ++this.revisions;
     this.markDirty(sample.node_id, flat.keys());
   }
 
@@ -152,6 +157,7 @@ export class LiveStore {
     rows.sort((x, y) => x.ts - y.ts);
     b.length = keep;
     for (const r of rows.slice(-this.capacity)) b.push(r.ts, r.flat);
+    b.revision = ++this.revisions;
     this.markDirty(resp.node_id, keys);
   }
 
@@ -161,6 +167,11 @@ export class LiveStore {
 
   latest(node: string): Sample | null {
     return this.nodes.get(node)?.latest ?? null;
+  }
+
+  /** Changes whenever the node's samples or history change; 0 for a node the store does not hold. */
+  revision(node: string): number {
+    return this.nodes.get(node)?.revision ?? 0;
   }
 
   /** Seconds GPU `index` has sent nothing, up to the latest live sample: since its last fresh reading (live or seeded;
@@ -291,7 +302,7 @@ export const liveStore = new LiveStore();
 /**
  * Subscribe a component to a derived value of a node's latest Sample. The component re-renders only when
  * `isEqual(previous, next)` is false, so a Stat showing GPU temperature ignores ticks where the temperature
- * did not change.
+ * did not change. The selector runs again after a seed too, since a selector may read the node's history.
  */
 export function useLatest<T>(
   node: string,
@@ -299,18 +310,18 @@ export function useLatest<T>(
   isEqual: (a: T, b: T) => boolean = Object.is,
   store: LiveStore = liveStore,
 ): T {
-  const cache = useRef<{ sample: Sample | null; selector: (s: Sample | null) => T; value: T } | null>(null);
+  const cache = useRef<{ revision: number; selector: (s: Sample | null) => T; value: T } | null>(null);
   const subscribe = useCallback((cb: Listener) => store.subscribeSample(node, cb), [store, node]);
   const getSnapshot = () => {
-    const sample = store.latest(node);
+    const revision = store.revision(node);
     const prev = cache.current;
-    if (prev && prev.sample === sample && prev.selector === selector) return prev.value;
-    const next = selector(sample);
+    if (prev && prev.revision === revision && prev.selector === selector) return prev.value;
+    const next = selector(store.latest(node));
     if (prev && isEqual(prev.value, next)) {
-      cache.current = { sample, selector, value: prev.value };
+      cache.current = { revision, selector, value: prev.value };
       return prev.value;
     }
-    cache.current = { sample, selector, value: next };
+    cache.current = { revision, selector, value: next };
     return next;
   };
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
