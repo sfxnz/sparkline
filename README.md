@@ -562,7 +562,9 @@ See [DEV.md](DEV.md) for running everything from the repo, the web dev server wi
 and the checks (ruff, mypy, pytest, TypeScript, ESLint, Vitest, Playwright with axe). The design and wire
 contract are in [PLAN.md](PLAN.md). The hardware findings are in [DISCOVERY.md](DISCOVERY.md).
 Issues and pull requests are welcome. Please run the checks in DEV.md before opening a pull request, and
-report security problems privately as described in [SECURITY.md](SECURITY.md).
+report security problems privately as described in [SECURITY.md](SECURITY.md). [CHANGELOG.md](CHANGELOG.md)
+lists the changes in each release, and [docs/RELEASING.md](docs/RELEASING.md) covers versions, releases and
+the upgrade order.
 
 ## Architecture
 
