@@ -611,6 +611,45 @@ CASES = [
         full_name("Zorbina Quuxlée"),
         because="full name",
     ),
+    Case(
+        "IPv4 address after an escaped space in a mount point the agent does not statvfs",
+        "refused",
+        (UNKNOWN_IPV4,),
+        plant=bind_mounted_again_at(f"/srv/nas\\040{UNKNOWN_IPV4}"),
+        because="IPv4 address",
+    ),
+    Case(
+        "last name with a letter that has no accent to strip",
+        "refused",
+        ("Quuxley",),
+        "Quuxley lab",
+        full_name("Zorbina Quuxłey"),
+        because="full name",
+    ),
+    Case(
+        "last name joined to the first name by a dot",
+        "refused",
+        ("Quuxley",),
+        "Quuxley lab",
+        full_name("Zorbina.Quuxley"),
+        because="full name",
+    ),
+    Case(
+        "nickname in parentheses in the full name",
+        "refused",
+        ("Zorbie",),
+        "Zorbie lab",
+        full_name("Zorbina (Zorbie) Quuxley"),
+        because="full name",
+    ),
+    Case(
+        "private top-level label named after the organization",
+        "refused",
+        ("zorbcorp",),
+        "zorbcorp vpn",
+        hostname=f"{HOST}.ad.zorbcorp",
+        because="domain name",
+    ),
 ]
 
 
