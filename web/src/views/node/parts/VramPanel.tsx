@@ -2,9 +2,11 @@ import { gpuColor } from '../../../charts/theme';
 import { Panel } from '../../../design/components/Panel';
 import { Skeleton } from '../../../design/components/Skeleton';
 import { NoData, Unsupported } from '../../../design/components/Unsupported';
+import { lostGpu } from '../../../lib/capabilities';
 import { formatBytes, formatPercent } from '../../../lib/format';
 import { gpuKey } from '../../../lib/metrics';
 import type { GpuInfo } from '../../../lib/types';
+import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
 import { lastKnownValue } from '../../shared/live';
 import { useBufferTs, useFreshness } from './hooks';
@@ -17,9 +19,11 @@ const pct = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
 /** One bar per GPU with memory of its own: how full each card's VRAM is. */
 export function VramPanel({ nodeId, gpus }: { nodeId: string; gpus: readonly GpuInfo[] }) {
   const { stale, waiting } = useFreshness(nodeId);
-  const names = new Set(gpus.map((g) => g.name));
+  const info = useCluster((s) => s.nodes[nodeId]?.info);
+  const answering = gpus.filter((g) => !lostGpu(info, g.index));
+  const names = new Set(answering.map((g) => g.name));
   const [shared] = names.size === 1 ? names : [];
-  const whose = shared ? `${gpus.length === 1 ? 'The' : 'Each'} ${shared}’s` : 'Each GPU’s';
+  const whose = shared ? `${answering.length === 1 ? 'The' : 'Each'} ${shared}’s` : 'Each GPU’s';
   return (
     <Panel title="GPU memory" subtitle={`${whose} own memory (VRAM), apart from system memory`} actions={stale ? <StaleAge nodeId={nodeId} /> : null} busy={waiting || undefined}>
       <ul className={`nvram${stale ? ' nvram--stale' : ''}`} aria-label="VRAM by GPU">
