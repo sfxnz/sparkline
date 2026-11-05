@@ -44,10 +44,10 @@ export interface Health {
   sentence: string;
 }
 
-function saidByAlert(alerts: readonly Event[], c: GpuCondition): boolean {
+function saidByAlert(alerts: readonly Event[], c: GpuCondition, oneGpu: boolean): boolean {
   if (!c.field) return false;
   const hottestGpu = 'gpu.temp_c';
-  const keys = [gpuKey(c.index, c.field), ...(c.field === 'temp_c' ? [hottestGpu] : [])];
+  const keys = [gpuKey(c.index, c.field), ...(c.field === 'temp_c' && oneGpu ? [hottestGpu] : [])];
   return alerts.some((e) => (e.severity === 'critical' || e.severity === c.level) && keys.includes(e.metric ?? ''));
 }
 
@@ -88,7 +88,8 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   const stale = by('stale');
   const connecting = nodes.filter((n) => n.status === 'connecting' || n.status === undefined).map((n) => n.id);
   const flagged = nodes.flatMap((n) => {
-    const c = n.status === 'online' && n.conditions ? worstCondition({ ...n.conditions, gpus: n.conditions.gpus.filter((g) => !saidByAlert(n.alerts ?? [], g)) }) : null;
+    const conditions = n.status === 'online' ? n.conditions : null;
+    const c = conditions ? worstCondition({ ...conditions, gpus: conditions.gpus.filter((g) => !saidByAlert(n.alerts ?? [], g, conditions.oneGpu)) }) : null;
     return c ? [{ id: n.id, condition: c }] : [];
   });
 
