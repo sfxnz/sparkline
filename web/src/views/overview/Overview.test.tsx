@@ -344,6 +344,7 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     expect(pill(card)).toBe('warning');
     expect(screen.getByRole('heading', { name: 'ws1 has GPU 0 not responding' })).toBeInTheDocument();
     expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 87%, from 3 of 4 GPUs');
+    expect(within(card).getByRole('img', { name: /^ws1 GPU utilisation/ })).toHaveAccessibleName(/^ws1 GPU utilisation \(3 of 4 GPUs\)/);
     expect(stat(card, 'GPU temp')).toHaveTextContent(/headroom to the 93 °C slowdown threshold3 of 4 GPUs$/);
     expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU \d+% \(4 of 5 GPUs\) at 24\.5 W · excl\. ws1$/);
     expect(tile('Cluster compute')).toHaveTextContent('Mean GPU utilisation (4 of 5 GPUs) · ');

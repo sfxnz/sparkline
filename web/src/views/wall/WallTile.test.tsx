@@ -69,6 +69,7 @@ describe('a four-GPU workstation on the wall (ws1)', () => {
     expect(value('GPU utilisation')).toHaveTextContent(/^GPU utilisation87%3 of 4 GPUs$/);
     expect(value('GPU temperature')).toHaveTextContent(/^GPU temperature77°C3 of 4 GPUs$/);
     expect(screen.getByRole('region', { name: 'Node ws1' }).querySelector('[data-status]')?.getAttribute('data-status')).toBe('warning');
+    expect(screen.getByRole('img', { name: /^ws1 GPU utilisation/ })).toHaveAccessibleName(/^ws1 GPU utilisation \(3 of 4 GPUs\), last 5 minutes/);
   });
 
   it('says there is no power total, naming GPU 2, while GPU 2 sends no power reading', () => {
