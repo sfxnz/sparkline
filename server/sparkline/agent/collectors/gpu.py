@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
-from ...common.schema import GpuInfo, GpuSample, Unsupported
+from ...common.schema import GpuInfo, GpuSample, Unsupported, UnsupportedKind
 from ..sources import Sources
 from . import Caps, counter_delta
 
@@ -60,11 +60,67 @@ def _denied(e: Exception) -> str:
     return f"Permission denied to the agent's user ({_reason(e)})"
 
 
+class _Probe(NamedTuple):
+    key: str
+    label: str
+    retried: bool  # read every tick, so only Not Supported or No Permission at startup is a gap
+    call: Callable[[], Any]
+
+
+def _probes(nv: Any, h: Any) -> list[_Probe]:
+    return [
+        _Probe("util", "Utilisation", True, lambda: nv.nvmlDeviceGetUtilizationRates(h)),
+        _Probe("sm_mhz", "SM clock", True, lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_SM)),
+        _Probe(
+            "temp_c", "Temperature", True, lambda: nv.nvmlDeviceGetTemperature(h, nv.NVML_TEMPERATURE_GPU)
+        ),
+        _Probe("power_w", "Power draw", True, lambda: nv.nvmlDeviceGetPowerUsage(h)),
+        _Probe("energy_j", "Energy counter", True, lambda: nv.nvmlDeviceGetTotalEnergyConsumption(h)),
+        _Probe(
+            "throttle_mask", "Clock event reasons", True, lambda: nv.nvmlDeviceGetCurrentClocksEventReasons(h)
+        ),
+        _Probe(
+            "power_capped_pct",
+            "Power-capped time",
+            True,
+            lambda: nv.nvmlDeviceGetViolationStatus(h, nv.NVML_PERF_POLICY_POWER),
+        ),
+        _Probe(
+            "thermal_capped_pct",
+            "Thermal-capped time",
+            True,
+            lambda: nv.nvmlDeviceGetViolationStatus(h, nv.NVML_PERF_POLICY_THERMAL),
+        ),
+        _Probe(
+            "proc_mem", "Per-process GPU memory", True, lambda: nv.nvmlDeviceGetComputeRunningProcesses(h)
+        ),
+        _Probe("power_limit_w", "Power limit", False, lambda: nv.nvmlDeviceGetPowerManagementLimit(h)),
+        _Probe("mem_mhz", "Memory clock", False, lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_MEM)),
+        _Probe("fan_pct", "Fan speed", False, lambda: nv.nvmlDeviceGetFanSpeed(h)),
+        _Probe("fb_memory", "Dedicated GPU memory (FB)", False, lambda: nv.nvmlDeviceGetMemoryInfo(h)),
+        _Probe("ecc", "ECC", False, lambda: nv.nvmlDeviceGetEccMode(h)),
+        _Probe(
+            "pcie_bps",
+            "PCIe throughput",
+            False,
+            lambda: nv.nvmlDeviceGetPcieThroughput(h, nv.NVML_PCIE_UTIL_TX_BYTES),
+        ),
+    ]
+
+
+def _gap(nv: Any, e: Exception, metric: str, what: str, retried: bool, note: str = "") -> Unsupported | None:
+    if _no_permission(nv, e):
+        return Unsupported(metric=metric, reason=_denied(e), kind="access")
+    if retried and not isinstance(e, nv.NVMLError_NotSupported):
+        return None
+    return Unsupported(metric=metric, reason=f"{what} ({_reason(e)}){note}")
+
+
 class _Gpu:
     def __init__(self, index: int, handle: Any) -> None:  # an NVML device handle
         self.index = index
         self.h = handle
-        self.disabled: set[str] = set()  # fields that raised NotSupported
+        self.disabled: set[str] = set()
         self.prev_viol: dict[int, int] = {}
         self.viol_t: float | None = None
         self.caps: dict[int, float | None] = {}
@@ -83,26 +139,21 @@ class GpuCollector:
         self.nv = nv = src.nvml
         self.gpus: list[_Gpu] = []
         self.info: list[GpuInfo] = []
-        self.unsupported: list[Unsupported] = []
+        self._caps: dict[str, Unsupported | None] = {}
         self.driver = self.cuda = self.nvml = None
         self.proc_mem: dict[int, int] = {}  # pid -> bytes, refreshed every tick
         self.proc_mem_total: int | None = None
         if nv is None:
-            self.unsupported.append(
-                Unsupported(
-                    metric="gpu*", reason="Install nvidia-ml-py to read NVIDIA GPU metrics", kind="dependency"
-                )
-            )
+            self._no_gpus("Install nvidia-ml-py to read NVIDIA GPU metrics", "dependency")
             return
         try:
             nv.nvmlInit()
             n = nv.nvmlDeviceGetCount()
         except Exception as e:
             if _no_permission(nv, e):
-                gap = Unsupported(metric="gpu*", reason=_denied(e), kind="access")
+                self._no_gpus(_denied(e), "access")
             else:
-                gap = Unsupported(metric="gpu*", reason=f"NVML unavailable ({_reason(e)})")
-            self.unsupported.append(gap)
+                self._no_gpus(f"NVML unavailable ({_reason(e)})", "hardware")
             return
         self.driver = self._try(nv.nvmlSystemGetDriverVersion)
         cuda = self._try(nv.nvmlSystemGetCudaDriverVersion_v2)
@@ -116,6 +167,18 @@ class GpuCollector:
                 continue
             self.gpus.append(g)
             self.info.append(self._probe(g))
+        if not self.gpus:
+            self._no_gpus("NVML found no NVIDIA GPU", "hardware")
+            return
+        procs = [self._caps[f"gpu{g.index}.proc_mem"] for g in self.gpus]
+        first = procs[0]
+        self._caps["mem.gpu"] = (
+            first.model_copy(update={"metric": "mem.gpu"}) if first and all(procs) else None
+        )
+
+    def _no_gpus(self, reason: str, kind: UnsupportedKind) -> None:
+        for metric in ("gpu*", "mem.gpu"):
+            self._caps[metric] = Unsupported(metric=metric, reason=reason, kind=kind)
 
     @staticmethod
     def _try(fn: Callable[..., Any], *args: Any) -> Any:
@@ -146,33 +209,19 @@ class GpuCollector:
                 nv.nvmlDeviceGetTemperatureThreshold, h, nv.NVML_TEMPERATURE_THRESHOLD_GPU_MAX
             ),
         )
-        probes = [
-            ("power_limit_w", "Power limit", lambda: nv.nvmlDeviceGetPowerManagementLimit(h)),
-            ("mem_mhz", "Memory clock", lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_MEM)),
-            ("fan_pct", "Fan speed", lambda: nv.nvmlDeviceGetFanSpeed(h)),
-            ("fb_memory", "Dedicated GPU memory (FB)", lambda: nv.nvmlDeviceGetMemoryInfo(h)),
-            ("ecc", "ECC", lambda: nv.nvmlDeviceGetEccMode(h)),
-            (
-                "pcie_bps",
-                "PCIe throughput",
-                lambda: nv.nvmlDeviceGetPcieThroughput(h, nv.NVML_PCIE_UTIL_TX_BYTES),
-            ),
-        ]
-        for key, label, fn in probes:
+        for key, label, retried, call in _probes(nv, h):
             try:
-                v = fn()
+                v = call()
                 if key == "power_limit_w":
                     info.power_limit_w = v / 1000
             except Exception as e:
-                if _no_permission(nv, e):
-                    self.unsupported.append(Unsupported(metric=p + key, reason=_denied(e), kind="access"))
-                    continue
-                why = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
-                self.unsupported.append(
-                    Unsupported(
-                        metric=p + key, reason=f"{label} not reported by {info.name} ({_reason(e)}){why}"
-                    )
-                )
+                note = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
+                gap = _gap(nv, e, p + key, f"{label} not reported by {info.name}", retried, note)
+                self._caps[p + key] = gap
+                if gap:
+                    g.disabled.add(key)
+            else:
+                self._caps[p + key] = None
         return info
 
     def _read(self, g: _Gpu, field: str, fn: Callable[..., Any], *args: Any) -> Any:
@@ -187,7 +236,7 @@ class GpuCollector:
         return None
 
     def caps(self) -> Caps:
-        return {}
+        return self._caps
 
     def collect(self) -> dict:
         nv = self.nv
@@ -197,16 +246,20 @@ class GpuCollector:
         for g in self.gpus:
             now = time.monotonic()
             util = self._read(g, "util", nv.nvmlDeviceGetUtilizationRates)
-            power = self._read(g, "power", nv.nvmlDeviceGetPowerUsage)
+            power = self._read(g, "power_w", nv.nvmlDeviceGetPowerUsage)
             power_w = power / 1000 if power is not None else None
             self._update_energy(g, now, power_w)
             g.prev_t = now
-            mask = self._read(g, "reasons", nv.nvmlDeviceGetCurrentClocksEventReasons)
+            mask = self._read(g, "throttle_mask", nv.nvmlDeviceGetCurrentClocksEventReasons)
             if g.viol_t is None or now - g.viol_t >= VIOLATION_EVERY_S:
                 elapsed = now - g.viol_t if g.viol_t is not None else 0.0
                 g.viol_t = now
-                for pol in (nv.NVML_PERF_POLICY_POWER, nv.NVML_PERF_POLICY_THERMAL):
-                    v = self._read(g, f"viol{pol}", nv.nvmlDeviceGetViolationStatus, pol)
+                policies = (
+                    (nv.NVML_PERF_POLICY_POWER, "power_capped_pct"),
+                    (nv.NVML_PERF_POLICY_THERMAL, "thermal_capped_pct"),
+                )
+                for pol, key in policies:
+                    v = self._read(g, key, nv.nvmlDeviceGetViolationStatus, pol)
                     if v is None:
                         g.caps[pol] = None
                         continue
@@ -216,10 +269,10 @@ class GpuCollector:
                 GpuSample(
                     index=g.index,
                     util=util.gpu if util is not None else None,
-                    sm_mhz=self._read(g, "sm", nv.nvmlDeviceGetClockInfo, nv.NVML_CLOCK_SM),
+                    sm_mhz=self._read(g, "sm_mhz", nv.nvmlDeviceGetClockInfo, nv.NVML_CLOCK_SM),
                     gr_mhz=self._read(g, "gr", nv.nvmlDeviceGetClockInfo, nv.NVML_CLOCK_GRAPHICS),
                     video_mhz=self._read(g, "video", nv.nvmlDeviceGetClockInfo, nv.NVML_CLOCK_VIDEO),
-                    temp_c=self._read(g, "temp", nv.nvmlDeviceGetTemperature, nv.NVML_TEMPERATURE_GPU),
+                    temp_c=self._read(g, "temp_c", nv.nvmlDeviceGetTemperature, nv.NVML_TEMPERATURE_GPU),
                     power_w=power_w,
                     energy_j=round(g.energy_j, 3) if g.energy_j is not None else None,
                     pstate=self._read(g, "pstate", nv.nvmlDeviceGetPerformanceState),
@@ -228,7 +281,7 @@ class GpuCollector:
                     thermal_capped_pct=g.caps.get(nv.NVML_PERF_POLICY_THERMAL),
                 )
             )
-            procs = self._read(g, "procs", nv.nvmlDeviceGetComputeRunningProcesses)
+            procs = self._read(g, "proc_mem", nv.nvmlDeviceGetComputeRunningProcesses)
             if procs is not None:
                 any_procs = True
                 for pr in procs:
@@ -240,7 +293,7 @@ class GpuCollector:
 
     def _update_energy(self, g: _Gpu, now: float, power_w: float | None) -> None:
         if now - g.energy_t >= ENERGY_EVERY_S:
-            mj = self._read(g, "energy", self.nv.nvmlDeviceGetTotalEnergyConsumption)
+            mj = self._read(g, "energy_j", self.nv.nvmlDeviceGetTotalEnergyConsumption)
             if mj is not None:
                 g.energy_t, g.energy_base, g.energy_integ = now, mj / 1000, 0.0
         elif g.energy_base is not None and power_w is not None and g.prev_t is not None:

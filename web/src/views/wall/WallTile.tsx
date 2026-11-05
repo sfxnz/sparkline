@@ -7,7 +7,7 @@ import { Skeleton } from '../../design/components/Skeleton';
 import { Sparkline } from '../../design/components/Sparkline';
 import { StatusPill } from '../../design/components/StatusPill';
 import { Unsupported } from '../../design/components/Unsupported';
-import { notReported } from '../../lib/capabilities';
+import { interconnectGap, notReported } from '../../lib/capabilities';
 import { bytesParts, DASH, formatAgo, formatPercent, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import type { NodeInfo } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
@@ -48,7 +48,7 @@ function Cx7({ node, info }: { node: string; info: NodeInfo | null }) {
     // 0.8 Mb/s steps (below display precision), but any traffic at all stays above zero.
     return { v: t === null ? null : t > 0 ? Math.max(1, Math.round(t / 1e5) * 1e5) : 0 };
   }, shallowEqual, names.join(','));
-  const gap = notReported(info, 'net');
+  const gap = interconnectGap(info);
   if (gap) return <Unsupported gap={gap} />;
   if (!names.length) return <Unsupported gap={{ kind: 'hardware', label: 'No direct link', detail: 'No ConnectX-7 rail on this node is cabled to another node.' }} />;
   return <BigValue value={v.v} parts={gbpsParts} />;

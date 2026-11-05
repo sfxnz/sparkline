@@ -6,6 +6,7 @@ import { useConnection } from '../../../store/connection';
 import { liveStore } from '../../../store/live';
 import { usePrefs } from '../../../store/prefs';
 import Cpu from '../Cpu';
+import Gpu from '../Gpu';
 import Network from '../Network';
 import Storage from '../Storage';
 import Summary from '../Summary';
@@ -150,6 +151,21 @@ describe('Storage tab', () => {
     expect(screen.getByText('Drive reports critical at 85 °C')).toBeInTheDocument();
   });
 
+  it('shows filesystem capacity and says why disks are not reported when the agent declares only disk', () => {
+    const reason = 'Disk I/O is not collected yet for mmcblk0 (Sparkline reads NVMe, SATA/SAS and virtio disks)';
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: { ...info, disks: [], unsupported: [{ metric: 'disk', reason, kind: 'agent' }] } } } });
+    push(sample({ disk: [] }));
+    render(<Storage nodeId={NODE} />);
+    expect(within(screen.getByRole('region', { name: 'Capacity' })).getAllByRole('meter')[0]).toHaveAttribute('aria-valuenow', '90');
+    const disks = screen.getByRole('region', { name: 'Disks' });
+    expect(disks).toHaveTextContent('Not collected yet');
+    expect(disks).toHaveTextContent(reason);
+    expect(screen.queryByText('No disks reported')).not.toBeInTheDocument();
+    const now = screen.getByRole('region', { name: 'Storage now' });
+    expect(within(now).getByText('Root disk used').parentElement).toHaveTextContent('90%');
+    expect(within(now).getByText('Read').parentElement).toHaveTextContent('Not collected yet');
+  });
+
   it('keeps the last disk values, dimmed, and explains a failing storage collector', () => {
     push(sample());
     push(sample({ ts: TS + 1, seq: 2, disk: [], errors: { storage: 'Failed to read /proc/diskstats: [Errno 5] Input/output error' } }));
@@ -193,6 +209,53 @@ describe('CPU tab', () => {
   });
 });
 
+describe('GPU tab', () => {
+  const gpuInfo = (...unsupported: NodeInfo['unsupported']) =>
+    ({ ...info, gpus: [{ index: 0, name: 'NVIDIA GB10', sm_mhz_max: 3003, power_limit_w: null }], unsupported }) as unknown as NodeInfo;
+  const gpuSample = (throttle_mask: number | null, util: number | null = 12) =>
+    sample({ gpu: [{ index: 0, util, sm_mhz: 2100, gr_mhz: null, video_mhz: null, temp_c: 50, power_w: 10, energy_j: null, pstate: 0, throttle_mask, power_capped_pct: null, thermal_capped_pct: null }] });
+  const clockLimits = () => screen.getByRole('region', { name: 'Clock limits' });
+
+  it('shows the Clock limits skeleton only until the first sample', () => {
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: gpuInfo() } } });
+    render(<Gpu nodeId={NODE} />);
+    expect(clockLimits().querySelector('.skeleton')).toBeInTheDocument();
+    push(gpuSample(null));
+    expect(clockLimits().querySelector('.skeleton')).not.toBeInTheDocument();
+    expect(within(clockLimits()).getAllByText('No data')).toHaveLength(3); // the reasons, and both capped shares
+  });
+
+  it('says why the clock limits are not reported when the agent declares it', () => {
+    const gap = { metric: 'gpu0.throttle_mask', reason: 'Clock event reasons not reported by NVIDIA GB10 (NVML: Not Supported)', kind: 'hardware' as const };
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: gpuInfo(gap) } } });
+    push(gpuSample(null));
+    render(<Gpu nodeId={NODE} />);
+    expect(within(clockLimits()).getByText('Not reported by this hardware')).toBeInTheDocument();
+    expect(clockLimits().querySelector('.skeleton')).not.toBeInTheDocument();
+  });
+
+  it('says "No data" for a stat whose value never arrives, rather than a skeleton or a bare dash', () => {
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: gpuInfo() } } });
+    push(gpuSample(0, null));
+    render(<Gpu nodeId={NODE} />);
+    const util = screen.getByText('Utilisation', { selector: '.stat__label' }).closest('.stat');
+    expect(util).toHaveTextContent('No data');
+    expect(util?.querySelector('.skeleton')).toBeNull();
+  });
+
+  it('says per-process GPU memory is not reported, not that no process uses the GPU, when the agent declares it', () => {
+    const gap = { metric: 'gpu0.proc_mem', reason: 'Per-process GPU memory not reported by NVIDIA GB10 (NVML: Not Supported)', kind: 'hardware' as const };
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: gpuInfo(gap) } } });
+    const proc = { pid: 41, name: 'python3', user: 'u', cmdline: 'python3 serve.py', state: 'S', cpu_pct: 3, rss: 2e9, gpu_mem: null, gpu_util: null, container: null, model: null };
+    push({ ...gpuSample(0), procs: [proc] });
+    render(<Gpu nodeId={NODE} />);
+    const procs = screen.getByRole('region', { name: 'GPU processes' });
+    expect(procs).toHaveTextContent('Not reported by this hardware');
+    expect(within(procs).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(gap.reason);
+    expect(procs).not.toHaveTextContent('No processes are using the GPU');
+  });
+});
+
 describe('Summary tab', () => {
   it('shows memory and network as not reported, not as 0 or "no link", when their collectors could not start', () => {
     const unsupported = [
@@ -212,5 +275,36 @@ describe('Summary tab', () => {
     const notes = screen.getByRole('list', { name: 'Metrics unavailable' });
     expect(notes).toHaveTextContent('Temperature sensors unavailable: OSError: hwmon vanished');
     expect(notes).not.toHaveTextContent('no data');
+  });
+
+  it('says why GPU utilisation and temperature are missing, not "No data", when the agent lacks NVML', () => {
+    const reason = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+    const unsupported = [{ metric: 'gpu*', reason, kind: 'dependency' as const }, { metric: 'mem.gpu', reason, kind: 'dependency' as const }];
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: { ...info, gpus: [], unsupported } } } });
+    push(sample());
+    render(<Summary nodeId={NODE} />);
+    for (const label of ['GPU utilisation', 'GPU temperature', 'GPU power']) {
+      const stat = screen.getByText(label, { selector: '.stat__label' }).closest('.stat');
+      expect(stat).toHaveTextContent('Helper tool missing');
+      expect(stat).not.toHaveTextContent('No data');
+      expect(within(stat as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(reason);
+    }
+    expect(screen.getByText('GPU utilisation', { selector: '.stat__label' }).closest('.stat')).not.toHaveTextContent('Time the GPU was busy');
+  });
+
+  it('says a Wi-Fi-only node has no direct link, not that ConnectX-7 is not collected yet', () => {
+    const reason = 'Only Wi-Fi or virtual interfaces (docker0, wlp2s0), which Sparkline skips unless include_virtual = true';
+    const net = [nif('docker0', 'virtual', 'Docker bridge'), nif('wlp2s0', 'wireless', 'Wi-Fi')];
+    useCluster.setState({ nodes: { [NODE]: { ...state('online'), info: { ...info, gpus: [], net, unsupported: [{ metric: 'net', reason, kind: 'agent' }] } } } });
+    push(sample({ net: [] }));
+    render(<Summary nodeId={NODE} />);
+    for (const dir of ['in', 'out']) {
+      const tile = screen.getByText(`ConnectX-7 ${dir}`, { selector: '.stat__label' }).closest('.stat');
+      expect(tile).toHaveTextContent('No direct link');
+      expect(within(tile as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription('No ConnectX-7 rail on this node is cabled to another node.');
+    }
+    const panel = screen.getByRole('region', { name: 'ConnectX-7 throughput' });
+    expect(panel).toHaveTextContent('No ConnectX-7 link is cabled on btest.');
+    expect(panel).not.toHaveTextContent('Not collected yet');
   });
 });

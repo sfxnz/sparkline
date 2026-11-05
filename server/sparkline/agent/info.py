@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import TypeVar
 
 from ..common.schema import NodeInfo, Unsupported, UnsupportedKind
-from .collectors import Collector
+from .collectors import VOCABULARY, Collector, declares
 from .collectors.cpu import CpuCollector
 from .collectors.gpu import GpuCollector
 from .collectors.memory import MemoryCollector
@@ -68,6 +68,10 @@ def probe_tools(src: Sources) -> dict[str, bool]:
     }
 
 
+def catch_all(key: str) -> Unsupported:
+    return Unsupported(metric=key, reason=f"Not reported by the {VOCABULARY[key]} collector", kind="agent")
+
+
 def startup_gaps(name: str, prefixes: list[str], e: Exception, root: str) -> list[Unsupported]:
     if isinstance(e, OSError) and e.filename:
         path = str(e.filename).removeprefix(root)
@@ -88,7 +92,7 @@ class Collectors:
     def __init__(self, cfg: AgentConfig, src: Sources) -> None:
         self.fs = src.fs
         self.failed: list[Unsupported] = []
-        self.gpu = self._start("gpu", ["gpu*"], lambda: GpuCollector(src))
+        self.gpu = self._start("gpu", ["gpu*", "mem.gpu"], lambda: GpuCollector(src))
         self.memory = self._start("memory", ["mem"], lambda: MemoryCollector(src, self._gpu_mem))
         self.cpu = self._start("cpu", ["cpu"], lambda: CpuCollector(src))
         self.net = self._start("net", ["net"], lambda: NetCollector(src, cfg.peers, cfg.include_virtual))
@@ -119,6 +123,12 @@ class Collectors:
         built = [self.gpu, self.memory, self.cpu, self.net, self.storage, self.thermal, self.procs]
         return [c for c in built if c is not None]
 
+    def unsupported(self) -> list[Unsupported]:
+        caps = [(key, gap) for c in self.ordered() for key, gap in c.caps().items()]
+        declared = [key for key, _ in caps] + [u.metric for u in self.failed]
+        silent = [catch_all(key) for key in VOCABULARY if not any(declares(d, key) for d in declared)]
+        return [gap for _, gap in caps if gap] + self.failed + silent
+
     def node_info(self, cfg: AgentConfig) -> NodeInfo:
         return NodeInfo(
             node_id=cfg.node_id,
@@ -137,9 +147,7 @@ class Collectors:
             net=self.net.info if self.net else [],
             disks=self.storage.info() if self.storage else [],
             sensors=self.thermal.sensors if self.thermal else [],
-            unsupported=(self.gpu.unsupported if self.gpu else [])
-            + (self.thermal.unsupported() if self.thermal else [])
-            + self.failed,
+            unsupported=self.unsupported(),
             tools=self.tools,
             sample_interval_ms=cfg.interval_ms,
             boot_time=boot_time(self.fs),

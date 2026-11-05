@@ -27,6 +27,8 @@ import { runningTotals, stackedSeries } from './stack';
 import { axisLabels, readChartTheme, summarize, useThemeVersion, withAlpha } from './theme';
 import './chart.css';
 
+const anyValue = (columns: readonly (readonly (number | null)[])[]) => columns.some((c) => c.some((v) => v !== null && !Number.isNaN(v)));
+
 export interface SeriesSpec {
   key: string;
   label: string;
@@ -209,6 +211,7 @@ export function TimeSeriesChart({
   const unsupported =
     unsupportedProp ?? (keys.length && keys.every((k) => notReported(info, k)) ? notReported(info, keys[0] ?? '') : null);
   const isUnsupported = unsupported !== null;
+  const seriesGaps = isUnsupported ? [] : series.map((s) => notReported(info, s.key));
 
   useEffect(() => {
     formatRef.current = format;
@@ -457,7 +460,7 @@ export function TimeSeriesChart({
         // Nothing buffered for an online node yet (the bootstrap or first sample is on its way) is loading, not
         // empty: "No data in this range" only when the node has data but not for these keys, or is not online.
         const online = useCluster.getState().nodes[node]?.status === 'online';
-        state = w.ts.length ? 'ready' : store.lastTs(node) !== null || !online ? 'empty' : 'loading';
+        state = anyValue(w.values) ? 'ready' : store.lastTs(node) !== null || !online ? 'empty' : 'loading';
         setLoad(state);
         return state;
       };
@@ -544,7 +547,7 @@ export function TimeSeriesChart({
             if (!pausedRef.current) resetView();
             paintLegend(null);
             updateSummary();
-            setLoad(resp.ts.length ? 'ready' : 'empty');
+            setLoad(anyValue(w.values) ? 'ready' : 'empty');
             setError(null);
           })
           .catch((e: unknown) => {
@@ -582,7 +585,11 @@ export function TimeSeriesChart({
         <li key={s.key} className="tschart__legend-item">
           <span className={`tschart__swatch ${swatches[i] ?? ''}`} aria-hidden="true" />
           <span className="tschart__legend-label">{s.label}</span>
-          <span className="tschart__legend-value num" ref={isUnsupported ? undefined : (r) => { legendRefs.current[i] = r; }}>—</span>
+          {seriesGaps[i] ? (
+            <Unsupported gap={seriesGaps[i]} />
+          ) : (
+            <span className="tschart__legend-value num" ref={isUnsupported ? undefined : (r) => { legendRefs.current[i] = r; }}>—</span>
+          )}
         </li>
       ))}
       {thresholds?.map((t) => (

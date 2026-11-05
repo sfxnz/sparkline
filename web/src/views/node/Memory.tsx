@@ -2,8 +2,8 @@ import { CircleCheck, Hourglass, TriangleAlert } from 'lucide-react';
 import { TimeSeriesChart, type SeriesSpec, type StackLayer } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
-import { Unsupported } from '../../design/components/Unsupported';
-import { notReported, notReportedByHardware } from '../../lib/capabilities';
+import { NoData, Unsupported } from '../../design/components/Unsupported';
+import { notReported } from '../../lib/capabilities';
 import { bytesParts, formatBytes, formatPercent } from '../../lib/format';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
@@ -32,12 +32,12 @@ const PSI: readonly SeriesSpec[] = [
   { key: 'mem.psi_full', label: 'All stalled' },
 ];
 const pct1 = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
-const PSI_UNSUPPORTED = 'Pressure stall information (/proc/pressure/memory) is not available on this kernel.';
 
 export default function Memory({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const total = info?.mem_total;
   const swapTotal = info?.swap_total ?? null;
+  const psiGap = PSI.every((s) => notReported(info, s.key));
 
   return (
     <div className="view">
@@ -52,7 +52,7 @@ export default function Memory({ nodeId }: NodeTabProps) {
         </Panel>
         <div className="nmem__side">
           <Panel title="Memory pressure" subtitle="Share of time processes waited for memory">
-            <PressureNow nodeId={nodeId} />
+            {psiGap ? null : <PressureNow nodeId={nodeId} />}
             <TimeSeriesChart node={nodeId} title="Memory pressure" series={PSI} format={pct1} yMin={0} yMax={5} height={120} />
           </Panel>
           <Panel title="Swap" subtitle="Memory paged out to disk">
@@ -60,7 +60,7 @@ export default function Memory({ nodeId }: NodeTabProps) {
               <p className="nmuted">No swap is configured on {nodeId}.</p>
             ) : (
               <div className="nswap">
-                <LiveStat nodeId={nodeId} label="Swap used" select={memSwapUsed} metric="mem.swap_used" format={bytesParts} footer={() => (swapTotal ? `of ${formatBytes(swapTotal)}` : null)} />
+                <LiveStat nodeId={nodeId} label="Swap used" select={memSwapUsed} metric="mem.swap_used" format={bytesParts} unsupported={notReported(info, 'mem.swap_used')} footer={() => (swapTotal ? `of ${formatBytes(swapTotal)}` : null)} />
                 <SwapBar nodeId={nodeId} total={swapTotal} />
               </div>
             )}
@@ -93,7 +93,10 @@ function PressureNow({ nodeId }: { nodeId: string }) {
   }
   const [some, full] = key.split('|').map((x) => (x === 'x' ? null : Number(x)));
   const p = memoryPressure(some ?? null, full ?? null);
-  if (!p) return <div className="npsi"><Unsupported gap={notReported(info, 'mem.psi') ?? notReportedByHardware(PSI_UNSUPPORTED)} /></div>;
+  if (!p) {
+    const gap = notReported(info, 'mem.psi_some');
+    return <div className="npsi">{gap ? <Unsupported gap={gap} /> : <NoData />}</div>;
+  }
   const tone = p.level === 'none' ? 'tone-ok' : p.level === 'some' ? 'tone-warn' : 'tone-crit';
   const Icon = p.level === 'none' ? CircleCheck : p.level === 'some' ? Hourglass : TriangleAlert;
   return (

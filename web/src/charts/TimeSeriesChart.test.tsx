@@ -144,6 +144,16 @@ describe('live chart, as lines or as stacked layers', () => {
       for (const layer of drawn.slice(1)) expect(layer[3]).toBeNull();
     });
 
+    it('says "No data in this range", not a blank plot, when samples arrive without the chart\'s keys', () => {
+      const now = Date.now() / 1000;
+      liveStore.seed({ node_id: NODE, resolution_s: 1, ts: [now - 2, now - 1], series: { 'cpu.util': [5, 6] }, min: {}, max: {} });
+      liveStore.flush();
+      const { container } = charts[mode]();
+      runFrames(2);
+      expect(screen.getByText('No data in this range')).toBeInTheDocument();
+      expect(container.querySelector('.skeleton')).not.toBeInTheDocument();
+    });
+
     it('shows the loading skeleton, not "No data in this range", while an online node has sent nothing yet', () => {
       const { container } = charts[mode]();
       runFrames(2);
@@ -175,6 +185,18 @@ describe('not-reported chart', () => {
     expect(screen.getByText('No access')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Why is this not reported?' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /data table/ })).not.toBeInTheDocument();
+  });
+
+  it('marks a series the agent declares not reported in the legend, and still plots the others', () => {
+    const reason = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+    const info = { unsupported: [{ metric: 'mem.gpu', kind: 'dependency', reason }] } as unknown as NodeInfo;
+    useCluster.setState({ nodes: { nonvml: { node_id: 'nonvml', url: '', status: 'online', since: 0, last_sample_ts: null, error: null, info, next_retry_ts: null } } });
+    render(<TimeSeriesChart node="nonvml" title="Unified memory used" series={[{ key: 'mem.used', label: 'Used' }, { key: 'mem.gpu', label: 'GPU-allocated' }]} format={(n) => `${n} B`} range="live" />);
+    const [used, gpu] = within(screen.getByRole('list', { name: 'Unified memory used series' })).getAllByRole('listitem');
+    expect(gpu).toHaveTextContent('GPU-allocatedHelper tool missing');
+    expect(within(gpu as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(reason);
+    expect(used).toHaveTextContent('Used—');
+    expect(screen.getByRole('button', { name: 'Unified memory used: data table' })).toBeInTheDocument();
   });
 });
 

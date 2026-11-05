@@ -89,7 +89,9 @@ UNSUPPORTED = [
     Unsupported(
         metric="cpu.temp", reason="Per-core CPU temperature is not exposed (only unlabelled ACPI zones)"
     ),
-    Unsupported(metric="fan", reason="No fan sensors exposed by this hardware (hwmon)"),
+    Unsupported(
+        metric="fan", reason="Fan speed is not collected yet (hwmon exposes 2 fan sensors)", kind="agent"
+    ),
     Unsupported(
         metric="system.power_w", reason="Whole-system power is not exposed; only the GPU rail (NVML) is"
     ),

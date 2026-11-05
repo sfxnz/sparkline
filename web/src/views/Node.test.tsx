@@ -103,6 +103,7 @@ describe('Node page', () => {
       unsupported: [
         { metric: 'mem', reason: 'The memory collector could not start: /proc/meminfo: No such file or directory', kind: 'hardware' },
         { metric: 'disk', reason: 'Needs read access to /proc/diskstats', kind: 'access' },
+        { metric: 'fs', reason: 'Needs read access to /proc/diskstats', kind: 'access' },
         { metric: 'temp', reason: 'The thermal collector could not start: /sys/class/hwmon: No such file or directory', kind: 'hardware' },
       ],
     } as unknown as NodeInfo;
@@ -121,6 +122,38 @@ describe('Node page', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: /^Thermals/ }));
     expect(await screen.findByText('Thermals of spark2')).toBeInTheDocument();
+  });
+
+  it('replaces the GPU tab with one notice when the agent declares every GPU metric not reported', () => {
+    const reason = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+    const info = (unsupported: unknown[]) =>
+      ({ hostname: 'spark2', agent_version: '0', boot_time: 0, gpus: [], net: [], cores: [], disks: [], sensors: [], unsupported }) as unknown as NodeInfo;
+    useCluster.getState().setHello(hello([{ ...base, info: info([{ metric: 'gpu*', reason, kind: 'dependency' }, { metric: 'mem.gpu', reason, kind: 'dependency' }]) }]));
+    renderAt('/node/spark2/gpu');
+    expect(screen.getByRole('region', { name: 'GPU not reported' })).toHaveTextContent(`Helper tool missing${reason}`);
+    expect(screen.queryByText('GPU of spark2')).not.toBeInTheDocument();
+  });
+
+  it('keeps the GPU tab when the agent declares only some GPU metrics not reported', () => {
+    const info = {
+      hostname: 'spark2', agent_version: '0', boot_time: 0, net: [], cores: [], disks: [], sensors: [],
+      gpus: [{ index: 0, name: 'NVIDIA GB10' }],
+      unsupported: [{ metric: 'gpu0.power_limit_w', reason: 'Power limit not reported by NVIDIA GB10 (NVML: Not Supported)', kind: 'hardware' }],
+    } as unknown as NodeInfo;
+    useCluster.getState().setHello(hello([{ ...base, info }]));
+    renderAt('/node/spark2/gpu');
+    expect(screen.getByText('GPU of spark2')).toBeInTheDocument();
+  });
+
+  it('keeps the Storage tab when only disks are not reported, so filesystem capacity still shows', () => {
+    const info = {
+      hostname: 'spark2', agent_version: '0', boot_time: 0, gpus: [], net: [], cores: [], disks: [], sensors: [],
+      unsupported: [{ metric: 'disk', reason: 'Disk I/O is not collected yet for mmcblk0 (Sparkline reads NVMe, SATA/SAS and virtio disks)', kind: 'agent' }],
+    } as unknown as NodeInfo;
+    useCluster.getState().setHello(hello([{ ...base, info }]));
+    renderAt('/node/spark2/storage');
+    expect(screen.getByText('Storage of spark2')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Storage not reported' })).not.toBeInTheDocument();
   });
 
   it('selects the tab from the URL, defaults to Summary, and moves with the arrow keys', async () => {

@@ -395,10 +395,13 @@ where each value comes from (NVML, `/proc`, sysfs, ethtool, hwmon). The UI label
 this hardware:
 
 - GPU power limit (so power is shown against its observed peak), memory clock, framebuffer memory, ECC, PCIe
-  throughput and fan speed. NVML returns "Not Supported" for each on GB10.
-- Per-core CPU temperature (there is no such sensor) and fans (none are exposed).
+  throughput and GPU fan speed. NVML returns "Not Supported" for each on GB10.
+- Per-core CPU temperature (there is no such sensor).
 - Whole-system power. The only power sensor is the GPU rail, labelled "GPU power", and energy and cost are
   computed from it.
+
+System fan speed is labelled "not collected yet". hwmon exposes two ACPI fans, but Sparkline does not read them
+yet.
 
 On ConnectX-7, inter-node traffic is RDMA and bypasses the kernel interface counters. Each rail's throughput
 is therefore its netdev bytes plus its RDMA port counters (`port_rcv_data` / `port_xmit_data`).

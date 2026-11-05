@@ -96,15 +96,14 @@ def _milli(fs: RootFs, path: str) -> float | None:
         return None
 
 
-def scan_hwmon(fs: RootFs) -> tuple[list[Chip], bool, bool]:
-    """-> (chips with temp inputs, any fan inputs, any power inputs)."""
-    chips, fans, power = [], False, False
+def scan_hwmon(fs: RootFs) -> tuple[list[Chip], int, bool]:
+    chips, fans, power = [], 0, False
     for h in sorted(fs.glob("/sys/class/hwmon/hwmon*")):
         try:
             files = fs.listdir(h)
         except OSError:  # removed between glob and listdir (driver unbind, NVMe reset)
             continue
-        fans |= any(re.fullmatch(r"fan\d+_input", f) for f in files)
+        fans += sum(1 for f in files if re.fullmatch(r"fan\d+_input", f))
         power |= any(re.fullmatch(r"power\d+_input", f) for f in files)
         temps = {}
         for f in files:
@@ -132,7 +131,7 @@ class ThermalCollector:
 
     def __init__(self, src: Sources) -> None:
         self.fs = src.fs
-        chips, self.has_fans, self.has_power = scan_hwmon(self.fs)
+        chips, fans, power = scan_hwmon(self.fs)
         built = build_sensors(chips)
         self.sensors = [s for s, _ in built]
         self._paths = [
@@ -141,32 +140,45 @@ class ThermalCollector:
         ]
         self._last: dict[str, float | None] = {}
         self._slow_t = -SLOW_EVERY_S
-        self.has_core_temps = any(
+        has_core_temps = any(
             re.fullmatch(r"core\s*\d+", label or "", re.I) for c in chips for label, _ in c.temps.values()
         )
-
-    def unsupported(self) -> list[Unsupported]:
-        out = []
-        if not self.has_core_temps:
-            out.append(
-                Unsupported(
-                    metric="cpu.temp",
-                    reason="Per-core CPU temperature is not exposed (only unlabelled ACPI zones)",
-                )
+        no_sensors = "No temperature sensors exposed (hwmon)"
+        self._caps: dict[str, Unsupported | None] = {
+            **(
+                dict.fromkeys(f"temp.{s.id}" for s in self.sensors)
+                if self.sensors
+                else {"temp": Unsupported(metric="temp", reason=no_sensors)}
+            ),
+            "cpu.temp": None
+            if has_core_temps
+            else Unsupported(
+                metric="cpu.temp",
+                reason="Per-core CPU temperature is not exposed (only unlabelled ACPI zones)"
+                if self.sensors
+                else no_sensors,
+            ),
+            "fan": Unsupported(
+                metric="fan",
+                reason=f"Fan speed is not collected yet (hwmon exposes {fans} fan sensor{'s' * (fans != 1)})",
+                kind="agent",
             )
-        if not self.has_fans:
-            out.append(Unsupported(metric="fan", reason="No fan sensors exposed by this hardware (hwmon)"))
-        if not self.has_power:
-            out.append(
-                Unsupported(
-                    metric="system.power_w",
-                    reason="Whole-system power is not exposed; only the GPU rail (NVML) is",
-                )
+            if fans
+            else Unsupported(metric="fan", reason="No fan sensors exposed by this hardware (hwmon)"),
+            "system.power_w": Unsupported(
+                metric="system.power_w",
+                reason="Whole-system power is not collected yet; only the GPU rail (NVML) is",
+                kind="agent",
             )
-        return out
+            if power
+            else Unsupported(
+                metric="system.power_w",
+                reason="Whole-system power is not exposed; only the GPU rail (NVML) is",
+            ),
+        }
 
     def caps(self) -> Caps:
-        return {}
+        return self._caps
 
     def collect(self) -> dict:
         now = time.monotonic()

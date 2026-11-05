@@ -123,7 +123,7 @@ def test_nvml_init_failure_leaves_an_empty_gpu_list():
     fake.nvmlInit = broken_init  # type: ignore[attr-defined]
     g = gpu_mod.GpuCollector(gb10(nvml=fake))
     assert g.collect() == {"gpu": []}
-    assert "NVML unavailable" in g.unsupported[0].reason
+    assert "NVML unavailable" in g.caps()["gpu*"].reason
 
 
 def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missing(nvml):
@@ -131,7 +131,7 @@ def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missi
         "nvmlDeviceGetPowerManagementLimit": NVMLError_NoPermission("Insufficient Permissions"),
         "nvmlDeviceGetFanSpeed": NVMLError_NotSupported("Not Supported"),
     }
-    gaps = {u.metric: u for u in gpu_mod.GpuCollector(gb10(nvml=nvml)).unsupported}
+    gaps = {k: u for k, u in gpu_mod.GpuCollector(gb10(nvml=nvml)).caps().items() if u}
     assert set(gaps) == {"gpu0.power_limit_w", "gpu0.fan_pct"}
     limit = gaps["gpu0.power_limit_w"]
     assert limit.kind == "access"
@@ -140,9 +140,33 @@ def test_unsupported_gpu_fields_say_whether_the_hardware_or_a_privilege_is_missi
     assert gaps["gpu0.fan_pct"].reason == "Fan speed not reported by NVIDIA GB10 (NVML: Not Supported)"
 
 
+@pytest.mark.parametrize(
+    "refusal", [NVMLError_NotSupported("Not Supported"), NVMLError_NoPermission("Insufficient Permissions")]
+)
+def test_a_gpu_reading_declared_unsupported_at_startup_is_never_reported_later(refusal, nvml, monkeypatch):
+    per_tick = {
+        "util": "nvmlDeviceGetUtilizationRates",
+        "power_w": "nvmlDeviceGetPowerUsage",
+        "temp_c": "nvmlDeviceGetTemperature",
+        "energy_j": "nvmlDeviceGetTotalEnergyConsumption",
+        "throttle_mask": "nvmlDeviceGetCurrentClocksEventReasons",
+        "power_capped_pct": "nvmlDeviceGetViolationStatus",
+        "thermal_capped_pct": "nvmlDeviceGetViolationStatus",
+    }
+    nvml.fail_on = {fn: refusal for fn in per_tick.values()}
+    g = gpu_mod.GpuCollector(gb10(nvml=nvml))
+    assert {f"gpu0.{f}" for f in per_tick} <= {k for k, u in g.caps().items() if u}
+    nvml.fail_on = {}
+    clock = itertools.count(1000.0, gpu_mod.VIOLATION_EVERY_S + 1)
+    monkeypatch.setattr(gpu_mod.time, "monotonic", lambda: next(clock))
+    g.collect()
+    sample = g.collect()["gpu"][0]
+    assert {f: getattr(sample, f) for f in per_tick} == dict.fromkeys(per_tick)
+
+
 def test_nvml_refusing_access_at_startup_says_a_privilege_is_missing(nvml):
     nvml.fail_on = {"nvmlInit": NVMLError_NoPermission("Insufficient Permissions")}
-    (gap,) = gpu_mod.GpuCollector(gb10(nvml=nvml)).unsupported
+    gap = gpu_mod.GpuCollector(gb10(nvml=nvml)).caps()["gpu*"]
     assert (gap.metric, gap.kind) == ("gpu*", "access")
     assert gap.reason == "Permission denied to the agent's user (NVML: Insufficient Permissions)"
 
@@ -150,7 +174,7 @@ def test_nvml_refusing_access_at_startup_says_a_privilege_is_missing(nvml):
 def test_missing_nvidia_ml_py_says_what_to_install():
     g = gpu_mod.GpuCollector(gb10(nvml=None))
     assert g.collect() == {"gpu": []}
-    (gap,) = g.unsupported
+    gap = g.caps()["gpu*"]
     assert (gap.metric, gap.kind) == ("gpu*", "dependency")
     assert gap.reason == "Install nvidia-ml-py to read NVIDIA GPU metrics"
 

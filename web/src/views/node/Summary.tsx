@@ -5,7 +5,7 @@ import { TimeSeriesChart, type SeriesSpec } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Unsupported } from '../../design/components/Unsupported';
 import { bitrateParts, bytesParts, formatBitrate, formatBytes, formatPercent, formatWatts, percentParts, tempParts, wattsParts } from '../../lib/format';
-import { notReported } from '../../lib/capabilities';
+import { interconnectGap, notReported } from '../../lib/capabilities';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { LiveStat } from './parts/LiveStat';
@@ -50,20 +50,21 @@ export default function Summary({ nodeId }: NodeTabProps) {
     [rails],
   );
   const powerUnsupported = notReported(info, 'gpu0.power_w');
-  const netGap = notReported(info, 'net');
+  const netGap = interconnectGap(info);
 
   return (
     <div className="view nsum">
       <Panel label="At a glance">
         <NowLabel />
         <div className="nstats nstats--8">
-          <LiveStat nodeId={nodeId} label="GPU utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} href={paths.node(nodeId, 'gpu')} footer={() => 'Time the GPU was busy'} />
+          <LiveStat nodeId={nodeId} label="GPU utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} unsupported={notReported(info, 'gpu0.util')} href={paths.node(nodeId, 'gpu')} footer={() => 'Time the GPU was busy'} />
           <LiveStat
             nodeId={nodeId}
             label="GPU temperature"
             select={gpuTemp}
             metric="gpu0.temp_c"
             format={tempParts}
+            unsupported={notReported(info, 'gpu0.temp_c')}
             href={paths.node(nodeId, 'gpu')}
             footer={(v) => <TempFooter temp={v} slowdown={gpu?.temp_slowdown_c ?? null} shutdown={gpu?.temp_shutdown_c ?? null} />}
           />

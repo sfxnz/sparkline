@@ -1,5 +1,5 @@
 // Storage tab: how much space is left, how hard each disk is working, and how warm the NVMe runs.
-import { ChevronRight, HardDrive, OctagonAlert, TriangleAlert } from 'lucide-react';
+import { ChevronRight, CircleSlash, HardDrive, OctagonAlert, TriangleAlert } from 'lucide-react';
 import { Link } from 'wouter';
 import { paths } from '../../app/routes';
 import { useCallback } from 'react';
@@ -8,6 +8,7 @@ import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
 import { ProblemState } from '../../design/components/ProblemState';
 import { Skeleton } from '../../design/components/Skeleton';
+import { notReported } from '../../lib/capabilities';
 import { formatBytes, formatTemp, percentParts, tempParts } from '../../lib/format';
 import { mountKey } from '../../lib/metrics';
 import type { DiskInfo, NodeInfo, SensorInfo } from '../../lib/types';
@@ -31,12 +32,17 @@ export default function Storage({ nodeId }: { nodeId: string }) {
 function StorageView({ node, info }: { node: string; info: NodeInfo }) {
   const collectorError = useLatest(node, (s) => s?.errors.storage ?? null);
   const nvme = info.sensors.filter((x) => x.group === 'nvme');
+  const diskGap = notReported(info, 'disk');
   return (
     <div className="view view--flush nb">
       {collectorError ? <CollectorProblem node={node} info={info} error={collectorError} /> : null}
       <StorageStats node={node} info={info} failing={!!collectorError} />
       <CapacityPanel node={node} info={info} />
-      {info.disks.length ? (
+      {diskGap ? (
+        <Panel title="Disks">
+          <EmptyState icon={CircleSlash} title={diskGap.label} compact>{diskGap.detail}</EmptyState>
+        </Panel>
+      ) : info.disks.length ? (
         info.disks.map((d) => <DiskPanel key={d.name} node={node} disk={d} failing={!!collectorError} />)
       ) : (
         <Panel title="Disks">
@@ -93,14 +99,15 @@ function StorageStats({ node, info, failing }: { node: string; info: NodeInfo; f
   };
   const since = failing && disks[0] ? (lastKnown(liveStore, node, `disk.${disks[0]}.busy_pct`)?.ts ?? null) : null;
   const many = disks.length > 1;
+  const diskGap = notReported(info, 'disk');
   return (
     <Panel label="Storage now">
       <NowLabel />
       <div className="nstats">
-        <LiveStat node={node} label="Root disk used" format={percentParts} derive={rootPct} footer="Filesystem /" />
-        <LiveStat node={node} label="Read" format={bytesRateParts} derive={sum('read_bps')} stale={failing} updatedAt={since} footer={many ? `All ${disks.length} drives` : disks[0]} />
-        <LiveStat node={node} label="Write" format={bytesRateParts} derive={sum('write_bps')} stale={failing} updatedAt={since} footer={many ? `All ${disks.length} drives` : disks[0]} />
-        <LiveStat node={node} label="Busy" format={percentParts} derive={busiest} stale={failing} updatedAt={since} footer={many ? 'Busiest drive' : 'Time with I/O in flight'} />
+        <LiveStat node={node} label="Root disk used" format={percentParts} derive={rootPct} unsupported={notReported(info, 'fs.root.used')} footer="Filesystem /" />
+        <LiveStat node={node} label="Read" format={bytesRateParts} derive={sum('read_bps')} unsupported={diskGap} stale={failing} updatedAt={since} footer={many ? `All ${disks.length} drives` : disks[0]} />
+        <LiveStat node={node} label="Write" format={bytesRateParts} derive={sum('write_bps')} unsupported={diskGap} stale={failing} updatedAt={since} footer={many ? `All ${disks.length} drives` : disks[0]} />
+        <LiveStat node={node} label="Busy" format={percentParts} derive={busiest} unsupported={diskGap} stale={failing} updatedAt={since} footer={many ? 'Busiest drive' : 'Time with I/O in flight'} />
       </div>
     </Panel>
   );

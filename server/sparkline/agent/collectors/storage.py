@@ -6,11 +6,13 @@ import re
 import time
 
 from ...common.metrics import mount_key
-from ...common.schema import DiskInfo, DiskSample, FsSample
-from ..sources import Sources
+from ...common.schema import DiskInfo, DiskSample, FsSample, Unsupported
+from ..sources import RootFs, Sources
 from . import Caps, counter_delta
 
 WHOLE_DISK = re.compile(r"^(nvme\d+n\d+|sd[a-z]+|vd[a-z]+)$")
+# An eMMC's boot partitions are block devices of their own, but they are part of the mmcblkN disk.
+EMMC_BOOT = re.compile(r"^mmcblk\d+boot\d+$")
 REAL_FS = {"ext4", "xfs", "btrfs", "f2fs", "zfs"}
 MOUNT_REFRESH_S = 60.0
 
@@ -62,13 +64,33 @@ def parse_mounts(text: str) -> list[tuple[str, str]]:
     return sorted(((d, m) for d, m in best.items()), key=lambda x: x[1])
 
 
+def no_disks(fs: RootFs, diskstats: str) -> Unsupported:
+    unread = [
+        name
+        for name in (line.split()[2] for line in diskstats.splitlines() if len(line.split()) > 2)
+        if not EMMC_BOOT.match(name)
+        and fs.exists(f"/sys/block/{name}")
+        and "/devices/virtual/" not in fs.realpath(f"/sys/block/{name}")
+    ]
+    if unread:
+        return Unsupported(
+            metric="disk",
+            reason=f"Disk I/O is not collected yet for {', '.join(unread)} "
+            "(Sparkline reads NVMe, SATA/SAS and virtio disks)",
+            kind="agent",
+        )
+    return Unsupported(metric="disk", reason="No physical disks exposed in /proc/diskstats")
+
+
 class StorageCollector:
     name = "storage"
 
     def __init__(self, src: Sources) -> None:
         self.fs = src.fs
         self._statvfs = src.statvfs
-        self.disks = sorted(parse_diskstats(self.fs.read("/proc/diskstats")))
+        diskstats = self.fs.read("/proc/diskstats")
+        self.disks = sorted(parse_diskstats(diskstats))
+        self._no_disks = None if self.disks else no_disks(self.fs, diskstats)
         self._prev: dict[str, tuple] = {}
         self._prev_t: float | None = None
         self._mounts: list[tuple[str, str]] = []
@@ -99,7 +121,10 @@ class StorageCollector:
         return out
 
     def caps(self) -> Caps:
-        return {}
+        fields = ("read_bps", "write_bps", "read_iops", "write_iops", "busy_pct")
+        if self._no_disks:
+            return {"disk": self._no_disks, "fs": None}
+        return {**dict.fromkeys(f"disk.{d}.{f}" for d in self.disks for f in fields), "fs": None}
 
     def collect(self) -> dict:
         now = time.monotonic()

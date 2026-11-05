@@ -6,7 +6,7 @@ import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
-import { notReported, notReportedByHardware, type NotReported } from '../../lib/capabilities';
+import { notReported, type NotReported } from '../../lib/capabilities';
 import { tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { useCluster } from '../../store/cluster';
 import type { LiveStore } from '../../store/live';
@@ -47,7 +47,7 @@ export default function Thermals({ nodeId }: { nodeId: string }) {
 
   return (
     <div className="view tp">
-      <ThermalHeader nodeId={nodeId} groups={groups} stale={stale} updatedAt={updatedAt} sensorGap={sensorGap} fanReason={notReported(info, 'fan')} />
+      <ThermalHeader nodeId={nodeId} groups={groups} stale={stale} updatedAt={updatedAt} sensorGap={sensorGap} />
       <div className="tp-groups">
         {groups.map((g) => (
           <SensorGroupPanel key={g.id} nodeId={nodeId} group={g} info={info} range={range} history={history} stale={stale} />
@@ -70,29 +70,33 @@ const sameHot = (a: { label: string; c: number } | null, b: { label: string; c: 
   a === b || (a !== null && b !== null && a.label === b.label && Math.round(a.c) === Math.round(b.c));
 
 /** The one-glance answer: what is hottest, how close the GPU is to slowing down, what it draws, what today cost. */
-function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap, fanReason }: { nodeId: string; groups: SensorGroup[]; stale: boolean; updatedAt: number | null; sensorGap: NotReported | null; fanReason: NotReported | null }) {
+function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId: string; groups: SensorGroup[]; stale: boolean; updatedAt: number | null; sensorGap: NotReported | null }) {
+  const info = useCluster((s) => s.nodes[nodeId]?.info);
   const hot = useLiveDerived(nodeId, useCallback((st: LiveStore) => hottest(groups, (k) => st.latestValue(nodeId, k)), [groups, nodeId]), sameHot);
   const gpuTemp = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.temp_c'), [nodeId]), Object.is);
   const gpuPower = useLiveDerived(nodeId, useCallback((st: LiveStore) => st.latestValue(nodeId, 'gpu0.power_w'), [nodeId]), Object.is);
   const gpuSensor = groups.find((g) => g.id === 'gpu')?.sensors[0];
   const gpuInfo = useCluster((s) => s.nodes[nodeId]?.info?.gpus[0]);
+  const anySensor = groups.some((g) => g.sensors.some((s) => !notReported(info, s.key)));
 
   return (
     <Panel label={`${nodeId} thermals and power summary`} className="tp-head">
       <NowLabel />
       <div className="nstats">
-        <Stat label="Hottest sensor" value={hot?.c} format={tempParts} stale={stale} updatedAt={updatedAt} unsupported={sensorGap} footer={hot && !sensorGap ? hot.label : undefined} />
+        <Stat label="Hottest sensor" value={hot?.c} format={tempParts} stale={stale} updatedAt={updatedAt} unsupported={anySensor ? null : sensorGap} reporting={!stale} footer={hot?.label} />
         <Stat
           label="GPU temperature"
           value={gpuTemp}
           format={tempParts}
           stale={stale}
           updatedAt={updatedAt}
+          unsupported={notReported(info, 'gpu0.temp_c')}
+          reporting={!stale}
           footer={gpuTemp == null ? undefined : <TempFooter temp={gpuTemp} slowdown={gpuInfo?.temp_slowdown_c ?? gpuSensor?.limit ?? null} shutdown={gpuInfo?.temp_shutdown_c ?? null} />}
         />
-        <Stat label="GPU power" value={gpuPower} format={wattsParts} stale={stale} updatedAt={updatedAt} footer="GPU rail only" />
-        <EnergyToday nodeId={nodeId} />
-        <Stat label="Fans" value={null} format={wattsParts} unsupported={fanReason ?? notReportedByHardware('No fan sensors are exposed by this hardware.')} />
+        <Stat label="GPU power" value={gpuPower} format={wattsParts} stale={stale} updatedAt={updatedAt} unsupported={notReported(info, 'gpu0.power_w')} reporting={!stale} footer="GPU rail only" />
+        <EnergyToday nodeId={nodeId} gap={notReported(info, 'gpu0.energy_j')} />
+        <Stat label="Fans" value={null} format={wattsParts} unsupported={notReported(info, 'fan')} reporting />
       </div>
     </Panel>
   );
@@ -105,12 +109,12 @@ const kwhParts: Formatter = (kwh) => {
   return { value: t[0] ?? '', unit: t[1] ?? 'kWh' };
 };
 
-function EnergyToday({ nodeId }: { nodeId: string }) {
+function EnergyToday({ nodeId, gap }: { nodeId: string; gap: NotReported | null }) {
   const settings = useCluster((s) => s.cluster?.settings);
   const today = useSpanEnergy(nodeId, 'gpu0.energy_j', 'today');
   const j = today.state === 'ready' ? today.data : null;
   const cost = j == null || !settings ? undefined : `${formatEnergyCost(j, settings.energy_rate_per_kwh, settings.currency)} so far`;
-  if (today.state === 'loading') {
+  if (today.state === 'loading' && !gap) {
     return (
       <div className="stat stat--md" aria-busy="true">
         <div className="stat__label">GPU energy today</div>
@@ -123,6 +127,8 @@ function EnergyToday({ nodeId }: { nodeId: string }) {
       label="GPU energy today"
       value={j == null ? null : joulesToKwh(j)}
       format={kwhParts}
+      unsupported={gap}
+      reporting={today.state === 'ready'}
       footer={today.state === 'error' ? 'History unavailable' : cost}
     />
   );
