@@ -225,3 +225,18 @@ test('the ws1 card paints "3 of 4 GPUs" in its utilisation sparkline caption on 
     }
   }
 });
+
+test('the ws1 card paints its plain headroom line in full at every width from 300 to 1440 px', async ({ page }) => {
+  await workstation(page, (g) => g);
+  await page.goto('/');
+  const card = page.getByRole('region', { name: 'Node ws1' });
+  await expect(card).toContainText('headroom');
+  const stats = card.locator('.ov-card__stats');
+  const clipped: string[] = [];
+  for (const width of [...Array.from({ length: 31 }, (_, i) => 300 + 4 * i), 480, 640, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    if (!(await stats.evaluate(paintsInFull, 'headroom'))) clipped.push(`"headroom" at ${String(width)} px`);
+  }
+  expect(clipped).toEqual([]);
+});
