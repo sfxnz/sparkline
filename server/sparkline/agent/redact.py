@@ -147,10 +147,11 @@ _IPV4_POOL = [f"198.51.100.{i}" for i in range(1, 255)] + [
     f"{net}.{i}" for net in ("203.0.113", "192.0.2") for i in range(1, 255)
 ]
 
+_WORD_START = r"(?:(?<![A-Za-z0-9])|(?<=\\[0-7]{3}))"
 _NOT_ADJACENT: dict[Form, tuple[str, str]] = {
     "hex": (rf"(?<!{_HEX})", rf"(?!{_HEX})"),
-    "name": (r"(?<![A-Za-z0-9])", r"(?![A-Za-z0-9])"),
-    "host": (r"(?<![A-Za-z0-9])", r"(?:\.[A-Za-z][A-Za-z0-9-]*)*(?![A-Za-z0-9])"),
+    "name": (_WORD_START, r"(?![A-Za-z0-9])"),
+    "host": (_WORD_START, r"(?:\.[A-Za-z][A-Za-z0-9-]*)*(?![A-Za-z0-9])"),
     "anywhere": ("", ""),
     "ipv4": (r"(?<![\d.])", r"(?!\d|\.\d)"),
     "ipv6": (r"(?<![0-9A-Fa-f:])", r"(?![0-9A-Fa-f:])"),
