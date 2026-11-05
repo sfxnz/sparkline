@@ -38,6 +38,7 @@ HOST = "zorbhost"
 USER = "quuxuser"
 HOME = j("/", "", "home", USER)
 MAC = j(":", "4c", "aa", "bb", "cc", "dd", "ee")
+BARE_MAC = MAC.replace(":", "")
 SERIAL = "S5GXZORB123456Z"
 SECRET = "zorbsecretvalue42"
 WWID = j("", "0025388b", "91e4a1b2")
@@ -143,6 +144,24 @@ def a_collector_lists(directory: str, name: str) -> Plant:
         listed.mkdir(parents=True)
         (listed / name).symlink_to("../../nvme0n1")
         a_collector_also_reads(monkeypatch, lambda fs: fs.listdir(directory))
+
+    return plant
+
+
+def gpu_name(name: str) -> Plant:
+    def plant(copy: Path, _: pytest.MonkeyPatch) -> None:
+        nvml = json.loads((copy / "nvml.json").read_text())
+        nvml["nvmlDeviceGetName"]['["gpu0"]'] = name
+        (copy / "nvml.json").write_text(json.dumps(nvml))
+
+    return plant
+
+
+def an_address_list_for(interface: str) -> Plant:
+    def plant(copy: Path, _: pytest.MonkeyPatch) -> None:
+        host = json.loads((copy / "host.json").read_text())
+        host["net_if_addrs"][interface] = []
+        (copy / "host.json").write_text(json.dumps(host))
 
     return plant
 
@@ -649,6 +668,27 @@ CASES = [
         "zorbcorp vpn",
         hostname=f"{HOST}.ad.zorbcorp",
         because="domain name",
+    ),
+    Case(
+        "bare MAC after a backspace in the GPU name, which JSON writes as \\b",
+        "refused",
+        (BARE_MAC,),
+        plant=gpu_name(f"NVIDIA \b{BARE_MAC}"),
+        because="MAC address",
+    ),
+    Case(
+        "bare MAC after a form feed in an interface name, which JSON writes as \\f",
+        "refused",
+        (BARE_MAC,),
+        plant=an_address_list_for(f"\f{BARE_MAC}"),
+        because="MAC address",
+    ),
+    Case(
+        "bare MAC after a control character in the GPU name, which JSON writes as \\u0001",
+        "refused",
+        (BARE_MAC,),
+        plant=gpu_name(f"NVIDIA \x01{BARE_MAC}"),
+        because="MAC address",
     ),
 ]
 
