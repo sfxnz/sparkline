@@ -946,6 +946,8 @@ CASES = [
             ("surname", "ǿ", "Zorbina Quuxlǿy", "Quuxloy"),
             ("surname", "ǽ", "Zorbina Quuxlǽy", "Quuxlaey"),
             ("surname", "ǣ", "Zorbina Quuxlǣy", "Quuxlaey"),
+            ("given name in capitals", "ẞ and Ø", "GRØẞORB QUUXLEY", "GROSSORB"),
+            ("given name in capitals", "ẞ and Ł", "ŁUẞORB QUUXLEY", "LUSSORB"),
         )
     ),
     Case(
