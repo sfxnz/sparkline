@@ -783,4 +783,22 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
     expect(captions('ws1')).toEqual(['GPU utilisation · 3 of 4 GPUs · 3 min', 'GPU power · 3 min']);
     expect(captions('spark1')).toEqual(['GPU utilisation · 3 min', 'GPU power · 3 min']);
   });
+
+  it('keeps "excl." on the hero line of the first node the GPU power leaves out', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    expect(document.querySelector('.ov-hero__numbers')?.textContent).toContain('excl.\u00a0spark2');
+  });
+
+  it("leaves a GB10 whose GPU has been quiet for 5 s out of the active GPU processes, and names it", () => {
+    const idle = (gb10Sample as unknown as Sample).procs?.filter((p) => !p.gpu_mem) ?? [];
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10('spark1') }), node('spark2', { info: gb10('spark2') })]));
+    act(() => {
+      for (const id of ['spark1', 'spark2']) liveStore.removeNode(id);
+      liveStore.pushSample(gb10Reading('spark1', { procs: idle }));
+      for (let ago = 5; ago >= 0; ago--) liveStore.pushSample(backendDown(gb10Reading('spark2', { ts: now - ago, procs: idle })));
+      liveStore.flush();
+    });
+    render(<Overview />);
+    expect(tile('Active GPU processes').querySelector('.stat__footer')?.textContent).toBe('No containers · excl.\u00a0spark2');
+  });
 });
