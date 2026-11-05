@@ -52,6 +52,16 @@ const flagged = [
   '[].concat(s.gpu)[0]',
   'for (const [i, g] of s.gpu.entries()) use(i, g)',
   's.gpu.with(0, g)',
+  'const { gpu: r } = s; r[0]',
+  'const { gpu: a = [] } = s; a[0]',
+  'const { gpus: g } = maybe ?? { gpus: [] }; g[0]',
+  'const { gpu: r } = s; r.at(0)',
+  'const { gpu: r } = s; r.slice(1)',
+  'const { gpu: r } = s; const [first] = r',
+  '({ gpu: r }) => r[0]',
+  'function f({ gpus: list }) { return list.at(0) }',
+  'let r; ({ gpu: r } = s); r[0]',
+  'const { info: { gpus: list } } = node; list[0]',
 ];
 
 const allowed = [
@@ -79,6 +89,9 @@ const allowed = [
   'structuredClone(s.cores)[0]',
   'for (const g of s.gpu.values()) use(g)',
   'Object.values(s.cores)[0]',
+  'const { gpu: r } = s; r.length',
+  'const { gpu: r } = s; gpuAt(r, 0)',
+  'const { cores: r } = s; r[0]',
 ];
 
 async function lint(): Promise<(code: string) => number> {
