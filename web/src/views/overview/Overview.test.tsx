@@ -1077,6 +1077,19 @@ describe("the cluster's GPU energy today names each node it cannot count", () =>
     expect(why(tile('GPU power'))).toHaveAccessibleDescription('spark1: GPU 0 has sent no reading for 5\u00a0s.\nws1: GPU 2 has sent no reading for 5\u00a0s, so a sum would understate.');
   });
 
+  it("keeps the cluster's energy today, and until when it counts each quiet GPU, under the GPU power that is not responding", async () => {
+    const last = showQuiet([[gb10('spark1'), gb10Reading, 0], [ws1, wsReading, 2]], 'empty');
+    const today = await within(tile('GPU power')).findByText(/Today/);
+    expect(today).toHaveTextContent(new RegExp(`^Today [\\d.]+ kWh · £[\\d.]+ · spark1 until ${hm(last)} · ws1 GPU 2 until ${hm(last)}$`));
+  });
+
+  it('keeps the energy today of a lone GB10 whose GPU has sent nothing for 5 s, under its Not responding', async () => {
+    const last = showQuiet([[gb10('spark1'), gb10Reading, 0]]);
+    expect(tile('GPU power')).toHaveTextContent(/^GPU powerNot responding/);
+    const today = await within(tile('GPU power')).findByText(/Today/);
+    expect(today).toHaveTextContent(new RegExp(`^Today [\\d.]+ kWh · £[\\d.]+ · spark1 until ${hm(last)}$`));
+  });
+
   it('leaves the energy today of two healthy GB10s unmarked', async () => {
     showQuiet([[gb10('spark1'), gb10Reading, null], [gb10('spark2'), gb10Reading, null]]);
     expect(await within(tile('GPU power')).findByText(/Today/)).toHaveTextContent(/^Today [\d.]+ kWh · £[\d.]+$/);
