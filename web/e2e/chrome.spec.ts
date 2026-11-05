@@ -91,7 +91,7 @@ test('losing the console turns every node stale and is announced; an open critic
   await expect(nav(page).getByRole('link', { name: /spark2.*Healthy/ })).toBeVisible();
 
   await ws.close();
-  await expect(page.getByText(/Reconnecting/)).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: /^Reconnecting/ })).toBeVisible();
   await expect(nav(page).getByText('Healthy')).toHaveCount(0);
   await expect(nav(page).getByText('Critical')).toHaveCount(0);
   await expect(nav(page).getByRole('link', { name: /spark1.*Not reporting/ })).toBeVisible();
