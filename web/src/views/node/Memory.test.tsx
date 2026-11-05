@@ -181,6 +181,14 @@ describe('Memory tab by memory model', () => {
     expect(bar(0)).toHaveTextContent('No data');
   });
 
+  it('keeps the shared model name in the subtitle when a GPU is lost at open, as the agent names it', () => {
+    const lostAtOpen = { name: 'GPU 0', memory: 'unified', vram_total: null } as const;
+    open(ws1([{ metric: 'gpu0', reason: LOST.replace('GPU 2', 'GPU 0'), kind: 'hardware' }], (g) => (g.index === 0 ? lostAtOpen : {})), ws1Sample((g) => (g.index === 0 ? ({ index: 0 } as Sample['gpu'][number]) : g)));
+    expect(screen.getByRole('region', { name: 'GPU memory' })).toHaveTextContent('Each NVIDIA RTX 6000 Ada Generation’s own memory (VRAM), apart from system memory');
+    expect(bar(0)).toHaveTextContent(/^GPU 0Not responding/);
+    for (const i of [1, 2, 3]) expect(bar(i)).not.toHaveTextContent('NVIDIA');
+  });
+
   it('shows the used figure alone when a GPU reports no VRAM total', () => {
     open(ws1([], (g) => (g.index === 0 ? { vram_total: null } : {})), ws1Sample());
     expect(bar(0)).toHaveTextContent('40.0 GiB');
