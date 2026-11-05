@@ -182,6 +182,8 @@ export interface EnergyToday {
   joules: number | null;
   /** Nodes whose history never loaded (left out of the total). */
   missing: string[];
+  /** Nodes whose history since midnight loaded but holds no energy reading (left out of the total). */
+  empty: string[];
   /** Nodes counted up to their last reading because they are not reporting now: id -> time of that reading. */
   until: Record<string, number>;
   loading: boolean;
@@ -191,8 +193,9 @@ export interface EnergyToday {
  * GPU (rail) energy since local midnight, summed over `ids` and each node's GPUs, computed exactly as the Thermals
  * tab does (sumCounters): the counters' history since midnight, refreshed every minute, extended with the live
  * readings. A node that stops reporting keeps its last good history, so the day's total never goes down; it counts
- * up to its last reading and is listed in `until`. Only a node whose history never loaded is left out (`missing`),
- * and a node with a GPU that has no energy counter (a partial sum would understate).
+ * up to its last reading and is listed in `until`. Only a node whose history never loaded is left out (`missing`), a
+ * node whose history holds no energy reading (`empty`), and a node with a GPU that has no energy counter (a partial
+ * sum would understate).
  */
 export function useEnergyToday(ids: readonly string[]): EnergyToday {
   const nodes = useCluster((s) => s.nodes);
@@ -230,31 +233,34 @@ export function useEnergyToday(ids: readonly string[]): EnergyToday {
 
   const data = bases.key === idsKey ? bases.data : {};
   const loaded = ids.some((id) => data[id] !== undefined);
-  const joules = useAcross(
+  const sums = useAcross(
     ids,
     () => {
       let sum: number | null = null;
+      const empty: string[] = [];
       for (const id of ids) {
         const r = data[id];
         if (!r || gpuSetGap(nodes[id]?.info, 'energy_j', 'every')) continue;
         const j = sumCounters(r, keysOf(id), (k, t) => liveStore.window(id, [k], t).values[0] ?? []);
-        if (j !== null) sum = (sum ?? 0) + j;
+        if (j === null) empty.push(id);
+        else sum = (sum ?? 0) + j;
       }
       // 0.0001 kWh steps: the display has 3 significant figures, so finer changes are invisible.
-      return sum === null ? null : Math.round(sum / 360) * 360;
+      return { joules: sum === null ? null : Math.round(sum / 360) * 360, empty: empty.join('\n') };
     },
-    Object.is,
+    shallowEqual,
     `${bases.key}|${String(bases.at)}`,
   );
   const missing = ids.filter((id) => data[id] === null);
+  const empty = sums.empty ? sums.empty.split('\n') : [];
   const until: Record<string, number> = {};
   for (const id of ids) {
     const st = nodes[id]?.status;
-    if (!data[id] || st === 'online' || st === 'connecting' || st === undefined) continue;
+    if (!data[id] || empty.includes(id) || st === 'online' || st === 'connecting' || st === undefined) continue;
     const last = liveStore.lastTs(id) ?? nodes[id]?.last_sample_ts ?? null;
     if (last !== null) until[id] = last;
   }
-  return { joules, missing, until, loading: !loaded };
+  return { joules: sums.joules, missing, empty, until, loading: !loaded };
 }
 
 // ------------------------------------------------------------------------------------------------ breathing glow

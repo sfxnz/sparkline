@@ -124,6 +124,7 @@ export function Totals() {
               <span className="num">
                 {nowExcl}Today {formatKwh(energy.joules)}
                 {exclText(energyExcl)}
+                {energy.empty.length ? ` · ${excl(energy.empty)} (no energy reading today)` : ''}
                 {rate ? ` · ${formatEnergyCost(energy.joules, rate.energy_rate_per_kwh, rate.currency)}` : ''}
                 {Object.entries(energy.until).map(([id, ts]) => ` · ${id} until ${formatHm(ts)}`).join('')}
               </span>
