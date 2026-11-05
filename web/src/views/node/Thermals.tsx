@@ -7,9 +7,10 @@ import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
 import { notReported, type NotReported } from '../../lib/capabilities';
-import { everyGpuSilent, gpuIndexes, gpuSetGap, nodeGpuKey, notResponding } from '../../lib/gpu';
+import { everyGpuSilent, gpuIndexes, gpuSetGap, nodeGpuKey, notResponding, type SilentFor } from '../../lib/gpu';
 import { tempParts, wattsParts, type Formatter } from '../../lib/format';
 import type { NodeInfo, Sample } from '../../lib/types';
+import { silentForOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { useLatest, type LiveStore } from '../../store/live';
 import { usePrefs } from '../../store/prefs';
@@ -86,7 +87,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
   const anySensor = groups.some((g) => g.sensors.some((s) => !notReported(info, s.key)));
   const tempGap = useNodeGpuGap(nodeId, 'temp_c');
   const powerGap = useNodeGpuGap(nodeId, 'power_w');
-  const energySilent = useLatest(nodeId, useCallback((s: Sample | null) => energyGpusSilent(info, s), [info]), sameGap);
+  const energySilent = useLatest(nodeId, useCallback((s: Sample | null) => energyGpusSilent(info, s, silentForOf(nodeId, info)), [nodeId, info]), sameGap);
 
   return (
     <Panel label={`${nodeId} thermals and power summary`} className="tp-head">
@@ -111,9 +112,9 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
   );
 }
 
-function energyGpusSilent(info: NodeInfo | null | undefined, s: Sample | null): NotReported | null {
+function energyGpusSilent(info: NodeInfo | null | undefined, s: Sample | null, silentFor: SilentFor): NotReported | null {
   const [only = 0, ...more] = gpuIndexes(info);
-  return more.length ? everyGpuSilent(info, s) : notResponding(info, s, only);
+  return more.length ? everyGpuSilent(info, s, silentFor) : notResponding(info, s, only, silentFor);
 }
 
 /** kWh in, always shown in kWh (3 significant figures), like the Overview's "Today": one unit for a figure that

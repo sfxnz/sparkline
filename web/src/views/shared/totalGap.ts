@@ -3,6 +3,7 @@ import type { NotReported } from '../../lib/capabilities';
 import { gpuCountText, nodeTotalGap, totalFrom } from '../../lib/gpu';
 import type { NodeTotal, ReadingTotal } from '../../lib/metrics';
 import type { Sample } from '../../lib/types';
+import { silentForOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { useLatest } from '../../store/live';
 import { listNodes } from '../overview/model';
@@ -23,5 +24,5 @@ export function useTotalFrom(nodeId: string, field: Exclude<ReadingTotal, 'power
 
 export function useTotalGap(nodeId: string, field: NodeTotal): NotReported | null {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
-  return useLatest(nodeId, useCallback((s: Sample | null) => nodeTotalGap(info, s, field), [info, field]), sameGap);
+  return useLatest(nodeId, useCallback((s: Sample | null) => nodeTotalGap(info, s, field, silentForOf(nodeId, info)), [nodeId, info, field]), sameGap);
 }

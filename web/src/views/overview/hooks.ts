@@ -11,7 +11,7 @@ import { liveStore } from '../../store/live';
 import { energyKeys, gpuStops, sameStops, sumCounters, type GpuStop } from '../shared/energy';
 import { loadSpan } from '../shared/live';
 import { useShallow } from 'zustand/react/shallow';
-import { quietGpusOf, useLiveConditions } from '../../store/attention';
+import { quietGpusOf, silentForOf, useLiveConditions } from '../../store/attention';
 import { openAlerts, useEvents } from '../../store/events';
 import { breathLevel, clusterHealth, clusterTotals, openAlertCounts, type Health, type NodeNumbers } from './model';
 
@@ -109,8 +109,8 @@ export function clusterGpuNow(ids: readonly string[], nodes: Readonly<Record<str
     const info = nodes[id]?.info;
     const util = nodeUtil(id, info);
     const power = liveStore.latestValue(id, nodeGpuKey(info, 'power_w'));
-    const utilGap = util.util === null ? nodeTotalGap(info, liveStore.latest(id), 'util') : null;
-    const powerGap = power === null ? nodeTotalGap(info, liveStore.latest(id), 'power_w') : null;
+    const utilGap = util.util === null ? nodeTotalGap(info, liveStore.latest(id), 'util', silentForOf(id, info)) : null;
+    const powerGap = power === null ? nodeTotalGap(info, liveStore.latest(id), 'power_w', silentForOf(id, info)) : null;
     if (utilGap) utilGaps.push([id, utilGap]);
     if (powerGap) powerGaps.push([id, powerGap]);
     return { ...util, power, memUsed: null, memTotal: null, psi: null };

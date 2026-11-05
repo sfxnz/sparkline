@@ -1,4 +1,5 @@
 import { lostGpu, notReported, type NotReported } from './capabilities';
+import { formatDuration } from './format';
 import { GPU_TOTALS, gpuKey, gpuTotals, gpuValue, isReadingTotal, type GpuField, type GpuReading, type NodeTotal, type ReadingTotal } from './metrics';
 import type { GpuInfo, GpuSample, NodeInfo, Sample } from './types';
 
@@ -74,41 +75,48 @@ export function gpuSetGap(info: NodeInfo | null | undefined, field: GpuField, mo
 
 const READING: Record<NodeTotal, string> = { util: 'utilisation', temp_c: 'temperature', power_w: 'power', mem_used: 'memory' };
 
-const silentClause = (indexes: readonly number[], message: string | null) =>
-  message ? `${gpuList(indexes)} not responding (${message})` : `${gpuList(indexes)} sent no reading this tick`;
+/** Seconds GPU `index` has sent nothing, or null when that is not known. */
+export type SilentFor = (index: number) => number | null;
 
-const silentClauses = (info: NodeInfo | null | undefined, s: Sample) =>
-  silentBackends(info, s.errors.gpu, answeredIndexes(s)).map((b) => silentClause(b.gpus.map((g) => g.index), b.message));
+function silentClause(indexes: readonly number[], message: string | null, silentFor?: SilentFor): string {
+  const seconds = Math.min(...indexes.map((i) => Math.round(silentFor?.(i) ?? 0)));
+  const gpus = gpuList(indexes);
+  if (message) return `${gpus} not responding${seconds > 0 ? ` for ${formatDuration(seconds)}` : ''} (${message})`;
+  return seconds > 0 ? `${gpus} ${indexes.length === 1 ? 'has' : 'have'} sent no reading for ${formatDuration(seconds)}` : `${gpus} sent no reading this tick`;
+}
 
-export function everyGpuSilent(info: NodeInfo | null | undefined, s: Sample | null): NotReported | null {
+const silentClauses = (info: NodeInfo | null | undefined, s: Sample, silentFor?: SilentFor) =>
+  silentBackends(info, s.errors.gpu, answeredIndexes(s)).map((b) => silentClause(b.gpus.map((g) => g.index), b.message, silentFor));
+
+export function everyGpuSilent(info: NodeInfo | null | undefined, s: Sample | null, silentFor?: SilentFor): NotReported | null {
   const gpus = info?.gpus ?? [];
   if (!s || !gpus.length || gpus.some((g) => answeredGpu(s, g.index))) return null;
   const lost = gpus.flatMap((g) => {
     const gap = lostGpu(info, g.index);
     return gap ? [`GPU ${String(g.index)}: ${gap.detail}`] : [];
   });
-  return { kind: 'hardware', label: 'Not responding', detail: sentence([...lost, ...silentClauses(info, s)].join('; ')) };
+  return { kind: 'hardware', label: 'Not responding', detail: sentence([...lost, ...silentClauses(info, s, silentFor)].join('; ')) };
 }
 
 /** Why the node's figure of `field` (nodeGpuKey) is missing from this sample, when no declared gap explains it. */
-export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
+export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal, silentFor?: SilentFor): NotReported | null {
   if (!s || !info) return null;
   const key = nodeGpuKey(info, field);
   if (notReported(info, key)) return null;
   if (key !== `gpu.${field}`) {
     const [only = 0] = gpuIndexes(info);
     const reading = answeredGpu(s, only);
-    if (!reading) return notResponding(info, s, only);
+    if (!reading) return notResponding(info, s, only, silentFor);
     return gpuValue(reading, field) === null ? { kind: 'hardware', label: 'No total', detail: `GPU ${String(only)} sent no ${READING[field]} reading this tick.` } : null;
   }
   if (gpuTotals(s)[field] !== null) return null;
-  const silent = everyGpuSilent(info, s);
+  const silent = everyGpuSilent(info, s, silentFor);
   if (silent) return silent;
   const empty = info.gpus.filter((g) => {
     const reading = answeredGpu(s, g.index);
     return reading && gpuValue(reading, field) === null;
   }).map((g) => g.index);
-  const clauses = [...(empty.length ? [`${gpuList(empty)} sent no ${READING[field]} reading this tick`] : []), ...silentClauses(info, s)];
+  const clauses = [...(empty.length ? [`${gpuList(empty)} sent no ${READING[field]} reading this tick`] : []), ...silentClauses(info, s, silentFor)];
   if (!clauses.length) {
     if (!s.errors.gpu) return null;
     clauses.push(`A GPU backend failed this tick (${s.errors.gpu})`);
@@ -119,16 +127,16 @@ export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, fi
 
 /** Why the node's GPU `field` has no value: every GPU silent (everyGpuSilent), declared not reported, or dropped out
  *  of this sample (totalGap). */
-export function nodeTotalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
+export function nodeTotalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal, silentFor?: SilentFor): NotReported | null {
   const key = nodeGpuKey(info, field);
-  return (key === `gpu.${field}` ? everyGpuSilent(info, s) : null) ?? notReported(info, key) ?? totalGap(info, s, field);
+  return (key === `gpu.${field}` ? everyGpuSilent(info, s, silentFor) : null) ?? notReported(info, key) ?? totalGap(info, s, field, silentFor);
 }
 
 /** Why the node's own stat of `field` has no value. One GPU: its declared gap, or not responding. Several:
  *  nodeTotalGap. */
-export function nodeGpuGap(info: NodeInfo | null | undefined, s: Sample | null, field: ReadingTotal): NotReported | null {
+export function nodeGpuGap(info: NodeInfo | null | undefined, s: Sample | null, field: ReadingTotal, silentFor?: SilentFor): NotReported | null {
   const [only = 0, ...more] = gpuIndexes(info);
-  return more.length ? nodeTotalGap(info, s, field) : (notReported(info, gpuKey(only, field)) ?? notResponding(info, s, only));
+  return more.length ? nodeTotalGap(info, s, field, silentFor) : (notReported(info, gpuKey(only, field)) ?? notResponding(info, s, only, silentFor));
 }
 
 /** How many of the GPUs a node lists a node total read this tick. */
@@ -181,10 +189,10 @@ export function silentBackends(info: NodeInfo | null | undefined, errors: string
   return out;
 }
 
-export function notResponding(info: NodeInfo | null | undefined, s: Sample | null, index: number): NotReported | null {
+export function notResponding(info: NodeInfo | null | undefined, s: Sample | null, index: number, silentFor?: SilentFor): NotReported | null {
   if (!s || !gpuAt(info?.gpus, index) || answeredGpu(s, index) || lostGpu(info, index)) return null;
   const silent = silentBackends(info, s.errors.gpu, answeredIndexes(s)).find((b) => b.gpus.some((g) => g.index === index));
-  return { kind: 'hardware', label: 'Not responding', detail: sentence(silentClause([index], silent?.message ?? null)) };
+  return { kind: 'hardware', label: 'Not responding', detail: sentence(silentClause([index], silent?.message ?? null, silentFor)) };
 }
 
 /** "1", "1 and 2", "1, 2 and 3". */
@@ -199,23 +207,23 @@ export function stillReport(indexes: readonly number[]): string {
 
 export const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 
-export function gpuProcessesGap(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): NotReported | null {
+export function gpuProcessesGap(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[], silentFor?: SilentFor): NotReported | null {
   const declared = notReported(info, 'procs') ?? gpuSetGap(info, 'proc_mem', 'any');
   if (declared || !info?.gpus.length) return declared;
-  const gaps = processGaps(info, s, quiet);
+  const gaps = processGaps(info, s, quiet, silentFor);
   const [first] = gaps;
   if (!first || gaps.length < info.gpus.length) return null;
   if (gaps.length === 1) return first.gap;
-  return everyGpuSilent(info, s) ?? { ...first.gap, detail: sentence(gaps.map((g) => `GPU ${String(g.index)}: ${g.gap.detail}`).join('; ')) };
+  return everyGpuSilent(info, s, silentFor) ?? { ...first.gap, detail: sentence(gaps.map((g) => `GPU ${String(g.index)}: ${g.gap.detail}`).join('; ')) };
 }
 
 export function gpusWithUnknownProcesses(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): number[] {
   return gpuProcessesGap(info, s, quiet) ? [] : processGaps(info, s, quiet).map((g) => g.index);
 }
 
-function processGaps(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): { index: number; gap: NotReported }[] {
+function processGaps(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[], silentFor?: SilentFor): { index: number; gap: NotReported }[] {
   return (info?.gpus ?? []).flatMap((g) => {
-    const gap = lostGpu(info, g.index) ?? (quiet.includes(g.index) ? notResponding(info, s, g.index) : null);
+    const gap = lostGpu(info, g.index) ?? (quiet.includes(g.index) ? notResponding(info, s, g.index, silentFor) : null);
     return gap ? [{ index: g.index, gap }] : [];
   });
 }

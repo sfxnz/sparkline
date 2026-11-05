@@ -8,7 +8,7 @@ import { memoryLayout } from '../../lib/memoryLayout';
 import { gpuList, gpuProcessesGap, gpuSetGap, gpusWithUnknownProcesses, nodeGpuKey, nodeTotalGap } from '../../lib/gpu';
 import type { NodeTotal } from '../../lib/metrics';
 import type { NodeState } from '../../lib/types';
-import { quietGpusOf } from '../../store/attention';
+import { quietGpusOf, silentForOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { formatEnergyCost, formatHm, formatKwh, stopsText, untilText } from '../shared/energy';
@@ -37,7 +37,7 @@ export function Totals() {
   // Nothing live: keep showing the last known totals, dimmed with their age (Stat's stale state).
   const stale = !online.length;
   const ids = stale ? order : online;
-  const procsGap = (id: string) => gpuProcessesGap(infos[id]?.info, liveStore.latest(id), quietGpusOf(id, infos[id]?.info));
+  const procsGap = (id: string) => gpuProcessesGap(infos[id]?.info, liveStore.latest(id), quietGpusOf(id, infos[id]?.info), silentForOf(id, infos[id]?.info));
   const totals = useAcross(
     ids,
     () => {
@@ -93,7 +93,7 @@ export function Totals() {
   const memMissing = totals.memMissing ? totals.memMissing.split('\n') : [];
   const memGap = !stale && ids.length === 1 && memMissing.length === 1 ? notReported(infos[ids[0] ?? '']?.info, 'mem') : null;
   const totalOut = (field: NodeTotal, dropped: string) => (id: string) =>
-    dropped.split('\n').includes(id) ? nodeTotalGap(infos[id]?.info, liveStore.latest(id), field) : null;
+    dropped.split('\n').includes(id) ? nodeTotalGap(infos[id]?.info, liveStore.latest(id), field, silentForOf(id, infos[id]?.info)) : null;
   const util = leftOut(ids, totalOut('util', totals.utilDropped));
   const power = leftOut(ids, totalOut('power_w', totals.powerDropped));
   const gpuProcs = leftOut(ids, (id) => (totals.procsOut.split('\n').includes(id) ? procsGap(id) : null));

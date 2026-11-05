@@ -3,6 +3,7 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { nodeDisplayStatus, type Status } from '../design/components/StatusPill';
 import { nodeCondition, nodeConditions, quietAfterS, quietGpus, sameCondition, sameNodeConditions, type LiveCondition, type NodeConditions } from '../lib/condition';
+import type { SilentFor } from '../lib/gpu';
 import type { NodeInfo, Sample } from '../lib/types';
 import { useCluster } from './cluster';
 import { useConnection } from './connection';
@@ -22,6 +23,9 @@ export const quietGpusOf = (id: string, info: NodeInfo | null | undefined) =>
 
 export const gpuSilentForOf = (id: string, info: NodeInfo | null | undefined, index: number) =>
   liveStore.gpuSilentFor(id, index, quietAfterS(info, staleAfterS()), Infinity);
+
+/** How long each of node `id`'s GPUs has sent nothing (gpuSilentForOf), for the gaps that say so. */
+export const silentForOf = (id: string, info: NodeInfo | null | undefined): SilentFor => (index) => gpuSilentForOf(id, info, index);
 
 /** Live condition of one node's GPUs; null unless the node is online (stale values never raise a pill). */
 export function useLiveCondition(id: string): LiveCondition | null {

@@ -25,7 +25,7 @@ import type { GpuInfo, NodeInfo, Sample } from '../../lib/types';
 import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
-import { quietGpusOf, useNodeDisplayStatus } from '../../store/attention';
+import { quietGpusOf, silentForOf, useNodeDisplayStatus } from '../../store/attention';
 import { liveStore, useLatest } from '../../store/live';
 import { preloadSummary } from '../node/tabs';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from './hooks';
@@ -180,7 +180,7 @@ function CardTitle({ id }: { id: string }) {
 type WorkloadSeen = NotReported | string | null | undefined;
 
 const workloadSelector = (id: string, info: NodeInfo | null) => (s: Sample | null): WorkloadSeen => {
-  const gap = gpuProcessesGap(info, s, quietGpusOf(id, info));
+  const gap = gpuProcessesGap(info, s, quietGpusOf(id, info), silentForOf(id, info));
   if (gap) return gap;
   if (!s?.procs) return undefined; // not reported yet
   const top = topGpuProcess(s.procs);
