@@ -632,6 +632,29 @@ describe('the pill and the cluster sentence while GPUs send nothing', () => {
     expect(cardPill('spark1')).toHaveAttribute('data-status', 'healthy');
   });
 
+  const seeded = (info: NodeInfo, gpuUntil: number | null, live: Sample) => {
+    useCluster.getState().setHello(cluster([node(info.node_id, { info })]));
+    const ts = Array.from({ length: 8 }, (_, i) => now - 8 + i);
+    act(() => {
+      liveStore.removeNode(info.node_id);
+      liveStore.seed({ node_id: info.node_id, resolution_s: 1, ts, series: { 'cpu.util': ts.map(() => 5), 'gpu0.util': ts.map((t) => (gpuUntil !== null && t <= now - gpuUntil ? 40 : null)) }, min: {}, max: {} });
+      liveStore.pushSample({ ...live, node_id: info.node_id, ts: now });
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+
+  it('raises the pill at once when the page opens on a GB10 whose history shows its GPU silent for 5 s', () => {
+    seeded(gb10, null, nvmlFails(gb10Reading));
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'warning');
+  });
+
+  it('keeps the pill healthy when the page opens on a GB10 whose history shows its GPU reporting 2 s ago', () => {
+    seeded(gb10, 2, nvmlFails(gb10Reading));
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+  });
+
   it("says a GB10's GPU processes are not known only once its NVML has failed as long as the pill waits", () => {
     const idle = gb10Reading.procs?.filter((p) => !p.gpu_mem) ?? [];
     const card = () => screen.getByRole('region', { name: 'Node spark1' });
