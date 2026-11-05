@@ -718,7 +718,7 @@ class _Harvest:
 def _domain_names(domain: str) -> list[str]:
     labels = domain.split(".")
     parents = [".".join(labels[i:]) for i in range(max(len(labels) - 1, 1))]
-    return parents + labels[-2:-1] + [label for label in labels[:-1] if len(label) >= NAME_PART]
+    return parents + labels[-2:-1] + [label for label in labels if len(label) >= NAME_PART]
 
 
 def _idna_forms(value: str) -> list[str]:
@@ -741,14 +741,34 @@ def _full_name_spellings(user: User) -> list[str]:
     full_name = user.gecos.split(",")[0].strip()
     whole = [full_name] if len(full_name.split()) > 1 else []
     parts = [
-        p for p in re.split(r"[\s,@-]+", user.gecos) if len(p) >= NAME_PART and re.search(r"[^\W\d_]", p)
+        p for p in re.findall(r"[^\W_]+", user.gecos) if len(p) >= NAME_PART and re.search(r"[^\W\d_]", p)
     ]
     names = [n for n in whole + parts if n.lower() != user.name.lower()]
     return names + [a for n in names if (a := _ascii(n)) != n and len(a) >= NAME_PART]
 
 
+_NO_DECOMPOSITION = str.maketrans(
+    {
+        "ł": "l",
+        "Ł": "L",
+        "ø": "o",
+        "Ø": "O",
+        "đ": "d",
+        "Đ": "D",
+        "ı": "i",
+        "ß": "ss",
+        "æ": "ae",
+        "Æ": "AE",
+        "œ": "oe",
+        "Œ": "OE",
+        "þ": "th",
+        "Þ": "Th",
+    }
+)
+
+
 def _ascii(text: str) -> str:
-    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return unicodedata.normalize("NFKD", text.translate(_NO_DECOMPOSITION)).encode("ascii", "ignore").decode()
 
 
 def _harvest(rec: Recording, facts: Facts, ph: Placeholders) -> list[Spelling]:
@@ -844,6 +864,7 @@ _SERIAL_LINE = re.compile(r"^Serial[ \t]*:[ \t]*(\S[^\n\r\v\f\x1c-\x1e\x85\u2028
 
 
 MOUNTS = "/proc/self/mounts"
+_MOUNT_ESCAPE = re.compile(r"\\[0-7]{3}")
 REPO_TAGS = ("docker", "/images/json", "result", "RepoTags")
 _DISK_SOURCE = re.compile(rf"^(?=(?:{DISK.pattern}) )/(dev)/", re.MULTILINE)
 
@@ -1157,6 +1178,9 @@ def leaks(red: Redacted) -> list[Leak]:
         elif isinstance(node, File):
             text, binary = text_of(node.data)
             found = _categories(text, binary, originals, _fixed_text(raw, text))
+            if raw == MOUNTS:
+                spaced = _MOUNT_ESCAPE.sub(" ", text)
+                found |= _categories(spaced, binary, originals, _fixed_text(raw, spaced))
             if red.read_at[path] in ROUTE_TABLES:
                 found |= {category for _, category in scan(_route_addresses(text), [_HEX_IPV4])}
             if binary:
