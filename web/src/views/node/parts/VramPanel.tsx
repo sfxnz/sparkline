@@ -9,7 +9,7 @@ import type { GpuInfo } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
 import { lastKnownValue } from '../../shared/live';
-import { useBufferTs, useFreshness } from './hooks';
+import { useRerenderOnBufferWrite, useFreshness } from './hooks';
 import { StaleAge } from './MemoryHero';
 import { gpuSelector } from './selectors';
 import { useGpuGap } from './useGpuGap';
@@ -42,7 +42,7 @@ function VramBar({ nodeId, gpu, model }: { nodeId: string; gpu: GpuInfo; model: 
   const { stale, waiting } = useFreshness(nodeId);
   const gap = useGpuGap(nodeId, index)(key);
   const fallback = live === null && stale;
-  useBufferTs(nodeId, fallback);
+  useRerenderOnBufferWrite(nodeId, fallback);
   const used = live ?? (fallback ? lastKnownValue(nodeId, key) : null);
   const total = gpu.vram_total ?? null;
   const name = `GPU ${index}`;

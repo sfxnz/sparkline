@@ -99,6 +99,30 @@ describe('Thermals tab', () => {
     expect(screen.queryByText('Not reported by this hardware')).not.toBeInTheDocument();
   });
 
+  it('counts a reconnect gap fill in the live peak and average before the next sample', () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({ matches: q.includes('reduce'), media: q, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false }));
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: state('online') } });
+    const T = 1_800_000_000;
+    const sample = sampleJson as unknown as Sample;
+    const at = (ts: number): Sample => ({ ...sample, node_id: NODE, ts, gpu: [{ ...(gpuAt(sample.gpu, 0) as Sample['gpu'][number]), power_w: 50 }] });
+    act(() => {
+      liveStore.pushSample(at(T));
+      liveStore.pushSample(at(T + 10));
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={NODE} />);
+    const power = within(screen.getByRole('region', { name: 'GPU power' }));
+    expect(power.getByText(/^Peak/).closest('.stat')).toHaveTextContent(/min\s*50\.0\s*W$/);
+
+    act(() => {
+      liveStore.seed({ node_id: NODE, resolution_s: 1, ts: [T + 5], series: { 'gpu0.power_w': [250] }, min: {}, max: {} });
+      liveStore.flush();
+    });
+    expect(liveStore.lastTs(NODE)).toBe(T + 10);
+    expect(power.getByText(/^Peak/).closest('.stat')).toHaveTextContent(/min\s*250(\.0)?\s*W$/);
+    expect(power.getByText(/^Average/).closest('.stat')).toHaveTextContent(/min\s*117(\.0)?\s*W$/);
+  });
+
   it('keeps last known values when the node is offline, from history seeded into the buffer', () => {
     useCluster.setState({ clockOffset: 0, nodes: { [NODE]: state('offline') } });
     act(() => {

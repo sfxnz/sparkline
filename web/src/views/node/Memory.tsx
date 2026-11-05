@@ -10,7 +10,7 @@ import { memoryLayout } from '../../lib/memoryLayout';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useLatest } from '../../store/live';
-import { useBufferTs, useFreshness } from './parts/hooks';
+import { useRerenderOnBufferWrite, useFreshness } from './parts/hooks';
 import { BYTE_INCRS } from '../../charts/theme';
 import { lastKnownValue } from '../shared/live';
 import { LiveStat } from './parts/LiveStat';
@@ -87,7 +87,7 @@ function PressureNow({ nodeId }: { nodeId: string }) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const live = useLatest(nodeId, selectPsi);
   const { waiting, stale } = useFreshness(nodeId);
-  useBufferTs(nodeId, live === null && stale);
+  useRerenderOnBufferWrite(nodeId, live === null && stale);
   const key = live ?? (stale ? `${lastKnownValue(nodeId, 'mem.psi_some') ?? 'x'}|${lastKnownValue(nodeId, 'mem.psi_full') ?? 'x'}` : null);
   if (key === null) {
     return waiting ? (
@@ -115,7 +115,7 @@ function PressureNow({ nodeId }: { nodeId: string }) {
 
 function SwapBar({ nodeId, total }: { nodeId: string; total: number | null }) {
   const live = useLatest(nodeId, memSwapUsed);
-  useBufferTs(nodeId, live === null);
+  useRerenderOnBufferWrite(nodeId, live === null);
   const used = live ?? lastKnownValue(nodeId, 'mem.swap_used');
   if (!total || used == null) return <div className="nswap__bar" aria-hidden="true" />;
   const pct = Math.min(100, (100 * used) / total);
