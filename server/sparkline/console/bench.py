@@ -34,6 +34,7 @@ from ..common.schema import (
     BenchSpec,
     BenchStartRequest,
     Event,
+    GpuOption,
     NodeBenchState,
     NodeInfo,
     Problem,
@@ -94,7 +95,7 @@ def canonical(params: dict[str, Any]) -> str:
     return json.dumps(params, sort_keys=True, separators=(",", ":"))
 
 
-def params_key(bench_id: str, params: dict[str, Any], gpu_index: dict[str, int] | None = None) -> str:
+def params_key(bench_id: str, params: dict[str, Any], gpu_uuid: dict[str, str | None] | None = None) -> str:
     """Baseline identity of validated params: canonical JSON, leaving out KEY_NEUTRAL params while neutral.
     llm-inference without a sweep counts the requests it sends (at least one per stream since 2026-10-21), so
     an older run with Requests below Concurrency, which sent fewer at once, is never compared with it."""
@@ -102,8 +103,8 @@ def params_key(bench_id: str, params: dict[str, Any], gpu_index: dict[str, int] 
     key = {k: v for k, v in params.items() if k not in neutral or v != neutral[k]}
     if bench_id == "llm-inference" and not params.get("sweep"):
         key["requests"] = max(params["requests"], params["concurrency"])
-    if gpu_index:
-        key["@gpu_index"] = gpu_index
+    if gpu_uuid:
+        key["@gpu_uuid"] = gpu_uuid
     return canonical(key)
 
 
@@ -171,8 +172,9 @@ def uses_gpu(bench_id: str, params: dict[str, Any]) -> bool:
 
 def validate_gpu_index(
     spec: BenchSpec, nodes: list[str], asked: dict[str, int], params: dict[str, Any]
-) -> dict[str, int]:
+) -> dict[str, GpuOption]:
     gpu = uses_gpu(spec.id, params)
+    chosen: dict[str, GpuOption] = {}
     for n, i in asked.items():
         if n not in nodes:
             raise BenchError(
@@ -215,14 +217,14 @@ def validate_gpu_index(
             )
         if opt.problem is not None:
             raise BenchError(400, opt.problem)
+        chosen[n] = opt
     if not gpu:
         return {}
-    out = dict(asked)
     for n in nodes:
-        first = next((o.index for o in spec.gpu_options.get(n, []) if o.problem is None), None)
-        if n not in out and first is not None:
-            out[n] = first
-    return out
+        first = next((o for o in spec.gpu_options.get(n, []) if o.problem is None), None)
+        if n not in chosen and first is not None:
+            chosen[n] = first
+    return chosen
 
 
 def rail_ip(info: NodeInfo | None, rail: str) -> str | None:
@@ -704,7 +706,7 @@ class BenchManager:
                 400,
                 Problem(message="Invalid benchmark parameters", cause=str(e), fix="Correct it and try again"),
             ) from None
-        gpu_index = validate_gpu_index(spec, nodes, body.gpu_index, params)
+        gpus = validate_gpu_index(spec, nodes, body.gpu_index, params)
         now = time.time()
         run_id = new_run_id(now)
         while run_id in self.active or self.store.get(run_id) is not None:  # same ms + same suffix
@@ -717,9 +719,9 @@ class BenchManager:
             status="queued",
             created_ts=now,
             phase="Starting",
-            params_key=params_key(spec.id, params, gpu_index),
+            params_key=params_key(spec.id, params, {n: o.uuid for n, o in gpus.items()}),
             metadata={"bench_name": spec.name},
-            gpu_index=gpu_index,
+            gpu_index={n: o.index for n, o in gpus.items()},
         )
         act = _Active(run=run, name=spec.name, last_broadcast=now)  # nothing goes out while dispatching
         self.active[run.id] = act  # reserves the nodes while dispatching

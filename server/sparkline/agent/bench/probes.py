@@ -115,7 +115,7 @@ class GpuTarget:
 
     @property
     def docker_gpus(self) -> str:
-        return f"device={self.gpu.index}" if self.pinned else "all"
+        return f"device={self.gpu.uuid}" if self.pinned else "all"
 
 
 def _nvidia(info: NodeInfo) -> list[GpuInfo]:
@@ -136,28 +136,43 @@ def _not_responding(node: str, index: int, reason: str) -> Problem:
     )
 
 
-def gpu_options(node: str, info: NodeInfo) -> list[GpuOption]:
+def _no_uuid(node: str, index: int) -> Problem:
+    return Problem(
+        message=f"GPU {index} on {node} has no UUID",
+        cause="NVML reported no UUID for it, and Docker needs one to give a benchmark this GPU alone",
+        fix=_nvidia_smi_fix(node),
+    )
+
+
+def _blocked(node: str, info: NodeInfo) -> dict[int, Problem]:
     nvidia, lost = _nvidia(info), _lost(info)
+    out: dict[int, Problem] = {}
+    for g in nvidia:
+        if g.index in lost:
+            out[g.index] = _not_responding(node, g.index, lost[g.index])
+        elif g.uuid is None and len(nvidia) >= 2:
+            out[g.index] = _no_uuid(node, g.index)
+    return out
+
+
+def gpu_options(node: str, info: NodeInfo) -> list[GpuOption]:
+    nvidia, blocked = _nvidia(info), _blocked(node, info)
     if len(nvidia) < 2:
         return []
-    return [
-        GpuOption(
-            index=g.index,
-            name=g.name,
-            problem=_not_responding(node, g.index, lost[g.index]) if g.index in lost else None,
-        )
-        for g in nvidia
-    ]
+    return [GpuOption(index=g.index, name=g.name, uuid=g.uuid, problem=blocked.get(g.index)) for g in nvidia]
 
 
 def gpu_problem(node: str, info: NodeInfo) -> Problem | None:
-    nvidia, lost = _nvidia(info), _lost(info)
-    if any(g.index not in lost for g in nvidia):
+    nvidia, blocked = _nvidia(info), _blocked(node, info)
+    if any(g.index not in blocked for g in nvidia):
         return None
     if nvidia:
+        lost = _lost(info)
         return Problem(
-            message=f"No NVIDIA GPU responds on {node}",
-            cause="; ".join(f"GPU {g.index}: {lost[g.index]}" for g in nvidia),
+            message=f"No NVIDIA GPU responds on {node}"
+            if all(g.index in lost for g in nvidia)
+            else f"No NVIDIA GPU on {node} can run GPU benchmarks",
+            cause="; ".join(f"GPU {g.index}: {blocked[g.index].cause}" for g in nvidia),
             fix=_nvidia_smi_fix(node),
         )
     need = "GPU benchmarks need an NVIDIA GPU"
@@ -198,9 +213,9 @@ def unused_gpu(bench: str, gpu_bench: bool, asked: int) -> Problem:
 def resolve_gpu(node: str, info: NodeInfo, asked: int | None) -> GpuTarget | Problem:
     if (problem := gpu_problem(node, info)) is not None:
         return problem
-    nvidia, lost = _nvidia(info), _lost(info)
+    nvidia, blocked = _nvidia(info), _blocked(node, info)
     if asked is None:
-        gpu = next(g for g in nvidia if g.index not in lost)
+        gpu = next(g for g in nvidia if g.index not in blocked)
     else:
         found = next((g for g in nvidia if g.index == asked), None)
         if found is None:
@@ -209,8 +224,8 @@ def resolve_gpu(node: str, info: NodeInfo, asked: int | None) -> GpuTarget | Pro
                 cause=f"{node}'s NVIDIA GPUs are {', '.join(str(g.index) for g in nvidia)}",
                 fix=f"Pick one of the GPUs the console lists for {node}",
             )
-        if asked in lost:
-            return _not_responding(node, asked, lost[asked])
+        if asked in blocked:
+            return blocked[asked]
         gpu = found
     return GpuTarget(gpu, pinned=len(nvidia) >= 2)
 
