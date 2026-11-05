@@ -81,7 +81,8 @@ export function Totals() {
   const staleProps = { stale, updatedAt: totals.updatedAt };
   const energy = useEnergyToday(order);
   const rate = useCluster((s) => s.cluster?.settings);
-  const of = stale ? 'No node is reporting live data' : `${online.length === order.length ? 'All' : `${online.length} of`} ${order.length} ${order.length === 1 ? 'node' : 'nodes'} reporting`;
+  const allOnline = !stale && online.length === order.length;
+  const of = stale ? 'No node is reporting live data' : `${allOnline ? 'All' : `${online.length} of`} ${order.length} ${order.length === 1 ? 'node' : 'nodes'} reporting`;
   const memMissing = totals.memMissing ? totals.memMissing.split('\n') : [];
   const memGap = !stale && ids.length === 1 && memMissing.length === 1 ? notReported(infos[ids[0] ?? '']?.info, 'mem') : null;
   const totalOut = (field: NodeTotal, dropped: string) => (id: string) =>
@@ -98,7 +99,7 @@ export function Totals() {
   return (
     <Panel label="Cluster totals" className="ov-totals">
       <div className="ov-totals__row">
-        <Stat label="Cluster compute" size="lg" value={totals.util} format={percentParts} unsupported={util.gap} footer={`Mean GPU utilisation${totals.utilFrom ? ` (${totals.utilFrom})` : ''}${exclText(util.excl)} · ${of}`} {...staleProps} />
+        <Stat label="Cluster compute" size="lg" value={totals.util} format={percentParts} unsupported={util.gap} footer={`Mean GPU utilisation${totals.utilFrom ? ` (${totals.utilFrom})` : ''}${exclText(util.excl)}${util.excl.length && allOnline ? '' : ` · ${of}`}`} {...staleProps} />
         <Stat
           label="GPU power"
           size="lg"
