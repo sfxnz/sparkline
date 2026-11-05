@@ -40,6 +40,7 @@ import {
   modelledResults,
   nodeMeta,
   nodesText,
+  notDgxSpark,
   servedParts,
   signedFormat,
   unitText,
@@ -53,6 +54,7 @@ import {
   runGpuParts,
   runLog,
   stopwatch,
+  unestimatedRun,
   valueWithUnit,
 } from './model';
 import { BetterHint, DeltaBadge, ModelledNote, RunStatusPill } from './parts';
@@ -232,7 +234,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
       {active ? (
         <Panel title="Progress" className="bench-run__progress">
-          <Progress run={run} now={now} estimate={estimate} cancelling={cancelling} />
+          <Progress run={run} now={now} estimate={estimate} noEstimate={unestimatedRun(run, spec)} cancelling={cancelling} />
         </Panel>
       ) : run.status === 'succeeded' ? (
         <Completion run={run} celebrate={celebrate} regressionPct={regressionPct} />
@@ -313,7 +315,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
 // ------------------------------------------------------------------------------------------------ progress
 
-function Progress({ run, now, estimate, cancelling }: { run: BenchRun; now: number; estimate: number | null; cancelling: boolean }) {
+function Progress({ run, now, estimate, noEstimate, cancelling }: { run: BenchRun; now: number; estimate: number | null; noEstimate: readonly string[]; cancelling: boolean }) {
   const pct = Math.round(Math.min(1, Math.max(0, run.progress)) * 100);
   const left = estimate === null ? null : eta(run, now, estimate);
   const phase = cancelling ? 'Cancelling — stopping processes and removing containers…' : run.phase || (run.status === 'queued' ? 'Queued' : 'Starting…');
@@ -349,6 +351,7 @@ function Progress({ run, now, estimate, cancelling }: { run: BenchRun; now: numb
           <dd className="num">{aboutDuration(estimate === null ? null : projectedTotal(run, now, estimate))}</dd>
         </div>
       </dl>
+      {noEstimate.length ? <p className="bench-progress__note">Sparkline estimates run time from DGX Spark rates, and {notDgxSpark(noEstimate)}.</p> : null}
       {states.length > 1 || run.nodes.length > 1 ? (
         <ul className="bench-nodeprog" aria-label="Progress per node">
           {run.nodes.map((n) => {

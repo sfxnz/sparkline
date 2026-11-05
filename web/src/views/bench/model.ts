@@ -380,9 +380,16 @@ export function projectedTotal(run: Pick<BenchRun, 'created_ts' | 'started_ts' |
   return elapsed(run, now) + (eta(run, now, estimate) ?? 0);
 }
 
+/** The run's nodes with no duration estimate: their agent reports none, or the catalog lists them in no_estimate. */
+export function unestimatedRun(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states'>, spec: Pick<BenchSpec, 'no_estimate'> | undefined): string[] {
+  const meta = nodeMeta(run);
+  const none = new Set([...Object.keys(meta).filter((n) => meta[n]?.est_duration_s === null), ...(spec ? unestimated(spec, run.nodes) : [])]);
+  return run.nodes.filter((n) => none.has(n));
+}
+
 export function runEstimate(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states' | 'params'>, spec: BenchSpec | undefined): number | null {
   const metas = Object.values(nodeMeta(run));
-  if (metas.some((m) => m.est_duration_s === null) || (spec && unestimated(spec, run.nodes).length)) return null;
+  if (unestimatedRun(run, spec).length) return null;
   const agent = Math.max(0, ...metas.map((m) => (typeof m.est_duration_s === 'number' ? m.est_duration_s : 0)));
   return agent > 0 ? agent : spec ? estimateDuration(spec, run.params as Partial<ParamValues>) : 60;
 }

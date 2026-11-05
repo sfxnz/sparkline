@@ -216,6 +216,7 @@
 .bench-progress__times { display: flex; gap: var(--space-8); margin: 0; flex-wrap: wrap; }
 .bench-progress__times dt { font-size: var(--fs-footnote); color: var(--text-2); }
 .bench-progress__times dd { margin: 0; font-size: var(--fs-title3); line-height: var(--lh-title3); font-weight: 600; }
+.bench-progress__note { margin: 0; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 .bench-nodeprog { list-style: none; margin: var(--space-1) 0 0; padding: var(--space-3) 0 0; border-top: var(--hairline) solid var(--separator); display: grid; gap: var(--space-2); }
 .bench-nodeprog__row { display: grid; grid-template-columns: 5rem 4rem minmax(0, 1fr) minmax(80px, 180px) 3.5ch auto; align-items: center; gap: var(--space-3); font-size: var(--fs-footnote); }
 .bench-nodeprog__node { font-weight: 600; font-size: var(--fs-callout); }
