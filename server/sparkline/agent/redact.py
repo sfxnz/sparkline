@@ -133,7 +133,7 @@ SYSTEM_BIN = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/
 ELSEWHERE = "<elsewhere>"
 DISK = re.compile(r"/dev/(?:nvme\d+n\d+(?:p\d+)?|(?:sd|vd|xvd|hd)[a-z]+\d*|mmcblk\d+(?:p\d+)?|md\d+|dm-\d+)")
 LONG_NAME = 8
-FULL_NAME_PART = 4
+NAME_PART = 4
 
 _HEX = "[0-9A-Fa-f]"
 Form = Literal["hex", "name", "host", "anywhere", "ipv4", "ipv6", "path"]
@@ -717,7 +717,8 @@ class _Harvest:
 
 def _domain_names(domain: str) -> list[str]:
     labels = domain.split(".")
-    return [".".join(labels[i:]) for i in range(max(len(labels) - 1, 1))] + labels[-2:-1]
+    parents = [".".join(labels[i:]) for i in range(max(len(labels) - 1, 1))]
+    return parents + labels[-2:-1] + [label for label in labels[:-1] if len(label) >= NAME_PART]
 
 
 def _idna_forms(value: str) -> list[str]:
@@ -739,7 +740,7 @@ def _idna_forms(value: str) -> list[str]:
 def _full_name_spellings(user: User) -> list[str]:
     parts = user.full_name.split()
     whole = [user.full_name.strip()] if len(parts) > 1 else []
-    return whole + [p for p in parts if len(p) >= FULL_NAME_PART and p.lower() != user.name.lower()]
+    return whole + [p for p in parts if len(p) >= NAME_PART and p.lower() != user.name.lower()]
 
 
 def _harvest(rec: Recording, facts: Facts, ph: Placeholders) -> list[Spelling]:
