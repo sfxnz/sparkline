@@ -283,14 +283,16 @@ function PairPicker({ spec, known, statusOf, nodes, onChange }: { spec: BenchSpe
   );
 }
 
-/** Live one-liner next to a node: "serving DeepSeek… · GPU 62%", or "GPU 2 at 3%" for the GPU chosen on a node with several
- *  (refreshes every 2 s while the dialog is open). */
+/** Live one-liner next to a node: "serving DeepSeek… · GPU 62%", or "GPU 2 at 3%" for the GPU chosen on a node with several;
+ *  in the past tense ("GPU was 62%") while the node is not reporting (refreshes every 2 s while the dialog is open). */
 function NodeLoad({ node, hint, gpu }: { node: string; hint: string; gpu: number | undefined }) {
   useNow(2000);
   const s = liveStore.latest(node);
   const util = gpuAt(s?.gpu, gpu ?? 0)?.util;
   const top = topGpuProcess(s?.procs);
-  const text = [hint, top ? `${isServing(top) ? 'serving' : 'running'} ${workloadName(top)}` : null, util != null ? (gpu === undefined ? `GPU ${Math.round(util)}%` : `GPU\u00a0${gpu}\u00a0at\u00a0${Math.round(util)}%`) : null].filter(Boolean).join(' · ');
+  const pct = util != null ? `${Math.round(util)}%` : null;
+  const load = pct && (gpu === undefined ? `GPU ${hint ? 'was ' : ''}${pct}` : `GPU\u00a0${gpu}\u00a0${hint ? 'was' : 'at'}\u00a0${pct}`);
+  const text = [hint, top ? `${isServing(top) ? 'serving' : 'running'} ${workloadName(top)}` : null, load].filter(Boolean).join(' · ');
   return <span className="bench-node__load num">{text || 'No live data'}</span>;
 }
 
