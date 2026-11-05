@@ -1,5 +1,5 @@
-"""The sparkline-capture command. It quiets Python's tracebacks before it imports the capture, whose
-imports take long enough for a Ctrl-C to land in them."""
+"""The sparkline-capture command. Before it imports the capture, whose imports take long enough for a Ctrl-C
+to land in them, it quiets Python and makes SIGHUP and SIGTERM stop the capture as Ctrl-C does."""
 
 from __future__ import annotations
 
