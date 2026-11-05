@@ -60,11 +60,12 @@ file, so the recording still reads as one machine. A name with accents is found 
 written composed (NFC, as Linux usually writes them) or decomposed (NFD, as macOS writes them). A word of a
 name keeps the combining marks that follow its letters, such as accents, the vowel signs of Devanagari, Bengali
 or Thai, and the points of Hebrew or Arabic. Each mark that does not compose into one letter counts as a
-character.
+character. A hostname or domain in Unicode is also found in its `xn--` form, and one in its `xn--` form, which
+is how Linux holds an internationalized hostname, is also found in Unicode.
 
 | Value | Placeholder |
 | --- | --- |
-| Hostname, with any domain after it, also written with `_` for `-`, in its `xn--` form or, from 8 characters, inside a longer word | `host1` |
+| Hostname, with any domain after it, also written with `_` for `-` or, from 8 characters, inside a longer word | `host1` |
 | Domain of the hostname, each parent domain, the organization, and each label of 4 or more characters, on their own, also written with `_` for `-` or, from 8 characters, inside a longer word. The organization is the label before the top-level domain, or before a public suffix of two labels: `ts.net`, or a registry label such as `co`, `com`, `ac`, `edu`, `gov`, `net` or `org` under a two-letter country code, as in `co.uk` or `edu.cn` | `domain1` |
 | User name, the home directory, and a disk mounted under `/media/<user>` | `user1`, `/home/<user1>`, `/media/<user1>` |
 | Full name of an account in `/etc/passwd`, each word in that account's comment field that has a letter and 4 or more characters, also without accents, and each number there of 6 or more digits, such as a phone number, as written and as its digits alone | `person1` |
