@@ -942,3 +942,34 @@ describe('the not-responding reasons of several nodes', () => {
     }
   });
 });
+
+describe("GPU processes while some or all of a node's GPUs send nothing", () => {
+  const UNKNOWN = 'NVMLError_Unknown: Unknown Error';
+  const gb10 = gb10Info as unknown as NodeInfo;
+  const ws4 = { ...(wsInfo as unknown as NodeInfo), node_id: 'ws4', hostname: 'ws4' };
+  const reading = (info: NodeInfo, over: Partial<Sample> = {}): Sample => ({
+    ...((info.gpus.length > 1 ? wsSample : gb10Sample) as unknown as Sample), node_id: info.node_id, ...over,
+  });
+  const failing = (s: Sample, error: string): Sample => ({ ...s, gpu: [], errors: { ...s.errors, gpu: `nvml: ${error}` } });
+  const show = (nodes: readonly (readonly [NodeInfo, Sample])[]) => {
+    useCluster.getState().setHello(cluster(nodes.map(([info]) => node(info.node_id, { info }))));
+    act(() => {
+      for (const [info, s] of nodes) {
+        liveStore.removeNode(info.node_id);
+        for (let ago = 5; ago >= 0; ago--) liveStore.pushSample({ ...s, ts: now - ago });
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+  const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+  const workloadLine = (id: string) => within(screen.getByRole('region', { name: `Node ${id}` })).getByText(/^GPU processes/).closest('p') as HTMLElement;
+
+  it('names every GPU of ws4 in why the active GPU processes are not known, once all four have sent nothing for 5 s', () => {
+    show([[gb10, failing(reading(gb10), 'NVMLError_GpuIsLost: GPU is lost')], [ws4, failing(reading(ws4), UNKNOWN)]]);
+    const ws4Why = `GPUs 0, 1, 2 and 3 not responding (${UNKNOWN}).`;
+    expect(why(tile('Active GPU processes'))).toHaveAccessibleDescription(`spark1: NVMLError_GpuIsLost: GPU is lost\nws4: ${ws4Why}`);
+    expect(why(workloadLine('ws4'))).toHaveAccessibleDescription(ws4Why);
+  });
+});
