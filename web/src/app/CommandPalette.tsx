@@ -25,8 +25,7 @@ export interface Command {
   run: () => void;
 }
 
-/** Metrics people look for by name, and the node tab that shows each. Listed per node, only once the user types; the
- *  memory entries follow the node's layout. */
+/** Metrics people look for by name, and the node tab that shows each. Listed per node, only once the user types. */
 const metrics = (layout: MemoryLayout): readonly { label: string; tab: NodeTab; keywords: string }[] => [
   { label: 'GPU utilisation', tab: 'gpu', keywords: 'usage load busy sm' },
   { label: 'GPU temperature', tab: 'gpu', keywords: 'temp thermal heat slowdown shutdown' },

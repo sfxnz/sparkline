@@ -619,7 +619,7 @@ def test_a_path_in_an_open_error_is_named_as_on_the_machine_not_under_the_record
 
 GIB = 1 << 30
 FB = "Dedicated GPU memory (FB) not reported by NVIDIA GB10"
-PROCS = 609206272  # the recording's one process
+GB10_PROC_MEM = 609206272
 MEMORY_KEYS = ("gpu0.vram_used", "gpu0.shared_used", "gpu.mem_used", "mem.gpu")
 VRAM = (VRAM_ONLY.reason, "hardware")
 DENIED = ("Permission denied to the agent's user (NVML: Insufficient Permissions)", "access")
@@ -637,7 +637,7 @@ DENIED = ("Permission denied to the agent's user (NVML: Insufficient Permissions
         (
             NOT_SUPPORTED,
             ("unified", None),
-            {"gpu0.shared_used": PROCS, "gpu.mem_used": PROCS, "mem.gpu": PROCS},
+            {"gpu0.shared_used": GB10_PROC_MEM, "gpu.mem_used": GB10_PROC_MEM, "mem.gpu": GB10_PROC_MEM},
             {
                 "gpu0.vram_used": (
                     f"{FB} (NVML: Not Supported) — unified memory is reported under Memory instead",
@@ -654,7 +654,7 @@ DENIED = ("Permission denied to the agent's user (NVML: Insufficient Permissions
         (
             {"__error__": 999, "str": "Unknown Error"},
             ("unified", None),
-            {"gpu0.shared_used": PROCS, "gpu.mem_used": PROCS, "mem.gpu": PROCS},
+            {"gpu0.shared_used": GB10_PROC_MEM, "gpu.mem_used": GB10_PROC_MEM, "mem.gpu": GB10_PROC_MEM},
             {"gpu0.vram_used": (f"{FB} (NVML: Unknown Error)", "hardware")},
         ),
     ],

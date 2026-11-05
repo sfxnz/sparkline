@@ -112,7 +112,7 @@ def test_node_gpu_totals_add_in_sample_order_without_compensation_as_the_web_fla
 
 
 def test_the_node_gpu_totals_follow_the_rules_the_web_flatten_is_tested_against():
-    reduced = {"sum": 9.0, "mean": 3.0, "max": 6.0}  # of [1, 2, 6]
+    reduced = {"sum": 9.0, "mean": 3.0, "max": 6.0}
     got = {
         name: {"reduce": t.reduce([1.0, 2.0, 6.0]), "parts": list(t.parts), "every": t.needs_every_gpu}
         for name, t in GPU_TOTALS.items()

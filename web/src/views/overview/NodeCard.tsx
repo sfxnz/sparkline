@@ -389,7 +389,6 @@ function MemoryBar({ name, sharesRam }: { name: string; sharesRam: boolean }) {
   );
 }
 
-/** The VRAM of a node whose GPUs keep their own memory: the node total over every GPU's VRAM. */
 function GpuMemory({ gpus }: { gpus: readonly GpuInfo[] }) {
   const { id, info, freshness } = useContext(Ctx);
   const used = useLiveValue(id, nodeGpuKey(info, 'mem_used'), GIB / 20);

@@ -250,29 +250,24 @@ def test_cpu_quota_reads_own_cgroup(tmp_path):
 NODE = (Path(__file__).parent / "fixtures/console/node_info.json").read_text()
 
 
-def _node(*gpus: tuple[MemoryModel, bool]) -> NodeInfo:
-    """A node whose GPUs have these (memory model, lost) pairs; the agent names a lost GPU as gpu<i>."""
+def _node(*memory: MemoryModel, lost: frozenset[int] = frozenset()) -> NodeInfo:
     info = NodeInfo.model_validate_json(NODE)
-    lost = [
-        Unsupported(metric=f"gpu{i}", reason="NVML could not open it")
-        for i, (_, gone) in enumerate(gpus)
-        if gone
-    ]
-    listed = [GpuInfo(index=i, name=f"GPU {i}", memory=memory) for i, (memory, _) in enumerate(gpus)]
-    return info.model_copy(update={"gpus": listed, "unsupported": lost})
+    gaps = [Unsupported(metric=f"gpu{i}", reason="NVML could not open it") for i in sorted(lost)]
+    listed = [GpuInfo(index=i, name=f"GPU {i}", memory=m) for i, m in enumerate(memory)]
+    return info.model_copy(update={"gpus": listed, "unsupported": gaps})
 
 
 @pytest.mark.parametrize(
     ("info", "label"),
     [
         (None, "Unified"),
-        (_node(("unified", False)), "Unified"),
-        (_node(("dedicated", False)), "System"),
-        (_node(("carveout", False)), "System"),
-        (_node(("unified", False), ("dedicated", False)), "System"),
+        (_node("unified"), "Unified"),
+        (_node("dedicated"), "System"),
+        (_node("carveout"), "System"),
+        (_node("unified", "dedicated"), "System"),
         (_node(), "System"),
-        (_node(("unified", True)), "System"),
-        (_node(("dedicated", False), ("unified", True)), "System"),
+        (_node("unified", lost=frozenset({0})), "System"),
+        (_node("dedicated", "unified", lost=frozenset({1})), "System"),
     ],
     ids=[
         "no info",

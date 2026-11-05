@@ -15,7 +15,6 @@ export interface MemoryLayout {
 const isModel = (m: unknown): m is MemoryModel => (MEMORY_MODELS as readonly unknown[]).includes(m);
 const modelOf = (g: GpuInfo): MemoryModel => (isModel(g.memory) ? g.memory : 'unified');
 
-/** A lost GPU reports no memory model (it defaults to unified), so the GPUs that answer decide the layout. */
 export function memoryLayout(info: NodeInfo | null | undefined): MemoryLayout {
   const gpus = info?.gpus ?? [];
   const lost = (g: GpuInfo) => lostGpu(info, g.index) !== null;

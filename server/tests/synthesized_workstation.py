@@ -28,7 +28,7 @@ NAME = "NVIDIA RTX 6000 Ada Generation"
 VRAM_TOTAL = 48 * GIB
 RESERVED = 512 * MIB
 ENGINE_PID = 41187
-WORKERS = [(41240 + 3 * i, (41_340 + 16 * i) * MIB) for i in range(GPUS)]  # (pid, usedGpuMemory)
+WORKERS = [(41240 + 3 * i, (41_340 + 16 * i) * MIB) for i in range(GPUS)]
 NO_MIG = 0xFFFFFFFF
 NOT_FOUND = {"__error__": pynvml.NVML_ERROR_NOT_FOUND, "str": "Not Found"}
 

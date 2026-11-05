@@ -14,8 +14,7 @@ import { useGpuGap } from './useGpuGap';
 
 const pct = (n: number) => formatPercent(n, n > 0 && n < 10 ? 1 : 0);
 
-/** One bar per GPU with memory of its own: how full each card's VRAM is. Cards of one model are named once, in the
- *  subtitle, rather than on every bar. */
+/** One bar per GPU with memory of its own: how full each card's VRAM is. */
 export function VramPanel({ nodeId, gpus }: { nodeId: string; gpus: readonly GpuInfo[] }) {
   const { stale, waiting } = useFreshness(nodeId);
   const names = new Set(gpus.map((g) => g.name));

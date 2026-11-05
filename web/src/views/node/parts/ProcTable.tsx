@@ -67,7 +67,6 @@ const totalCol: Column<ProcSample> = {
 };
 
 const MEM_COLUMNS = [nameCol, containerCol, modelCol, totalCol, gpuMemCol, rssCol];
-/** GPU memory on the cards is not system memory: no total that adds it, and resident memory ranks. */
 const SYSTEM_COLUMNS = [nameCol, containerCol, modelCol, rssCol, gpuMemCol];
 
 /** Processes holding GPU memory, largest first. */
