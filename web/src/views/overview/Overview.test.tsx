@@ -6,6 +6,7 @@ import { useConnection } from '../../store/connection';
 import { useEvents } from '../../store/events';
 import { historyCache } from '../../store/history';
 import { liveStore } from '../../store/live';
+import { dispatch } from '../../store/session';
 import sampleJson from '../../test/fixtures/sample.json';
 import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
 import gb10Sample from '../../test/fixtures/platforms/gb10/sample.json';
@@ -879,5 +880,40 @@ describe('a GB10 whose GPU stays in the sample with every fresh reading empty, a
     expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
     expect(card().querySelector('[data-status]')).toHaveAttribute('data-status', 'warning');
     expect(document.querySelector('.ov-hero [data-status]')).toHaveAttribute('data-status', 'warning');
+  });
+});
+
+describe('a GB10 whose GPU was quiet when it went offline, coming back online', () => {
+  const gb10 = gb10Info as unknown as NodeInfo;
+  const reading = gb10Sample as unknown as Sample;
+  const empty: Sample = { ...reading, node_id: 'spark1', gpu: reading.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })) };
+  const status = (s: NodeState['status']) => {
+    act(() => { dispatch({ type: 'node_status', node: node('spark1', { info: gb10, status: s }) }); });
+  };
+  const push = (from: number, to: number) => {
+    act(() => {
+      for (let t = from; t <= to; t++) liveStore.pushSample({ ...empty, ts: now + t });
+      liveStore.flush();
+    });
+  };
+  const pill = () => screen.getByRole('region', { name: 'Node spark1' }).querySelector('[data-status]');
+
+  it('keeps the pill healthy until a sample arrives after the return, then counts again', () => {
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10 })]));
+    act(() => { liveStore.removeNode('spark1'); });
+    push(-6, 0);
+    render(<Overview />);
+    expect(pill()).toHaveAttribute('data-status', 'warning');
+
+    status('offline');
+    status('online');
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    expect(pill()).toHaveAttribute('data-status', 'healthy');
+
+    push(20, 20);
+    expect(pill()).toHaveAttribute('data-status', 'healthy');
+    push(21, 25);
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(pill()).toHaveAttribute('data-status', 'warning');
   });
 });
