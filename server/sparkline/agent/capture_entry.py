@@ -86,15 +86,25 @@ def main() -> int:
     _print_no_traceback_from_sys()
     stop_like_ctrl_c_on_a_hangup_or_terminate()
     try:
+        code = _capture()
+        ignore_stops()
+    except KeyboardInterrupt as e:
+        code = stopped(e)
+    return code
+
+
+def _capture() -> int:
+    try:
         no_core_dumps()
         print_no_traceback_from_python()
         import faulthandler
 
         faulthandler.disable()
         from .capture import main as capture
-    except KeyboardInterrupt as e:
-        return stopped(e)
     except Exception as e:
         failed(type(e))
         return FAILED
-    return capture()
+    try:
+        return capture()
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 0
