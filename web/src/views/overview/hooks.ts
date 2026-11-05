@@ -2,6 +2,7 @@
 // on connect), so an offline node still shows its last known values after a reload. Each hook re-renders only its
 // own leaf, and only when its (quantised) value changes.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
+import { gapAcross, type NotReported } from '../../lib/capabilities';
 import { gpuCountText, gpuSetGap, nodeGpuKey, nodeTotalGap, totalFrom } from '../../lib/gpu';
 import type { HistoryResponse, NodeInfo, NodeState, NodeStatus } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
@@ -70,6 +71,11 @@ export interface ClusterGpuNow {
   /** Nodes left out of `power` because `nodeTotalGap` explains their missing power, one per line. */
   dropped: string;
   utilFrom: string;
+  /** How many of the nodes `util` averages. */
+  utilNodes: number;
+  /** Why there is no `util` or no `power` (gapAcross over the nodes' gaps), while no node has one. */
+  utilGap: NotReported | null;
+  powerGap: NotReported | null;
 }
 
 /** "4 of 5 GPUs": the GPUs the nodes' utilisation totals read, out of every GPU the nodes list, while any of them is
@@ -99,16 +105,28 @@ export function nodeUtil(id: string, info: NodeInfo | null | undefined): Pick<No
  *  average it, and summed power. A node whose power the agent declares not reported, or whose total dropped out this
  *  tick, is named in `dropped`, as the cluster totals name it. */
 export function clusterGpuNow(ids: readonly string[], nodes: Readonly<Record<string, NodeState | undefined>>): ClusterGpuNow {
-  const dropped: string[] = [];
-  const t = clusterTotals(
-    ids.map((id) => {
-      const info = nodes[id]?.info;
-      const power = liveStore.latestValue(id, nodeGpuKey(info, 'power_w'));
-      if (power === null && nodeTotalGap(info, liveStore.latest(id), 'power_w')) dropped.push(id);
-      return { ...nodeUtil(id, info), power, memUsed: null, memTotal: null, psi: null };
-    }),
-  );
-  return { util: t.util, power: t.power, dropped: dropped.join('\n'), utilFrom: utilGpusRead(ids, nodes) };
+  const utilGaps: [string, NotReported][] = [];
+  const powerGaps: [string, NotReported][] = [];
+  const numbers = ids.map((id) => {
+    const info = nodes[id]?.info;
+    const util = nodeUtil(id, info);
+    const power = liveStore.latestValue(id, nodeGpuKey(info, 'power_w'));
+    const utilGap = util.util === null ? nodeTotalGap(info, liveStore.latest(id), 'util') : null;
+    const powerGap = power === null ? nodeTotalGap(info, liveStore.latest(id), 'power_w') : null;
+    if (utilGap) utilGaps.push([id, utilGap]);
+    if (powerGap) powerGaps.push([id, powerGap]);
+    return { ...util, power, memUsed: null, memTotal: null, psi: null };
+  });
+  const t = clusterTotals(numbers);
+  return {
+    util: t.util,
+    power: t.power,
+    dropped: powerGaps.map(([id]) => id).join('\n'),
+    utilFrom: utilGpusRead(ids, nodes),
+    utilNodes: numbers.filter((n) => n.util !== null).length,
+    utilGap: t.util === null ? gapAcross(utilGaps) : null,
+    powerGap: t.power === null ? gapAcross(powerGaps) : null,
+  };
 }
 
 /** True once the browser holds any sample for the node (live or seeded). */

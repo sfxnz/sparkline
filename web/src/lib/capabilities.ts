@@ -62,14 +62,15 @@ export function interconnectGap(info: NodeInfo | null | undefined): NotReported 
 }
 
 /** One gap that holds for every node in `gaps` (display order). Nodes that share a kind and reason keep it. Otherwise
- *  the tooltip names each node's reason, under the shared kind's label or, when kinds differ, a neutral one: the most
- *  actionable kind's label would be false for the other nodes. */
+ *  the tooltip names each node's reason, one line per node, under the label the nodes share or, when labels differ, a
+ *  neutral one: the most actionable kind's label would be false for the other nodes, and a kind's label is false for
+ *  a node that is not responding. */
 export function gapAcross(gaps: readonly (readonly [string, NotReported])[]): NotReported | null {
   const first = gaps[0]?.[1];
   if (!first) return null;
   if (gaps.every(([, g]) => g.kind === first.kind && g.detail === first.detail)) return first;
   const kind = ACTIONABLE.find((k) => gaps.some(([, g]) => g.kind === k)) ?? first.kind;
-  return { kind, label: gaps.every(([, g]) => g.kind === kind) ? LABEL[kind] : 'Not reported on any node', detail: gaps.map(([id, g]) => `${id}: ${g.detail}`).join('\n') };
+  return { kind, label: gaps.every(([, g]) => g.label === first.label) ? first.label : 'Not reported on any node', detail: gaps.map(([id, g]) => `${id}: ${g.detail}`).join('\n') };
 }
 
 export function notReportedByHardware(reason: string): NotReported {

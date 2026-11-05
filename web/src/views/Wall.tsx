@@ -6,7 +6,7 @@ import { AnimatedNumber } from '../design/components/AnimatedNumber';
 import { Button } from '../design/components/Button';
 import { StatusPill } from '../design/components/StatusPill';
 import { springs } from '../design/motion';
-import { formatDuration, wattsParts } from '../lib/format';
+import { DASH, formatDuration, wattsParts } from '../lib/format';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { useEvents } from '../store/events';
@@ -79,6 +79,7 @@ function Hero() {
 
 const pct = (n: number) => n.toFixed(0);
 const watts = (n: number) => wattsParts(n, 'W').value;
+const liveNodes = (n: number) => (n === 1 ? '1 live node' : `${String(n)} live nodes`);
 
 /** Cluster-wide GPU load and GPU-rail power, from the nodes that are live right now. */
 function ClusterLine() {
@@ -88,20 +89,41 @@ function ClusterLine() {
     ids,
     () => {
       const now = clusterGpuNow(ids, nodes);
-      return { util: now.util === null ? null : Math.round(now.util), power: now.power === null ? null : Math.round(now.power * 2) / 2, dropped: now.dropped, utilFrom: now.utilFrom };
+      return {
+        util: now.util === null ? null : Math.round(now.util),
+        power: now.power === null ? null : Math.round(now.power * 2) / 2,
+        dropped: now.dropped,
+        utilFrom: now.utilFrom,
+        utilNodes: now.utilNodes,
+        utilGap: now.utilGap?.label ?? DASH,
+        powerGap: now.powerGap?.label ?? DASH,
+      };
     },
     shallowEqual,
     Object.keys(nodes).join(),
   );
   if (!ids.length) return <p className="wall-hero__line">No live data</p>;
+  const across = v.utilNodes === ids.length ? liveNodes(ids.length) : `${String(v.utilNodes)} of ${liveNodes(ids.length)}`;
   return (
     <p className="wall-hero__line">
-      <span>GPU </span>
-      <AnimatedNumber value={v.util} format={pct} />
-      <span>% across {ids.length === 1 ? '1 live node' : `${ids.length} live nodes`}{v.utilFrom ? ` (${v.utilFrom})` : ''}</span>
+      {v.util === null ? (
+        <span>GPU utilisation: {v.utilGap}</span>
+      ) : (
+        <>
+          <span>GPU </span>
+          <AnimatedNumber value={v.util} format={pct} />
+          <span>% across {across}{v.utilFrom ? ` (${v.utilFrom})` : ''}</span>
+        </>
+      )}
       <span className="wall-hero__sep" aria-hidden="true">·</span>
-      <AnimatedNumber value={v.power} format={watts} />
-      <span> W GPU power{v.dropped ? ` · excl. ${listNodes(v.dropped.split('\n'))}` : ''}</span>
+      {v.power === null ? (
+        <span>GPU power: {v.powerGap}</span>
+      ) : (
+        <>
+          <AnimatedNumber value={v.power} format={watts} />
+          <span> W GPU power{v.dropped ? ` · excl. ${listNodes(v.dropped.split('\n'))}` : ''}</span>
+        </>
+      )}
     </p>
   );
 }
