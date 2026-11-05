@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import type { NodeInfo, NodeState, Sample } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
@@ -53,4 +53,30 @@ it("counts the GPUs under the wall's utilisation while every GPU of the second w
   });
   render(<Wall />);
   expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/^GPU 86% across 2 live nodes \(4 of 8 GPUs\)·1069 W GPU power · excl\. ws2$/);
+});
+
+describe('the wall says why it cannot read a node', () => {
+  const NVML_DOWN = 'NVMLError_Unknown: Unknown Error';
+  const gb10 = (id: string) => ({ ...(gb10Info as unknown as NodeInfo), node_id: id, hostname: id });
+  const gb10Reading = (id: string, over: Partial<Sample> = {}): Sample => ({ ...(gb10Sample as unknown as Sample), node_id: id, ts: now, ...over });
+  const backendDown = (s: Sample): Sample => ({ ...s, gpu: [], errors: { ...s.errors, gpu: `nvml: ${NVML_DOWN}` } });
+  const show = (nodes: readonly (readonly [NodeInfo, Sample])[]) => {
+    useConnection.setState({ status: 'live', everLive: true });
+    useEvents.setState({ events: [] });
+    useCluster.setState({ clockOffset: 0, order: nodes.map(([info]) => info.node_id), nodes: Object.fromEntries(nodes.map(([info]) => [info.node_id, state(info)])) });
+    act(() => {
+      for (const [info, s] of nodes) {
+        liveStore.removeNode(info.node_id);
+        liveStore.pushSample(s);
+      }
+      liveStore.flush();
+    });
+    render(<Wall />);
+  };
+  const value = (id: string, label: string) => within(screen.getByRole('region', { name: `Node ${id}` })).getByText(label, { selector: '.wall-label' }).parentElement as HTMLElement;
+
+  it('reads Not responding on the tile of a GB10 whose GPU sends nothing', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    for (const label of ['GPU utilisation', 'GPU temperature', 'GPU power']) expect(value('spark2', label)).toHaveTextContent('Not responding');
+  });
 });

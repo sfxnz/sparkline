@@ -645,3 +645,49 @@ describe('the pill and the cluster sentence while GPUs send nothing', () => {
     expect(document.querySelector('.ov-hero__workload')).toHaveTextContent(/^GPU workloads not reported$/);
   });
 });
+
+describe('node stats and cluster sums say why a node reads less than its GPUs', () => {
+  const NVML_DOWN = 'NVMLError_Unknown: Unknown Error';
+  const NO_NVML = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+  const gb10 = (id: string) => ({ ...(gb10Info as unknown as NodeInfo), node_id: id, hostname: id });
+  const gb10Reading = (id: string, over: Partial<Sample> = {}): Sample => ({ ...(gb10Sample as unknown as Sample), node_id: id, ts: now, ...over });
+  const backendDown = (s: Sample, error = NVML_DOWN): Sample => ({ ...s, gpu: [], errors: { ...s.errors, gpu: `nvml: ${error}` } });
+  const noNvml = (id: string) =>
+    ({
+      node_id: id, hostname: id, gpus: [], net: [], cores: [], disks: [], sensors: [], mem_total: (sampleJson as unknown as Sample).mem.total,
+      unsupported: [{ metric: 'gpu*', reason: NO_NVML, kind: 'dependency' }, { metric: 'mem.gpu', reason: NO_NVML, kind: 'dependency' }],
+    }) as unknown as NodeInfo;
+  const noNvmlReading = (id: string): Sample => ({ ...(sampleJson as unknown as Sample), node_id: id, ts: now, gpu: [] });
+  const show = (nodes: readonly (readonly [NodeInfo, Sample | null])[], status: Record<string, NodeState['status']> = {}) => {
+    useCluster.getState().setHello(cluster(nodes.map(([info]) => node(info.node_id, { info, status: status[info.node_id] ?? 'online' }))));
+    act(() => {
+      for (const [info, s] of nodes) {
+        liveStore.removeNode(info.node_id);
+        if (s) liveStore.pushSample(s);
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const card = (id: string) => screen.getByRole('region', { name: `Node ${id}` });
+  const ring = (scope: HTMLElement) => within(scope).getByRole('img', { name: /^GPU utilisation/ });
+  const stat = (scope: HTMLElement, label: string) => within(scope).getByText(label, { selector: '.ov-stat__label' }).parentElement as HTMLElement;
+  const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+
+  it('reads Not responding in the ring, the temperature and the power of a GB10 whose GPU sends nothing', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    const c = card('spark2');
+    expect(ring(c)).toHaveAccessibleName('GPU utilisation not responding');
+    expect(ring(c)).toHaveTextContent('Not responding');
+    for (const label of ['GPU temp', 'GPU power']) {
+      expect(stat(c, label)).toHaveTextContent('Not responding');
+      expect(why(stat(c, label))).toHaveAccessibleDescription(NVML_DOWN);
+    }
+  });
+
+  it('says the helper tool is missing in the ring of a node without NVML, as the stats beside it do', () => {
+    show([[noNvml('n1'), noNvmlReading('n1')]]);
+    expect(ring(card('n1'))).toHaveAccessibleName('GPU utilisation helper tool missing');
+    expect(ring(card('n1'))).toHaveTextContent('Helper tool missing');
+  });
+});
