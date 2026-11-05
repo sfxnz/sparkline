@@ -1,13 +1,12 @@
 import { Box, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Table, type Column } from '../../../design/components/Table';
-import { Unsupported } from '../../../design/components/Unsupported';
-import { gpuSetGap } from '../../../lib/gpu';
 import { formatBytes } from '../../../lib/format';
 import { memoryLayout } from '../../../lib/memoryLayout';
 import type { ProcSample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
+import { CannotTellGpuProcesses, useGpuProcessesGap } from '../partsC/gpuProcesses';
 import { Badge, ProcTable as ProcessTable } from '../partsC/ProcTable';
 import { shortCmd, sortProcs, type ProcSort } from '../partsC/procs';
 import '../partsC/partsC.css';
@@ -84,12 +83,12 @@ export function ProcTable({ nodeId, mode }: { nodeId: string; mode: 'gpu' | 'mem
   const { stale } = useFreshness(nodeId);
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const [sort, setSort] = useState<ProcSort>({ id: 'gpu_mem', dir: 'desc' });
+  const { gap, from } = useGpuProcessesGap(nodeId);
   if (!list) {
     // Processes refresh every few seconds; until the first list arrives, hold the table's shape.
     return stale ? <p className="nmuted ntable-pad">No process list was received before {nodeId} stopped reporting.</p> : <div className="ntable-pad"><RowsSkeleton rows={4} /></div>;
   }
   if (mode === 'gpu') {
-    const gap = gpuSetGap(info, 'proc_mem', 'any');
     // The Processes tab's table, filtered to GPU users: one look for the same row on every tab.
     return (
       <div className={stale ? 'is-stale' : undefined}>
@@ -98,7 +97,7 @@ export function ProcTable({ nodeId, mode }: { nodeId: string; mode: 'gpu' | 'mem
           sort={sort}
           onSort={setSort}
           info={info}
-          empty={gap ? <Unsupported gap={gap} /> : <span className="nmuted">No processes are using the GPU right now.</span>}
+          empty={<span className="nmuted">{gap ? <CannotTellGpuProcesses nodeId={nodeId} gap={gap} /> : `No processes are using the GPU right now${from ? ` (${from})` : ''}.`}</span>}
         />
       </div>
     );

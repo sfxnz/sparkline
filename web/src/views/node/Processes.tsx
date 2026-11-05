@@ -1,20 +1,17 @@
 // Processes: the node's top consumers from the latest process refresh (every ~5 s). Between refreshes the
 // LiveStore keeps the last list, so the table never flashes; sort and filter persist for the browser session.
 import { ListX, Search, SearchX, X } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button, IconButton } from '../../design/components/Button';
 import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
-import { Unsupported } from '../../design/components/Unsupported';
 import { formatBytes } from '../../lib/format';
-import { gpuCountText, gpuProcessesGap, gpusWithUnknownProcesses } from '../../lib/gpu';
-import type { ProcSample, Sample } from '../../lib/types';
-import { quietGpusOf } from '../../store/attention';
+import type { ProcSample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { liveStore, useLatest } from '../../store/live';
 import { RowsSkeleton } from '../placeholders';
 import { useNodeStale } from '../shared/live';
-import { sameGap } from '../shared/totalGap';
+import { CannotTellGpuProcesses, useGpuProcessesGap } from './partsC/gpuProcesses';
 import { ProcTable } from './partsC/ProcTable';
 import { filterProcs, loadView, saveView, sortProcs, type ProcView } from './partsC/procs';
 import { UpdatedAgo } from './partsC/UpdatedAgo';
@@ -39,12 +36,7 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const procs = useLatest(nodeId, (s) => s?.procs ?? null);
   const hasSample = useLatest(nodeId, (s) => s !== null);
   const info = useCluster((s) => s.nodes[nodeId]?.info);
-  const gap = useLatest(nodeId, useCallback((s: Sample | null) => gpuProcessesGap(info, s, quietGpusOf(nodeId, info)), [nodeId, info]), sameGap);
-  const from = useLatest(nodeId, useCallback((s: Sample | null) => {
-    const of = info?.gpus.length ?? 0;
-    const unknown = gpusWithUnknownProcesses(info, s, quietGpusOf(nodeId, info)).length;
-    return unknown ? gpuCountText({ from: of - unknown, of }) : '';
-  }, [nodeId, info]));
+  const { gap, from } = useGpuProcessesGap(nodeId);
   const status = useCluster((s) => s.nodes[nodeId]?.status);
   const stale = useNodeStale(nodeId);
   const [view, setView] = useState<ProcView>(loadView);
@@ -53,7 +45,7 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const rows = useMemo(() => (procs ? sortProcs(filterProcs(procs, view.filter), view.sort) : []), [procs, view]);
   const summary = useMemo(() => {
     if (!procs) return null;
-    const cannotTell = gap ? <>{nodeId} cannot tell which processes use its {info?.gpus.length === 1 ? 'GPU' : 'GPUs'} <Unsupported gap={gap} /></> : null;
+    const cannotTell = gap ? <CannotTellGpuProcesses nodeId={nodeId} gap={gap} /> : null;
     if (!procs.length) return cannotTell;
     // The agent sends the biggest consumers (top by GPU memory, memory and CPU), not every process on the node.
     const listed = `The ${procs.length} biggest ${procs.length === 1 ? 'consumer' : 'consumers'}`;
@@ -61,7 +53,7 @@ export default function Processes({ nodeId }: { nodeId: string }) {
     const onGpu = procs.filter((p) => p.gpu_mem != null);
     const gpuBytes = onGpu.reduce((a, p) => a + (p.gpu_mem ?? 0), 0);
     return `${listed} · ${onGpu.length} on the GPU${onGpu.length ? ` using ${formatBytes(gpuBytes)}` : ''}${from ? ` (${from})` : ''}`;
-  }, [procs, gap, from, nodeId, info]);
+  }, [procs, gap, from, nodeId]);
   const ts = listTs(nodeId, procs);
   const waiting = !procs && !stale && (hasSample || status === 'connecting' || status === 'online' || !status);
 
