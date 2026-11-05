@@ -702,6 +702,30 @@ CASES = [
         because="domain name",
     ),
     Case(
+        "work phone number from the comment field, as written",
+        "refused",
+        ("555-0100",),
+        "on call +1-555-0100",
+        full_name("Zorbina Quuxley,Room 12,+1-555-0100,555-0199"),
+        because="full name",
+    ),
+    Case(
+        "home phone number from the comment field, as digits alone",
+        "refused",
+        ("5550199",),
+        "ext 5550199",
+        full_name("Zorbina Quuxley,Room 12,+1-555-0100,555-0199"),
+        because="full name",
+    ),
+    Case(
+        "room number of six digits from the comment field",
+        "refused",
+        ("204117",),
+        "bay 204117",
+        full_name("Zorbina Quuxley,204117"),
+        because="full name",
+    ),
+    Case(
         "accented last name in free text written decomposed, as macOS writes names (NFD)",
         "refused",
         ("Quuxle\u0301e", "Quuxlée"),
@@ -817,6 +841,16 @@ def test_a_part_of_a_full_name_shorter_than_four_letters_is_not_taken_for_the_na
     with_free_text(copy, "li board")
     capture_of(copy, tmp_path / "out")
     assert "li board" in (tmp_path / "out/root/proc/cpuinfo").read_text()
+
+
+def test_a_number_of_the_comment_field_shorter_than_six_digits_is_not_taken_for_the_name(
+    tmp_path, monkeypatch
+):
+    copy = base_copy(tmp_path, HOST)
+    full_name("Zorbina Quuxley,Room 4711,555-0100")(copy, monkeypatch)
+    with_free_text(copy, "bay 4711 port 0100")
+    capture_of(copy, tmp_path / "out")
+    assert "bay 4711 port 0100" in (tmp_path / "out/root/proc/cpuinfo").read_text()
 
 
 def test_a_domain_label_shorter_than_four_characters_is_not_taken_for_the_name(tmp_path):
