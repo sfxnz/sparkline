@@ -63,6 +63,9 @@
   /* A stat column here is narrower than a label word plus its info button, so the button follows the text. */
   .ov-stat .unsupported { display: block; }
   .ov-stat .unsupported__info { display: inline-grid; vertical-align: middle; }
+}
+/* The flag moves under both stats once the temperature column is narrower than "⚠ 6 °C headroom" (about 6.5rem). */
+@container ov-stats (width < 14.5rem) {
   .ov-card__flag { display: block; }
   .ov-stat .ov-flag, .ov-stat .ov-stat__moves { display: none; }
 }
@@ -137,7 +140,7 @@
 .ov-card--dim .ov-card__values { filter: saturate(0.3); }
 
 .ov-card__top { display: flex; align-items: center; gap: var(--space-4); }
-.ov-card__stats { flex: 1; min-width: 0; max-width: 22rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.ov-card__stats { flex: 1; min-width: 0; max-width: 22rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); container: ov-stats / inline-size; }
 
 .ov-ring { display: grid; justify-items: center; gap: 0; }
 .ov-ring__value { display: inline-flex; align-items: baseline; font-size: var(--fs-title2); line-height: var(--lh-title2); font-weight: 650; letter-spacing: -0.02em; color: var(--text-1); }
