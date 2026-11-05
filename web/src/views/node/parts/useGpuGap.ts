@@ -15,7 +15,7 @@ export function useGpuGap(nodeId: string, index: number): (key: string) => NotRe
   return (key) => notReported(info, key) ?? silent;
 }
 
-/** Why the node's GPU `field` has no value on its own stats (nodeGpuGap): the card, the wall tile and the node tabs. */
+/** Why the node's GPU `field` has no value on its own stats (nodeGpuGap). */
 export function useNodeGpuGap(nodeId: string, field: ReadingTotal): NotReported | null {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   return useLatest(nodeId, useCallback((s: Sample | null) => nodeGpuGap(info, s, field), [info, field]), sameGap);

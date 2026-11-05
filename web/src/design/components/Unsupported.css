@@ -20,7 +20,6 @@
 }
 .unsupported__label { min-width: 0; }
 .unsupported__detail { white-space: pre-line; }
-/* One node per line; a long reason wraps under its own text, so each node name starts a line. */
 .unsupported__detail--lines { white-space: normal; }
 .unsupported__line { display: block; padding-left: 1em; text-indent: -1em; }
 .unsupported__info {

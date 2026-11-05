@@ -1,6 +1,5 @@
 // What a node's status pill says: console status, raised by open alerts AND by live conditions the screen is already
-// flagging (temperature at slowdown, hardware/thermal clock limits, a GPU not responding), so a pill is never green
-// beside a red flag.
+// flagging, so a pill is never green beside a red flag.
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { nodeDisplayStatus, type Status } from '../design/components/StatusPill';
 import { nodeCondition, nodeConditions, quietGpus, sameCondition, sameNodeConditions, type LiveCondition, type NodeConditions } from '../lib/condition';
@@ -15,7 +14,7 @@ type Level = 'warning' | 'critical' | null;
 /** The more severe of two levels. */
 export const worstLevel = (a: Level, b: Level): Level => (a === 'critical' || b === 'critical' ? 'critical' : (a ?? b));
 
-/** The GPUs node `id` lists that have sent no reading for as long as the console takes to call a node not reporting. */
+/** quietGpus for node `id`. */
 export const quietGpusOf = (id: string, info: NodeInfo | null | undefined) =>
   quietGpus(info, useCluster.getState().cluster?.settings.stale_after_s, (index, gapS) => liveStore.gpuSilentFor(id, index, gapS));
 

@@ -177,7 +177,6 @@ function CardTitle({ id }: { id: string }) {
   );
 }
 
-/** The node's top GPU workload, null for none, undefined before its first process list, or why it cannot tell. */
 type WorkloadSeen = NotReported | string | null | undefined;
 
 const workloadSelector = (id: string, info: NodeInfo | null) => (s: Sample | null): WorkloadSeen => {

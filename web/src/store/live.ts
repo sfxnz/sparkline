@@ -161,10 +161,9 @@ export class LiveStore {
     return this.nodes.get(node)?.latest ?? null;
   }
 
-  /** Seconds GPU `index` has sent nothing, up to the latest live sample: since the last tick that holds one of its
-   *  readings (live, or seeded from the console's recent history) or that a live sample had it in. A gap of `gapS` or
-   *  more between ticks starts the count again (the node was not reporting then, so its GPUs were not either), and the
-   *  walk stops once the silence reaches `gapS`. Null before any live sample. */
+  /** Seconds GPU `index` has sent nothing, up to the latest live sample: since its last reading (live or seeded) or the
+   *  last live sample it was in. A gap of `gapS` or more between ticks starts the count again. Null before any live
+   *  sample. */
   gpuSilentFor(node: string, index: number, gapS = Infinity): number | null {
     const b = this.nodes.get(node);
     if (!b?.latest) return null;

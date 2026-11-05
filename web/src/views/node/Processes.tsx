@@ -46,7 +46,6 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const rows = useMemo(() => (procs ? sortProcs(filterProcs(procs, view.filter), view.sort) : []), [procs, view]);
   const summary = useMemo(() => {
     if (!procs) return null;
-    // The agent sends the biggest consumers (top by GPU memory, memory and CPU), not every process on the node.
     const listed = `The ${procs.length} biggest ${procs.length === 1 ? 'consumer' : 'consumers'}`;
     if (cannotTell) return listed;
     const onGpu = procs.filter((p) => p.gpu_mem != null);

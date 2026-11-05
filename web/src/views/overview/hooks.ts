@@ -93,7 +93,7 @@ export function utilGpusRead(ids: readonly string[], nodes: Readonly<Record<stri
   return from < of ? gpuCountText({ from, of }) : '';
 }
 
-/** The node's GPU utilisation and the GPUs it is the mean of (totalFrom, else every GPU it lists, at least one). */
+/** The node's GPU utilisation and how many GPUs it is the mean of. */
 export function nodeUtil(id: string, info: NodeInfo | null | undefined): Pick<NodeNumbers, 'util' | 'utilGpus'> {
   return {
     util: liveStore.latestValue(id, nodeGpuKey(info, 'util')),
@@ -101,9 +101,7 @@ export function nodeUtil(id: string, info: NodeInfo | null | undefined): Pick<No
   };
 }
 
-/** The live nodes' GPU load and power from each node's totals: utilisation averaged over GPUs, as the cluster totals
- *  average it, and summed power. A node whose power the agent declares not reported, or whose total dropped out this
- *  tick, is named in `dropped`, as the cluster totals name it. */
+/** The live nodes' GPU load and power from each node's totals: utilisation averaged over GPUs, and summed power. */
 export function clusterGpuNow(ids: readonly string[], nodes: Readonly<Record<string, NodeState | undefined>>): ClusterGpuNow {
   const utilGaps: [string, NotReported][] = [];
   const powerGaps: [string, NotReported][] = [];

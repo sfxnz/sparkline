@@ -2,6 +2,7 @@
 // the interconnect topology. No React, no stores, so every rule here is unit-tested in model.test.ts.
 import type { Status } from '../../design/components/StatusPill';
 import { worstCondition, type GpuCondition, type NodeConditions } from '../../lib/condition';
+import { gpuKey } from '../../lib/metrics';
 import type { Event, NetIfInfo, NodeInfo, NodeStatus, ProcSample } from '../../lib/types';
 import { linkRecoveries } from '../alerts/model';
 
@@ -22,10 +23,9 @@ const isAre = (ids: readonly string[]) => (ids.length === 1 ? 'is' : 'are');
 export interface NodeHealthInput {
   id: string;
   status: NodeStatus | undefined;
-  /** What the latest sample already flags on the node's GPUs (temperature at slowdown, hardware clock limits, a GPU
-   *  not responding), if anything. */
+  /** What the latest sample already flags on the node's GPUs, if anything. */
   conditions?: NodeConditions | null;
-  /** The node's open warning and critical alerts (rules that have fired). */
+  /** The node's open warning and critical alerts. */
   alerts?: readonly Event[];
 }
 
@@ -44,11 +44,10 @@ export interface Health {
   sentence: string;
 }
 
-/** An open alert already says a GPU's condition when it fired on that GPU's key for the same reading (for temperature,
- *  also the node's hottest-GPU total) at the condition's level or above. No rule watches a GPU that sends nothing. */
 function saidByAlert(alerts: readonly Event[], c: GpuCondition): boolean {
   if (!c.field) return false;
-  const keys = c.field === 'temp_c' ? [`gpu${c.index}.temp_c`, 'gpu.temp_c'] : [`gpu${c.index}.${c.field}`];
+  const hottestGpu = 'gpu.temp_c';
+  const keys = [gpuKey(c.index, c.field), ...(c.field === 'temp_c' ? [hottestGpu] : [])];
   return alerts.some((e) => (e.severity === 'critical' || e.severity === c.level) && keys.includes(e.metric ?? ''));
 }
 
@@ -180,15 +179,14 @@ export interface NodeActivityInput {
   id: string;
   /** Latest process list (null until the first process refresh). */
   procs: readonly ProcSample[] | null;
-  /** The node cannot tell which processes use its GPUs (gpuProcessesGap), so its list says nothing about GPU work. */
+  /** The node cannot tell which processes use its GPUs (gpuProcessesGap). */
   cannotTell?: boolean;
 }
 
 /**
  * What the cluster is running, grouped by workload: "Serving DeepSeek-V4.1-Flash-EXL3 across 2 nodes",
  * "Serving X across 2 nodes and Y on spark3", "Running train.py on spark1", read from the nodes that can tell. Null
- * while a node that can tell has sent no process list; "No GPU workloads" when every node can tell and none uses the
- * GPU, "No GPU workloads on spark1" when the others cannot tell, "GPU workloads not reported" when no node can.
+ * with no nodes, or while no GPU process is known and a node that can tell has sent no process list.
  */
 export function workloadSentence(nodes: readonly NodeActivityInput[]): string | null {
   const tellers = nodes.filter((n) => !n.cannotTell);

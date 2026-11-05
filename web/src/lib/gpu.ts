@@ -77,9 +77,7 @@ export function everyGpuSilent(info: NodeInfo | null | undefined, s: Sample | nu
   return { kind: 'hardware', label: 'Not responding', detail: sentence([...lost, ...silentClauses(info, s)].join('; ')) };
 }
 
-/** Why the node's figure of `field` (nodeGpuKey) is missing from this sample, when no declared gap explains it. Read
- *  from one GPU's own key: that GPU not responding, or "No total" while it sends no `field`, so a cluster sum names the
- *  node it leaves out. A node total: not responding while no GPU reports, else "No total" naming what a sum misses. */
+/** Why the node's figure of `field` (nodeGpuKey) is missing from this sample, when no declared gap explains it. */
 export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
   if (!s || !info) return null;
   const key = nodeGpuKey(info, field);
@@ -106,16 +104,15 @@ export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, fi
   return { kind: 'hardware', label: 'No total', detail: `${clauses.join('; ')}${why}.` };
 }
 
-/** Why the node's GPU `field` has no value: the agent declares it not reported, or it dropped out of this sample
- *  (totalGap). On a node total, Not responding while no GPU reports comes first: it holds this tick over a total the
- *  agent declares because a GPU is lost. */
+/** Why the node's GPU `field` has no value: every GPU silent (everyGpuSilent), declared not reported, or dropped out
+ *  of this sample (totalGap). */
 export function nodeTotalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
   const key = nodeGpuKey(info, field);
   return (key === `gpu.${field}` ? everyGpuSilent(info, s) : null) ?? notReported(info, key) ?? totalGap(info, s, field);
 }
 
-/** Why the node's own stat of `field` has no value. One GPU: that GPU's gap (declared, or not responding while it is
- *  missing), never "No total", which only names the node a cluster sum leaves out. Several: nodeTotalGap. */
+/** Why the node's own stat of `field` has no value. One GPU: its declared gap, or not responding. Several:
+ *  nodeTotalGap. */
 export function nodeGpuGap(info: NodeInfo | null | undefined, s: Sample | null, field: ReadingTotal): NotReported | null {
   const [only = 0, ...more] = gpuIndexes(info);
   return more.length ? nodeTotalGap(info, s, field) : (notReported(info, gpuKey(only, field)) ?? notResponding(info, s, only));
@@ -197,9 +194,7 @@ export function stillReport(indexes: readonly number[]): string {
 
 export const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 
-/** Why the node cannot tell which processes use its GPUs, or null when it can: the agent declares its process list or
- *  per-process GPU memory not reported, or every GPU the node lists is lost or `quiet` (quietGpus: its backend has
- *  failed for as long as the pill waits), so no process in the list can show GPU memory. */
+/** Why the node cannot tell which processes use its GPUs, or null when it can. `quiet` is quietGpus. */
 export function gpuProcessesGap(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): NotReported | null {
   const declared = notReported(info, 'procs') ?? gpuSetGap(info, 'proc_mem', 'any');
   if (declared || !info?.gpus.length) return declared;

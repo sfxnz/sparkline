@@ -20,8 +20,6 @@ export function NoData({ block }: { block?: boolean }) {
 const MAX_LINES = 6;
 const SHOWN_LINES = 5;
 
-/** A detail of several lines is one line per node (gapAcross). Past MAX_LINES the bubble shows the first few and a
- *  count, and the rest stay in its text, so the trigger's description still names every node. */
 function Detail({ text }: { text: string }) {
   const lines = text.split('\n');
   if (lines.length < 2) return <span className="unsupported__detail">{text}</span>;

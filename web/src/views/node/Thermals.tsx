@@ -111,8 +111,6 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
   );
 }
 
-/** Why the node's GPU energy has no figure, as the GPU tab says it: declared for any GPU (a partial sum would
- *  understate), else the first GPU the node lists that is not responding now. */
 function gpuEnergyGap(info: NodeInfo | null | undefined, s: Sample | null): NotReported | null {
   const declared = gpuSetGap(info, 'energy_j', 'every');
   if (declared) return declared;
