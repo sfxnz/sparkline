@@ -1,7 +1,7 @@
 // Configure → review → run. Step one: parameters and nodes, with a live duration estimate. Step two is the
 // confirmation: what runs where, for how long, its thermal/power impact and, from live data, what it will compete
 // with. Only "Run benchmark" there starts it (the API also refuses a create without confirm: true).
-import { ArrowLeft, CircleCheck, Clock, Play, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, CircleCheck, Clock, ClockFading, Play, TriangleAlert } from 'lucide-react';
 import type { NetIfInfo } from '../../lib/types';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '../../design/components/Button';
@@ -184,7 +184,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
               <NodeList spec={spec} known={known} statuses={nodeStates} nodes={nodes} gpuIndex={gpuIndex} single={spec.max_nodes === 1} onChange={setNodes} />
             )}
             {nodes.filter((n) => gpuOn && gpuOptions(spec, n).length).map((n) => (
-              <GpuPicker key={n} spec={spec} node={n} value={gpuIndex[n]} onChange={(i) => { setGpuChoice((c) => ({ ...c, [n]: i })); }} />
+              <GpuPicker key={n} spec={spec} node={n} online={(nodeStates[n]?.status ?? 'online') === 'online'} value={gpuIndex[n]} onChange={(i) => { setGpuChoice((c) => ({ ...c, [n]: i })); }} />
             ))}
             {pair && railParam ? (
               <ParamField param={railParam} value={form[RAIL]} error={shownErrors[RAIL]} onChange={(v) => { set(RAIL, v); }} />
@@ -282,7 +282,7 @@ function NodeLoad({ node, hint, gpu }: { node: string; hint: string; gpu: number
   return <span className="bench-node__load num">{text || 'No live data'}</span>;
 }
 
-function GpuPicker({ spec, node, value, onChange }: { spec: BenchSpec; node: string; value: number | undefined; onChange: (index: number) => void }) {
+function GpuPicker({ spec, node, online, value, onChange }: { spec: BenchSpec; node: string; online: boolean; value: number | undefined; onChange: (index: number) => void }) {
   useNow(2000);
   const id = useId();
   const s = liveStore.latest(node);
@@ -293,7 +293,7 @@ function GpuPicker({ spec, node, value, onChange }: { spec: BenchSpec; node: str
       <Select id={id} value={value ?? ''} onChange={(e) => { onChange(Number(e.target.value)); }}>
         {options.map((o) => {
           const util = gpuAt(s?.gpu, o.index)?.util;
-          const text = o.problem ? `GPU ${o.index} — ${o.problem.message}` : [`GPU ${o.index}`, util != null ? `${Math.round(util)}% busy` : null, o.name].filter(Boolean).join(' · ');
+          const text = o.problem ? `GPU ${o.index} — ${o.problem.message}` : [`GPU ${o.index}`, util != null ? `${online ? '' : 'was '}${Math.round(util)}% busy` : null, o.name].filter(Boolean).join(' · ');
           return <option key={o.index} value={o.index} disabled={!!o.problem}>{text}</option>;
         })}
       </Select>
@@ -317,13 +317,14 @@ function recentTraffic(node: string, rails: readonly NetIfInfo[]): LinkTraffic[]
 function Review({ spec, nodes, gpuIndex, values, estimate }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; values: ParamValues; estimate: number }) {
   useNow(1000); // live: what it competes with is re-read every second
   const infos = useCluster((s) => s.nodes);
-  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex);
+  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => infos[n]?.status ?? 'online');
   // Once a node has been shown busy it stays busy while the review is open: the verdict must not flip while it is read.
   const [seenBusy, setSeenBusy] = useState<Record<string, Competition>>({});
   const fresh = live.filter((c) => c.busy && seenBusy[c.node]?.text !== c.text);
   if (fresh.length) setSeenBusy((s) => ({ ...s, ...Object.fromEntries(fresh.map((c) => [c.node, c])) }));
   const comp = live.map((c) => (c.busy ? c : (seenBusy[c.node] ?? c)));
   const busy = comp.filter((c) => c.busy);
+  const stale = comp.some((c) => c.stale);
   return (
     <div className="bench-review">
       <p className="bench-review__lead">{runSentence(spec, nodes, gpuIndex)}</p>
@@ -352,12 +353,12 @@ function Review({ spec, nodes, gpuIndex, values, estimate }: { spec: BenchSpec; 
           </dd>
         </div>
       </dl>
-      <section className={`bench-review__compete${busy.length ? ' tone-warn is-busy' : ''}`} aria-labelledby="bench-compete-h">
-        <h3 id="bench-compete-h" className="bench-config__h">{busy.length ? 'It will compete with running work' : 'Nothing to compete with'}</h3>
+      <section className={`bench-review__compete${busy.length ? ' tone-warn is-busy' : stale ? ' tone-stale is-stale' : ''}`} aria-labelledby="bench-compete-h">
+        <h3 id="bench-compete-h" className="bench-config__h">{busy.length ? 'It will compete with running work' : stale ? 'Current load unknown' : 'Nothing to compete with'}</h3>
         <ul>
           {comp.map((c) => (
-            <li key={c.node} className={c.busy ? 'is-busy' : undefined}>
-              {c.busy ? <TriangleAlert aria-hidden="true" /> : <CircleCheck aria-hidden="true" />}
+            <li key={c.node} className={c.busy ? 'is-busy' : c.stale ? 'is-stale' : undefined}>
+              {c.busy ? <TriangleAlert aria-hidden="true" /> : c.stale ? <ClockFading aria-hidden="true" /> : <CircleCheck aria-hidden="true" />}
               <span>{c.text}</span>
             </li>
           ))}

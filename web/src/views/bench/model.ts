@@ -4,8 +4,8 @@
 import type { Status } from '../../design/components/StatusPill';
 import { formatBytes, formatDuration, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
 import { decodeThrottle } from '../../lib/throttle';
-import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, ProcSample, RunStatus, Sample } from '../../lib/types';
-import { isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
+import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, NodeStatus, ProcSample, RunStatus, Sample } from '../../lib/types';
+import { gpuProcesses, isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
 import { gpuAt } from '../../lib/gpu';
 
 // ------------------------------------------------------------------------------------------------ catalog
@@ -890,8 +890,11 @@ export interface Competition {
   text: string;
   /** Something is running that the benchmark will compete with. */
   busy: boolean;
+  /** The reading is from when the node last reported (it is not online now), so it is neither busy nor idle. */
+  stale?: boolean;
 }
 
+const consequence = 'results will be lower and the workload will slow down';
 const GPU_BUSY_PCT = 10;
 const CPU_BUSY_PCT = 25;
 const DISK_BUSY_PCT = 20;
@@ -927,6 +930,25 @@ function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: s
   return { verb: isServing(top) ? 'serving' : 'running', what: workloadName(top) };
 }
 
+/** The chosen GPU of a node with several. The wire has no per-GPU memory or process placement, so any GPU process on
+ *  the node may hold memory on this GPU: it is idle only when nothing on the node uses a GPU. */
+function chosenGpu(node: string, index: number, util: number | null, procs: readonly ProcSample[] | null | undefined, online: boolean): Competition {
+  const pct = (v: number) => `${Math.round(v)}%`;
+  if (!online) {
+    const text = util === null ? `${node} is not reporting, so the current load of GPU ${index} is unknown.` : `${node} is not reporting; GPU ${index} was ${pct(util)} busy when it last reported, so its current load is unknown.`;
+    return { node, busy: false, stale: true, text };
+  }
+  const which = `${node} GPU ${index}`;
+  const busyAt = util !== null && util >= GPU_BUSY_PCT ? pct(util) : null;
+  const work = gpuWorkload(procs);
+  if (!work) return busyAt ? { node, busy: true, text: `${which} is ${busyAt} busy; ${consequence}.` } : { node, busy: false, text: `${which} is idle${util !== null ? ` (${pct(util)})` : ''}.` };
+  const mem = gpuProcesses(procs).filter((p) => workloadName(p) === work.what).reduce((sum, p) => sum + (p.gpu_mem ?? 0), 0);
+  const doing = `${node} is ${work.verb} ${work.what}${mem > 0 ? `, which holds ${formatBytes(mem)} of GPU memory` : ''}`;
+  const oom = mem > 0 ? 'the run may run out of GPU memory' : null;
+  if (busyAt) return { node, busy: true, text: `${which} is ${busyAt} busy while ${doing}; ${oom ? `results will be lower, the workload will slow down and ${oom}` : consequence}.` };
+  return { node, busy: true, text: `${util !== null ? `${which} is ${pct(util)} busy, but ` : ''}${doing}; if it shares GPU ${index}, ${oom ?? consequence}.` };
+}
+
 /**
  * What a benchmark will compete with on each node, from the latest live samples. GPU-bound benches look at GPU
  * load and GPU processes; CPU, storage and interconnect benches at CPU, NVMe and CX7 load respectively. For the
@@ -940,8 +962,8 @@ export function competition(
   interconnects: (node: string) => readonly NetIfInfo[] = () => [],
   linkTraffic?: (node: string, rails: readonly NetIfInfo[]) => LinkTraffic[],
   gpuIndex: GpuIndex = {},
+  status: (node: string) => NodeStatus = () => 'online',
 ): Competition[] {
-  const consequence = 'results will be lower and the workload will slow down';
   return nodes.map((node) => {
     const s = latest(node);
     if (!s) return { node, text: `${node} has not reported live data, so its current load is unknown.`, busy: false };
@@ -976,12 +998,7 @@ export function competition(
         return { node, busy: false, text: `${node} ConnectX-7 link is quiet.` };
       }
       default: {
-        if (chosen !== undefined) {
-          const which = `${node} GPU ${chosen}`;
-          if (util === null || util < GPU_BUSY_PCT) return { node, busy: false, text: `${which} is idle${util !== null ? ` (${pct(util)})` : ''}.` };
-          const why = work ? ` while ${node} is ${work.verb} ${work.what}` : '';
-          return { node, busy: true, text: `${which} is ${pct(util)} busy${why}; ${consequence}.` };
-        }
+        if (chosen !== undefined) return chosenGpu(node, chosen, util, s.procs, status(node) === 'online');
         const busy = (util ?? 0) >= GPU_BUSY_PCT || work !== null;
         if (!busy) return { node, busy, text: `${node} GPU is idle${util !== null ? ` (${pct(util)})` : ''}.` };
         const at = util !== null ? ` at ${pct(util)} GPU` : '';

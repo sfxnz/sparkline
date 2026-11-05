@@ -159,10 +159,12 @@
 .bench-review__compete { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); border: var(--hairline) solid var(--separator); }
 .bench-review__compete.is-busy { background: var(--tone-bg); border-color: color-mix(in srgb, var(--tone) 30%, transparent); }
 .bench-review__compete.is-busy .bench-config__h { color: var(--tone-text); }
+.bench-review__compete.is-stale { background: var(--tone-bg); }
 .bench-review__compete ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .bench-review__compete li { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2); font-size: var(--fs-callout); line-height: var(--lh-callout); color: var(--text-1); }
 .bench-review__compete li svg { width: 15px; height: 15px; margin-top: 2px; color: var(--ok); }
 .bench-review__compete li.is-busy svg { color: var(--warn); }
+.bench-review__compete li.is-stale svg { color: var(--stale); }
 .bench-review__cancel { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 
 /* -------------------------------------------------------------- history */
