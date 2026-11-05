@@ -188,8 +188,9 @@ export interface NodeActivityInput {
 
 /**
  * What the cluster is running, grouped by workload: "Serving DeepSeek-V4.1-Flash-EXL3 across 2 nodes",
- * "Serving X across 2 nodes and Y on spark3", "Running train.py on spark1", read from the nodes that can tell. Null
- * with no nodes, or while no GPU process is known and a node that can tell has sent no process list.
+ * "Serving X across 2 nodes and Y on spark3", "Running train.py on spark1", read from the nodes that can tell, with
+ * "(3 of 4 GPUs)" while they can tell the processes of only some of their GPUs. Null with no nodes, or while no GPU
+ * process is known and a node that can tell has sent no process list.
  */
 export function workloadSentence(nodes: readonly NodeActivityInput[]): string | null {
   const tellers = nodes.filter((n) => !n.cannotTell);

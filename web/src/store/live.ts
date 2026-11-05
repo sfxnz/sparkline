@@ -21,8 +21,12 @@ export class NodeBuffer {
   length = 0;
   latest: Sample | null = null;
   largestTick = 0;
+  /** From one counter shared by all nodes, so a node removed and added again never repeats a revision. */
   revision = 0;
+  /** The node left online and has sent no live sample since. Until it does, its GPUs' silence is unknown. */
   runEnded = false;
+  /** Ts of the last live sample each GPU answered in. The rings alone cannot tell, as pstate and the graphics and
+   *  video clocks answer but have no ring. */
   readonly gpuSeen = new Map<number, number>();
 
   constructor(readonly capacity: number) {
@@ -179,6 +183,9 @@ export class LiveStore {
     return this.nodes.get(node)?.revision ?? 0;
   }
 
+  /** Seconds GPU `index` has sent nothing, up to the latest live sample. HELD_READINGS do not count as readings, a
+   *  gap of `gapS` or more between ticks starts the count again, and the walk stops once the silence reaches
+   *  `atMost`. Null from endRun until the next live sample. */
   gpuSilentFor(node: string, index: number, gapS = Infinity, atMost = gapS): number | null {
     const b = this.nodes.get(node);
     if (!b?.latest || b.runEnded) return null;
@@ -304,7 +311,7 @@ export const liveStore = new LiveStore();
 /**
  * Subscribe a component to a derived value of a node's latest Sample. The component re-renders only when
  * `isEqual(previous, next)` is false, so a Stat showing GPU temperature ignores ticks where the temperature
- * did not change.
+ * did not change. The selector runs again after a seed too, since it may read the node's history.
  */
 export function useLatest<T>(
   node: string,

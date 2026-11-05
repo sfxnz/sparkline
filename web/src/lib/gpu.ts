@@ -14,6 +14,8 @@ export const HELD_READINGS: readonly GpuReading[] = ['energy_j', 'power_capped_p
 const answers = (g: GpuSample) =>
   Object.entries(g).some(([k, v]) => k !== 'index' && v != null && !(HELD_READINGS as readonly string[]).includes(k));
 
+/** GPU `index` in the sample when it answered. NVML keeps a GPU whose reads fail in the sample, every fresh reading
+ *  null, so having an entry is not answering. */
 export function answeredGpu(s: Sample | null | undefined, index: number): GpuSample | undefined {
   const g = gpuAt(s?.gpu, index);
   return g && answers(g) ? g : undefined;
@@ -157,6 +159,8 @@ export interface SilentBackend {
 const backendOf = (g: GpuInfo) => g.backend ?? 'nvml';
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** The agent writes `errors.gpu` as "<backend>: <error>", one per failing backend, joined with "; ". The split below
+ *  relies on that form. */
 export function silentBackends(info: NodeInfo | null | undefined, errors: string | undefined, reporting: readonly number[]): SilentBackend[] {
   const gpus = info?.gpus ?? [];
   const names = [...new Set(gpus.map(backendOf))];

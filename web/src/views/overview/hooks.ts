@@ -196,7 +196,9 @@ const sameNodeStops = (a: Record<string, GpuStop[]>, b: Record<string, GpuStop[]
  * GPU (rail) energy since local midnight, summed over `ids` and each node's GPUs, computed exactly as the Thermals
  * tab does (sumCounters): the counters' history since midnight, refreshed every minute, extended with the live
  * readings. A node that stops reporting keeps its last good history, so the day's total never goes down; it counts
- * up to its last reading and is listed in `until`.
+ * up to its last reading and is listed in `until`. A quiet GPU of a node still reporting counts up to its counter's
+ * last move (`stops`). Left out: a node whose history never loaded (`missing`), whose history holds no energy reading
+ * (`empty`), and a node with a GPU that has no energy counter (a partial sum would understate).
  */
 export function useEnergyToday(ids: readonly string[]): EnergyToday {
   const nodes = useCluster((s) => s.nodes);
@@ -268,6 +270,7 @@ export function useEnergyToday(ids: readonly string[]): EnergyToday {
     const last = liveStore.lastTs(id) ?? nodes[id]?.last_sample_ts ?? null;
     if (last !== null) until[id] = last;
   }
+  // Filtered on each render, not in the cached sum, so a node that stops reporting moves to `until` at once.
   const stops = Object.fromEntries(Object.entries(sums.stops).filter(([id]) => nodes[id]?.status === 'online'));
   return { joules: sums.joules, missing, empty, until, stops, loading: !loaded };
 }
