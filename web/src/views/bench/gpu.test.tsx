@@ -8,6 +8,7 @@ import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
 import type { BenchCreate, BenchRun, NodeInfo, NodeStatus, Sample } from '../../lib/types';
 import { useBench } from '../../store/bench';
 import { useCluster } from '../../store/cluster';
+import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
 import { ConfigureDialog } from './ConfigureDialog';
 import { LLM, MAC_GPU, MATMUL, SOAK, WS1, WS_MATMUL, WS_MEMBW, run, wsGpuOptions } from './fixtures';
@@ -39,6 +40,7 @@ function wsWith(utils: Record<number, number>): Sample {
 }
 
 function cluster(nodes: { info: NodeInfo; sample?: Sample; status?: NodeStatus }[]) {
+  useConnection.setState({ status: 'live', everLive: true });
   useCluster.setState({
     clockOffset: 0,
     order: nodes.map((n) => n.info.node_id),
@@ -100,6 +102,28 @@ describe('choosing the GPU on a multi-GPU node', () => {
     expect(screen.getByRole('heading', { name: 'Current load unknown' })).toBeInTheDocument();
     expect(screen.getByText('ws1 is not reporting; GPU 2 was 3% busy when it last reported, so its current load is unknown.')).toBeInTheDocument();
     expect(screen.queryByText(/idle/)).toBeNull();
+  });
+
+  it('reads a browser that lost the console like a node that is not reporting, in the node row, the picker and the review', () => {
+    cluster([{ info: WS1, sample: wsWith({ 2: 3 }) }]);
+    useConnection.setState({ status: 'reconnecting' });
+    render(<ConfigureDialog spec={WS_MATMUL} open onClose={noop} onRun={noop} initialNodes={['ws1']} initialGpuIndex={{ ws1: 2 }} />);
+    expect(screen.getByText(/^not reporting · serving vllm-llama70b · GPU.2.at.3%$/)).toBeInTheDocument();
+    expect(within(screen.getByRole('combobox', { name: 'GPU on ws1' })).getByRole('option', { selected: true })).toHaveTextContent(/^GPU 2 · was 3% busy · /);
+    review();
+    expect(screen.getByRole('heading', { name: 'Current load unknown' })).toBeInTheDocument();
+    expect(screen.getByText('ws1 is not reporting; GPU 2 was 3% busy when it last reported, so its current load is unknown.')).toBeInTheDocument();
+    expect(screen.queryByText(/idle/)).toBeNull();
+  });
+
+  it('turns a busy verdict stale when the browser loses the console while the review is open', () => {
+    cluster([{ info: WS1, sample: wsWith({ 2: 40 }) }]);
+    render(<ConfigureDialog spec={WS_MATMUL} open onClose={noop} onRun={noop} initialNodes={['ws1']} initialGpuIndex={{ ws1: 2 }} />);
+    review();
+    expect(screen.getByRole('heading', { name: 'It will compete with running work' })).toBeInTheDocument();
+    act(() => { useConnection.setState({ status: 'reconnecting' }); });
+    expect(screen.getByRole('heading', { name: 'Current load unknown' })).toBeInTheDocument();
+    expect(screen.getByText('ws1 is not reporting; GPU 2 was 40% busy when it last reported, so its current load is unknown.')).toBeInTheDocument();
   });
 
   it('warns when the chosen GPU is busy, naming what runs on the node', () => {
