@@ -84,6 +84,17 @@ def mounted_at(point: str) -> Plant:
     return plant
 
 
+def bind_mounted_again_at(point: str) -> Plant:
+    def plant(copy: Path, _: pytest.MonkeyPatch) -> None:
+        mounts = copy / "root/proc/self/mounts"
+        mounts.write_text(mounts.read_text() + f"/dev/sda1 /srv ext4 rw 0 0\n/dev/sda1 {point} ext4 rw 0 0\n")
+        host = json.loads((copy / "host.json").read_text())
+        host["statvfs"]["/srv"] = next(iter(host["statvfs"].values()))
+        (copy / "host.json").write_text(json.dumps(host))
+
+    return plant
+
+
 def cpuinfo_lines(text: str) -> Plant:
     def plant(copy: Path, _: pytest.MonkeyPatch) -> None:
         cpuinfo = copy / "root/proc/cpuinfo"
@@ -528,6 +539,21 @@ CASES = [
         "refused",
         (f"{HOST}2",),
         f"vm {HOST}2",
+        because="hostname",
+    ),
+    Case(
+        "last name after an escaped space in a mount point the agent does not statvfs",
+        "refused",
+        ("Quuxley",),
+        plant=full_name("Zorbina Quuxley", bind_mounted_again_at("/srv/backup\\040Quuxley")),
+        because="full name",
+    ),
+    Case(
+        "short hostname after an escaped tab in a mount point the agent does not statvfs",
+        "refused",
+        ("zorbhst",),
+        plant=bind_mounted_again_at("/srv/backup\\011zorbhst"),
+        hostname="zorbhst",
         because="hostname",
     ),
 ]
