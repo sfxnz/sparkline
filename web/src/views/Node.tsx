@@ -113,12 +113,13 @@ function metaItems(node: NodeState, now: number): string[] {
   // Never connected: once the console has given up waiting (offline/error), say where it looks instead of a
   // skeleton that would read as "still loading".
   if (!info) return node.status !== 'connecting' && host ? [host] : [];
+  const listsNvidiaGpu = info.gpus.some((g) => (g.vendor ?? 'nvidia') === 'nvidia');
   return [
     info.hostname !== node.node_id ? info.hostname : null,
     host,
     gpuHeadline(info),
-    info.driver ? `Driver ${info.driver}` : null,
-    info.cuda ? `CUDA ${info.cuda}` : null,
+    listsNvidiaGpu && info.driver ? `Driver ${info.driver}` : null,
+    listsNvidiaGpu && info.cuda ? `CUDA ${info.cuda}` : null,
     `Agent ${info.agent_version}`,
     info.boot_time ? `Up ${formatDuration(now - info.boot_time)}` : null,
   ].filter((x): x is string => !!x);

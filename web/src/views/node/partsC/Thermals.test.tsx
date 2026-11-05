@@ -1,8 +1,11 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import sampleJson from '../../../test/fixtures/sample.json';
+import wsInfo from '../../../test/fixtures/platforms/workstation/info.json';
+import wsSample from '../../../test/fixtures/platforms/workstation/sample.json';
 import type { GpuInfo, NodeInfo, NodeState, Sample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useConnection } from '../../../store/connection';
+import { historyCache } from '../../../store/history';
 import { liveStore } from '../../../store/live';
 import { usePrefs } from '../../../store/prefs';
 import Thermals from '../Thermals';
@@ -29,6 +32,10 @@ const info = {
   ],
 } as unknown as NodeInfo;
 const state = (status: NodeState['status']): NodeState => ({ node_id: NODE, url: 'http://x:9750', status, since: 0, last_sample_ts: 1_800_000_000, error: null, info, next_retry_ts: null });
+const hm = (ts: number) => {
+  const d = new Date(ts * 1000);
+  return [d.getHours(), d.getMinutes()].map((n) => String(n).padStart(2, '0')).join(':');
+};
 
 describe('Thermals tab', () => {
   beforeEach(() => {
@@ -144,5 +151,198 @@ describe('Thermals tab', () => {
     const hot = screen.getByText('Hottest sensor').closest('.stat');
     expect(hot).toHaveTextContent('Not reported by this hardware');
     expect(within(hot as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toBeInTheDocument();
+  });
+});
+
+describe('Thermals tab while the GPU backend fails a tick', () => {
+  const NV_ERROR = 'RuntimeError: synthesized NVML read failure';
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    usePrefs.setState({ timeRange: 'live' });
+    useConnection.setState({ status: 'live', everLive: true });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(Response.json({ node_id: NODE, resolution_s: 10, ts: [], series: {}, min: {}, max: {} })));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const show = (sample: Partial<Sample>, nodeInfo: NodeInfo = info) => {
+    liveStore.removeNode(nodeInfo.node_id);
+    useCluster.setState({ clockOffset: 0, nodes: { [nodeInfo.node_id]: { ...state('online'), node_id: nodeInfo.node_id, info: nodeInfo } } });
+    act(() => {
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: nodeInfo.node_id, ts: 1_800_000_000, ...sample });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={nodeInfo.node_id} />);
+  };
+  const energy = () => screen.getByText('GPU energy today').closest('.stat') as HTMLElement;
+  const notes = () => screen.getByRole('list', { name: 'Metrics unavailable' });
+
+  it("says today's GPU energy is not responding, like the temperature and power beside it, and names the silent GPU, when today's history holds no energy reading", async () => {
+    show({ gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } });
+    await waitFor(() => { expect(energy()).toHaveTextContent(/^GPU energy todayNot responding/); });
+    expect(energy()).not.toHaveTextContent('kWh');
+    expect(within(energy()).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0 not responding (${NV_ERROR}).`);
+    expect(notes()).toHaveTextContent(`GPU 0 (NVIDIA GB10) not responding: ${NV_ERROR}.`);
+  });
+
+  it('names every silent GPU in the energy gap on a node with several, as the temperature beside it does', async () => {
+    const gpus = [0, 1].map((index) => ({ ...(gpuAt(info.gpus, 0) as GpuInfo), index, name: 'NVIDIA RTX 6000 Ada Generation' }));
+    show({ gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } }, { ...info, node_id: 'ttest2', gpus });
+    await waitFor(() => { expect(energy()).toHaveTextContent(/^GPU energy todayNot responding/); });
+    const temperature = screen.getByText('GPU temperature', { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+    const why = (stat: HTMLElement) => within(stat).getByRole('button', { name: 'Why is this not reported?' });
+    const described = (el: HTMLElement) => (el.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+    expect(why(energy())).toHaveAccessibleDescription(/GPUs 0 and 1/);
+    expect(described(why(energy()))).toBe(described(why(temperature)));
+    expect(notes()).toHaveTextContent('GPUs 0 and 1 (NVIDIA RTX 6000 Ada Generation) not responding');
+  });
+
+  it('says when the temperature sensors fail a tick', () => {
+    show({ errors: { thermal: 'OSError: hwmon vanished' } });
+    expect(notes()).toHaveTextContent('Temperature sensors unavailable: OSError: hwmon vanished. Other panels are unaffected.');
+  });
+
+  it('shows no notice and no energy gap on a healthy GB10', () => {
+    show({});
+    expect(screen.queryByRole('list', { name: 'Metrics unavailable' })).not.toBeInTheDocument();
+    expect(energy()).not.toHaveTextContent('Not responding');
+  });
+});
+
+describe('GPU energy on a four-GPU workstation while GPU 2 sends nothing', () => {
+  const ws1 = wsInfo as unknown as NodeInfo;
+  const reading = wsSample as unknown as Sample;
+  const gpu2 = gpuAt(reading.gpu, 2)?.energy_j ?? 0;
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    usePrefs.setState({ timeRange: 'live' });
+    useConnection.setState({ status: 'live', everLive: true });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const show = (readings: readonly number[], silent: number) => {
+    const now = Date.now() / 1000;
+    const series = Object.fromEntries(reading.gpu.map((g) => [`gpu${String(g.index)}.energy_j`, [(g.energy_j ?? 0) - 360_000, g.energy_j]]));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(Response.json({ node_id: 'ws1', resolution_s: 60, ts: [now - 180, now - 120], series, min: {}, max: {} })));
+    historyCache.clear();
+    useCluster.setState({ clockOffset: 0, nodes: { ws1: { ...state('online'), node_id: 'ws1', info: ws1 } } });
+    const ticks = [
+      ...readings.map((energy_j) => reading.gpu.map((g) => (g.index === 2 ? { ...g, energy_j } : g))),
+      ...Array.from({ length: silent }, () => reading.gpu.filter((g) => g.index !== 2)),
+    ];
+    act(() => {
+      liveStore.removeNode('ws1');
+      ticks.forEach((gpu, i) => { liveStore.pushSample({ ...reading, gpu, ts: now - ticks.length + 1 + i }); });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId="ws1" />);
+    return now - silent;
+  };
+  const header = () => within(screen.getByRole('region', { name: 'ws1 thermals and power summary' }));
+  const energy = () => header().getByText('GPU energy today').closest('.stat') as HTMLElement;
+
+  it("counts today's GPU energy with GPU 2 up to its last reading, and says so, once GPU 2 has been quiet for 5 s", async () => {
+    const last = show([gpu2 + 3600, gpu2 + 7200], 5);
+    await header().findByText('0.402');
+    expect(energy()).toHaveTextContent(new RegExp(`^GPU energy today0\\.402kWhGPU 2 until ${hm(last)}$`));
+  });
+
+  it("says GPU 2 counts until its last reading when the browser never saw its counter move", async () => {
+    show([gpu2 + 7200], 5);
+    await header().findByText('0.402');
+    expect(energy()).toHaveTextContent(/^GPU energy today0\.402kWhGPU 2 until its last reading$/);
+  });
+
+  it("shows today's GPU energy unmarked while GPU 2 has missed one tick", async () => {
+    show([gpu2 + 3600, gpu2 + 7200], 1);
+    await header().findByText('0.402');
+    expect(energy()).toHaveTextContent(/^GPU energy today0\.402kWh$/);
+  });
+
+  const panel = () => within(screen.getByRole('region', { name: 'GPU energy' }));
+  const row = (label: string) => panel().getByText(label).closest('.tp-energy__row') as HTMLElement;
+
+  it('says under the GPU energy totals that they count GPU 2 until its last reading while it is quiet', async () => {
+    const last = show([gpu2 + 3600, gpu2 + 7200], 5);
+    await waitFor(() => { expect(row('Today')).toHaveTextContent(/^Today0\.402\skWh/); });
+    expect(panel().getByText(`These totals count GPU 2 until ${hm(last)}, as it is not responding.`)).toBeInTheDocument();
+  });
+
+  it('leaves the GPU energy totals unmarked while GPU 2 has missed one tick', async () => {
+    show([gpu2 + 3600, gpu2 + 7200], 1);
+    await waitFor(() => { expect(row('Today')).toHaveTextContent(/^Today0\.402\skWh/); });
+    expect(panel().queryByText(/^These totals count/)).not.toBeInTheDocument();
+  });
+
+  it('leaves the GPU energy totals of a healthy GB10 unmarked', async () => {
+    const now = Date.now() / 1000;
+    const counter = gpuAt((sampleJson as unknown as Sample).gpu, 0)?.energy_j ?? 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(Response.json({ node_id: NODE, resolution_s: 60, ts: [now - 180, now - 120], series: { 'gpu0.energy_j': [counter - 360_000, counter] }, min: {}, max: {} })));
+    historyCache.clear();
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: state('online') } });
+    act(() => {
+      liveStore.removeNode(NODE);
+      for (let ago = 6; ago >= 0; ago--) liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: NODE, ts: now - ago });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={NODE} />);
+    await waitFor(() => { expect(row('Today')).toHaveTextContent(/^Today0\.100\skWh/); });
+    expect(panel().queryByText(/^These totals count/)).not.toBeInTheDocument();
+  });
+});
+
+describe("Today's GPU energy on a GB10 whose GPU has sent nothing for 5 s", () => {
+  const reading = sampleJson as unknown as Sample;
+  const counter = gpuAt(reading.gpu, 0)?.energy_j ?? 0;
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    usePrefs.setState({ timeRange: 'live' });
+    useConnection.setState({ status: 'live', everLive: true });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const show = (series: Record<string, (number | null)[]>, readings: readonly number[], silent: number) => {
+    const now = Date.now() / 1000;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(Response.json({ node_id: NODE, resolution_s: 60, ts: [now - 180, now - 120], series, min: {}, max: {} })));
+    historyCache.clear();
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: state('online') } });
+    const ticks: Partial<Sample>[] = [
+      ...readings.map((energy_j) => ({ gpu: reading.gpu.map((g) => ({ ...g, energy_j })) })),
+      ...Array.from({ length: silent }, () => ({ gpu: [], errors: { gpu: 'nvml: RuntimeError: synthesized NVML read failure' } })),
+    ];
+    act(() => {
+      liveStore.removeNode(NODE);
+      ticks.forEach((tick, i) => { liveStore.pushSample({ ...reading, node_id: NODE, ts: now - ticks.length + 1 + i, ...tick }); });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={NODE} />);
+    return now - silent;
+  };
+  const header = () => within(screen.getByRole('region', { name: `${NODE} thermals and power summary` }));
+  const energy = () => header().getByText('GPU energy today').closest('.stat') as HTMLElement;
+  const history = { 'gpu0.energy_j': [counter - 360_000, counter] };
+
+  it("shows today's GPU energy, counted until the GPU's last reading, instead of saying it is not responding", async () => {
+    const last = show(history, [counter + 3600, counter + 7200], 5);
+    await waitFor(() => { expect(energy()).toHaveTextContent(new RegExp(`^GPU energy today0\\.102kWhGPU 0 until ${hm(last)}$`)); });
+  });
+
+  it("says today's GPU energy is not responding when today's history holds no energy reading", async () => {
+    show({}, [counter + 3600, counter + 7200], 5);
+    await waitFor(() => { expect(energy()).toHaveTextContent(/^GPU energy todayNot responding/); });
+    expect(energy()).not.toHaveTextContent('kWh');
+  });
+
+  it("shows today's GPU energy unmarked on a healthy GB10", async () => {
+    show(history, [counter, counter, counter], 0);
+    await waitFor(() => { expect(energy()).toHaveTextContent(/^GPU energy today0\.100kWh$/); });
   });
 });

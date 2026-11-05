@@ -1,13 +1,15 @@
 import { ChevronRight, Info, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useCallback, type ReactNode } from 'react';
 import { Link } from 'wouter';
 import { paths, type NodeTab } from '../../../app/routes';
 import { notReported } from '../../../lib/capabilities';
+import { formatDuration } from '../../../lib/format';
 import { decodeThrottle, worstSeverity, type ThrottleReason } from '../../../lib/throttle';
 import type { NodeInfo, Sample, Severity } from '../../../lib/types';
+import { gpuSilentForOf, quietGpusOf } from '../../../store/attention';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
-import { andList, gpuAt, gpuCollectorDown, gpuList, reportingGpus, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
+import { andList, answeredIndexes, gpuAt, gpuCollectorDown, gpuList, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
 
 // ------------------------------------------------------------------ collector errors
 
@@ -30,25 +32,46 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
   return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 };
 
-export const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
+export const selectReporting = (s: Sample | null) => (s ? answeredIndexes(s).join(',') : '');
 
 const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
   name === 'gpu' ? gpuCollectorDown(info) : notReported(info, COLLECTORS[name]?.metric ?? name) !== null;
 
+interface GpuSilence {
+  index: number;
+  quiet: boolean;
+  seconds: number;
+}
+const sameSilence = (a: GpuSilence[], b: GpuSilence[]) =>
+  a.length === b.length && a.every((x, i) => b[i]?.index === x.index && b[i].quiet === x.quiet && b[i].seconds === x.seconds);
+
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
- *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. While
- *  some GPUs still report, a GPU failure is one note per backend that went silent, naming its GPUs. */
+ *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. A GPU
+ *  failure is one note per backend whose GPUs went silent, naming them. */
 export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?: readonly string[]; link?: boolean }) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const errors = useLatest(nodeId, selectErrors, sameErrors);
   const reportingKey = useLatest(nodeId, selectReporting);
-  const entries = Object.entries(errors).filter(([k]) => (!only || only.includes(k)) && !collectorDown(info, k));
-  if (!entries.length) return null;
-  const reporting = reportingKey ? reportingGpus(info, reportingKey.split(',').map(Number)) : [];
-  const silent = reporting.length ? silentBackends(info, errors.gpu, reporting) : [];
+  const silence = useLatest(
+    nodeId,
+    useCallback(() => {
+      const quiet = quietGpusOf(nodeId, info);
+      return (info?.gpus ?? []).map((g): GpuSilence => ({ index: g.index, quiet: quiet.includes(g.index), seconds: Math.round(gpuSilentForOf(nodeId, info, g.index) ?? 0) }));
+    }, [nodeId, info]),
+    sameSilence,
+  );
+  const shown = (name: string) => (!only || only.includes(name)) && !collectorDown(info, name);
+  const reporting = reportingKey ? reportingKey.split(',').map(Number) : [];
+  const silent = (shown('gpu') ? silentBackends(info, errors.gpu, reporting) : []).flatMap((b) => {
+    const gpus = b.message === null ? b.gpus.filter((g) => silence.some((x) => x.index === g.index && x.quiet)) : b.gpus;
+    return gpus.length ? [{ ...b, gpus }] : [];
+  });
+  const names = Object.keys(errors).filter(shown);
+  if (silent.length && !names.includes('gpu')) names.unshift('gpu');
+  if (!names.length) return null;
   return (
     <ul className="nnotes" aria-label="Metrics unavailable">
-      {entries.flatMap(([name, msg]) => {
+      {names.flatMap((name) => {
         const tab = COLLECTORS[name]?.tab;
         const details = link && tab ? (
           <Link href={paths.node(nodeId, tab)} className="nnote__link">
@@ -56,13 +79,16 @@ export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?:
           </Link>
         ) : null;
         if (name === 'gpu' && silent.length) {
-          return silent.map((b) => <SilentNote key={`gpu/${b.backend}`} item={b} reporting={reporting} details={details} />);
+          return silent.map((b) => {
+            const seconds = Math.min(...b.gpus.map((g) => silence.find((x) => x.index === g.index)?.seconds ?? 0));
+            return <SilentNote key={`gpu/${b.backend}`} item={b} seconds={seconds} reporting={reporting} details={details} />;
+          });
         }
         return [
           <li key={name} className="nnote tone-warn">
             <TriangleAlert className="nnote__icon" aria-hidden="true" />
             <p className="nnote__text">
-              <strong>{collectorLabel(name)} unavailable:</strong> <span className="nnote__msg">{sentence(msg)}</span>
+              <strong>{collectorLabel(name)} unavailable:</strong> <span className="nnote__msg">{sentence(errors[name] ?? '')}</span>
               <span className="nnote__aside"> Other panels are unaffected.</span>
             </p>
             {details}
@@ -73,7 +99,7 @@ export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?:
   );
 }
 
-function SilentNote({ item, reporting, details }: { item: SilentBackend; reporting: readonly number[]; details: ReactNode }) {
+function SilentNote({ item, seconds, reporting, details }: { item: SilentBackend; seconds: number; reporting: readonly number[]; details: ReactNode }) {
   const indexes = item.gpus.map((g) => g.index);
   const names = [...new Set(item.gpus.map((g) => g.name))].join(', ');
   const others = reporting.filter((i) => !indexes.includes(i));
@@ -81,10 +107,11 @@ function SilentNote({ item, reporting, details }: { item: SilentBackend; reporti
     <li className="nnote tone-warn">
       <TriangleAlert className="nnote__icon" aria-hidden="true" />
       <p className="nnote__text">
-        <strong>{indexes.length === 1 ? 'GPU' : 'GPUs'} {andList(indexes)} ({names}) not responding:</strong>{' '}
-        <span className="nnote__msg">{sentence(item.message ?? 'no reading this tick')}</span>
+        <strong>{indexes.length === 1 ? 'GPU' : 'GPUs'} {andList(indexes)} ({names}) not responding:</strong>
+        {item.message ? <>{' '}<span className="nnote__msg">{sentence(item.message)}</span></> : null}
         <span className="nnote__aside">
-          {' '}The <code>{item.backend}</code> backend sent no reading this tick. {stillReport(others)}
+          {' '}The <code>{item.backend}</code> backend {seconds > 0 ? `has sent no reading for ${formatDuration(seconds)}` : 'sent no reading this tick'}.
+          {others.length ? ` ${stillReport(others)}` : null}
         </span>
       </p>
       {details}

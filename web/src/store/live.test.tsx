@@ -255,3 +255,61 @@ describe('useLatest', () => {
     expect(getByTestId('t').textContent).toBe('75');
   });
 });
+
+describe('LiveStore GPU silence', () => {
+  const without = (ts: number): Sample => ({ ...mk(ts), gpu: [] });
+
+  it("counts the seconds since a GPU was last in a live sample, up to the latest one", () => {
+    const { store } = manual(8);
+    store.pushSample(mk(1));
+    for (let t = 2; t <= 6; t++) store.pushSample(without(t));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(5);
+    store.pushSample(mk(7));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(0);
+  });
+
+  it("counts a GPU's silence from its last seeded reading, and again from the first sample after a gap of gapS", () => {
+    const { store } = manual(8);
+    store.seed({ node_id: 'spark1', resolution_s: 1, ts: [1, 2, 3], series: { 'gpu0.util': [10, 20, 30] }, min: {}, max: {} });
+    expect(store.gpuSilentFor('spark1', 0)).toBeNull();
+    for (let t = 10; t <= 13; t++) store.pushSample(without(t));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(10);
+    expect(store.gpuSilentFor('spark1', 7)).toBe(12);
+    expect(store.gpuSilentFor('spark1', 0, 5)).toBe(3);
+    expect(store.gpuSilentFor('spark1', 7, 5)).toBe(3);
+  });
+
+  it('knows nothing of a node with no live sample, and forgets a removed node', () => {
+    const { store } = manual(8);
+    expect(store.gpuSilentFor('spark1', 0)).toBeNull();
+    store.pushSample(mk(1));
+    store.pushSample(without(9));
+    store.removeNode('spark1');
+    store.pushSample(without(20));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(0);
+  });
+});
+
+describe('LiveStore GPU silence while the GPU sends only held readings', () => {
+  const held = (ts: number): Sample => ({
+    ...mk(ts),
+    gpu: [{ index: 0, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, energy_j: gpu0.energy_j, pstate: null, throttle_mask: null, power_capped_pct: 0, thermal_capped_pct: 0, vram_used: null, shared_used: null }],
+  });
+
+  it('counts the seconds since its last fresh reading, though its energy counter and capped shares still arrive', () => {
+    const { store } = manual(8);
+    store.pushSample(mk(1));
+    for (let t = 2; t <= 6; t++) store.pushSample(held(t));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(5);
+    store.pushSample(mk(7));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(0);
+  });
+
+  it('counts seeded history holding only those readings as silent', () => {
+    const { store } = manual(16);
+    const ts = [1, 2, 3, 4, 5, 6, 7, 8];
+    store.seed({ node_id: 'spark1', resolution_s: 1, ts, series: { 'gpu0.energy_j': ts.map(() => 1000), 'gpu0.power_capped_pct': ts.map(() => 0), 'gpu0.thermal_capped_pct': ts.map(() => 0) }, min: {}, max: {} });
+    store.pushSample(held(9));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(8);
+  });
+});

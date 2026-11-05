@@ -284,6 +284,11 @@ export interface AlertRule {
   nodes: string[] | null;
 }
 
+export interface AlertRulesStatus {
+  /** On the default rules because the saved ones were unreadable, until rules are saved. */
+  reset: boolean;
+}
+
 export interface Event {
   id: number;
   ts: number;

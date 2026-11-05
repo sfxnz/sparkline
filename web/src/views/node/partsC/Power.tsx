@@ -11,10 +11,11 @@ import { DASH, formatWatts, wattsParts } from '../../../lib/format';
 import type { TimeRange } from '../../../lib/prefs';
 import type { NodeInfo } from '../../../lib/types';
 import { paths } from '../../../app/routes';
+import { quietGpusOf } from '../../../store/attention';
 import { serverNow, useCluster } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
-import { counterDelta, energyKeys, formatEnergyAuto, formatEnergyCost, formatKwh, historyEnergy } from '../../shared/energy';
-import { useTotalGap } from '../../shared/totalGap';
+import { counterDelta, energyKeys, formatEnergyAuto, formatEnergyCost, formatKwh, gpuStops, historyEnergy, sameStops, stopsText, type GpuStop } from '../../shared/energy';
+import { useNodeGpuGap } from '../parts/useGpuGap';
 import { powerStats } from './energy';
 import { useRangeHistory, type Loadable } from '../../shared/live';
 import { useLiveDerived, useSpanEnergy } from './hooks';
@@ -58,7 +59,7 @@ export function PowerPanel({ nodeId, info, range, stale, updatedAt, store = live
   const span = RANGE_SHORT[range];
   const limit = powerLimit(info);
   const powerReason = notReported(info, key);
-  const nowReason = useTotalGap(nodeId, 'power_w');
+  const nowReason = useNodeGpuGap(nodeId, 'power_w');
 
   return (
     <Panel
@@ -116,6 +117,7 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
       : rangeHist;
   const todayJ = useSpanEnergy(nodeId, keys, 'today', store);
   const weekJ = useSpanEnergy(nodeId, keys, '7d', store);
+  const stops = useGpuStops(nodeId, info, store);
 
   return (
     <Panel
@@ -131,12 +133,14 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
       {energyReason ? (
         <Unsupported gap={energyReason} block />
       ) : (
-        <dl className="tp-energy__list">
-          {range === '7d' ? null : <EnergyRow label={`Last ${RANGE_SHORT[range]}`} value={rangeJ} rate={rate} currency={currency} />}
-          {/* Day and week totals in kWh, like the header's "GPU energy today" and the Overview. */}
-          <EnergyRow label="Today" value={todayJ} rate={rate} currency={currency} kwh />
-          <EnergyRow label="Last 7 days" value={weekJ} rate={rate} currency={currency} kwh />
-        </dl>
+        <>
+          <dl className="tp-energy__list">
+            {range === '7d' ? null : <EnergyRow label={`Last ${RANGE_SHORT[range]}`} value={rangeJ} rate={rate} currency={currency} />}
+            <EnergyRow label="Today" value={todayJ} rate={rate} currency={currency} kwh />
+            <EnergyRow label="Last 7 days" value={weekJ} rate={rate} currency={currency} kwh />
+          </dl>
+          {stops.length ? <p className="tp-note">These totals count {stopsText(stops)}, as {stops.length > 1 ? 'they are' : 'it is'} not responding.</p> : null}
+        </>
       )}
       <div className="tp-energy__system">
         <div className="tp-energy__system-head">
@@ -149,6 +153,10 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
       </div>
     </Panel>
   );
+}
+
+export function useGpuStops(nodeId: string, info: NodeInfo | null | undefined, store: LiveStore = liveStore): GpuStop[] {
+  return useLiveDerived(nodeId, useCallback((st: LiveStore) => gpuStops(st, nodeId, quietGpusOf(nodeId, info)), [nodeId, info]), sameStops, store);
 }
 
 function sumOf(values: readonly (number | null)[]): number | null {

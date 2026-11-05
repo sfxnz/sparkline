@@ -1,5 +1,5 @@
 // REST client for the console. Same-origin (dev/preview proxy /api to the console); auth is an HttpOnly cookie.
-import type { AlertRule, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, HistoryResponse, NodeState, Problem, RunStatus } from './types';
+import type { AlertRule, AlertRulesStatus, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, HistoryResponse, NodeState, Problem, RunStatus } from './types';
 
 export type ApiErrorKind = 'unauthorized' | 'unreachable' | 'server' | 'client';
 
@@ -73,6 +73,7 @@ export const api = {
   events: (limit = 500) => request<Event[]>(`/api/v1/events?${query({ limit: String(limit) })}`),
   ack: (id: number) => request<Event>(`/api/v1/events/${id}/ack`, { method: 'POST' }),
   rules: () => request<AlertRule[]>('/api/v1/alerts/rules'),
+  rulesStatus: () => request<AlertRulesStatus>('/api/v1/alerts/rules/status'),
   putRules: (rules: AlertRule[]) => request<AlertRule[]>('/api/v1/alerts/rules', json(rules, 'PUT')),
   settings: () => request<ConsoleSettings>('/api/v1/settings'),
   putSettings: (s: ConsoleSettings) => request<ConsoleSettings>('/api/v1/settings', json(s, 'PUT')),

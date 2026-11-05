@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import secrets
 import sqlite3
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,8 @@ from ..common.schema import Event
 
 SESSION_TTL_S = 30 * 86400
 EVENT_RETENTION_S = 30 * 86400
+
+log = logging.getLogger("sparkline.console.store")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (id_hash TEXT PRIMARY KEY, created REAL NOT NULL, expires REAL NOT NULL);
@@ -82,8 +86,32 @@ class Store:
 
     # -- kv -------------------------------------------------------------------------------------
     def kv_get(self, key: str) -> Any | None:
+        return self.kv_read(key, lambda value: value)
+
+    def kv_read[T](self, key: str, parse: Callable[[Any], T]) -> T | None:
         row = self.db.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
-        return json.loads(row[0]) if row else None
+        if not row:
+            return None
+        try:
+            return parse(json.loads(row[0]))
+        except json.JSONDecodeError:
+            why = "it is not valid JSON"
+        except ValueError:
+            why = "it does not match what this console expects"
+        aside = self.kv_set_aside(key)
+        log.warning("Ignoring the stored %r row: %s. Kept its text as %r", key, why, aside)
+        return None
+
+    def kv_has(self, key: str) -> bool:
+        return self.db.execute("SELECT 1 FROM kv WHERE key=?", (key,)).fetchone() is not None
+
+    def kv_set_aside(self, key: str) -> str:
+        # A newer console may have written this row, and the next save here overwrites it, so each distinct
+        # text keeps a side row that nothing here overwrites or deletes.
+        (text,) = self.db.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
+        aside = f"{key}.unreadable.{hashlib.sha256(text.encode()).hexdigest()[:12]}"
+        self.db.execute("INSERT OR IGNORE INTO kv VALUES (?,?)", (aside, text))
+        return aside
 
     def kv_set(self, key: str, value: Any) -> None:
         self.db.execute("INSERT OR REPLACE INTO kv VALUES (?,?)", (key, json.dumps(value)))

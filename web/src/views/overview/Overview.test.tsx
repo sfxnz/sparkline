@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ClusterState, NodeInfo, NodeState, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
@@ -6,6 +6,7 @@ import { useConnection } from '../../store/connection';
 import { useEvents } from '../../store/events';
 import { historyCache } from '../../store/history';
 import { liveStore } from '../../store/live';
+import { dispatch } from '../../store/session';
 import sampleJson from '../../test/fixtures/sample.json';
 import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
 import gb10Sample from '../../test/fixtures/platforms/gb10/sample.json';
@@ -315,20 +316,20 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     expect(stat(card, 'GPU power')).toHaveTextContent('No total');
     expect(why(stat(card, 'GPU power'))).toHaveAccessibleDescription('GPU 2 sent no power reading this tick, so a sum would understate.');
     expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C/);
-    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 74% at 24\.5 W · excl\. ws1$/);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 82% at 24\.5 W · excl\. ws1$/);
     expect(tile('GPU power')).toHaveTextContent(/^GPU power24\.5W/);
     expect(await within(tile('GPU power')).findByText(/^Now excl\. ws1 · Today \d/)).not.toHaveTextContent(/Today.*excl\./);
     expect(tile('Cluster compute')).not.toHaveTextContent('excl.');
   });
 
-  it("reads utilisation and temperature from GPUs 1 to 3 while GPU 0 is lost, keeps counting ws1's processes and gives the lost GPU as the power gap", () => {
+  it("reads utilisation and temperature from GPUs 1 to 3 while GPU 0 is lost, counts ws1's processes without GPU 0 and gives the lost GPU as the power gap", () => {
     const lost = { ...ws1, unsupported: [{ metric: 'gpu0', reason: LOST, kind: 'hardware' }, { metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' }] } as NodeInfo;
     const card = show(withGpus({ 0: { util: null, temp_c: null, power_w: null, energy_j: null, sm_mhz: null, throttle_mask: null } }), lost);
     expect(within(card).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation 87%, from 3 of 4 GPUs');
     expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C/);
     expect(stat(card, 'GPU power')).toHaveTextContent('No total');
     expect(why(stat(card, 'GPU power'))).toHaveAccessibleDescription(`GPU 0: ${LOST}`);
-    expect(tile('Active GPU processes')).toHaveTextContent(/^Active GPU processes4In 1 container$/);
+    expect(tile('Active GPU processes')).toHaveTextContent(/^Active GPU processes4In 1 container · excl\. ws1: GPU 0$/);
   });
 
   it("names ws1 beside the hero's GPU power while GPU 0 is lost and ws1 has no power total", () => {
@@ -381,7 +382,7 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     });
     render(<Overview />);
     expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 86% \(4 of 8 GPUs\) at 1069 W · excl\. ws2$/);
-    expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute86%Mean GPU utilisation \(4 of 8 GPUs\) · excl\. ws2 · All 2 nodes reporting$/);
+    expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute86%Mean GPU utilisation \(4 of 8 GPUs\) · excl\. ws2$/);
   });
 
   it('marks nothing on a calm ws1 beside a GB10', () => {
@@ -467,5 +468,656 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
       expect(tile('Unified memory in use')).toBeInTheDocument();
       expect(within(screen.getByRole('region', { name: 'Node ws1' })).queryByText('GPU memory', { selector: '.ov-label' })).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('GPU processes a node cannot tell, on the Overview', () => {
+  const NO_NVML = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+  const NV_ERROR = 'RuntimeError: synthesized NVML read failure';
+  const gb10 = gb10Sample as unknown as Sample;
+  const amd1 = {
+    node_id: 'amd1', hostname: 'amd1', gpus: [], net: [], cores: [], disks: [], sensors: [], mem_total: gb10.mem.total,
+    unsupported: [{ metric: 'gpu*', reason: NO_NVML, kind: 'dependency' }, { metric: 'mem.gpu', reason: NO_NVML, kind: 'dependency' }],
+  } as unknown as NodeInfo;
+  const idle = gb10.procs?.filter((p) => !p.gpu_mem) ?? [];
+  const show = (nodes: [NodeInfo, Partial<Sample>][], ticks = 1) => {
+    useCluster.getState().setHello(cluster(nodes.map(([info]) => node(info.node_id, { info }))));
+    act(() => {
+      for (const [info, over] of nodes) {
+        liveStore.removeNode(info.node_id);
+        for (let i = 0; i < ticks; i++) liveStore.pushSample({ ...gb10, node_id: info.node_id, ts: now - ticks + 1 + i, ...over });
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const subtitle = (id: string) => within(screen.getByRole('region', { name: `Node ${id}` })).getByText(/GPU processes$/).closest('p') as HTMLElement;
+  const activity = () => document.querySelector('.ov-hero__activity') as HTMLElement;
+  const workload = () => document.querySelector('.ov-hero__workload');
+
+  it("says spark1 runs no GPU workload and amd1 cannot tell its GPU processes, when amd1 has no NVML", () => {
+    show([[gb10Info as unknown as NodeInfo, { procs: idle }], [amd1, { gpu: [], procs: idle }]]);
+    expect(workload()).toHaveTextContent(/^No GPU workloads on spark1$/);
+    expect(subtitle('spark1')).toHaveTextContent(/^No GPU processes$/);
+    expect(subtitle('amd1')).toHaveTextContent(/^GPU processes Helper tool missing/);
+    expect(within(subtitle('amd1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(NO_NVML);
+  });
+
+  it.each([
+    ['its process list', idle],
+    ['its first process list arrives', null],
+  ])('says GPU workloads are not reported, not a skeleton, when the only node has no NVML, before and after %s', (_, procs) => {
+    show([[amd1, { gpu: [], procs }]]);
+    expect(activity()).not.toHaveAttribute('aria-hidden');
+    expect(workload()).toHaveTextContent(/^GPU workloads not reported$/);
+    expect(subtitle('amd1')).toHaveTextContent(/^GPU processes Helper tool missing/);
+  });
+
+  it('says the GPU processes of a GB10 whose GPU has been missing from the samples for 5 s are not responding, not that it runs none', () => {
+    show([[gb10Info as unknown as NodeInfo, { gpu: [], procs: idle, errors: { gpu: `nvml: ${NV_ERROR}` } }]], 6);
+    expect(within(screen.getByRole('region', { name: 'Node spark1' })).queryByText('No GPU processes')).not.toBeInTheDocument();
+    expect(subtitle('spark1')).toHaveTextContent(/^GPU processes Not responding/);
+    expect(within(subtitle('spark1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0 not responding for 5\u00a0s (${NV_ERROR}).`);
+    expect(workload()).toHaveTextContent(/^GPU workloads not reported$/);
+  });
+
+  it('says the GPU processes are not known, not a skeleton forever, on a node whose process collector could not start', () => {
+    const why = 'The procs collector could not start: /proc: No such file or directory';
+    const info = { ...(gb10Info as unknown as NodeInfo), unsupported: [...(gb10Info as unknown as NodeInfo).unsupported, { metric: 'procs', reason: why, kind: 'hardware' as const }] };
+    show([[info, { procs: null }]]);
+    expect(subtitle('spark1')).toHaveTextContent(/^GPU processes Not reported by this hardware/);
+    expect(within(subtitle('spark1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(why);
+    expect(workload()).toHaveTextContent(/^GPU workloads not reported$/);
+  });
+
+  it('keeps a healthy GB10 serving its model as before', () => {
+    show([[gb10Info as unknown as NodeInfo, {}]]);
+    expect(within(screen.getByRole('region', { name: 'Node spark1' })).getByText('DeepSeek-V4.1-Flash-EXL3 · c5-2B-r0')).toBeInTheDocument();
+    expect(workload()).toHaveTextContent(/^Serving DeepSeek-V4\.1-Flash-EXL3 on spark1$/);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/^· GPU 62% at 24\.5 W$/);
+  });
+});
+
+describe('the pill and the cluster sentence while GPUs send nothing', () => {
+  const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+  const gb10 = gb10Info as unknown as NodeInfo;
+  const gb10Reading = gb10Sample as unknown as Sample;
+  const show = (info: NodeInfo, samples: Sample[]) => {
+    useCluster.getState().setHello(cluster([node(info.node_id, { info })]));
+    act(() => {
+      liveStore.removeNode(info.node_id);
+      samples.forEach((s, i) => { liveStore.pushSample({ ...s, node_id: info.node_id, ts: now - samples.length + 1 + i }); });
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const pill = (scope: Element | null) => scope?.querySelector('[data-status]');
+  const heroPill = () => pill(document.querySelector('.ov-hero'));
+  const cardPill = (id: string) => pill(screen.getByRole('region', { name: `Node ${id}` }));
+
+  it('raises the pill and names a one-GPU node whose GPU is lost, at once', () => {
+    show({ ...gb10, unsupported: [...gb10.unsupported, { metric: 'gpu0', reason: LOST, kind: 'hardware' }] }, [{ ...gb10Reading, gpu: [{ index: 0 }] as Sample['gpu'] }]);
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(heroPill()).toHaveTextContent('Needs attention');
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'warning');
+  });
+
+  const ws1 = wsInfo as unknown as NodeInfo;
+  const wsReading = wsSample as unknown as Sample;
+  const gpu3At = (temp_c: number): Sample => ({ ...wsReading, gpu: wsReading.gpu.map((g) => (g.index === 3 ? { ...g, temp_c } : g)) });
+  const openAlert = (node_id: string, severity: 'warning' | 'critical', rule_id: string, metric: string) => ({
+    id: 1, ts: now, node_id, severity, kind: 'alert' as const, rule_id, title: rule_id, detail: '', metric, value: null, resolved_ts: null, acked: false,
+  });
+
+  it.each([
+    ['memory', 'mem_low', 'mem.available'],
+    ['GPU 0', 'gpu_temp_high', 'gpu0.temp_c'],
+  ])('still says ws1 has GPU 3 heating up while a warning on %s is open', (_, rule, metric) => {
+    useEvents.setState({ events: [openAlert('ws1', 'warning', rule, metric)] });
+    show(ws1, [gpu3At(89)]);
+    expect(screen.getByRole('heading', { name: 'ws1 has GPU 3 heating up · 1 warning' })).toBeInTheDocument();
+  });
+
+  it("lets GPU 3's own temperature warning say it is heating up, and still counts the warning", () => {
+    useEvents.setState({ events: [openAlert('ws1', 'warning', 'gpu_temp_high', 'gpu3.temp_c')] });
+    show(ws1, [gpu3At(89)]);
+    expect(screen.getByRole('heading', { name: 'ws1 is online · 1 warning' })).toBeInTheDocument();
+    expect(cardPill('ws1')).toHaveAttribute('data-status', 'warning');
+  });
+
+  it('lets a critical temperature alert say a GB10 is at its slowdown temperature, as before', () => {
+    useEvents.setState({ events: [openAlert('spark1', 'critical', 'gpu_temp_critical', 'gpu0.temp_c')] });
+    show(gb10, [{ ...gb10Reading, gpu: gb10Reading.gpu.map((g) => ({ ...g, temp_c: 87 })) }]);
+    expect(screen.getByRole('heading', { name: 'spark1 is online · 1 critical alert' })).toBeInTheDocument();
+    expect(heroPill()).toHaveAttribute('data-status', 'critical');
+  });
+
+  const nvmlFails = (s: Sample): Sample => ({ ...s, gpu: [], errors: { ...s.errors, gpu: 'nvml: Unknown Error' } });
+  const failingFor = (seconds: number, s: Sample) => [s, ...Array.from({ length: seconds }, () => nvmlFails(s))];
+
+  it.each([
+    ['for 5 s after its last reading', failingFor(5, gb10Reading)],
+    ['on all 6 samples this browser received', Array.from({ length: 6 }, () => nvmlFails(gb10Reading))],
+  ])('says a GB10 whose NVML failed every tick %s has a GPU not responding', (_, samples) => {
+    show(gb10, samples);
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(heroPill()).toHaveTextContent('Needs attention');
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'warning');
+  });
+
+  it('keeps a GB10 healthy after one tick its NVML failed', () => {
+    show(gb10, failingFor(1, gb10Reading));
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'healthy');
+  });
+
+  it('names all four GPUs of ws1 once its NVML has failed for 5 s', () => {
+    show(ws1, failingFor(5, wsReading));
+    expect(screen.getByRole('heading', { name: 'ws1 has GPUs 0, 1, 2 and 3 not responding' })).toBeInTheDocument();
+    expect(cardPill('ws1')).toHaveAttribute('data-status', 'warning');
+  });
+
+  const pushAt = (info: NodeInfo, samples: [number, Sample][]) => {
+    useCluster.getState().setHello(cluster([node(info.node_id, { info })]));
+    act(() => {
+      liveStore.removeNode(info.node_id);
+      for (const [ago, s] of samples) liveStore.pushSample({ ...s, node_id: info.node_id, ts: now - ago });
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+
+  it('keeps a GB10 healthy on its first sample back after 11 s without samples, though its GPU last reported before the gap', () => {
+    pushAt(gb10, [[11, gb10Reading], [0, nvmlFails(gb10Reading)]]);
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'healthy');
+  });
+
+  const seeded = (info: NodeInfo, gpuUntil: number | null, live: Sample) => {
+    useCluster.getState().setHello(cluster([node(info.node_id, { info })]));
+    const ts = Array.from({ length: 8 }, (_, i) => now - 8 + i);
+    act(() => {
+      liveStore.removeNode(info.node_id);
+      liveStore.seed({ node_id: info.node_id, resolution_s: 1, ts, series: { 'cpu.util': ts.map(() => 5), 'gpu0.util': ts.map((t) => (gpuUntil !== null && t <= now - gpuUntil ? 40 : null)) }, min: {}, max: {} });
+      liveStore.pushSample({ ...live, node_id: info.node_id, ts: now });
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+
+  it('raises the pill at once when the page opens on a GB10 whose history shows its GPU silent for 5 s', () => {
+    seeded(gb10, null, nvmlFails(gb10Reading));
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'warning');
+  });
+
+  it('keeps the pill healthy when the page opens on a GB10 whose history shows its GPU reporting 2 s ago', () => {
+    seeded(gb10, 2, nvmlFails(gb10Reading));
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+  });
+
+  it("says a GB10's GPU processes are not known only once its NVML has failed as long as the pill waits", () => {
+    const idle = gb10Reading.procs?.filter((p) => !p.gpu_mem) ?? [];
+    const card = () => screen.getByRole('region', { name: 'Node spark1' });
+    show(gb10, failingFor(1, { ...gb10Reading, procs: idle }));
+    expect(within(card()).getByText('No GPU processes')).toBeInTheDocument();
+    expect(document.querySelector('.ov-hero__workload')).toHaveTextContent(/^No GPU workloads$/);
+    cleanup();
+    show(gb10, failingFor(5, { ...gb10Reading, procs: idle }));
+    expect(within(card()).queryByText('No GPU processes')).not.toBeInTheDocument();
+    expect(within(card()).getByText(/^GPU processes/)).toHaveTextContent(/^GPU processes Not responding/);
+    expect(document.querySelector('.ov-hero__workload')).toHaveTextContent(/^GPU workloads not reported$/);
+  });
+});
+
+describe('node stats and cluster sums say why a node reads less than its GPUs', () => {
+  const NVML_DOWN = 'NVMLError_Unknown: Unknown Error';
+  const NO_NVML = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+  const gb10 = (id: string) => ({ ...(gb10Info as unknown as NodeInfo), node_id: id, hostname: id });
+  const gb10Reading = (id: string, over: Partial<Sample> = {}): Sample => ({ ...(gb10Sample as unknown as Sample), node_id: id, ts: now, ...over });
+  const backendDown = (s: Sample, error = NVML_DOWN): Sample => ({ ...s, gpu: [], errors: { ...s.errors, gpu: `nvml: ${error}` } });
+  const noNvml = (id: string, reason = NO_NVML) =>
+    ({
+      node_id: id, hostname: id, gpus: [], net: [], cores: [], disks: [], sensors: [], mem_total: (sampleJson as unknown as Sample).mem.total,
+      unsupported: [{ metric: 'gpu*', reason, kind: 'dependency' }, { metric: 'mem.gpu', reason, kind: 'dependency' }],
+    }) as unknown as NodeInfo;
+  const noNvmlReading = (id: string): Sample => ({ ...(sampleJson as unknown as Sample), node_id: id, ts: now, gpu: [] });
+  const show = (nodes: readonly (readonly [NodeInfo, Sample | null])[], status: Record<string, NodeState['status']> = {}) => {
+    useCluster.getState().setHello(cluster(nodes.map(([info]) => node(info.node_id, { info, status: status[info.node_id] ?? 'online' }))));
+    act(() => {
+      for (const [info, s] of nodes) {
+        liveStore.removeNode(info.node_id);
+        if (s) liveStore.pushSample(s);
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const card = (id: string) => screen.getByRole('region', { name: `Node ${id}` });
+  const ring = (scope: HTMLElement) => within(scope).getByRole('img', { name: /^GPU utilisation/ });
+  const stat = (scope: HTMLElement, label: string) => within(scope).getByText(label, { selector: '.ov-stat__label' }).parentElement as HTMLElement;
+  const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+  const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+  const hero = () => document.querySelector('.ov-hero__numbers');
+  const energyHistory = () => {
+    vi.mocked(globalThis.fetch).mockImplementation(() => Promise.resolve(Response.json({ node_id: 'n', resolution_s: 60, ts: [now - 120, now - 60], series: { 'gpu0.energy_j': [7_000_000, 7_010_000] }, min: {}, max: {} })));
+    historyCache.clear();
+  };
+
+  it('reads Not responding in the ring, the temperature and the power of a GB10 whose GPU sends nothing', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    const c = card('spark2');
+    expect(ring(c)).toHaveAccessibleName('GPU utilisation not responding');
+    expect(ring(c)).toHaveTextContent('Not responding');
+    for (const label of ['GPU temp', 'GPU power']) {
+      expect(stat(c, label)).toHaveTextContent('Not responding');
+      expect(why(stat(c, label))).toHaveAccessibleDescription(`GPU 0 not responding (${NVML_DOWN}).`);
+    }
+  });
+
+  it('says the helper tool is missing in the ring of a node without NVML, as the stats beside it do', () => {
+    show([[noNvml('n1'), noNvmlReading('n1')]]);
+    expect(ring(card('n1'))).toHaveAccessibleName('GPU utilisation helper tool missing');
+    expect(ring(card('n1'))).toHaveTextContent('Helper tool missing');
+  });
+
+  it("names a GB10 whose GPU sends nothing beside the hero's and the cluster totals' GPU numbers", async () => {
+    energyHistory();
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    expect(hero()).toHaveTextContent(/GPU 62% \(1 of 2 GPUs\) at 24\.5 W · excl\. spark2$/);
+    expect(tile('Cluster compute')).toHaveTextContent('Mean GPU utilisation (1 of 2 GPUs) · excl. spark2');
+    expect(await within(tile('GPU power')).findByText(/^Now excl\. spark2 · Today \d/)).toBeInTheDocument();
+  });
+
+  it('reads Not responding, not No total, on ws1 while none of its four GPUs is in the sample', () => {
+    show([[wsInfo as unknown as NodeInfo, backendDown({ ...(wsSample as unknown as Sample), ts: now })]]);
+    const c = card('ws1');
+    expect(ring(c)).toHaveAccessibleName('GPU utilisation not responding');
+    for (const label of ['GPU temp', 'GPU power']) {
+      expect(stat(c, label)).toHaveTextContent('Not responding');
+      expect(why(stat(c, label))).toHaveAccessibleDescription(`GPUs 0, 1, 2 and 3 not responding (${NVML_DOWN}).`);
+    }
+  });
+
+  it('averages utilisation over GPUs, so a GB10 at 0 % beside ws1 at 100 % on four GPUs reads 80 %', () => {
+    const idle = gb10Reading('spark1', { gpu: (gb10Sample as unknown as Sample).gpu.map((g) => ({ ...g, util: 0 })) });
+    const busy = { ...(wsSample as unknown as Sample), ts: now, gpu: (wsSample as unknown as Sample).gpu.map((g) => ({ ...g, util: 100 })) };
+    show([[gb10('spark1'), idle], [wsInfo as unknown as NodeInfo, busy]]);
+    expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute80%/);
+    expect(hero()).toHaveTextContent(/GPU 80% at /);
+  });
+
+  it('drops "All 2 nodes reporting" beside the node the cluster compute leaves out', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), noNvmlReading('n1')]]);
+    expect(tile('Cluster compute').querySelector('.stat__footer')).toHaveTextContent(/^Mean GPU utilisation · excl\. n1$/);
+  });
+
+  it('keeps how many nodes report beside the node the cluster compute leaves out while another is offline', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), noNvmlReading('n1')], [gb10('spark3'), null]], { spark3: 'offline' });
+    expect(tile('Cluster compute').querySelector('.stat__footer')).toHaveTextContent(/^Mean GPU utilisation · excl\. n1 · 2 of 3 nodes reporting$/);
+  });
+
+  it('says the totals are not responding while every node is silent, each for its own reason', () => {
+    show([
+      [gb10('spark1'), backendDown(gb10Reading('spark1'), 'NVMLError_GpuIsLost: GPU is lost')],
+      [gb10('spark2'), backendDown(gb10Reading('spark2'))],
+    ]);
+    for (const label of ['Cluster compute', 'GPU power']) {
+      expect(tile(label)).toHaveTextContent('Not responding');
+      expect(why(tile(label))).toHaveAccessibleDescription(`spark1: GPU 0 not responding (NVMLError_GpuIsLost: GPU is lost).\nspark2: GPU 0 not responding (${NVML_DOWN}).`);
+    }
+  });
+
+  it('keeps "excl." on the line of the first node each total leaves out', async () => {
+    energyHistory();
+    show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), noNvmlReading('n1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    const footer = (label: string) => tile(label).querySelector('.stat__footer')?.textContent ?? '';
+    expect(footer('Cluster compute')).toContain('excl. n1 and spark2');
+    expect(footer('Active GPU processes')).toContain('excl. n1');
+    expect(await within(tile('GPU power')).findByText(/^Now excl\. spark2 · Today \d/)).toHaveTextContent(/Today .* excl\. n1/);
+    expect(footer('GPU power')).toContain('Now excl. spark2');
+    expect(footer('GPU power')).toContain('excl. n1');
+  });
+
+  it('lists five nodes and how many more in a tooltip over seven nodes, while its description names all seven', () => {
+    const ids = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
+    const reason = (id: string) => `NVIDIA driver library (NVML) not found on ${id}`;
+    show(ids.map((id) => [noNvml(id, reason(id)), noNvmlReading(id)] as const));
+    const compute = tile('Cluster compute');
+    expect(compute).toHaveTextContent('Helper tool missing');
+    expect(within(compute).getByRole('tooltip')).toHaveTextContent('and 2 more nodes');
+    expect(why(compute)).toHaveAccessibleDescription(ids.map((id) => `${id}: ${reason(id)}`).join('\n'));
+  });
+
+  it('lists every node in a tooltip over six nodes', () => {
+    const ids = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6'];
+    const reason = (id: string) => `NVIDIA driver library (NVML) not found on ${id}`;
+    show(ids.map((id) => [noNvml(id, reason(id)), noNvmlReading(id)] as const));
+    expect(within(tile('Cluster compute')).getByRole('tooltip')).not.toHaveTextContent('more nodes');
+    expect(why(tile('Cluster compute'))).toHaveAccessibleDescription(ids.map((id) => `${id}: ${reason(id)}`).join('\n'));
+  });
+
+  it('counts the GPUs in the utilisation sparkline caption while the total reads only some of them', () => {
+    const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+    const ws1 = wsInfo as unknown as NodeInfo;
+    const lost = { ...ws1, unsupported: [...ws1.unsupported, { metric: 'gpu0', reason: LOST, kind: 'hardware' as const }] };
+    const reading = wsSample as unknown as Sample;
+    show([[gb10('spark1'), gb10Reading('spark1')], [lost, { ...reading, ts: now, gpu: reading.gpu.map((g) => (g.index === 0 ? ({ index: 0 } as Sample['gpu'][number]) : g)) }]]);
+    const captions = (id: string) => [...card(id).querySelectorAll('.ov-spark__label')].map((el) => el.textContent.replace(/\s+/g, ' '));
+    expect(captions('ws1')).toEqual(['GPU utilisation · 3 of 4 GPUs · 3 min', 'GPU power · 3 min']);
+    expect(captions('spark1')).toEqual(['GPU utilisation · 3 min', 'GPU power · 3 min']);
+  });
+
+  it('keeps "excl." on the hero line of the first node the GPU power leaves out', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    expect(document.querySelector('.ov-hero__numbers')?.textContent).toContain('excl.\u00a0spark2');
+  });
+
+  it("leaves a GB10 whose GPU has been quiet for 5 s out of the active GPU processes, and names it", () => {
+    const idle = (gb10Sample as unknown as Sample).procs?.filter((p) => !p.gpu_mem) ?? [];
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10('spark1') }), node('spark2', { info: gb10('spark2') })]));
+    act(() => {
+      for (const id of ['spark1', 'spark2']) liveStore.removeNode(id);
+      liveStore.pushSample(gb10Reading('spark1', { procs: idle }));
+      for (let ago = 5; ago >= 0; ago--) liveStore.pushSample(backendDown(gb10Reading('spark2', { ts: now - ago, procs: idle })));
+      liveStore.flush();
+    });
+    render(<Overview />);
+    expect(tile('Active GPU processes').querySelector('.stat__footer')?.textContent).toBe('No containers · excl.\u00a0spark2');
+  });
+});
+
+describe('a GB10 whose GPU stays in the sample with every fresh reading empty, as NVML sends it when its reads fail', () => {
+  const gb10 = gb10Info as unknown as NodeInfo;
+  const reading = gb10Sample as unknown as Sample;
+  const idle = reading.procs?.filter((p) => !p.gpu_mem) ?? [];
+  const empty = (s: Sample): Sample => ({
+    ...s,
+    procs: idle,
+    gpu: s.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })),
+  });
+  const failingFor = (seconds: number) => [{ ...reading, procs: idle }, ...Array.from({ length: seconds }, () => empty(reading))];
+  const show = (samples: Sample[]) => {
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10 })]));
+    act(() => {
+      liveStore.removeNode('spark1');
+      samples.forEach((s, i) => { liveStore.pushSample({ ...s, node_id: 'spark1', ts: now - samples.length + 1 + i }); });
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const card = () => screen.getByRole('region', { name: 'Node spark1' });
+  const stat = (label: string) => within(card()).getByText(label, { selector: '.ov-stat__label' }).parentElement as HTMLElement;
+
+  it('reads Not responding in the ring and the stats from the first such sample', () => {
+    show(failingFor(1));
+    expect(within(card()).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation not responding');
+    for (const label of ['GPU temp', 'GPU power']) expect(stat(label)).toHaveTextContent('Not responding');
+  });
+
+  it('keeps the pill healthy after one such sample', () => {
+    show(failingFor(1));
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    expect(card().querySelector('[data-status]')).toHaveAttribute('data-status', 'healthy');
+  });
+
+  it('raises the pill, names the GPU and cannot tell the GPU processes once it has sent nothing for 5 s', () => {
+    show(failingFor(5));
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(card().querySelector('[data-status]')).toHaveAttribute('data-status', 'warning');
+    expect(within(card()).queryByText('No GPU processes')).not.toBeInTheDocument();
+    expect(document.querySelector('.ov-hero__workload')).toHaveTextContent(/^GPU workloads not reported$/);
+  });
+
+  it('raises the pill with the sentence as soon as the history the page seeds shows the GPU silent, before the next sample', () => {
+    show([empty(reading)]);
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    const ts = Array.from({ length: 8 }, (_, i) => now - 8 + i);
+    act(() => {
+      liveStore.seed({ node_id: 'spark1', resolution_s: 1, ts, series: { 'cpu.util': ts.map(() => 5), 'gpu0.energy_j': ts.map(() => 7_000_000) }, min: {}, max: {} });
+      liveStore.flush();
+    });
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(card().querySelector('[data-status]')).toHaveAttribute('data-status', 'warning');
+    expect(document.querySelector('.ov-hero [data-status]')).toHaveAttribute('data-status', 'warning');
+  });
+});
+
+describe('a GB10 whose GPU was quiet when it went offline, coming back online', () => {
+  const gb10 = gb10Info as unknown as NodeInfo;
+  const reading = gb10Sample as unknown as Sample;
+  const empty: Sample = { ...reading, node_id: 'spark1', gpu: reading.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })) };
+  const status = (s: NodeState['status']) => {
+    act(() => { dispatch({ type: 'node_status', node: node('spark1', { info: gb10, status: s }) }); });
+  };
+  const push = (from: number, to: number) => {
+    act(() => {
+      for (let t = from; t <= to; t++) liveStore.pushSample({ ...empty, ts: now + t });
+      liveStore.flush();
+    });
+  };
+  const pill = () => screen.getByRole('region', { name: 'Node spark1' }).querySelector('[data-status]');
+
+  it('keeps the pill healthy until a sample arrives after the return, then counts again', () => {
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10 })]));
+    act(() => { liveStore.removeNode('spark1'); });
+    push(-6, 0);
+    render(<Overview />);
+    expect(pill()).toHaveAttribute('data-status', 'warning');
+
+    status('offline');
+    status('online');
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    expect(pill()).toHaveAttribute('data-status', 'healthy');
+
+    push(20, 20);
+    expect(pill()).toHaveAttribute('data-status', 'healthy');
+    push(21, 25);
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(pill()).toHaveAttribute('data-status', 'warning');
+  });
+});
+
+describe('the not-responding reasons of several nodes', () => {
+  it("names the GPUs on every line, where one node's backend raised and all four GPUs of the other send nothing", () => {
+    const gb10 = gb10Info as unknown as NodeInfo;
+    const ws1 = wsInfo as unknown as NodeInfo;
+    const ws = wsSample as unknown as Sample;
+    const raised: Sample = { ...(gb10Sample as unknown as Sample), node_id: 'spark1', ts: now, gpu: [], errors: { gpu: 'nvml: RuntimeError: boom' } };
+    const silent: Sample = { ...ws, ts: now, gpu: ws.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })) };
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10 }), node('ws1', { info: ws1 })]));
+    act(() => {
+      for (const s of [raised, silent]) {
+        liveStore.removeNode(s.node_id);
+        liveStore.pushSample(s);
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+    const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+    for (const label of ['Cluster compute', 'GPU power']) {
+      expect(within(tile(label)).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(
+        'spark1: GPU 0 not responding (RuntimeError: boom).\nws1: GPUs 0, 1, 2 and 3 sent no reading this tick.',
+      );
+    }
+  });
+});
+
+describe("GPU processes while some or all of a node's GPUs send nothing", () => {
+  const UNKNOWN = 'NVMLError_Unknown: Unknown Error';
+  const gb10 = gb10Info as unknown as NodeInfo;
+  const ws4 = { ...(wsInfo as unknown as NodeInfo), node_id: 'ws4', hostname: 'ws4' };
+  const reading = (info: NodeInfo, over: Partial<Sample> = {}): Sample => ({
+    ...((info.gpus.length > 1 ? wsSample : gb10Sample) as unknown as Sample), node_id: info.node_id, ...over,
+  });
+  const failing = (s: Sample, error: string): Sample => ({ ...s, gpu: [], errors: { ...s.errors, gpu: `nvml: ${error}` } });
+  const show = (nodes: readonly (readonly [NodeInfo, Sample])[]) => {
+    useCluster.getState().setHello(cluster(nodes.map(([info]) => node(info.node_id, { info }))));
+    act(() => {
+      for (const [info, s] of nodes) {
+        liveStore.removeNode(info.node_id);
+        for (let ago = 5; ago >= 0; ago--) liveStore.pushSample({ ...s, ts: now - ago });
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+  const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+  const workloadLine = (id: string) => within(screen.getByRole('region', { name: `Node ${id}` })).getByText(/^GPU processes/).closest('p') as HTMLElement;
+
+  it('names every GPU of ws4 in why the active GPU processes are not known, once all four have sent nothing for 5 s', () => {
+    show([[gb10, failing(reading(gb10), 'NVMLError_GpuIsLost: GPU is lost')], [ws4, failing(reading(ws4), UNKNOWN)]]);
+    const ws4Why = `GPUs 0, 1, 2 and 3 not responding for 5\u00a0s (${UNKNOWN}).`;
+    expect(why(tile('Active GPU processes'))).toHaveAccessibleDescription(`spark1: GPU 0 not responding for 5\u00a0s (NVMLError_GpuIsLost: GPU is lost).\nws4: ${ws4Why}`);
+    expect(why(workloadLine('ws4'))).toHaveAccessibleDescription(ws4Why);
+  });
+
+  const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+  const ws4Lost = { ...ws4, unsupported: [...ws4.unsupported, { metric: 'gpu0', reason: LOST, kind: 'hardware' as const }] };
+  const gpu0Lost = (s: Sample): Sample => ({ ...s, gpu: s.gpu.map((g) => (g.index === 0 ? ({ index: 0 } as Sample['gpu'][number]) : g)) });
+  const idle = (s: Sample): Sample => ({ ...s, procs: s.procs?.filter((p) => !p.gpu_mem && !p.gpu_util) ?? [] });
+  const workload = () => document.querySelector('.ov-hero__workload');
+  const footer = (label: string) => tile(label).querySelector('.stat__footer')?.textContent;
+
+  it('says what ws4 serves from 3 of 4 GPUs while GPU 0 is lost', () => {
+    show([[ws4Lost, gpu0Lost(reading(ws4))]]);
+    expect(workload()).toHaveTextContent(/^Serving vllm-llama70b on ws4 \(3 of 4 GPUs\)$/);
+  });
+
+  it('counts the GPUs of the nodes it names under "No GPU workloads", and leaves the GPU out of the active processes by name', () => {
+    const spark2 = { ...gb10, node_id: 'spark2', hostname: 'spark2' };
+    show([[gb10, idle(reading(gb10))], [spark2, failing(idle(reading(spark2)), UNKNOWN)], [ws4Lost, idle(gpu0Lost(reading(ws4)))]]);
+    expect(workload()).toHaveTextContent(/^No GPU workloads on spark1 and ws4 \(4 of 5 GPUs\)$/);
+    expect(footer('Active GPU processes')).toBe('No containers · excl.\u00a0spark2 and ws4: GPU 0');
+  });
+});
+
+describe("the cluster's GPU energy today names each node it cannot count", () => {
+  const gb10 = (id: string) => ({ ...(gb10Info as unknown as NodeInfo), node_id: id, hostname: id });
+  const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+  const show = (spark2: NodeState['status']) => {
+    vi.mocked(globalThis.fetch).mockImplementation((url) => {
+      const spark1 = typeof url === 'string' && new URL(url, 'http://x').searchParams.get('node') === 'spark1';
+      const series = spark1 ? { 'gpu0.energy_j': [7_000_000, 7_010_000] } : {};
+      return Promise.resolve(Response.json({ node_id: 'n', resolution_s: 60, ts: spark1 ? [now - 120, now - 60] : [], series, min: {}, max: {} }));
+    });
+    historyCache.clear();
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10('spark1') }), node('spark2', { info: gb10('spark2'), status: spark2 })]));
+    act(() => {
+      for (const id of ['spark1', 'spark2']) {
+        liveStore.removeNode(id);
+        liveStore.pushSample({ ...(gb10Sample as unknown as Sample), node_id: id, ts: now });
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+
+  it('names a node whose history since midnight holds no energy reading, and says why', async () => {
+    show('online');
+    expect(await within(tile('GPU power')).findByText(/^Today/)).toHaveTextContent(/^Today [\d.]+ kWh · excl\. spark2 \(no energy reading today\) · £/);
+  });
+
+  it('names an offline node whose history holds no energy reading as left out, not as counted until it went offline', async () => {
+    show('offline');
+    const today = await within(tile('GPU power')).findByText(/^Today/);
+    expect(today).toHaveTextContent(/^Today [\d.]+ kWh · excl\. spark2 \(no energy reading today\) · £[\d.]+$/);
+  });
+
+  const gb10Reading = gb10Sample as unknown as Sample;
+  const ws1 = wsInfo as unknown as NodeInfo;
+  const wsReading = wsSample as unknown as Sample;
+  const hm = (ts: number) => {
+    const d = new Date(ts * 1000);
+    return [d.getHours(), d.getMinutes()].map((n) => String(n).padStart(2, '0')).join(':');
+  };
+  const showQuiet = (nodes: readonly (readonly [NodeInfo, Sample, number | null])[], quietAs: 'dropped' | 'readsFail' = 'dropped') => {
+    const series = (s: Sample) => Object.fromEntries(s.gpu.map((g) => [`gpu${String(g.index)}.energy_j`, [(g.energy_j ?? 0) - 360_000, g.energy_j]]));
+    vi.mocked(globalThis.fetch).mockImplementation((url) => {
+      const id = typeof url === 'string' ? new URL(url, 'http://x').searchParams.get('node') : null;
+      const reading = nodes.find(([info]) => info.node_id === id)?.[1];
+      return Promise.resolve(Response.json({ node_id: 'n', resolution_s: 60, ts: [now - 180, now - 120], series: reading ? series(reading) : {}, min: {}, max: {} }));
+    });
+    historyCache.clear();
+    useCluster.getState().setHello(cluster(nodes.map(([info]) => node(info.node_id, { info }))));
+    act(() => {
+      for (const [info, reading, quiet] of nodes) {
+        liveStore.removeNode(info.node_id);
+        const moved = (j: number) => reading.gpu.map((g) => (g.index === quiet ? { ...g, energy_j: (g.energy_j ?? 0) + j } : g));
+        const silent = reading.gpu.flatMap((g) => (g.index !== quiet ? [g] : quietAs === 'readsFail' ? [{ ...g, energy_j: (g.energy_j ?? 0) + 7200, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null }] : []));
+        const ticks = [moved(3600), moved(7200), ...Array.from({ length: 5 }, () => silent)];
+        ticks.forEach((gpu, i) => { liveStore.pushSample({ ...reading, node_id: info.node_id, gpu, ts: now - ticks.length + 1 + i }); });
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+    return now - 5;
+  };
+
+  it("says until when the cluster's energy today counts a quiet GPU of a node that still reports", async () => {
+    const last = showQuiet([[gb10('spark1'), gb10Reading, null], [ws1, wsReading, 2]]);
+    const today = await within(tile('GPU power')).findByText(/Today/);
+    expect(today).toHaveTextContent(new RegExp(`(^|· )Today [\\d.]+ kWh · £[\\d.]+ · ws1 GPU 2 until ${hm(last)}$`));
+  });
+
+  it("says until when it counts a GB10 whose GPU is quiet, as it says for a node that went offline", async () => {
+    const last = showQuiet([[gb10('spark1'), gb10Reading, null], [gb10('spark2'), gb10Reading, 0]]);
+    const today = await within(tile('GPU power')).findByText(/Today/);
+    expect(today).toHaveTextContent(new RegExp(`^Now excl\\. spark2 · Today [\\d.]+ kWh · £[\\d.]+ · spark2 until ${hm(last)}$`));
+  });
+
+  const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+
+  it("says the cluster's GPU power is not responding, naming each node's reason, while a GB10 and a GPU of ws1 have sent nothing for 5 s", () => {
+    showQuiet([[gb10('spark1'), gb10Reading, 0], [ws1, wsReading, 2]], 'readsFail');
+    expect(tile('GPU power')).toHaveTextContent(/^GPU powerNot responding/);
+    expect(why(tile('GPU power'))).toHaveAccessibleDescription('spark1: GPU 0 has sent no reading for 5\u00a0s.\nws1: GPU 2 has sent no reading for 5\u00a0s, so a sum would understate.');
+  });
+
+  it("keeps the cluster's energy today, and until when it counts each quiet GPU, under the GPU power that is not responding", async () => {
+    const last = showQuiet([[gb10('spark1'), gb10Reading, 0], [ws1, wsReading, 2]], 'readsFail');
+    const today = await within(tile('GPU power')).findByText(/Today/);
+    expect(today).toHaveTextContent(new RegExp(`^Today [\\d.]+ kWh · £[\\d.]+ · spark1 until ${hm(last)} · ws1 GPU 2 until ${hm(last)}$`));
+  });
+
+  it('keeps the energy today of a lone GB10 whose GPU has sent nothing for 5 s, under its Not responding', async () => {
+    const last = showQuiet([[gb10('spark1'), gb10Reading, 0]]);
+    expect(tile('GPU power')).toHaveTextContent(/^GPU powerNot responding/);
+    const today = await within(tile('GPU power')).findByText(/Today/);
+    expect(today).toHaveTextContent(new RegExp(`^Today [\\d.]+ kWh · £[\\d.]+ · spark1 until ${hm(last)}$`));
+  });
+
+  it('leaves the energy today of two healthy GB10s unmarked', async () => {
+    showQuiet([[gb10('spark1'), gb10Reading, null], [gb10('spark2'), gb10Reading, null]]);
+    expect(await within(tile('GPU power')).findByText(/Today/)).toHaveTextContent(/^Today [\d.]+ kWh · £[\d.]+$/);
+  });
+});
+
+describe('a GPU that has sent nothing for 40 s', () => {
+  it('says how long on the card and in the cluster totals, as the GPU tab banner does, as the silence goes on', () => {
+    const ws1 = wsInfo as unknown as NodeInfo;
+    const ws = wsSample as unknown as Sample;
+    const quiet: Sample = { ...ws, gpu: ws.gpu.map((g) => (g.index === 2 ? { ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null } : g)) };
+    const silentUntil = (from: number, to: number) => {
+      act(() => {
+        for (let t = from; t <= to; t++) liveStore.pushSample({ ...quiet, ts: now - 40 + t });
+        liveStore.flush();
+      });
+    };
+    useCluster.getState().setHello(cluster([node('ws1', { info: ws1 })]));
+    act(() => {
+      liveStore.removeNode('ws1');
+      liveStore.pushSample({ ...ws, ts: now - 40 });
+    });
+    silentUntil(1, 5);
+    render(<Overview />);
+    silentUntil(6, 40);
+    const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+    const cardStat = within(screen.getByRole('region', { name: 'Node ws1' })).getByText('GPU power', { selector: '.ov-stat__label' }).parentElement as HTMLElement;
+    const totalsTile = within(screen.getByRole('region', { name: 'Cluster totals' })).getByText('GPU power', { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+    for (const scope of [cardStat, totalsTile]) {
+      expect(why(scope)).toHaveAccessibleDescription('GPU 2 has sent no reading for 40\u00a0s, so a sum would understate.');
+    }
   });
 });

@@ -28,6 +28,7 @@ from starlette.requests import HTTPConnection
 
 from ..common.schema import (
     AlertRule,
+    AlertRulesStatus,
     ClusterState,
     ConsoleSettings,
     Event,
@@ -477,6 +478,10 @@ def create_app(
             raise ProblemError(422, "Invalid alert rules", str(e), "Fix the rule and save again") from None
         cluster.update_rules(rules)
         return rules
+
+    @app.get("/api/v1/alerts/rules/status", dependencies=Auth)
+    async def get_rules_status() -> AlertRulesStatus:
+        return AlertRulesStatus(reset=cluster.rules_reset)
 
     @app.get("/api/v1/events", dependencies=Auth)
     async def events(

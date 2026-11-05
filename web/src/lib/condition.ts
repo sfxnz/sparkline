@@ -11,7 +11,6 @@ export interface LiveCondition {
   level: 'warning' | 'critical';
   /** Clause after the node name: "spark1 is at its GPU slowdown temperature". */
   text: string;
-  outsideAlertRules?: LiveCondition;
 }
 
 const HEADROOM_WARN_C = 6;
@@ -72,13 +71,15 @@ export interface GpuCondition extends LiveCondition {
   reading: string;
   /** What a node sentence says after "has GPU 3" (one) or "has GPUs 2 and 3" (many). */
   clause: { one: string; many: string };
+  /** The GPU reading it comes from, which an alert rule can watch; null for a GPU that sends no reading. */
+  field: 'temp_c' | 'throttle_mask' | null;
 }
 
 function gpuCondition(index: number, gpu: ConditionInput, slowdownC: number | null | undefined): GpuCondition | null {
   const room = tempRoom(gpu.temp_c, slowdownC);
   const temp = `, ${formatTemp(gpu.temp_c)} (slows at ${formatTemp(slowdownC)})`;
   if (room?.level === 'crit') {
-    return { index, level: 'critical', text: 'is at its GPU slowdown temperature', what: 'At slowdown', reading: `At slowdown${temp}`, clause: { one: 'at its slowdown temperature', many: 'at their slowdown temperature' } };
+    return { index, level: 'critical', text: 'is at its GPU slowdown temperature', what: 'At slowdown', reading: `At slowdown${temp}`, clause: { one: 'at its slowdown temperature', many: 'at their slowdown temperature' }, field: 'temp_c' };
   }
   // Info-level reasons (idle, power cap, application clocks) are normal operation and never raise a node.
   const limiting = decodeThrottle(gpu.throttle_mask).filter((r) => r.severity !== 'info');
@@ -86,24 +87,32 @@ function gpuCondition(index: number, gpu: ConditionInput, slowdownC: number | nu
   if (worst === 'critical' || worst === 'warning') {
     const limits = limiting.filter((r) => r.severity === worst).map((r) => r.title.toLowerCase()).join(' and ');
     const what = `Clocks limited by ${limits}`;
-    return { index, level: worst, text: `has GPU clocks limited by ${limits}`, what, reading: what, clause: { one: `clocks limited by ${limits}`, many: `clocks limited by ${limits}` } };
+    return { index, level: worst, text: `has GPU clocks limited by ${limits}`, what, reading: what, clause: { one: `clocks limited by ${limits}`, many: `clocks limited by ${limits}` }, field: 'throttle_mask' };
   }
-  if (room?.level === 'warn') return { index, level: 'warning', text: 'is heating up', what: 'Heating up', reading: `Heating up${temp}`, clause: { one: 'heating up', many: 'heating up' } };
+  if (room?.level === 'warn') return { index, level: 'warning', text: 'is heating up', what: 'Heating up', reading: `Heating up${temp}`, clause: { one: 'heating up', many: 'heating up' }, field: 'temp_c' };
   return null;
 }
 
 const NOT_RESPONDING = 'Not responding';
 
-const lostCondition = (index: number): GpuCondition => ({
-  index, level: 'warning', text: 'has a GPU not responding', what: NOT_RESPONDING, reading: NOT_RESPONDING, clause: { one: 'not responding', many: 'not responding' },
+const silentCondition = (index: number): GpuCondition => ({
+  index, level: 'warning', text: 'has a GPU not responding', what: NOT_RESPONDING, reading: NOT_RESPONDING, clause: { one: 'not responding', many: 'not responding' }, field: null,
 });
 
-/** Each GPU's live condition in the sample, in index order; GPUs with nothing on screen to flag are left out. On a node
- *  with several GPUs, a lost one is not responding (a node with one says so in its own notice). */
-export function gpuConditions(info: NodeInfo | null | undefined, s: Sample | null): GpuCondition[] {
-  const lost = (info?.gpus.length ?? 0) > 1 ? (info?.gpus ?? []).filter((g) => lostGpu(info, g.index)).map((g) => lostCondition(g.index)) : [];
-  const live = (s?.gpu ?? []).flatMap((g) => (lost.some((c) => c.index === g.index) ? [] : (gpuCondition(g.index, g, gpuAt(info?.gpus, g.index)?.temp_slowdown_c) ?? [])));
-  return [...lost, ...live].toSorted((a, b) => a.index - b.index);
+export const quietAfterS = (info: NodeInfo | null | undefined, staleAfterS: number | undefined) =>
+  Math.max(staleAfterS ?? 5, (2 * (info?.sample_interval_ms ?? 1000)) / 1000 + 1);
+
+export function quietGpus(info: NodeInfo | null | undefined, staleAfterS: number | undefined, silentFor: (index: number, gapS: number) => number | null): number[] {
+  const afterS = quietAfterS(info, staleAfterS);
+  return (info?.gpus ?? []).filter((g) => !lostGpu(info, g.index) && (silentFor(g.index, afterS) ?? 0) >= afterS).map((g) => g.index);
+}
+
+/** Each GPU's live condition in the sample, in index order; GPUs with nothing on screen to flag are left out. A lost
+ *  GPU, and one in `quiet` (quietGpus), is not responding. */
+export function gpuConditions(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[] = []): GpuCondition[] {
+  const silent = (info?.gpus ?? []).filter((g) => lostGpu(info, g.index) || quiet.includes(g.index)).map((g) => silentCondition(g.index));
+  const live = (s?.gpu ?? []).flatMap((g) => (silent.some((c) => c.index === g.index) ? [] : (gpuCondition(g.index, g, gpuAt(info?.gpus, g.index)?.temp_slowdown_c) ?? [])));
+  return [...silent, ...live].toSorted((a, b) => a.index - b.index);
 }
 
 export interface ConditionGroup {
@@ -123,28 +132,46 @@ export function byWhat(conditions: readonly GpuCondition[]): ConditionGroup[] {
   return groups;
 }
 
-function worstOf(info: NodeInfo | null | undefined, s: Sample | null, all: readonly GpuCondition[]): LiveCondition | null {
-  const level = all.some((c) => c.level === 'critical') ? 'critical' : 'warning';
-  const worst = all.filter((c) => c.level === level);
+/** What a node's latest sample flags on its GPUs. */
+export interface NodeConditions {
+  /** Each flagged GPU's condition, in index order. */
+  gpus: readonly GpuCondition[];
+  /** A node with one GPU says its condition of the node ("spark1 is heating up"), not of "GPU 0". */
+  oneGpu: boolean;
+}
+
+/** The node's flagged GPUs, or null when nothing on screen would be flagged. */
+export function nodeConditions(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[] = []): NodeConditions | null {
+  const gpus = gpuConditions(info, s, quiet);
+  return gpus.length ? { gpus, oneGpu: (info?.gpus.length ?? 0) <= 1 && (s?.gpu.length ?? 0) <= 1 } : null;
+}
+
+/** The worst of the node's conditions, or null when it has none. A node with one GPU says it of the node ("is at its
+ *  GPU slowdown temperature"); a node with several names the GPUs at that level ("has GPU 3 at its slowdown
+ *  temperature"). */
+export function worstCondition(c: NodeConditions): LiveCondition | null {
+  const level = c.gpus.some((g) => g.level === 'critical') ? 'critical' : 'warning';
+  const worst = c.gpus.filter((g) => g.level === level);
   const groups = byWhat(worst);
   const [top] = groups;
   if (!top) return null;
-  if ((info?.gpus.length ?? 0) <= 1 && (s?.gpu.length ?? 0) <= 1) return { level, text: top.condition.text };
+  if (c.oneGpu) return { level, text: top.condition.text };
   if (groups.length > 2) return { level, text: `has ${worst.length} GPUs needing attention` };
   const said = groups.map((g) => `${gpuList(g.indexes)} ${g.indexes.length > 1 ? g.condition.clause.many : g.condition.clause.one}`);
   return { level, text: `has ${said.join(' and ')}` };
 }
 
-/** The node's worst live condition, or null when nothing on screen would be flagged. A node with one GPU says it of
- *  the node ("is at its GPU slowdown temperature"); a node with several names the GPUs at that level ("has GPU 3 at
- *  its slowdown temperature"). */
-export function nodeCondition(info: NodeInfo | null | undefined, s: Sample | null): LiveCondition | null {
-  const all = gpuConditions(info, s);
-  const worst = worstOf(info, s, all);
-  const outsideAlertRules = worstOf(info, s, all.filter((c) => c.what === NOT_RESPONDING));
-  return worst && outsideAlertRules ? { ...worst, outsideAlertRules } : worst;
+/** The node's worst live condition, or null when nothing on screen would be flagged. */
+export function nodeCondition(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[] = []): LiveCondition | null {
+  const c = nodeConditions(info, s, quiet);
+  return c && worstCondition(c);
 }
 
 /** Stable identity for equality checks (useLatest re-renders only when this changes). */
-export const sameCondition = (a: LiveCondition | null, b: LiveCondition | null) =>
-  a === b || (!!a && !!b && a.level === b.level && a.text === b.text && a.outsideAlertRules?.text === b.outsideAlertRules?.text);
+export const sameCondition = (a: LiveCondition | null, b: LiveCondition | null) => a === b || (!!a && !!b && a.level === b.level && a.text === b.text);
+
+export const sameGpuConditions = (a: readonly GpuCondition[], b: readonly GpuCondition[]) =>
+  a.length === b.length && a.every((c, i) => b[i]?.index === c.index && b[i].level === c.level && b[i].reading === c.reading);
+
+export const sameNodeConditions = (a: NodeConditions | null, b: NodeConditions | null) =>
+  a === b || (!!a && !!b && a.oneGpu === b.oneGpu && sameGpuConditions(a.gpus, b.gpus));

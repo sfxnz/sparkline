@@ -11,6 +11,7 @@ import { useCluster } from '../../store/cluster';
 import { liveStore, useLatest } from '../../store/live';
 import { RowsSkeleton } from '../placeholders';
 import { useNodeStale } from '../shared/live';
+import { CannotTellGpuProcesses, useGpuProcessesGap } from './partsC/gpuProcesses';
 import { ProcTable } from './partsC/ProcTable';
 import { filterProcs, loadView, saveView, sortProcs, type ProcView } from './partsC/procs';
 import { UpdatedAgo } from './partsC/UpdatedAgo';
@@ -35,6 +36,7 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const procs = useLatest(nodeId, (s) => s?.procs ?? null);
   const hasSample = useLatest(nodeId, (s) => s !== null);
   const info = useCluster((s) => s.nodes[nodeId]?.info);
+  const { gap, from } = useGpuProcessesGap(nodeId);
   const status = useCluster((s) => s.nodes[nodeId]?.status);
   const stale = useNodeStale(nodeId);
   const [view, setView] = useState<ProcView>(loadView);
@@ -43,11 +45,15 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const rows = useMemo(() => (procs ? sortProcs(filterProcs(procs, view.filter), view.sort) : []), [procs, view]);
   const summary = useMemo(() => {
     if (!procs) return null;
+    const cannotTell = gap ? <CannotTellGpuProcesses nodeId={nodeId} gap={gap} /> : null;
+    if (!procs.length) return cannotTell ?? 'No processes reported';
+    // The agent sends the biggest consumers (top by GPU memory, memory and CPU), not every process on the node.
+    const listed = `The ${procs.length} biggest ${procs.length === 1 ? 'consumer' : 'consumers'}`;
+    if (cannotTell) return <>{listed} · {cannotTell}</>;
     const onGpu = procs.filter((p) => p.gpu_mem != null);
     const gpuBytes = onGpu.reduce((a, p) => a + (p.gpu_mem ?? 0), 0);
-    // The agent sends the biggest consumers (top by GPU memory, memory and CPU), not every process on the node.
-    return `The ${procs.length} biggest ${procs.length === 1 ? 'consumer' : 'consumers'} · ${onGpu.length} on the GPU${onGpu.length ? ` using ${formatBytes(gpuBytes)}` : ''}`;
-  }, [procs]);
+    return `${listed} · ${onGpu.length} on the GPU${onGpu.length ? ` using ${formatBytes(gpuBytes)}` : ''}${from ? ` (${from})` : ''}`;
+  }, [procs, gap, from, nodeId]);
   const ts = listTs(nodeId, procs);
   const waiting = !procs && !stale && (hasSample || status === 'connecting' || status === 'online' || !status);
 

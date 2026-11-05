@@ -46,9 +46,10 @@ export const useEvents = create<EventsStore>()((set) => ({
   },
 }));
 
-/** Alerts that are still firing (not resolved). */
-export const openAlertCount = (events: readonly Event[]) =>
-  events.filter((e) => e.kind === 'alert' && e.resolved_ts == null && e.severity !== 'info').length;
+/** Warning and critical alerts that are still firing (not resolved). */
+export const openAlerts = (events: readonly Event[]) => events.filter((e) => e.kind === 'alert' && e.resolved_ts == null && e.severity !== 'info');
+
+export const openAlertCount = (events: readonly Event[]) => openAlerts(events).length;
 
 /** Highest severity among the open warning/critical alerts on one node, or null when none is open. */
 export function openAlertLevel(events: readonly Event[], nodeId: string): 'warning' | 'critical' | null {

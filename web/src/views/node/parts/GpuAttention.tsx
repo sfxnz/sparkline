@@ -2,9 +2,10 @@ import { ChevronDown } from 'lucide-react';
 import { useCallback } from 'react';
 import { gpuColor } from '../../../charts/theme';
 import { prefersReducedMotion } from '../../../design/motion';
-import { byWhat, gpuConditions, type GpuCondition } from '../../../lib/condition';
+import { byWhat, gpuConditions, sameGpuConditions, type GpuCondition } from '../../../lib/condition';
 import { gpuList } from '../../../lib/gpu';
 import type { NodeInfo, Sample } from '../../../lib/types';
+import { quietGpusOf } from '../../../store/attention';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
 import { SEVERITY_META } from './Notices';
@@ -12,9 +13,6 @@ import { SEVERITY_META } from './Notices';
 const ONE_ROW_PER_GPU_UP_TO = 3;
 
 export const gpuSectionId = (nodeId: string, index: number) => `ngpu-${nodeId}-${index}`;
-
-const sameConditions = (a: GpuCondition[], b: GpuCondition[]) =>
-  a.length === b.length && a.every((c, i) => b[i]?.index === c.index && b[i].level === c.level && b[i].reading === c.reading);
 
 interface Row {
   level: GpuCondition['level'];
@@ -40,7 +38,7 @@ function jumpTo(id: string) {
  *  live. */
 export function GpuAttention({ nodeId, info }: { nodeId: string; info: NodeInfo | null | undefined }) {
   const online = useCluster((s) => s.nodes[nodeId]?.status === 'online');
-  const conditions = useLatest(nodeId, useCallback((s: Sample | null) => gpuConditions(info, s), [info]), sameConditions);
+  const conditions = useLatest(nodeId, useCallback((s: Sample | null) => gpuConditions(info, s, quietGpusOf(nodeId, info)), [nodeId, info]), sameGpuConditions);
   if (!online || !conditions.length) return null;
   return (
     <ul className="nnotes ngpu-attn" aria-label="GPU needs attention">

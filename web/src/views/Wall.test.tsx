@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import type { NodeInfo, NodeState, Sample } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
@@ -52,5 +52,75 @@ it("counts the GPUs under the wall's utilisation while every GPU of the second w
     liveStore.flush();
   });
   render(<Wall />);
-  expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/^GPU 86% across 2 live nodes \(4 of 8 GPUs\)·1069 W GPU power · excl\. ws2$/);
+  expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/^GPU 86% across 1 of 2 live nodes \(4 of 8 GPUs\)·1069 W GPU power · excl\. ws2$/);
+});
+
+describe('the wall says why it cannot read a node', () => {
+  const NVML_DOWN = 'NVMLError_Unknown: Unknown Error';
+  const gb10 = (id: string) => ({ ...(gb10Info as unknown as NodeInfo), node_id: id, hostname: id });
+  const gb10Reading = (id: string, over: Partial<Sample> = {}): Sample => ({ ...(gb10Sample as unknown as Sample), node_id: id, ts: now, ...over });
+  const backendDown = (s: Sample, error = NVML_DOWN): Sample => ({ ...s, gpu: [], errors: { ...s.errors, gpu: `nvml: ${error}` } });
+  const NO_NVML = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+  const noNvml = (id: string) =>
+    ({
+      ...(gb10Info as unknown as NodeInfo), node_id: id, hostname: id, gpus: [],
+      unsupported: [{ metric: 'gpu*', reason: NO_NVML, kind: 'dependency' }, { metric: 'mem.gpu', reason: NO_NVML, kind: 'dependency' }],
+    }) as NodeInfo;
+  const line = () => document.querySelector('.wall-hero__line');
+  const show = (nodes: readonly (readonly [NodeInfo, Sample])[]) => {
+    useConnection.setState({ status: 'live', everLive: true });
+    useEvents.setState({ events: [] });
+    useCluster.setState({ clockOffset: 0, order: nodes.map(([info]) => info.node_id), nodes: Object.fromEntries(nodes.map(([info]) => [info.node_id, state(info)])) });
+    act(() => {
+      for (const [info, s] of nodes) {
+        liveStore.removeNode(info.node_id);
+        liveStore.pushSample(s);
+      }
+      liveStore.flush();
+    });
+    render(<Wall />);
+  };
+  const value = (id: string, label: string) => within(screen.getByRole('region', { name: `Node ${id}` })).getByText(label, { selector: '.wall-label' }).parentElement as HTMLElement;
+
+  it('reads Not responding on the tile of a GB10 whose GPU sends nothing', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    for (const label of ['GPU utilisation', 'GPU temperature', 'GPU power']) expect(value('spark2', label)).toHaveTextContent('Not responding');
+  });
+
+  it('names a GB10 whose GPU sends nothing beside the GPU power', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
+    expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/·24\.5 W GPU power · excl\. spark2$/);
+  });
+
+  it('averages utilisation over GPUs, so a GB10 at 0 % beside ws1 at 100 % on four GPUs reads 80 %', () => {
+    const reading = wsSample as unknown as Sample;
+    show([
+      [gb10('spark1'), gb10Reading('spark1', { gpu: (gb10Sample as unknown as Sample).gpu.map((g) => ({ ...g, util: 0 })) })],
+      [wsInfo as unknown as NodeInfo, { ...reading, ts: now, gpu: reading.gpu.map((g) => ({ ...g, util: 100 })) }],
+    ]);
+    expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/^GPU 80% across 2 live nodes·/);
+  });
+
+  it('counts only the live nodes with a GPU utilisation beside a node without NVML', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), gb10Reading('n1', { gpu: [] })]]);
+    expect(line()).toHaveTextContent(/^GPU 62% across 1 of 2 live nodes·24\.5 W GPU power · excl\. n1$/);
+  });
+
+  it('says why there is no GPU utilisation or power, not "— W", while the only live node sends no GPU reading', () => {
+    show([[gb10('spark1'), backendDown(gb10Reading('spark1'))]]);
+    expect(line()).toHaveTextContent(/^GPU utilisation: Not responding·GPU power: Not responding$/);
+  });
+
+  it('says Not responding while every live node is silent, each for its own reason', () => {
+    show([
+      [gb10('spark1'), backendDown(gb10Reading('spark1'), 'NVMLError_GpuIsLost: GPU is lost')],
+      [gb10('spark2'), backendDown(gb10Reading('spark2'))],
+    ]);
+    expect(line()).toHaveTextContent(/^GPU utilisation: Not responding·GPU power: Not responding$/);
+  });
+
+  it('keeps "excl." on the line of the first node the GPU power leaves out', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), gb10Reading('n1', { gpu: [] })]]);
+    expect(line()?.textContent).toContain('excl. n1');
+  });
 });

@@ -74,7 +74,7 @@ for (const linked of [false, true]) {
     for (const width of [1680, 1440, 375]) {
       await page.setViewportSize({ width, height: 900 });
       for (const label of ['Unified memory in use', 'GPU power']) {
-        await expect.poll(() => footer(label).evaluate(shows, 'excl. spark2'), { message: `${label} footer shows "excl. spark2" at ${width} px` }).toBe(true);
+        await expect.poll(() => footer(label).evaluate(shows, 'excl.\u00a0spark2'), { message: `${label} footer shows "excl. spark2" at ${width} px` }).toBe(true);
       }
     }
   });
@@ -82,11 +82,14 @@ for (const linked of [false, true]) {
 
 interface GpuReading { index: number; temp_c?: number | null }
 
-async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading, gaps: unknown[] = []) {
+interface StubNode { id: string; platform: 'gb10' | 'workstation'; gpus?: (g: GpuReading) => GpuReading | null; gaps?: unknown[]; errors?: Record<string, string> }
+
+async function stubbed(page: Page, nodes: StubNode[]) {
   const now = Date.now() / 1000;
-  const base = fixture('platforms/workstation/info.json');
-  const info = { ...base, node_id: 'ws1', unsupported: [...(base.unsupported as unknown[]), ...gaps] };
-  const reading = fixture('platforms/workstation/sample.json');
+  const infoOf = (n: StubNode) => {
+    const base = fixture(`platforms/${n.platform}/info.json`);
+    return { ...base, node_id: n.id, unsupported: [...(base.unsupported as unknown[]), ...(n.gaps ?? [])] };
+  };
   await page.route('**/api/**', (route) => route.fulfill({ status: 502, body: '' }));
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/v1/live**', (route) => route.fulfill({ status: 404, body: '' }));
@@ -94,16 +97,22 @@ async function workstation(page: Page, gpus: (g: GpuReading) => GpuReading, gaps
     ws.send(JSON.stringify({
       type: 'hello',
       cluster: {
-        nodes: [{ node_id: 'ws1', url: '', status: 'online', since: now, last_sample_ts: now, error: null, info, next_retry_ts: null }],
+        nodes: nodes.map((n) => ({ node_id: n.id, url: '', status: 'online', since: now, last_sample_ts: now, error: null, info: infoOf(n), next_retry_ts: null })),
         settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 },
         demo: true,
         version: 'test',
         server_time: now,
       },
     }));
-    ws.send(JSON.stringify({ type: 'sample', node_id: 'ws1', sample: { ...reading, node_id: 'ws1', ts: now, gpu: (reading.gpu as GpuReading[]).map(gpus) } }));
+    for (const n of nodes) {
+      const reading = fixture(`platforms/${n.platform}/sample.json`);
+      const gpu = (reading.gpu as GpuReading[]).flatMap((g) => n.gpus?.(g) ?? (n.gpus ? [] : g));
+      ws.send(JSON.stringify({ type: 'sample', node_id: n.id, sample: { ...reading, node_id: n.id, ts: now, gpu, errors: n.errors ?? {} } }));
+    }
   });
 }
+
+const workstation = (page: Page, gpus: (g: GpuReading) => GpuReading, gaps: unknown[] = []) => stubbed(page, [{ id: 'ws1', platform: 'workstation', gpus, gaps }]);
 
 const paintsInFull = (el: Element, text: string) => {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -212,3 +221,70 @@ for (const [state, temp, flag, gaps] of [
     expect(clipped).toEqual([]);
   });
 }
+
+test('the ws1 card paints "3 of 4 GPUs" in its utilisation sparkline caption on a phone and a laptop while GPU 0 is lost', async ({ page }) => {
+  await workstation(page, (g) => (g.index === 0 ? { index: 0 } : g), LOST_GPU0);
+  await page.goto('/');
+  const caption = page.getByRole('region', { name: 'Node ws1' }).locator('.ov-spark__label').first();
+  await expect(caption).toContainText('3 of 4 GPUs');
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const text of ['GPU utilisation', '3 of 4 GPUs', '3 min']) {
+      await expect.poll(() => caption.evaluate(paintsInFull, text), { message: `caption shows "${text}" in full at ${String(width)} px` }).toBe(true);
+    }
+  }
+});
+
+test('the ws1 card paints its plain headroom line in full at every width from 300 to 1440 px', async ({ page }) => {
+  await workstation(page, (g) => g);
+  await page.goto('/');
+  const card = page.getByRole('region', { name: 'Node ws1' });
+  await expect(card).toContainText('headroom');
+  const stats = card.locator('.ov-card__stats');
+  const clipped: string[] = [];
+  for (const width of [...Array.from({ length: 31 }, (_, i) => 300 + 4 * i), 480, 640, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    if (!(await stats.evaluate(paintsInFull, 'headroom'))) clipped.push(`"headroom" at ${String(width)} px`);
+  }
+  expect(clipped).toEqual([]);
+});
+
+test('a healthy GB10 card keeps its plain headroom line beside its temperature at 375 px, as before the narrow-column rule', async ({ page }) => {
+  await stubbed(page, [{ id: 'spark1', platform: 'gb10' }]);
+  await page.goto('/');
+  const card = page.getByRole('region', { name: 'Node spark1' });
+  await expect(card).toContainText('headroom');
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    await expect(card.locator('.ov-stat__headroom'), `headroom in the temperature stat at ${String(width)} px`).toBeVisible();
+    await expect(card.locator('.ov-card__headroom'), `no headroom row under the stats at ${String(width)} px`).toBeHidden();
+  }
+});
+
+const lineStarts = (el: Element) => [...el.querySelectorAll('.unsupported__line')].map((line) => {
+  const range = document.createRange();
+  range.selectNodeContents(line);
+  const lefts = [...range.getClientRects()].reduce<{ top: number; left: number }[]>((rows, r) => {
+    const row = rows.find((x) => Math.abs(x.top - r.top) < 2);
+    if (row) row.left = Math.min(row.left, r.left);
+    else rows.push({ top: r.top, left: r.left });
+    return rows;
+  }, []).sort((a, b) => a.top - b.top).map((r) => Math.round(r.left));
+  return { lefts, em: parseFloat(getComputedStyle(line).fontSize) };
+});
+
+test("a tooltip over several nodes indents each line's wrapped part under its first word", async ({ page }) => {
+  await stubbed(page, ['ws1', 'ws2'].map((id) => ({ id, platform: 'workstation', gpus: () => null, errors: { gpu: `nvml: RuntimeError: the NVIDIA driver on ${id} stopped answering every query this tick` } })));
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.goto('/');
+  const tip = page.locator('.tooltip', { hasText: 'ws1: ' }).filter({ hasText: 'ws2: ' }).first();
+  await expect(tip, 'a tooltip names both nodes').toBeAttached();
+  await tip.locator('xpath=..').getByRole('button', { name: 'Why is this not reported?' }).focus();
+  await expect(tip).toBeVisible();
+  const lines = await tip.evaluate(lineStarts);
+  const wrapped = lines.filter((l) => l.lefts.length > 1);
+  expect(wrapped.length, 'at least one tooltip line wraps at 375 px').toBeGreaterThan(0);
+  for (const l of wrapped) for (const left of l.lefts.slice(1)) expect(left - (l.lefts[0] ?? 0)).toBeCloseTo(l.em, 0);
+});

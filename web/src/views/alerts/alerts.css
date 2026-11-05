@@ -178,7 +178,7 @@
 .rules-actions__state { color: var(--text-2); margin-right: var(--space-1); white-space: nowrap; }
 .rules-saved { display: inline-flex; align-items: center; gap: 4px; color: var(--ok-text); font-weight: 560; }
 .rules-saved svg { width: 14px; height: 14px; }
-.rules-error { padding: var(--space-2) var(--space-5) var(--space-3); }
+.rules-error, .rules-note { padding: var(--space-2) var(--space-5) var(--space-3); }
 
 .rules-table td { vertical-align: top; padding-top: var(--space-3); padding-bottom: var(--space-3); }
 .rules-table tbody tr:hover td { background: transparent; }

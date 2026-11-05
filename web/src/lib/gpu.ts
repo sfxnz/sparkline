@@ -1,12 +1,28 @@
 import { lostGpu, notReported, type NotReported } from './capabilities';
-import { GPU_TOTALS, gpuKey, gpuTotals, gpuValue, isReadingTotal, type GpuField, type NodeTotal, type ReadingTotal } from './metrics';
-import type { GpuInfo, NodeInfo, Sample } from './types';
+import { formatDuration } from './format';
+import { GPU_TOTALS, gpuKey, gpuTotals, gpuValue, isReadingTotal, type GpuField, type GpuReading, type NodeTotal, type ReadingTotal } from './metrics';
+import type { GpuInfo, GpuSample, NodeInfo, Sample } from './types';
 
 /** The GPU with this `index`. A sample holds only the GPUs that reported this tick, so when one vendor's backend
  *  fails, position 0 is another vendor's card: never read a GPU by its position. */
 export function gpuAt<T extends { index: number }>(gpus: readonly T[] | null | undefined, index: number): T | undefined {
   return gpus?.find((g) => g.index === index);
 }
+
+// Agents already in the field resend these on a GPU whose NVML reads all fail, so they never show it answered.
+export const HELD_READINGS: readonly GpuReading[] = ['energy_j', 'power_capped_pct', 'thermal_capped_pct'];
+
+const answers = (g: GpuSample) =>
+  Object.entries(g).some(([k, v]) => k !== 'index' && v != null && !(HELD_READINGS as readonly string[]).includes(k));
+
+/** GPU `index` in the sample when it answered. NVML keeps a GPU whose reads fail in the sample, every fresh reading
+ *  null, so having an entry is not answering. */
+export function answeredGpu(s: Sample | null | undefined, index: number): GpuSample | undefined {
+  const g = gpuAt(s?.gpu, index);
+  return g && answers(g) ? g : undefined;
+}
+
+export const answeredIndexes = (s: Sample) => s.gpu.filter(answers).map((g) => g.index);
 
 /** The GPU indexes a node lists, or [0] when it lists none, so a node without GPUs keeps its gpu0 gaps. */
 export function gpuIndexes(info: NodeInfo | null | undefined): number[] {
@@ -59,32 +75,67 @@ export function gpuSetGap(info: NodeInfo | null | undefined, field: GpuField, mo
 
 const READING: Record<NodeTotal, string> = { util: 'utilisation', temp_c: 'temperature', power_w: 'power', mem_used: 'memory' };
 
-/** Why the node's total of `field` is missing from this sample although the node is reporting. Null when it is
- *  present, when the node reads one GPU's own key instead (nodeGpuKey), or when a declared gap already explains it. */
-export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
-  if (!s || !info || nodeGpuKey(info, field) !== `gpu.${field}` || notReported(info, `gpu.${field}`) || gpuTotals(s)[field] !== null) return null;
-  const reporting = s.gpu.map((g) => g.index);
+export type SilentFor = (index: number) => number | null;
+
+function silentClause(indexes: readonly number[], message: string | null, silentFor?: SilentFor): string {
+  const seconds = Math.min(...indexes.map((i) => Math.round(silentFor?.(i) ?? 0)));
+  const gpus = gpuList(indexes);
+  if (message) return `${gpus} not responding${seconds > 0 ? ` for ${formatDuration(seconds)}` : ''} (${message})`;
+  return seconds > 0 ? `${gpus} ${indexes.length === 1 ? 'has' : 'have'} sent no reading for ${formatDuration(seconds)}` : `${gpus} sent no reading this tick`;
+}
+
+const silentClauses = (info: NodeInfo | null | undefined, s: Sample, silentFor?: SilentFor) =>
+  silentBackends(info, s.errors.gpu, answeredIndexes(s)).map((b) => silentClause(b.gpus.map((g) => g.index), b.message, silentFor));
+
+export function everyGpuSilent(info: NodeInfo | null | undefined, s: Sample | null, silentFor?: SilentFor): NotReported | null {
+  const gpus = info?.gpus ?? [];
+  if (!s || !gpus.length || gpus.some((g) => answeredGpu(s, g.index))) return null;
+  const lost = gpus.flatMap((g) => {
+    const gap = lostGpu(info, g.index);
+    return gap ? [`GPU ${String(g.index)}: ${gap.detail}`] : [];
+  });
+  return { kind: 'hardware', label: 'Not responding', detail: sentence([...lost, ...silentClauses(info, s, silentFor)].join('; ')), silent: true };
+}
+
+/** Why the node's figure of `field` (nodeGpuKey) is missing from this sample, when no declared gap explains it. */
+export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal, silentFor?: SilentFor): NotReported | null {
+  if (!s || !info) return null;
+  const key = nodeGpuKey(info, field);
+  if (notReported(info, key)) return null;
+  if (key !== `gpu.${field}`) {
+    const [only = 0] = gpuIndexes(info);
+    const reading = answeredGpu(s, only);
+    if (!reading) return notResponding(info, s, only, silentFor);
+    return gpuValue(reading, field) === null ? { kind: 'hardware', label: 'No total', detail: `GPU ${String(only)} sent no ${READING[field]} reading this tick.`, silent: true } : null;
+  }
+  if (gpuTotals(s)[field] !== null) return null;
+  const silent = everyGpuSilent(info, s, silentFor);
+  if (silent) return silent;
   const empty = info.gpus.filter((g) => {
-    const reading = gpuAt(s.gpu, g.index);
+    const reading = answeredGpu(s, g.index);
     return reading && gpuValue(reading, field) === null;
   }).map((g) => g.index);
-  const clauses = empty.length ? [`${gpuList(empty)} sent no ${READING[field]} reading this tick`] : [];
-  for (const b of silentBackends(info, s.errors.gpu, reporting)) {
-    const who = gpuList(b.gpus.map((g) => g.index));
-    clauses.push(b.message ? `${who} not responding (${b.message})` : `${who} sent no reading this tick`);
-  }
+  const clauses = [...(empty.length ? [`${gpuList(empty)} sent no ${READING[field]} reading this tick`] : []), ...silentClauses(info, s, silentFor)];
   if (!clauses.length) {
     if (!s.errors.gpu) return null;
     clauses.push(`A GPU backend failed this tick (${s.errors.gpu})`);
   }
   const why = GPU_TOTALS[field].every ? ', so a sum would understate' : '';
-  return { kind: 'hardware', label: 'No total', detail: `${clauses.join('; ')}${why}.` };
+  return { kind: 'hardware', label: 'No total', detail: `${clauses.join('; ')}${why}.`, silent: true };
 }
 
-/** Why the node's GPU `field` has no value: the agent declares it not reported, or (several GPUs) the total dropped
- *  out of this sample. */
-export function nodeTotalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
-  return notReported(info, nodeGpuKey(info, field)) ?? totalGap(info, s, field);
+/** Why the node's GPU `field` has no value: every GPU silent (everyGpuSilent), declared not reported, or dropped out
+ *  of this sample (totalGap). */
+export function nodeTotalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal, silentFor?: SilentFor): NotReported | null {
+  const key = nodeGpuKey(info, field);
+  return (key === `gpu.${field}` ? everyGpuSilent(info, s, silentFor) : null) ?? notReported(info, key) ?? totalGap(info, s, field, silentFor);
+}
+
+/** Why the node's own stat of `field` has no value. One GPU: its declared gap, or not responding. Several:
+ *  nodeTotalGap. */
+export function nodeGpuGap(info: NodeInfo | null | undefined, s: Sample | null, field: ReadingTotal, silentFor?: SilentFor): NotReported | null {
+  const [only = 0, ...more] = gpuIndexes(info);
+  return more.length ? nodeTotalGap(info, s, field, silentFor) : (notReported(info, gpuKey(only, field)) ?? notResponding(info, s, only, silentFor));
 }
 
 /** How many of the GPUs a node lists a node total read this tick. */
@@ -115,14 +166,8 @@ export interface SilentBackend {
 const backendOf = (g: GpuInfo) => g.backend ?? 'nvml';
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Of the GPUs in a sample, those that really report: a lost GPU sends an empty reading every tick. */
-export function reportingGpus(info: NodeInfo | null | undefined, indexes: readonly number[]): number[] {
-  return indexes.filter((i) => !lostGpu(info, i));
-}
-
-/** Backends whose GPUs the node lists but sent no reading in this sample, with each one's error. A lost GPU is left
- *  out: the agent declares it, so its panels already say so. The agent writes `errors.gpu` as "<backend>: <error>",
- *  one per failing backend, joined with "; ". */
+/** The agent writes `errors.gpu` as "<backend>: <error>", one per failing backend, joined with "; ". The split below
+ *  relies on that form. */
 export function silentBackends(info: NodeInfo | null | undefined, errors: string | undefined, reporting: readonly number[]): SilentBackend[] {
   const gpus = info?.gpus ?? [];
   const names = [...new Set(gpus.map(backendOf))];
@@ -143,11 +188,10 @@ export function silentBackends(info: NodeInfo | null | undefined, errors: string
   return out;
 }
 
-/** Why GPU `index` has no live value in this sample although the node lists it, or null when it reported. */
-export function notResponding(info: NodeInfo | null | undefined, s: Sample | null, index: number): NotReported | null {
-  if (!s || !gpuAt(info?.gpus, index) || gpuAt(s.gpu, index)) return null;
-  const silent = silentBackends(info, s.errors.gpu, s.gpu.map((g) => g.index)).find((b) => b.gpus.some((g) => g.index === index));
-  return { kind: 'hardware', label: 'Not responding', detail: silent?.message ?? `GPU ${index} sent no reading this tick.` };
+export function notResponding(info: NodeInfo | null | undefined, s: Sample | null, index: number, silentFor?: SilentFor): NotReported | null {
+  if (!s || !gpuAt(info?.gpus, index) || answeredGpu(s, index) || lostGpu(info, index)) return null;
+  const silent = silentBackends(info, s.errors.gpu, answeredIndexes(s)).find((b) => b.gpus.some((g) => g.index === index));
+  return { kind: 'hardware', label: 'Not responding', detail: sentence(silentClause([index], silent?.message ?? null, silentFor)), silent: true };
 }
 
 /** "1", "1 and 2", "1, 2 and 3". */
@@ -156,9 +200,29 @@ export function andList(items: readonly (string | number)[]): string {
   return s.length <= 1 ? (s[0] ?? '') : `${s.slice(0, -1).join(', ')} and ${s[s.length - 1] ?? ''}`;
 }
 
-/** "GPU 1 still reports." or "GPUs 1 and 2 still report.", for GPUs that `reportingGpus` kept. */
 export function stillReport(indexes: readonly number[]): string {
   return indexes.length === 1 ? `GPU ${String(indexes[0])} still reports.` : `GPUs ${andList(indexes)} still report.`;
 }
 
 export const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
+
+export function gpuProcessesGap(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[], silentFor?: SilentFor): NotReported | null {
+  const declared = notReported(info, 'procs') ?? gpuSetGap(info, 'proc_mem', 'any');
+  if (declared || !info?.gpus.length) return declared;
+  const gaps = processGaps(info, s, quiet, silentFor);
+  const [first] = gaps;
+  if (!first || gaps.length < info.gpus.length) return null;
+  if (gaps.length === 1) return first.gap;
+  return everyGpuSilent(info, s, silentFor) ?? { ...first.gap, detail: sentence(gaps.map((g) => `GPU ${String(g.index)}: ${g.gap.detail}`).join('; ')) };
+}
+
+export function gpusWithUnknownProcesses(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): number[] {
+  return gpuProcessesGap(info, s, quiet) ? [] : processGaps(info, s, quiet).map((g) => g.index);
+}
+
+function processGaps(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[], silentFor?: SilentFor): { index: number; gap: NotReported }[] {
+  return (info?.gpus ?? []).flatMap((g) => {
+    const gap = lostGpu(info, g.index) ?? (quiet.includes(g.index) ? notResponding(info, s, g.index, silentFor) : null);
+    return gap ? [{ index: g.index, gap }] : [];
+  });
+}

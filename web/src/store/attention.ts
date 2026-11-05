@@ -1,9 +1,10 @@
 // What a node's status pill says: console status, raised by open alerts AND by live conditions the screen is already
-// flagging (temperature at slowdown, hardware/thermal clock limits), so a pill is never green beside a red flag.
+// flagging, so a pill is never green beside a red flag.
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { nodeDisplayStatus, type Status } from '../design/components/StatusPill';
-import { nodeCondition, sameCondition, type LiveCondition } from '../lib/condition';
-import type { Sample } from '../lib/types';
+import { nodeCondition, nodeConditions, quietAfterS, quietGpus, sameCondition, sameNodeConditions, type LiveCondition, type NodeConditions } from '../lib/condition';
+import type { SilentFor } from '../lib/gpu';
+import type { NodeInfo, Sample } from '../lib/types';
 import { useCluster } from './cluster';
 import { useConnection } from './connection';
 import { openAlertLevel, useEvents } from './events';
@@ -14,11 +15,22 @@ type Level = 'warning' | 'critical' | null;
 /** The more severe of two levels. */
 export const worstLevel = (a: Level, b: Level): Level => (a === 'critical' || b === 'critical' ? 'critical' : (a ?? b));
 
+const staleAfterS = () => useCluster.getState().cluster?.settings.stale_after_s;
+
+/** quietGpus for node `id`. */
+export const quietGpusOf = (id: string, info: NodeInfo | null | undefined) =>
+  quietGpus(info, staleAfterS(), (index, gapS) => liveStore.gpuSilentFor(id, index, gapS));
+
+export const gpuSilentForOf = (id: string, info: NodeInfo | null | undefined, index: number) =>
+  liveStore.gpuSilentFor(id, index, quietAfterS(info, staleAfterS()), Infinity);
+
+export const silentForOf = (id: string, info: NodeInfo | null | undefined): SilentFor => (index) => gpuSilentForOf(id, info, index);
+
 /** Live condition of one node's GPUs; null unless the node is online (stale values never raise a pill). */
 export function useLiveCondition(id: string): LiveCondition | null {
   const info = useCluster((s) => s.nodes[id]?.info);
   const online = useCluster((s) => s.nodes[id]?.status === 'online');
-  const select = useCallback((s: Sample | null) => nodeCondition(info, s), [info]);
+  const select = useCallback((s: Sample | null) => nodeCondition(info, s, quietGpusOf(id, info)), [id, info]);
   const c = useLatest(id, select, sameCondition);
   return online ? c : null;
 }
@@ -32,11 +44,11 @@ export function useNodeDisplayStatus(id: string): Status {
   return nodeDisplayStatus(status, worstLevel(alert, condition?.level ?? null), consoleLive);
 }
 
-/** Live conditions of several nodes (for the cluster sentence). Re-renders only when one of them changes. */
-export function useLiveConditions(ids: readonly string[]): Record<string, LiveCondition | null> {
+/** Live conditions of several nodes, GPU by GPU (for the cluster sentence). Re-renders only when one of them changes. */
+export function useLiveConditions(ids: readonly string[]): Record<string, NodeConditions | null> {
   const nodes = useCluster((s) => s.nodes);
   const idsKey = ids.join('\u0000');
-  const cache = useRef<{ sig: string; value: Record<string, LiveCondition | null> }>({ sig: '', value: {} });
+  const cache = useRef<{ sig: string; value: Record<string, NodeConditions | null> }>({ sig: '', value: {} });
   const subscribe = useCallback(
     (cb: () => void) => {
       const offs = (idsKey ? idsKey.split('\u0000') : []).map((id) => liveStore.subscribeSample(id, cb));
@@ -45,13 +57,13 @@ export function useLiveConditions(ids: readonly string[]): Record<string, LiveCo
     [idsKey],
   );
   const get = () => {
-    const value: Record<string, LiveCondition | null> = {};
+    const value: Record<string, NodeConditions | null> = {};
     for (const id of ids) {
       const n = nodes[id];
-      value[id] = n?.status === 'online' ? nodeCondition(n.info, liveStore.latest(id)) : null;
+      value[id] = n?.status === 'online' ? nodeConditions(n.info, liveStore.latest(id), quietGpusOf(id, n.info)) : null;
     }
     const prev = cache.current.value;
-    const same = cache.current.sig === idsKey && ids.every((id) => sameCondition(prev[id] ?? null, value[id] ?? null));
+    const same = cache.current.sig === idsKey && ids.every((id) => sameNodeConditions(prev[id] ?? null, value[id] ?? null));
     if (same) return prev;
     cache.current = { sig: idsKey, value };
     return value;

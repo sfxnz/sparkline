@@ -1,9 +1,10 @@
 // Energy from NVML's cumulative counters (gpu<i>.energy_j) and its display, shared by the Overview, GPU and
 // Thermals & Power screens so every screen totals and formats energy the same way. Unit-tested in energy.test.ts.
 import { DASH } from '../../lib/format';
-import { gpuIndexes } from '../../lib/gpu';
+import { andList, gpuIndexes, gpuList } from '../../lib/gpu';
 import { gpuKey } from '../../lib/metrics';
 import type { NodeInfo } from '../../lib/types';
+import type { LiveStore } from '../../store/live';
 
 const J_PER_KWH = 3.6e6;
 const NBSP = '\u00a0';
@@ -88,6 +89,47 @@ export function sumCounters(resp: Parameters<typeof historyPlusLive>[0], keys: r
     if (j !== null) sum = (sum ?? 0) + j;
   }
   return sum;
+}
+
+export interface GpuStop {
+  index: number;
+  at: number | null;
+}
+
+export function lastMove(ts: readonly number[], values: readonly (number | null)[]): number | null {
+  let held: number | null = null;
+  let since: number | null = null;
+  for (let i = values.length - 1; i >= 0; i--) {
+    const v = values[i];
+    if (v == null) continue;
+    if (held === null) held = v;
+    else if (v !== held) return since;
+    since = ts[i] ?? null;
+  }
+  return null;
+}
+
+export function gpuStops(store: Pick<LiveStore, 'window'>, node: string, quiet: readonly number[]): GpuStop[] {
+  return quiet.map((index) => {
+    const w = store.window(node, [gpuKey(index, 'energy_j')]);
+    return { index, at: lastMove(w.ts, w.values[0] ?? []) };
+  });
+}
+
+export const sameStops = (a: readonly GpuStop[], b: readonly GpuStop[]) =>
+  a.length === b.length && a.every((s, i) => s.index === b[i]?.index && s.at === b[i].at);
+
+export const formatHm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+export const untilText = (at: number | null, many = false) => `until ${at === null ? (many ? 'their last readings' : 'its last reading') : formatHm(at)}`;
+
+export function stopsText(stops: readonly GpuStop[]): string {
+  const byMinute = new Map<string, GpuStop[]>();
+  for (const s of stops) {
+    const hm = s.at === null ? '' : formatHm(s.at);
+    byMinute.set(hm, [...(byMinute.get(hm) ?? []), s]);
+  }
+  return andList([...byMinute.values()].map((g) => `${gpuList(g.map((s) => s.index))} ${untilText(g[0]?.at ?? null, g.length > 1)}`));
 }
 
 export const joulesToKwh = (j: number) => j / J_PER_KWH;

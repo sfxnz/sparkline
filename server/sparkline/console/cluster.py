@@ -9,6 +9,8 @@ import logging
 import time
 from importlib.metadata import version as pkg_version
 
+from pydantic import TypeAdapter
+
 from ..common.schema import AlertRule, ClusterState, ConsoleSettings, Event, NodeState, Problem, Sample
 from .alerts import DEFAULT_RULES, AlertEngine
 from .hub import Hub
@@ -32,6 +34,8 @@ RULES_KEY = "alert_rules"
 # Each rule's metric as this console saved it. Older consoles read and write RULES_KEY only, so a rule whose
 # stored metric still matches its entry here was last saved by a console that knows the gpu* defaults.
 RULE_METRICS_KEY = "alert_rule_metrics"
+_ROWS = TypeAdapter(list[object])
+_METRICS = TypeAdapter(dict[str, object])
 
 
 def _stored_metric(r: AlertRule) -> str | None:
@@ -40,10 +44,23 @@ def _stored_metric(r: AlertRule) -> str | None:
     return "gpu0.throttle_mask" if r.kind == "throttle" and r.metric == "gpu*.throttle_mask" else r.metric
 
 
-def _saved_rule_metrics(row: object) -> dict[str, str | None] | None:
-    if not isinstance(row, dict):
+def _saved_rule_metrics(store: Store, row: dict[str, object] | None) -> dict[str, str | None] | None:
+    if row is None:
         return None
-    return {k: v for k, v in row.items() if v is None or isinstance(v, str)}
+    metrics = {k: v for k, v in row.items() if v is None or isinstance(v, str)}
+    if not_metrics := sorted(row.keys() - metrics.keys()):
+        aside = store.kv_set_aside(RULE_METRICS_KEY)
+        log.warning(
+            "Ignoring the stored %r entries for %s: they are not metrics. Kept the row's text as %r",
+            RULE_METRICS_KEY,
+            ", ".join(not_metrics),
+            aside,
+        )
+    return metrics
+
+
+def _saved_settings(row: object) -> ConsoleSettings | None:
+    return ConsoleSettings.model_validate(row) if row != {} else None
 
 
 def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> list[AlertRule]:
@@ -66,15 +83,14 @@ class Cluster:
         self.store = store
         self.hub = hub
         self.demo = demo
-        saved = store.kv_get("settings")
-        self.settings = ConsoleSettings.model_validate(saved) if saved else default_settings
-        saved_rules = store.kv_get(RULES_KEY)
-        rules = (
-            load_rules(saved_rules, _saved_rule_metrics(store.kv_get(RULE_METRICS_KEY)))
-            if saved_rules is not None
-            else DEFAULT_RULES
+        saved: ConsoleSettings | None = store.kv_read("settings", _saved_settings)
+        self.settings = saved or default_settings
+        metrics = _saved_rule_metrics(store, store.kv_read(RULE_METRICS_KEY, _METRICS.validate_python))
+        rules = store.kv_read(RULES_KEY, lambda rows: load_rules(_ROWS.validate_python(rows), metrics))
+        self.rules_reset = rules is None and store.kv_has(RULES_KEY)
+        self.alerts = AlertEngine(
+            DEFAULT_RULES if rules is None else rules, self.add_event, self.resolve_event
         )
-        self.alerts = AlertEngine(rules, self.add_event, self.resolve_event)
         self.sources: dict[str, NodeSource] = {}
         self._tasks: list[asyncio.Task] = []
 
@@ -122,6 +138,7 @@ class Cluster:
                 RULES_KEY: [{**r.model_dump(), "metric": _stored_metric(r)} for r in rules],
             }
         )
+        self.rules_reset = False
         self.alerts.set_rules(rules, time.time())
 
     # -- events -------------------------------------------------------------------------------------

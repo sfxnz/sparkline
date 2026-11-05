@@ -7,7 +7,7 @@ import { Skeleton } from '../../design/components/Skeleton';
 import type { AlertRule, Problem, Severity } from '../../lib/types';
 import '../../design/components/Table.css';
 import { api, problemOf } from '../../lib/api';
-import { ProblemBanner } from './parts/Banner';
+import { Banner, ProblemBanner } from './parts/Banner';
 import { NumberField } from './parts/NumberField';
 import { Select } from './parts/Select';
 import { Switch } from './parts/Switch';
@@ -30,7 +30,7 @@ import {
 } from './rules';
 
 type Patch = Partial<Omit<RuleDraft, 'rule'>> & { rule?: Partial<AlertRule> };
-type Load = { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'ready'; saved: AlertRule[] };
+type Load = { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'ready'; saved: AlertRule[]; reset: boolean };
 
 export function RulesEditor() {
   const [load, setLoad] = useState<Load>({ status: 'loading' });
@@ -42,11 +42,10 @@ export function RulesEditor() {
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .rules()
-      .then((rules) => {
+    Promise.all([api.rules(), api.rulesStatus().catch(() => ({ reset: false }))])
+      .then(([rules, { reset }]) => {
         if (cancelled) return;
-        setLoad({ status: 'ready', saved: rules });
+        setLoad({ status: 'ready', saved: rules, reset });
         setDrafts(rules.map(toDraft));
       })
       .catch((e: unknown) => {
@@ -61,6 +60,8 @@ export function RulesEditor() {
   const changed = drafts.map((d) => draftChanged(d, savedById.get(d.rule.id)));
   const dirty = changed.some(Boolean) || drafts.length !== saved.length;
   const invalid = errors.some(hasErrors);
+  // After a reset, saving the rules unedited is how the user keeps them.
+  const savable = dirty || (load.status === 'ready' && load.reset);
 
   // Leaving the page with unsaved edits asks first (browser close / reload).
   useEffect(() => {
@@ -87,12 +88,12 @@ export function RulesEditor() {
   };
 
   const save = async () => {
-    if (invalid || !dirty) return;
+    if (invalid || !savable) return;
     setSaving(true);
     setSaveError(null);
     try {
       const result = await api.putRules(drafts.map(fromDraft));
-      setLoad({ status: 'ready', saved: result });
+      setLoad({ status: 'ready', saved: result, reset: false });
       setDrafts(result.map(toDraft));
       setSavedAt(Date.now());
     } catch (e) {
@@ -119,7 +120,7 @@ export function RulesEditor() {
         <Button size="sm" variant="ghost" icon={<RotateCcw />} disabled={!dirty || saving} onClick={revert}>
           Revert
         </Button>
-        <Button size="sm" variant="primary" disabled={!dirty || invalid || saving} onClick={() => { void save(); }}>
+        <Button size="sm" variant="primary" disabled={!savable || invalid || saving} onClick={() => { void save(); }}>
           {saving ? 'Saving…' : 'Save changes'}
         </Button>
       </div>
@@ -133,6 +134,15 @@ export function RulesEditor() {
         <ProblemState compact message={load.problem.message} cause={load.problem.cause} fix={load.problem.fix} onRetry={() => { setLoad({ status: 'loading' }); setAttempt((n) => n + 1); }} />
       ) : (
         <>
+          {load.reset ? (
+            <div className="rules-note">
+              <Banner
+                tone="warn"
+                title="Alert rules were reset because the saved ones could not be read"
+                text="These are the default rules. The console kept a copy of the saved ones in its database. Save to make these the saved rules."
+              />
+            </div>
+          ) : null}
           {saveError ? (
             <div className="rules-error">
               <ProblemBanner problem={saveError.problem} />

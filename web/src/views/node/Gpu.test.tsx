@@ -294,7 +294,7 @@ describe('GPU tab on a node with two vendors', () => {
     expect(within(gpu0).queryByText('61')).not.toBeInTheDocument();
     expect(within(gpu0).queryByText('140')).not.toBeInTheDocument();
     expect(within(gpu0).getByText('GPU 0 not responding')).toBeInTheDocument();
-    expect(gpu0).toHaveTextContent(`${NV_ERROR}. GPUs 1 and 2 still report.`);
+    expect(gpu0).toHaveTextContent(`GPU 0 not responding (${NV_ERROR}). GPUs 1 and 2 still report.`);
     expect(within(section(1)).getByText('37')).toBeInTheDocument();
   });
 
@@ -337,7 +337,7 @@ describe('GPU tab on a node with two vendors', () => {
     const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
     showHybrid({ ...base, gpu: [{ index: 0 } as GpuSample], errors: { gpu: 'amdgpu-sysfs: RuntimeError: boom' } }, { ...hybrid, unsupported: [{ metric: 'gpu0', reason: lost, kind: 'hardware' }] });
 
-    for (const [index, reason] of [[0, `${lost}.`], [1, 'RuntimeError: boom.'], [2, 'RuntimeError: boom.']] as const) {
+    for (const [index, reason] of [[0, `${lost}.`], [1, 'GPU 1 not responding (RuntimeError: boom).'], [2, 'GPU 2 not responding (RuntimeError: boom).']] as const) {
       const gpu = section(index);
       expect(within(gpu).getByText(`GPU ${String(index)} not responding`)).toBeInTheDocument();
       expect(gpu).toHaveTextContent(reason);
@@ -355,13 +355,14 @@ describe('GPU tab on a node with two vendors', () => {
     expect(within(section(1)).getByText('Radeon 8060S')).toBeInTheDocument();
   });
 
-  it('does not count a lost GPU as still reporting when another backend misses a tick', () => {
+  it('names the GPUs another backend left silent, and does not count a lost GPU as still reporting', () => {
     const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
     showHybrid({ ...base, gpu: [{ index: 0 } as GpuSample], errors: { gpu: 'amdgpu-sysfs: RuntimeError: boom' } }, { ...hybrid, unsupported: [{ metric: 'gpu0', reason: lost, kind: 'hardware' }] });
 
     const note = screen.getByRole('list', { name: 'Metrics unavailable' });
+    expect(note).toHaveTextContent(/^GPUs 1 and 2 \(Radeon 8060S, Radeon RX 7900 XTX\) not responding: RuntimeError: boom\. The amdgpu-sysfs backend sent no reading this tick\.$/);
     expect(note).not.toHaveTextContent('still report');
-    expect(note).toHaveTextContent('GPU metrics unavailable: amdgpu-sysfs: RuntimeError: boom. Other panels are unaffected.');
+    expect(note).not.toHaveTextContent('GPU metrics unavailable');
   });
 
   it('shows GPU 0 as not responding when the agent declares it lost', () => {
@@ -381,7 +382,7 @@ describe('GPU tab on a node with two vendors', () => {
 
     expect(within(now).getAllByText('Not responding').length).toBeGreaterThanOrEqual(4);
     const why = within(now).getAllByRole('button', { name: 'Why is this not reported?' });
-    for (const button of why) expect(button).toHaveAccessibleDescription(NV_ERROR);
+    for (const button of why) expect(button).toHaveAccessibleDescription(`GPU 0 not responding (${NV_ERROR}).`);
   });
 });
 
@@ -462,5 +463,161 @@ describe('Summary and Thermals on a four-GPU workstation (ws1, slowdown 93 °C)'
     expect(stat('Power limit')).toHaveTextContent(/^Power limit1200W$/);
     expect(await within(screen.getByRole('region', { name: 'ws1 thermals and power summary' })).findByText('0.400')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'GPU energy' })).getByText('Today').nextSibling).toHaveTextContent(/^0\.400\skWh/);
+  });
+});
+
+describe('GPU notice on a one-GPU node whose backend fails a tick', () => {
+  it('names the GPU that sent no reading, and never says the others still report', () => {
+    show(gb10, { sample: { ...gb10.sample, gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } } });
+
+    const note = screen.getByRole('list', { name: 'Metrics unavailable' });
+    expect(note).toHaveTextContent(/^GPU 0 \(NVIDIA GB10\) not responding: RuntimeError: NVML read failed\. The nvml backend sent no reading this tick\.$/);
+    expect(note).not.toHaveTextContent('GPU metrics unavailable');
+  });
+
+  it('keeps the general note for a GPU error while every GPU reports', () => {
+    showHybrid({ ...base, gpu: [reading(0, 91, 71, 32.4), reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: { gpu: 'amdgpu-sysfs: RuntimeError: partial read' } });
+
+    expect(screen.getByRole('list', { name: 'Metrics unavailable' })).toHaveTextContent(/^GPU metrics unavailable: amdgpu-sysfs: RuntimeError: partial read\. Other panels are unaffected\.$/);
+  });
+});
+
+describe('GPU needs attention while NVML fails on a node with two vendors', () => {
+  const all = { ...base, gpu: [reading(0, 91, 71, 32.4), reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: {} };
+  const nvmlFails = { ...base, gpu: [reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: { gpu: `nvml: ${NV_ERROR}` } };
+  const showTicks = (samples: Sample[]) => {
+    liveStore.removeNode(NODE);
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { node_id: NODE, url: 'http://x:9750', status: 'online', since: 0, last_sample_ts: TS, error: null, info: hybrid, next_retry_ts: null } } });
+    act(() => {
+      samples.forEach((s, i) => { liveStore.pushSample({ ...s, node_id: NODE, ts: TS + i }); });
+      liveStore.flush();
+    });
+    render(
+      <Router hook={memoryLocation({ path: '/' }).hook}>
+        <Gpu nodeId={NODE} />
+      </Router>,
+    );
+  };
+  const attention = () => screen.queryByRole('list', { name: 'GPU needs attention' });
+
+  it('lists GPU 0 as not responding once NVML has failed for 5 s, as the status pill says', () => {
+    showTicks([all, nvmlFails, nvmlFails, nvmlFails, nvmlFails, nvmlFails]);
+    expect(within(attention() as HTMLElement).getAllByRole('button').map((r) => r.textContent)).toEqual(['Warning: GPU 0Not responding']);
+  });
+
+  it('lists nothing after one tick NVML failed', () => {
+    showTicks([all, nvmlFails]);
+    expect(attention()).toBeNull();
+  });
+});
+
+describe('GPU tab while one GPU stays in the sample with every fresh reading empty', () => {
+  it('shows that GPU as not responding from the first sample, and says the others still report', () => {
+    const empty = withGpu(workstation.sample, 2, { util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null });
+    show(workstation, { sample: empty });
+
+    expect(within(section(2)).getByText('GPU 2 not responding')).toBeInTheDocument();
+    expect(section(2)).toHaveTextContent('GPUs 0, 1 and 3 still report.');
+    expect(within(section(2)).queryByText('Utilisation')).not.toBeInTheDocument();
+    expect(within(section(1)).queryByText(/not responding/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('GPU notice while a GB10 GPU sends nothing for a while', () => {
+  const empty: Sample = { ...gb10.sample, gpu: gb10.sample.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })) };
+  const missing: Sample = { ...gb10.sample, gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } };
+  const showFor = (seconds: number, silent: Sample) => {
+    const id = gb10.info.node_id;
+    liveStore.removeNode(id);
+    useCluster.setState({ clockOffset: 0, nodes: { [id]: { node_id: id, url: '', status: 'online', since: 0, last_sample_ts: TS, error: null, info: gb10.info, next_retry_ts: null } } });
+    act(() => {
+      liveStore.pushSample({ ...gb10.sample, ts: TS });
+      for (let t = 1; t <= seconds; t++) liveStore.pushSample({ ...silent, ts: TS + t });
+      liveStore.flush();
+    });
+    render(<Gpu nodeId={id} />);
+  };
+  const note = () => screen.queryByRole('list', { name: 'Metrics unavailable' });
+
+  it('shows no note after one tick a GPU kept in the sample sent only held readings', () => {
+    showFor(1, empty);
+    expect(note()).toBeNull();
+  });
+
+  it('names such a GPU once it is quiet, and says how long it has sent nothing', () => {
+    showFor(12, empty);
+    expect(note()).toHaveTextContent(/^GPU 0 \(NVIDIA GB10\) not responding: The nvml backend has sent no reading for 12 s\.$/);
+  });
+
+  it('counts minutes past the first one', () => {
+    showFor(180, empty);
+    expect(note()).toHaveTextContent(/^GPU 0 \(NVIDIA GB10\) not responding: The nvml backend has sent no reading for 3 min\.$/);
+  });
+
+  it('keeps the backend error and says how long, for a GPU its backend dropped', () => {
+    showFor(12, missing);
+    expect(note()).toHaveTextContent(/^GPU 0 \(NVIDIA GB10\) not responding: RuntimeError: NVML read failed\. The nvml backend has sent no reading for 12 s\.$/);
+  });
+});
+
+describe('GPU processes panel while the node cannot tell which processes use its GPUs', () => {
+  const noGpuMem = (s: Sample): Sample => ({ ...s, procs: (s.procs ?? []).map((p) => ({ ...p, gpu_mem: null })) });
+  const nvmlFails = (p: Platform): Sample => ({ ...p.sample, gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } });
+  const showQuiet = (p: Platform, silent: Sample, seconds: number, info: NodeInfo = p.info) => {
+    const id = info.node_id;
+    liveStore.removeNode(id);
+    useCluster.setState({ clockOffset: 0, nodes: { [id]: { node_id: id, url: '', status: 'online', since: 0, last_sample_ts: TS, error: null, info, next_retry_ts: null } } });
+    act(() => {
+      liveStore.pushSample({ ...noGpuMem(p.sample), ts: TS });
+      for (let t = 1; t <= seconds; t++) liveStore.pushSample({ ...noGpuMem(silent), ts: TS + t });
+      liveStore.flush();
+    });
+    render(
+      <Router hook={memoryLocation({ path: '/' }).hook}>
+        <Gpu nodeId={id} />
+      </Router>,
+    );
+  };
+  const panel = () => screen.getByRole('region', { name: 'GPU processes' });
+  const said = () => within(panel()).getByText(/cannot tell which processes use its/);
+  const why = () => within(said()).getByRole('button', { name: 'Why is this not reported?' });
+
+  it('says a GB10 whose GPU has sent nothing for 5 s cannot tell which processes use its GPU, and why', () => {
+    showQuiet(gb10, nvmlFails(gb10), 5);
+    expect(said()).toHaveTextContent(/^spark1 cannot tell which processes use its GPU Not responding/);
+    expect(why()).toHaveAccessibleDescription(expect.stringContaining(NV_ERROR));
+    expect(panel()).not.toHaveTextContent('No processes are using the GPU');
+  });
+
+  it('says the same of a GB10 whose GPU stays in the sample with every fresh reading empty for 5 s', () => {
+    const empty: Sample = { ...gb10.sample, gpu: gb10.sample.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })) };
+    showQuiet(gb10, empty, 5);
+    expect(said()).toHaveTextContent(/^spark1 cannot tell which processes use its GPU Not responding/);
+    expect(why()).toHaveAccessibleDescription(expect.stringContaining('GPU 0'));
+    expect(panel()).not.toHaveTextContent('No processes are using the GPU');
+  });
+
+  it('says a workstation whose four GPUs have all sent nothing for 5 s cannot tell which processes use its GPUs, and why', () => {
+    showQuiet(workstation, nvmlFails(workstation), 5);
+    expect(said()).toHaveTextContent(/^ws1 cannot tell which processes use its GPUs Not responding/);
+    expect(why()).toHaveAccessibleDescription(expect.stringContaining(NV_ERROR));
+    expect(panel()).not.toHaveTextContent('No processes are using the GPU');
+  });
+
+  it('says a GB10 that declares per-process GPU memory not reported cannot tell, with its declared label', () => {
+    const reason = 'Per-process GPU memory not reported by NVIDIA GB10 (NVML: Not Supported)';
+    showQuiet(gb10, gb10.sample, 1, { ...gb10.info, unsupported: [...gb10.info.unsupported, { metric: 'gpu0.proc_mem', reason, kind: 'hardware' }] });
+    expect(said()).toHaveTextContent(/^spark1 cannot tell which processes use its GPU Not reported by this hardware/);
+    expect(why()).toHaveAccessibleDescription(reason);
+  });
+
+  it('marks "no processes on the GPU" with the GPUs it reads while GPU 2 of four has sent nothing for 5 s', () => {
+    showQuiet(workstation, { ...workstation.sample, gpu: workstation.sample.gpu.filter((g) => g.index !== 2) }, 5);
+    expect(within(panel()).getByText('No processes are using the GPU right now (3 of 4 GPUs).')).toBeInTheDocument();
+  });
+
+  it('says no process uses the GPU on a healthy GB10 that runs none', () => {
+    showQuiet(gb10, gb10.sample, 5);
+    expect(within(panel()).getByText('No processes are using the GPU right now.')).toBeInTheDocument();
   });
 });

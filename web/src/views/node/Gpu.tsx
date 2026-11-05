@@ -27,9 +27,9 @@ import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
 import { clockLevel, CollectorErrors, selectReporting, SEVERITY_META, throttleBadge, throttleHeadline, ThrottleRows } from './parts/Notices';
 import { ProcTable } from './parts/ProcTable';
-import { gpuPresent, gpuSelector } from './parts/selectors';
+import { gpuAnswered, gpuSelector } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
-import { gpuAt, reportingGpus, sentence, stillReport } from '../../lib/gpu';
+import { gpuAt, sentence, stillReport } from '../../lib/gpu';
 import { useGpuGap } from './parts/useGpuGap';
 import { GpuAttention, gpuSectionId } from './parts/GpuAttention';
 
@@ -288,13 +288,13 @@ function MultiGpu({ nodeId, info, gpus, currency, rate }: MultiProps) {
 
 function GpuSection({ c }: { c: GpuCtx }) {
   const { nodeId, index, gpu } = c;
-  const present = useLatest(nodeId, gpuPresent(index));
+  const answered = useLatest(nodeId, gpuAnswered(index));
   const { waiting } = useFreshness(nodeId);
   const gap = useGpuGap(nodeId, index);
   const silent = gap(`gpu${index}`);
   const reportingKey = useLatest(nodeId, selectReporting);
-  const down = present === false || lostGpu(c.info, index) !== null;
-  const others = down && reportingKey ? reportingGpus(c.info, reportingKey.split(',').map(Number)).filter((i) => i !== index) : [];
+  const down = answered === false || lostGpu(c.info, index) !== null;
+  const others = down && reportingKey ? reportingKey.split(',').map(Number).filter((i) => i !== index) : [];
   const name = `GPU ${index}`;
   return (
     <Panel

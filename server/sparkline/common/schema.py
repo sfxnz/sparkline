@@ -320,6 +320,10 @@ class AlertRule(BaseModel):
     nodes: list[str] | None = None  # None = all
 
 
+class AlertRulesStatus(BaseModel):
+    reset: bool  # on the default rules because the saved ones were unreadable, until rules are saved
+
+
 class Event(BaseModel):
     id: int
     ts: float

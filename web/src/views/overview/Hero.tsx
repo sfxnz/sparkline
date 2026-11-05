@@ -3,10 +3,13 @@ import { AnimatedNumber } from '../../design/components/AnimatedNumber';
 import { Skeleton } from '../../design/components/Skeleton';
 import { StatusPill } from '../../design/components/StatusPill';
 import { wattsParts } from '../../lib/format';
+import { gpuProcessesGap, gpusWithUnknownProcesses } from '../../lib/gpu';
+import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
+import { excl } from '../shared/totalGap';
 import { clusterGpuNow, shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './hooks';
-import { listNodes, workloadSentence } from './model';
+import { workloadSentence } from './model';
 
 const intText = (n: number) => n.toFixed(0);
 const wattsText = (n: number) => wattsParts(n, 'W').value;
@@ -34,7 +37,13 @@ function Activity() {
     () => {
       const now = clusterGpuNow(online, nodes);
       return {
-        workload: workloadSentence(online.map((id) => ({ id, procs: liveStore.latest(id)?.procs ?? null }))),
+        workload: workloadSentence(online.map((id) => {
+          const s = liveStore.latest(id);
+          const info = nodes[id]?.info;
+          const quiet = quietGpusOf(id, info);
+          const of = info?.gpus.length ?? 0;
+          return { id, procs: s?.procs ?? null, cannotTell: gpuProcessesGap(info, s, quiet) !== null, gpusRead: { from: of - gpusWithUnknownProcesses(info, s, quiet).length, of } };
+        })),
         util: now.util === null ? null : Math.round(now.util),
         power: now.power === null ? null : Math.round(now.power * 10) / 10,
         dropped: now.dropped,
@@ -64,7 +73,7 @@ function Activity() {
           {a.power !== null ? (
             <>
               {' '}at <AnimatedNumber value={a.power} format={wattsText} />{' '}W
-              {a.dropped ? ` · excl. ${listNodes(a.dropped.split('\n'))}` : null}
+              {a.dropped ? ` · ${excl(a.dropped.split('\n'))}` : null}
             </>
           ) : null}
         </span>

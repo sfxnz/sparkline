@@ -3,7 +3,7 @@
 // driven by a CSS custom property (useBreath), never by React renders.
 import { ArrowLeft, ArrowRight, Clock, OctagonAlert, RotateCw, TriangleAlert, Unplug } from 'lucide-react';
 import { m } from 'motion/react';
-import { createContext, useCallback, useContext, useRef, type MouseEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, type MouseEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { paths } from '../../app/routes';
 import { AnimatedNumber } from '../../design/components/AnimatedNumber';
@@ -25,14 +25,15 @@ import type { GpuInfo, NodeInfo, Sample } from '../../lib/types';
 import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
-import { useNodeDisplayStatus } from '../../store/attention';
+import { quietGpusOf, silentForOf, useNodeDisplayStatus } from '../../store/attention';
 import { liveStore, useLatest } from '../../store/live';
 import { preloadSummary } from '../node/tabs';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from './hooks';
 import { memSplit, topGpuProcess, workloadName } from './model';
 import { spanPhrase } from '../shared/live';
-import { useTotalFrom, useTotalGap } from '../shared/totalGap';
-import { everyGpuLost, nodeGpuKey } from '../../lib/gpu';
+import { sameGap, useTotalFrom, useTotalGap } from '../shared/totalGap';
+import { useNodeGpuGap } from '../node/parts/useGpuGap';
+import { gpuProcessesGap, nodeGpuKey } from '../../lib/gpu';
 import { gpuKey } from '../../lib/metrics';
 
 interface CardCtx {
@@ -176,17 +177,23 @@ function CardTitle({ id }: { id: string }) {
   );
 }
 
-const workloadSelector = (s: Sample | null): string | null | undefined => {
+type WorkloadSeen = NotReported | string | null | undefined;
+
+const workloadSelector = (id: string, info: NodeInfo | null) => (s: Sample | null): WorkloadSeen => {
+  const gap = gpuProcessesGap(info, s, quietGpusOf(id, info), silentForOf(id, info));
+  if (gap) return gap;
   if (!s?.procs) return undefined; // not reported yet
   const top = topGpuProcess(s.procs);
   if (!top) return null;
   const name = workloadName(top);
   return top.container && top.container !== name ? `${name} · ${top.container}` : name;
 };
+const sameWorkload = (a: WorkloadSeen, b: WorkloadSeen) => a === b || (typeof a === 'object' && typeof b === 'object' && sameGap(a, b));
 
 function Workload() {
-  const { id, freshness } = useContext(Ctx);
-  const w = useLatest(id, workloadSelector);
+  const { id, freshness, info } = useContext(Ctx);
+  const w = useLatest(id, useMemo(() => workloadSelector(id, info), [id, info]), sameWorkload);
+  if (w && typeof w === 'object') return <>GPU processes <Unsupported gap={w} /></>;
   // Processes refresh every few seconds: while live, wait for them; when not live, say we don't know.
   if (w === undefined) return freshness === 'waiting' || freshness === 'live' ? <Skeleton width={180} height={12} style={{ marginTop: 3 }} /> : <span className="ov-card__workload ov-dim">Workload unknown</span>;
   return <span className="ov-card__workload" title={w ?? undefined}>{w ?? 'No GPU processes'}</span>;
@@ -230,21 +237,22 @@ function UtilRing() {
   const { id, freshness, info } = useContext(Ctx);
   const util = useLiveValue(id, nodeGpuKey(info, 'util'), 1);
   const from = useTotalFrom(id, 'util');
-  const lost = everyGpuLost(info);
-  if (util === null && freshness === 'waiting' && !lost) return <Skeleton width={RING} height={RING} radius={RING / 2} />;
-  const said = lost ? lost.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%${from ? `, from ${from}` : ''}`;
+  const utilGap = useNodeGpuGap(id, 'util');
+  const gap = util === null ? utilGap : null;
+  if (util === null && freshness === 'waiting' && !gap) return <Skeleton width={RING} height={RING} radius={RING / 2} />;
+  const said = gap ? gap.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%${from ? `, from ${from}` : ''}`;
   return (
-    <RingGauge value={lost ? null : util === null ? null : util / 100} size={RING} stroke={8} label={`GPU utilisation ${said}`}>
+    <RingGauge value={util === null ? null : util / 100} size={RING} stroke={8} label={`GPU utilisation ${said}`}>
       <span className="ov-ring">
-        {lost ? (
-          <span className="ov-ring__gap">{lost.label}</span>
+        {gap ? (
+          <span className="ov-ring__gap">{gap.label}</span>
         ) : (
           <span className="ov-ring__value">
             <AnimatedNumber value={util} format={intText} />
             {util !== null ? <span className="ov-ring__unit">%</span> : null}
           </span>
         )}
-        {from && !lost ? <span className="ov-ring__label ov-ring__label--from">{from}</span> : <span className="ov-ring__label">GPU</span>}
+        {from && !gap ? <span className="ov-ring__label ov-ring__label--from">{from}</span> : <span className="ov-ring__label">GPU</span>}
       </span>
     </RingGauge>
   );
@@ -273,7 +281,7 @@ function Temperature() {
   const { id, info } = useContext(Ctx);
   const temp = useLiveValue(id, nodeGpuKey(info, 'temp_c'), 1);
   const gpu = useAcross([id], () => headroomGpu(info, temp, (i) => liveStore.latestValue(id, gpuKey(i, 'temp_c'))), shallowEqual, `${String(temp)}|${info?.node_id ?? ''}`);
-  const gap = useTotalGap(id, 'temp_c');
+  const gap = useNodeGpuGap(id, 'temp_c');
   const from = useTotalFrom(id, 'temp_c');
   const room = tempRoom(gpu.temp, gpu.slowdown);
   const why = room ? <span className="visually-hidden"> to the {gpu.slowdown} °C slowdown threshold</span> : null;
@@ -288,7 +296,7 @@ function Temperature() {
   const toRowWhenNarrow = !!flag || (!!headroom && !!from);
   const footer = flag || headroom || from ? (
     <>
-      {flag ?? (headroom && toRowWhenNarrow ? <span className="ov-stat__to-row">{headroom}</span> : headroom)}
+      {flag ?? (headroom ? <span className={toRowWhenNarrow ? 'ov-stat__to-row' : 'ov-stat__headroom'}>{headroom}</span> : null)}
       {name ? <span className="ov-stat__who ov-stat__to-row">{name}</span> : null}
       {from ? <span className="ov-stat__who">{from}</span> : null}
     </>
@@ -296,7 +304,11 @@ function Temperature() {
   return (
     <>
       <StatBlock label="GPU temp" value={temp} unit="°C" format={intText} footer={footer} unsupported={gap} />
-      {toRowWhenNarrow && !gap ? <p className="ov-card__flag">{flag ?? headroom}{name ? <span className="ov-stat__who">{name}</span> : null}</p> : null}
+      {gap ? null : toRowWhenNarrow ? (
+        <p className="ov-card__flag">{flag ?? headroom}{name ? <span className="ov-stat__who">{name}</span> : null}</p>
+      ) : headroom ? (
+        <p className="ov-card__headroom">{headroom}</p>
+      ) : null}
     </>
   );
 }
@@ -305,7 +317,7 @@ function Power() {
   const { id, info } = useContext(Ctx);
   const key = nodeGpuKey(info, 'power_w');
   const power = useLiveValue(id, key, 0.1);
-  const gap = useTotalGap(id, 'power_w');
+  const gap = useNodeGpuGap(id, 'power_w');
   const peak = useAcross(
     [id],
     () => {
@@ -493,7 +505,7 @@ function Spark({ metric, label, from, format, min, max }: { metric: string; labe
   const reason = notReported(info, metric);
   return (
     <div className="ov-spark">
-      <span className="ov-spark__label">{label} <span className="ov-dim">· 3 min</span></span>
+      <span className="ov-spark__label">{label} <span className="ov-dim">{from ? `· ${from.replaceAll(' ', '\u00a0')}\u00a0· 3 min` : '· 3 min'}</span></span>
       {reason ? (
         <Unsupported gap={reason} />
       ) : freshness === 'waiting' ? (

@@ -4,7 +4,8 @@
 // Memory is strictly bounded: capacity x (1 + keys) x 8 bytes per node.
 // Subscribers are notified at most once per animation frame, however many samples arrived.
 import { useCallback, useRef, useSyncExternalStore } from 'react';
-import { flatten } from '../lib/metrics';
+import { answeredIndexes, HELD_READINGS } from '../lib/gpu';
+import { flatten, gpuKey } from '../lib/metrics';
 import type { HistoryResponse, Sample } from '../lib/types';
 
 export const DEFAULT_CAPACITY = 3600;
@@ -20,6 +21,13 @@ export class NodeBuffer {
   length = 0;
   latest: Sample | null = null;
   largestTick = 0;
+  /** From one counter shared by all nodes, so a node removed and added again never repeats a revision. */
+  revision = 0;
+  /** The node left online and has sent no live sample since. Until it does, its GPUs' silence is unknown. */
+  runEnded = false;
+  /** Ts of the last live sample each GPU answered in. The rings alone cannot tell, as pstate and the graphics and
+   *  video clocks answer but have no ring. */
+  readonly gpuSeen = new Map<number, number>();
 
   constructor(readonly capacity: number) {
     this.ts = new Float64Array(capacity);
@@ -79,6 +87,7 @@ export class LiveStore {
   private readonly dirtyKeys = new Set<string>();
   private scheduled = false;
   private readonly schedule: (cb: () => void) => void;
+  private revisions = 0;
 
   constructor(
     readonly capacity: number = DEFAULT_CAPACITY,
@@ -112,6 +121,9 @@ export class LiveStore {
     b.push(sample.ts, flat);
     // procs is null on ticks between process refreshes: keep the last known list.
     b.latest = sample.procs == null && b.latest?.procs ? { ...sample, procs: b.latest.procs } : sample;
+    for (const i of answeredIndexes(sample)) b.gpuSeen.set(i, sample.ts);
+    b.runEnded = false;
+    b.revision = ++this.revisions;
     this.markDirty(sample.node_id, flat.keys());
   }
 
@@ -147,7 +159,16 @@ export class LiveStore {
     rows.sort((x, y) => x.ts - y.ts);
     b.length = keep;
     for (const r of rows.slice(-this.capacity)) b.push(r.ts, r.flat);
+    b.revision = ++this.revisions;
     this.markDirty(resp.node_id, keys);
+  }
+
+  endRun(node: string): void {
+    const b = this.nodes.get(node);
+    if (!b || b.runEnded) return;
+    b.runEnded = true;
+    b.revision = ++this.revisions;
+    this.markDirty(node, []);
   }
 
   removeNode(node: string): void {
@@ -156,6 +177,30 @@ export class LiveStore {
 
   latest(node: string): Sample | null {
     return this.nodes.get(node)?.latest ?? null;
+  }
+
+  revision(node: string): number {
+    return this.nodes.get(node)?.revision ?? 0;
+  }
+
+  /** Seconds GPU `index` has sent nothing, up to the latest live sample. HELD_READINGS do not count as readings, a
+   *  gap of `gapS` or more between ticks starts the count again, and the walk stops once the silence reaches
+   *  `atMost`. Null from endRun until the next live sample. */
+  gpuSilentFor(node: string, index: number, gapS = Infinity, atMost = gapS): number | null {
+    const b = this.nodes.get(node);
+    if (!b?.latest || b.runEnded) return null;
+    const prefix = `gpu${String(index)}.`;
+    const held = HELD_READINGS.map((f) => gpuKey(index, f));
+    const rings = [...b.values].filter(([k]) => k.startsWith(prefix) && !held.includes(k)).map(([, ring]) => ring);
+    const seen = b.gpuSeen.get(index) ?? -Infinity;
+    const end = b.latest.ts;
+    for (let n = b.length - 1; n >= 0; n--) {
+      const i = b.index(n);
+      const t = b.ts[i] ?? 0;
+      if (t <= seen || rings.some((ring) => !Number.isNaN(ring[i] ?? NaN))) return end - Math.max(t, seen);
+      if (end - t >= atMost || (n > 0 && t - (b.ts[b.index(n - 1)] ?? 0) >= gapS)) return end - t;
+    }
+    return end - (b.ts[b.index(0)] ?? end);
   }
 
   lastTs(node: string): number | null {
@@ -266,7 +311,7 @@ export const liveStore = new LiveStore();
 /**
  * Subscribe a component to a derived value of a node's latest Sample. The component re-renders only when
  * `isEqual(previous, next)` is false, so a Stat showing GPU temperature ignores ticks where the temperature
- * did not change.
+ * did not change. The selector runs again after a seed too, since it may read the node's history.
  */
 export function useLatest<T>(
   node: string,
@@ -274,18 +319,18 @@ export function useLatest<T>(
   isEqual: (a: T, b: T) => boolean = Object.is,
   store: LiveStore = liveStore,
 ): T {
-  const cache = useRef<{ sample: Sample | null; selector: (s: Sample | null) => T; value: T } | null>(null);
+  const cache = useRef<{ revision: number; selector: (s: Sample | null) => T; value: T } | null>(null);
   const subscribe = useCallback((cb: Listener) => store.subscribeSample(node, cb), [store, node]);
   const getSnapshot = () => {
-    const sample = store.latest(node);
+    const revision = store.revision(node);
     const prev = cache.current;
-    if (prev && prev.sample === sample && prev.selector === selector) return prev.value;
-    const next = selector(sample);
+    if (prev && prev.revision === revision && prev.selector === selector) return prev.value;
+    const next = selector(store.latest(node));
     if (prev && isEqual(prev.value, next)) {
-      cache.current = { sample, selector, value: prev.value };
+      cache.current = { revision, selector, value: prev.value };
       return prev.value;
     }
-    cache.current = { sample, selector, value: next };
+    cache.current = { revision, selector, value: next };
     return next;
   };
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
