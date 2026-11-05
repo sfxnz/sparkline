@@ -9,6 +9,7 @@ import { Dialog } from '../../design/components/Dialog';
 import { useNow } from '../../design/useNow';
 import type { BenchSpec, NodeStatus } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
+import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
 import { Select } from '../alerts/parts/Select';
 import { isServing, topGpuProcess, workloadName } from '../overview/model';
@@ -64,6 +65,12 @@ function initialPick(spec: BenchSpec, order: readonly string[], prev?: string[])
 export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, initialNodes, initialGpuIndex }: Props) {
   const order = useCluster((s) => s.order);
   const nodeStates = useCluster((s) => s.nodes);
+  const consoleLive = useConnection((s) => s.status === 'live');
+  // While the browser has lost the console every node reads as not reporting, as in the nav (nodeDisplayStatus).
+  const statusOf = (n: string): NodeStatus | undefined => {
+    const st = nodeStates[n]?.status;
+    return st && !consoleLive ? 'stale' : st;
+  };
   const known = useMemo(() => {
     const ids = [...order];
     for (const id of Object.keys(spec.availability)) if (!ids.includes(id)) ids.push(id);
@@ -183,12 +190,12 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
           <section className="bench-config__section" aria-labelledby="bench-nodes-h" data-invalid={nodeError && touched ? true : undefined}>
             <h3 id="bench-nodes-h" className="bench-config__h">{pair ? 'Nodes' : spec.max_nodes === 1 ? 'Node' : 'Nodes'}</h3>
             {pair ? (
-              <PairPicker spec={spec} known={known} statuses={nodeStates} nodes={nodes} onChange={setNodes} />
+              <PairPicker spec={spec} known={known} statusOf={statusOf} nodes={nodes} onChange={setNodes} />
             ) : (
-              <NodeList spec={spec} known={known} statuses={nodeStates} nodes={nodes} gpuIndex={gpuIndex} single={spec.max_nodes === 1} onChange={setNodes} />
+              <NodeList spec={spec} known={known} statusOf={statusOf} nodes={nodes} gpuIndex={gpuIndex} single={spec.max_nodes === 1} onChange={setNodes} />
             )}
             {nodes.filter((n) => gpuOn && gpuOptions(spec, n).length).map((n) => (
-              <GpuPicker key={n} spec={spec} node={n} online={(nodeStates[n]?.status ?? 'online') === 'online'} value={gpuIndex[n]} onChange={(i) => { setGpuChoice((c) => ({ ...c, [n]: i })); }} />
+              <GpuPicker key={n} spec={spec} node={n} online={(statusOf(n) ?? 'online') === 'online'} value={gpuIndex[n]} onChange={(i) => { setGpuChoice((c) => ({ ...c, [n]: i })); }} />
             ))}
             {pair && railParam ? (
               <ParamField param={railParam} value={form[RAIL]} error={shownErrors[RAIL]} onChange={(v) => { set(RAIL, v); }} />
@@ -203,7 +210,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
           ) : null}
         </div>
       ) : (
-        <Review spec={spec} nodes={nodes} gpuIndex={gpuIndex} values={values ?? {}} estimate={estimate} unknownOn={unknownOn} />
+        <Review spec={spec} nodes={nodes} gpuIndex={gpuIndex} values={values ?? {}} estimate={estimate} unknownOn={unknownOn} statusOf={statusOf} />
       )}
     </Dialog>
   );
@@ -213,7 +220,7 @@ function nodeHint(status: NodeStatus | undefined): string {
   return status === 'online' || status === undefined ? '' : status === 'stale' ? 'not reporting' : status;
 }
 
-function NodeList({ spec, known, statuses, nodes, gpuIndex, single, onChange }: { spec: BenchSpec; known: readonly string[]; statuses: Record<string, { status: NodeStatus } | undefined>; nodes: string[]; gpuIndex: GpuIndex; single: boolean; onChange: (n: string[]) => void }) {
+function NodeList({ spec, known, statusOf, nodes, gpuIndex, single, onChange }: { spec: BenchSpec; known: readonly string[]; statusOf: (n: string) => NodeStatus | undefined; nodes: string[]; gpuIndex: GpuIndex; single: boolean; onChange: (n: string[]) => void }) {
   return (
     // A group of options, not a list: <li> under role="group" is an axe "listitem" violation.
     <div className="bench-nodes" role={single ? 'radiogroup' : 'group'} aria-label="Nodes to run on">
@@ -237,7 +244,7 @@ function NodeList({ spec, known, statuses, nodes, gpuIndex, single, onChange }: 
               {problem ? (
                 <span className="bench-node__why"><ProblemTip problem={problem} /></span>
               ) : (
-                <NodeLoad node={id} hint={nodeHint(statuses[id]?.status)} gpu={gpuIndex[id]} />
+                <NodeLoad node={id} hint={nodeHint(statusOf(id))} gpu={gpuIndex[id]} />
               )}
             </label>
           </div>
@@ -247,7 +254,7 @@ function NodeList({ spec, known, statuses, nodes, gpuIndex, single, onChange }: 
   );
 }
 
-function PairPicker({ spec, known, statuses, nodes, onChange }: { spec: BenchSpec; known: readonly string[]; statuses: Record<string, { status: NodeStatus } | undefined>; nodes: string[]; onChange: (n: string[]) => void }) {
+function PairPicker({ spec, known, statusOf, nodes, onChange }: { spec: BenchSpec; known: readonly string[]; statusOf: (n: string) => NodeStatus | undefined; nodes: string[]; onChange: (n: string[]) => void }) {
   const roles = ['Source', 'Target'] as const;
   return (
     <div className="bench-pair">
@@ -267,7 +274,7 @@ function PairPicker({ spec, known, statuses, nodes, onChange }: { spec: BenchSpe
           >
             {known.map((id) => {
               const problem = spec.availability[id];
-              const hint = problem ? ` — ${problem.message}` : nodeHint(statuses[id]?.status) ? ` — ${nodeHint(statuses[id]?.status)}` : '';
+              const hint = problem ? ` — ${problem.message}` : nodeHint(statusOf(id)) ? ` — ${nodeHint(statusOf(id))}` : '';
               return <option key={id} value={id} disabled={!!problem}>{id}{hint}</option>;
             })}
           </Select>
@@ -320,15 +327,16 @@ function recentTraffic(node: string, rails: readonly NetIfInfo[]): LinkTraffic[]
   return rails.map((r, i) => ({ name: r.name, label: railLabel(r), rx: peak(2 * i), tx: peak(2 * i + 1) }));
 }
 
-function Review({ spec, nodes, gpuIndex, values, estimate, unknownOn }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; values: ParamValues; estimate: number | null; unknownOn: readonly string[] }) {
+function Review({ spec, nodes, gpuIndex, values, estimate, unknownOn, statusOf }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; values: ParamValues; estimate: number | null; unknownOn: readonly string[]; statusOf: (n: string) => NodeStatus | undefined }) {
   useNow(1000); // live: what it competes with is re-read every second
   const infos = useCluster((s) => s.nodes);
-  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => infos[n]?.status ?? 'online');
+  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => statusOf(n) ?? 'online');
   // Once a node has been shown busy it stays busy while the review is open: the verdict must not flip while it is read.
+  // A stale reading still replaces it, since a busy verdict from before is no longer live.
   const [seenBusy, setSeenBusy] = useState<Record<string, Competition>>({});
   const fresh = live.filter((c) => c.busy && seenBusy[c.node]?.text !== c.text);
   if (fresh.length) setSeenBusy((s) => ({ ...s, ...Object.fromEntries(fresh.map((c) => [c.node, c])) }));
-  const comp = live.map((c) => (c.busy ? c : (seenBusy[c.node] ?? c)));
+  const comp = live.map((c) => (c.busy || c.stale ? c : (seenBusy[c.node] ?? c)));
   const busy = comp.filter((c) => c.busy);
   const stale = comp.some((c) => c.stale);
   return (
