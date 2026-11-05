@@ -8,7 +8,8 @@ archive that you can attach to a public GitHub issue. It records Linux machines 
 The command only reads. It needs no root, puts no load on the GPU, sends nothing anywhere, and writes files only
 inside the directory it creates. The one exception is the NVIDIA driver library, which does what it does in any
 program that reads the GPU: it opens its device files under `/dev`, may try to create a missing one there, and
-names its own thread. The command records only the files, NVIDIA driver answers and host readings on a list
+names its own thread. It also turns off core dumps for itself, so a crash cannot write its memory to disk.
+The command records only the files, NVIDIA driver answers and host readings on a list
 that the maintainer reviewed for privacy. Before it writes anything, it replaces the values that identify you
 or your network with placeholders. If it meets something that it cannot make safe, it writes nothing and says
 where.
@@ -55,14 +56,15 @@ counter readings. For a process that uses a GPU, it keeps the program name, whic
 first word of the command line.
 
 The recording replaces each of these values with a placeholder. One value gets the same placeholder in every
-file, so the recording still reads as one machine.
+file, so the recording still reads as one machine. A name with accents is found whether its accents are
+written composed (NFC, as Linux usually writes them) or decomposed (NFD, as macOS writes them).
 
 | Value | Placeholder |
 | --- | --- |
 | Hostname, with any domain after it, also written with `_` for `-`, in its `xn--` form or, from 8 characters, inside a longer word | `host1` |
-| Domain of the hostname, each parent domain, the label before the top-level domain, and each label of 4 or more characters, on their own | `domain1` |
+| Domain of the hostname, each parent domain, the organization, and each label of 4 or more characters, on their own, also written with `_` for `-` or, from 8 characters, inside a longer word. The organization is the label before the top-level domain, or before a two-label public suffix such as `co.uk`, `com.au` or `co.jp` | `domain1` |
 | User name, the home directory, and a disk mounted under `/media/<user>` | `user1`, `/home/<user1>`, `/media/<user1>` |
-| Full name of an account in `/etc/passwd`, and each word in that account's comment field that has a letter and 4 or more characters, also without accents | `person1` |
+| Full name of an account in `/etc/passwd`, each word in that account's comment field that has a letter and 4 or more characters, also without accents, and each number there of 6 or more digits, such as a phone number, as written and as its digits alone | `person1` |
 | IPv4 address, private ranges included | `198.51.100.1`, then `203.0.113.x` and `192.0.2.x` |
 | IPv6 address | `2001:db8::1` |
 | Link-local IPv6 address, which holds the MAC | `fe80::ff:fe00:1`, or `fe80::200:0:0:1` |
@@ -127,18 +129,25 @@ name into every entry of an archive. `recording.tgz` holds no user names and no 
 | Exit code | What happened | What to do |
 | --- | --- | --- |
 | 0 | The recording is ready. | Attach `recording.tgz`. |
-| 1 | The recording is ready, but the agent reads it differently from your machine. | Attach `recording.tgz` and paste the lines it printed. |
+| 1 | The recording is ready, but the agent reads it differently from your machine. With no summary printed, Python itself failed before the command started, and nothing was written. | Attach `recording.tgz` and paste the lines it printed. With no summary, open an issue instead, and remove every file path from the lines before you paste them: Python's own messages can name your home directory. |
 | 2 | It met something that it cannot make safe, and wrote nothing. | Read the lines it printed. If they say that a name is also a word in what the agent reads, see the next section. Otherwise open an issue and paste the lines. They name the place and the kind of value, never the value. |
 | 3 | The output path is not a directory, its parent doesn't exist or isn't a directory, you can't write there, the directory already holds files, or the command got more than one argument. | Give it one new or empty directory that you can write to. |
-| 4 | It failed unexpectedly. It keeps no partial recording. | Open an issue and paste the lines it printed. They hold no message text, only where it failed. |
+| 4 | It failed unexpectedly, or it could not turn off core dumps or load its own code. It keeps no partial recording. | Open an issue and paste the lines it printed. They hold no message text, only where it failed. |
 | 129 | The terminal closed (SIGHUP). | Run it again. It keeps no partial recording. |
 | 130 | You stopped it with Ctrl-C. | Nothing to do. It keeps no partial recording. |
 | 131 | You stopped it with `Ctrl-\` (SIGQUIT). | Nothing to do. It keeps no partial recording. |
 | 143 | Something stopped it with SIGTERM, such as `kill` or `timeout`. | Run it again. It keeps no partial recording. |
 
-A stop that comes while the command prints its summary lets it finish, so the recording is ready. `kill -9`
-can't be caught, so it can leave a partial directory behind. Delete that directory before you run the command
-again.
+A stop that comes after the recording is complete is ignored: the command prints its summary and exits 0 or 1,
+and the recording is ready. `kill -9` can't be caught, so it can leave a partial directory behind. Delete that
+directory before you run the command again.
+
+The command sets up its stop and error handling as its first step, but Python itself runs for a few
+milliseconds before that step, about 12 ms on a DGX Spark. A stop in those first milliseconds comes before the
+command has read or written anything, and gets Python's own behavior instead. Ctrl-C then exits 130 or 1 and
+can print a Python traceback that names your home directory. A closed terminal or SIGTERM ends Python with exit
+129 or 143. `Ctrl-\` quits Python with exit 131, and if your system keeps core dumps, it can write one of
+Python itself, which holds your environment variables but nothing that the command read.
 
 Exit code 2 has these causes:
 
@@ -155,10 +164,13 @@ Exit code 2 has these causes:
 Your hostname may appear only in the hostname file, your user name or full name only in a home directory, and a
 Docker container name only in Docker's list of containers. A name may also be a fixed word that the command
 writes the same on every machine: a part of a file path on the reviewed list, such as the `dev` of
-`/proc/self/net/dev` or the `max` of `cpuinfo_max_freq`, the `/dev/` of a disk, the `nvcr.io/nvidia/pytorch:` of
-an image name, or the name of an NVIDIA driver call in `nvml.json`. There the word says nothing about you, so the
-command leaves it as it is. A hostname `dev` or `computer`, or a container named `pytorch`, therefore records
-fine.
+`/proc/self/net/dev` or the `max` of `cpuinfo_max_freq`, that part in any other recorded path or link target
+that starts with the same parts, such as the `topology` of the directory
+`/sys/devices/system/cpu/cpu0/topology`, the `/dev/` of a disk, the `nvcr.io/nvidia/pytorch:` of an image name,
+or the name of an NVIDIA driver call in `nvml.json`. There the word says nothing about you, so the command
+leaves it as it is. A hostname `dev`, `computer`, `topology` or `devices`, or a container named `pytorch`,
+therefore records fine. A part of a directory where the reviewed list takes any device name, such as the
+`platform` of `/sys/devices/platform`, is not a fixed word.
 
 If a name appears anywhere else as a word, the command cannot tell your name from an ordinary word, and
 replacing it would show your name by its place. A hostname `GB10` would turn the GPU name into `NVIDIA host1`,
@@ -170,7 +182,9 @@ run, and capture again:
 - For the hostname, run `sudo hostname sparkline-capture` before the capture, and set your hostname back after.
 - For a Docker container, run `docker rename <old name> <new name>`.
 - For a user name, run the capture from another account.
-- For the full name of an account, run `sudo chfn -f '' <account>` before the capture, and set it back after.
+- For a word or number of an account's comment field, such as its full name or phone number, note the field
+  with `getent passwd <account>`, run `sudo usermod -c '' <account>` before the capture, and set it back after
+  with `sudo usermod -c '<the old field>' <account>`.
 
 The command no longer knows the old name. Before you attach, search the recording for it, for example with
 `grep -ri <old name> <recording directory>`. It can still appear as the ordinary word, but also read the mount
