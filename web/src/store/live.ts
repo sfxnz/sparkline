@@ -165,8 +165,8 @@ export class LiveStore {
 
   /** Seconds GPU `index` has sent nothing, up to the latest live sample: since its last fresh reading (live or seeded;
    *  HELD_READINGS do not count) or the last live sample it answered in. A gap of `gapS` or more between ticks starts
-   *  the count again. Null before any live sample. */
-  gpuSilentFor(node: string, index: number, gapS = Infinity): number | null {
+   *  the count again. The walk stops once the silence reaches `atMost`. Null before any live sample. */
+  gpuSilentFor(node: string, index: number, gapS = Infinity, atMost = gapS): number | null {
     const b = this.nodes.get(node);
     if (!b?.latest) return null;
     const prefix = `gpu${String(index)}.`;
@@ -178,7 +178,7 @@ export class LiveStore {
       const i = b.index(n);
       const t = b.ts[i] ?? 0;
       if (t <= seen || rings.some((ring) => !Number.isNaN(ring[i] ?? NaN))) return end - Math.max(t, seen);
-      if (end - t >= gapS || (n > 0 && t - (b.ts[b.index(n - 1)] ?? 0) >= gapS)) return end - t;
+      if (end - t >= atMost || (n > 0 && t - (b.ts[b.index(n - 1)] ?? 0) >= gapS)) return end - t;
     }
     return end - (b.ts[b.index(0)] ?? end);
   }

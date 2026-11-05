@@ -2,7 +2,7 @@
 // flagging, so a pill is never green beside a red flag.
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { nodeDisplayStatus, type Status } from '../design/components/StatusPill';
-import { nodeCondition, nodeConditions, quietGpus, sameCondition, sameNodeConditions, type LiveCondition, type NodeConditions } from '../lib/condition';
+import { nodeCondition, nodeConditions, quietAfterS, quietGpus, sameCondition, sameNodeConditions, type LiveCondition, type NodeConditions } from '../lib/condition';
 import type { NodeInfo, Sample } from '../lib/types';
 import { useCluster } from './cluster';
 import { useConnection } from './connection';
@@ -14,9 +14,15 @@ type Level = 'warning' | 'critical' | null;
 /** The more severe of two levels. */
 export const worstLevel = (a: Level, b: Level): Level => (a === 'critical' || b === 'critical' ? 'critical' : (a ?? b));
 
+const staleAfterS = () => useCluster.getState().cluster?.settings.stale_after_s;
+
 /** quietGpus for node `id`. */
 export const quietGpusOf = (id: string, info: NodeInfo | null | undefined) =>
-  quietGpus(info, useCluster.getState().cluster?.settings.stale_after_s, (index, gapS) => liveStore.gpuSilentFor(id, index, gapS));
+  quietGpus(info, staleAfterS(), (index, gapS) => liveStore.gpuSilentFor(id, index, gapS));
+
+/** Seconds GPU `index` of node `id` has sent nothing, counted as quietGpusOf counts it but past its threshold. */
+export const gpuSilentForOf = (id: string, info: NodeInfo | null | undefined, index: number) =>
+  liveStore.gpuSilentFor(id, index, quietAfterS(info, staleAfterS()), Infinity);
 
 /** Live condition of one node's GPUs; null unless the node is online (stale values never raise a pill). */
 export function useLiveCondition(id: string): LiveCondition | null {
