@@ -778,7 +778,7 @@ READING_META = ("device", "unreadable")
 _HOME_SLOT = re.compile(
     r"(?<![\w.])/(?:home/((?:[\w-]+\.)+[\w-]+/[\w.-]+)|(?:home|Users|media|run/media)/([\w.-]+(?:@[\w.-]+)?))"
 )
-_SERIAL_LINE = re.compile(r"^Serial\s*:\s*(\S.*)$", re.MULTILINE)
+_SERIAL_LINE = re.compile(r"^Serial[ \t]*:[ \t]*(\S.*)$", re.MULTILINE)
 
 
 def _where_names_live(path: str, text: str) -> list[tuple[int, int]]:
