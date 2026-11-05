@@ -853,4 +853,18 @@ describe('a GB10 whose GPU stays in the sample with every fresh reading empty, a
     expect(within(card()).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation not responding');
     for (const label of ['GPU temp', 'GPU power']) expect(stat(label)).toHaveTextContent('Not responding');
   });
+
+  it('keeps the pill healthy after one such sample', () => {
+    show(failingFor(1));
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    expect(card().querySelector('[data-status]')).toHaveAttribute('data-status', 'healthy');
+  });
+
+  it('raises the pill, names the GPU and cannot tell the GPU processes once it has sent nothing for 5 s', () => {
+    show(failingFor(5));
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(card().querySelector('[data-status]')).toHaveAttribute('data-status', 'warning');
+    expect(within(card()).queryByText('No GPU processes')).not.toBeInTheDocument();
+    expect(document.querySelector('.ov-hero__workload')).toHaveTextContent(/^GPU workloads not reported$/);
+  });
 });
