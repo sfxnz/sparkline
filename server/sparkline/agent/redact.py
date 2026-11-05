@@ -861,8 +861,12 @@ def _fixed_in_host(where: Where, text: str) -> list[tuple[int, int]]:
     return [(0, len(NGC_PYTORCH))] if where == REPO_TAGS and text.startswith(NGC_PYTORCH) else []
 
 
-def _nothing_fixed(_where: Where, _text: str) -> list[tuple[int, int]]:
-    return []
+def _fixed_in_nvml(where: Where, text: str) -> list[tuple[int, int]]:
+    return [(0, len(text))] if where == () and text in NVML_CALLS else []
+
+
+def _fixed_in_meta(where: Where, text: str) -> list[tuple[int, int]]:
+    return _fixed_parts_of(text) if where == ("unreadable",) else []
 
 
 def _where_names_live(path: str, text: str) -> list[tuple[int, int]]:
@@ -896,7 +900,7 @@ def _collisions(rec: Recording, names: Spellings) -> list[Leak]:
             text = text_of(node.data)[0]
             found |= names.outside(text, _where_names_live(path, text) + _fixed_text(path, text))
     readings = {k: rec.meta[k] for k in READING_META if k in rec.meta}
-    for doc, fixed in ((rec.nvml, _nothing_fixed), (rec.host, _fixed_in_host), (readings, _nothing_fixed)):
+    for doc, fixed in ((rec.nvml, _fixed_in_nvml), (rec.host, _fixed_in_host), (readings, _fixed_in_meta)):
         for where, text in _strings_at(doc):
             slots = [(0, len(text))] if where == CONTAINER_NAMES else _where_names_live("", text)
             found |= names.outside(text, slots + fixed(where, text))
@@ -989,11 +993,14 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
             text = _sub_flagged(detector, fix, text)
         return _UUID.sub(plain_uuid, text)
 
-    def rewrite_doc(doc: Any, fixed: Fixed = _nothing_fixed, where: Where = ()) -> Any:
+    def rewrite_doc(doc: Any, fixed: Fixed, where: Where = ()) -> Any:
         if isinstance(doc, str):
             return rewrite(doc, fixed(where, doc))
         if isinstance(doc, dict):
-            return {rewrite(str(k)): rewrite_doc(v, fixed, (*where, str(k))) for k, v in doc.items()}
+            return {
+                rewrite(str(k), fixed(where, str(k))): rewrite_doc(v, fixed, (*where, str(k)))
+                for k, v in doc.items()
+            }
         if isinstance(doc, list):
             return [rewrite_doc(v, fixed, where) for v in doc]
         return doc
@@ -1007,9 +1014,9 @@ def redact(rec: Recording, facts: Facts) -> Redacted:
 
     read_at = {rewrite(path, _fixed_parts_of(path)): path for path in rec.tree}
     tree = {path: rewrite_node(raw, rec.tree[raw]) for path, raw in read_at.items()}
-    nvml = rewrite_doc(rec.nvml)
+    nvml = rewrite_doc(rec.nvml, _fixed_in_nvml)
     host = rewrite_doc(rec.host, _fixed_in_host)
-    meta = {k: rewrite_doc(v) if k in READING_META else v for k, v in rec.meta.items()}
+    meta = {k: rewrite_doc(v, _fixed_in_meta, (k,)) if k in READING_META else v for k, v in rec.meta.items()}
     left = {**meta.get("left_out", {}), **left_out}
     counts = dict(sorted(ph.counts.items()))
     meta |= {"redacted": counts, "left_out": dict(sorted(left.items()))}
@@ -1025,22 +1032,18 @@ def _categories(text: str, binary: bool, originals: Spellings, fixed: Spans = ()
     return found | originals.outside(text, fixed)
 
 
-def _without_fixed_strings(doc: Any, fixed: Fixed, where: Where = ()) -> Any:
-    if isinstance(doc, str):
-        return "" if fixed(where, doc) else doc
-    if isinstance(doc, dict):
-        return {k: _without_fixed_strings(v, fixed, (*where, str(k))) for k, v in doc.items()}
-    if isinstance(doc, list):
-        return [_without_fixed_strings(v, fixed, where) for v in doc]
-    return doc
+def _numbers(doc: Any) -> Iterable[str]:
+    if isinstance(doc, dict | list):
+        for v in doc.values() if isinstance(doc, dict) else doc:
+            yield from _numbers(v)
+    elif not isinstance(doc, str):
+        yield json.dumps(doc)
 
 
 def _doc_categories(doc: Any, originals: Spellings, fixed: Fixed) -> set[str]:
-    found = _categories(dumps(doc), False, Spellings([]))
-    found |= originals.categories_in(dumps(_without_fixed_strings(doc, fixed)))
+    found = _categories(dumps(doc), False, Spellings([])) | originals.categories_in(" ".join(_numbers(doc)))
     for where, text in _strings_at(doc):
-        if spans := fixed(where, text):
-            found |= originals.outside(text, spans)
+        found |= originals.outside(text, fixed(where, text))
     return found
 
 
@@ -1161,12 +1164,14 @@ def leaks(red: Redacted) -> list[Leak]:
             out += [Leak(where, c) for c in sorted(found)]
     out += _unreviewed_readings(rec, originals)
     for name, doc, fixed in (
-        ("nvml.json", rec.nvml, _nothing_fixed),
+        ("nvml.json", rec.nvml, _fixed_in_nvml),
         ("host.json", rec.host, _fixed_in_host),
     ):
         out += [Leak(name, c) for c in sorted(_doc_categories(doc, originals, fixed))]
     meta = platform_doc(rec)
     readings = {k: meta[k] for k in READING_META if k in meta}
-    found = _categories(dumps(meta), False, Spellings([])) | _categories(dumps(readings), False, originals)
+    found = _categories(dumps(meta), False, Spellings([])) | _doc_categories(
+        readings, originals, _fixed_in_meta
+    )
     out += [Leak("platform.json", c) for c in sorted(found)]
     return list(dict.fromkeys(out))

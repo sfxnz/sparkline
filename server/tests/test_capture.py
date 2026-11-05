@@ -648,7 +648,7 @@ def test_a_fixed_word_name_in_the_list_of_unreadable_files_records_as_a_name_tha
         return tree(tmp_path / hostname / "out")
 
     recorded_with_dev = captured("dev")
-    assert "/proc/self/net/dev" in json.loads(recorded_with_dev["platform.json"])["unreadable"]
+    assert "/proc/net/dev" in json.loads(recorded_with_dev["platform.json"])["unreadable"]
     assert recorded_with_dev == captured("zorbhost")
 
 
