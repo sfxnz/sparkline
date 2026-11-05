@@ -21,6 +21,7 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.10"]
 
 [project.scripts]
 sparkline-agent = "sparkline.agent.main:main"
+sparkline-capture = "sparkline.agent.capture_entry:main"
 sparkline = "sparkline.console.main:main"
 
 [build-system]
