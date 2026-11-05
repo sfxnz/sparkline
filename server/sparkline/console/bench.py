@@ -603,7 +603,9 @@ class BenchManager:
         for specs, _ in got:
             for s in specs:
                 if s.id not in merged:
-                    merged[s.id] = s.model_copy(deep=True, update={"availability": {}, "gpu_options": {}})
+                    merged[s.id] = s.model_copy(
+                        deep=True, update={"availability": {}, "gpu_options": {}, "no_estimate": []}
+                    )
                     if s.min_nodes <= 1:  # per-node benchmark: the console runs it on any number of nodes
                         merged[s.id].max_nodes = None
         for spec in merged.values():
@@ -615,6 +617,8 @@ class BenchManager:
                     descriptions[node] = mine.description
                     if opts := _own(mine.gpu_options, node):
                         spec.gpu_options[node] = opts
+                    if node in mine.no_estimate or len(mine.no_estimate) == 1:
+                        spec.no_estimate.append(node)
             spec.description = merge_description(spec.id, descriptions) or spec.description
         order = {b: i for i, b in enumerate(REGISTRY)}
         return sorted(merged.values(), key=lambda s: (order.get(s.id, len(order)), s.id))

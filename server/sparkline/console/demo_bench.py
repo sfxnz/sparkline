@@ -234,7 +234,8 @@ def demo_catalog(node: str, info: NodeInfo | None) -> list[BenchSpec]:
             problem = not_gb10 or problem
         notes = {"llm-inference": LLM_NOTE, "llm-showcase": SHOWCASE_NOTE, "tool-eval": TE_NOTE}
         demo = notes.get(b.id, COMPRESSED_NOTE)
-        out.append(b.spec({node: problem}, f"{note} {demo}".strip(), options))
+        no_estimate = [] if b.grounded_on(info) else [node]
+        out.append(b.spec({node: problem}, f"{note} {demo}".strip(), options, no_estimate))
     return out
 
 

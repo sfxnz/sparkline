@@ -454,11 +454,18 @@ class Bench:
     def uses_gpu(self, p: Params) -> bool:
         return self.gpu and p.needs_gpu()
 
+    def grounded_on(self, info: NodeInfo | None) -> bool:
+        return not self.gb10_rates or is_gb10(info)
+
     def estimate_on(self, p: Params, info: NodeInfo | None) -> Estimate:
-        return Estimate(self.estimate(p), grounded=not self.gb10_rates or is_gb10(info))
+        return Estimate(self.estimate(p), grounded=self.grounded_on(info))
 
     def spec(
-        self, availability: dict, note: str = "", gpu_options: dict[str, list[GpuOption]] | None = None
+        self,
+        availability: dict,
+        note: str = "",
+        gpu_options: dict[str, list[GpuOption]] | None = None,
+        no_estimate: list[str] | None = None,
     ) -> BenchSpec:
         return BenchSpec(
             id=self.id,
@@ -473,6 +480,7 @@ class Bench:
             requires=list(self.requires),
             availability=availability,
             gpu_options={n: o for n, o in (gpu_options or {}).items() if o and self.gpu},
+            no_estimate=no_estimate or [],
         )
 
 

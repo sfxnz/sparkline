@@ -442,7 +442,8 @@ class BenchRunner:
 
     async def catalog(self) -> list[BenchSpec]:
         env = await self.env()
-        options = {self.node_id: probes.gpu_options(self.node_id, self.info())}
+        info = self.info()
+        options = {self.node_id: probes.gpu_options(self.node_id, info)}
         out = []
         for b in REGISTRY.values():
             problem, note = probes.availability(b.id, env)
@@ -451,7 +452,8 @@ class BenchRunner:
                     f"{note} SMOKE MODE: this agent runs GPU payloads on the CPU (bench_payload_device = "
                     '"cpu"); tiny sizes, results are flagged smoke and are not GPU measurements.'
                 ).strip()
-            out.append(b.spec({self.node_id: problem}, note, options))
+            no_estimate = [] if b.grounded_on(info) else [self.node_id]
+            out.append(b.spec({self.node_id: problem}, note, options, no_estimate))
         return out
 
     # -- lifecycle -------------------------------------------------------------------------------------
