@@ -27,6 +27,10 @@ export interface CoreInfo {
 export const GPU_VENDORS = ['nvidia', 'amd', 'apple'] as const;
 export type GpuVendor = (typeof GPU_VENDORS)[number];
 
+/** Where a GPU keeps its memory: in system RAM (unified), on the card (dedicated VRAM), or both (a carve-out). */
+export const MEMORY_MODELS = ['unified', 'dedicated', 'carveout'] as const;
+export type MemoryModel = (typeof MEMORY_MODELS)[number];
+
 export interface GpuInfo {
   index: number;
   name: string;
@@ -41,6 +45,10 @@ export interface GpuInfo {
   temp_shutdown_c: number | null;
   temp_max_c: number | null;
   power_limit_w: number | null;
+  /** Absent from an older agent's payload, and an unknown value: read either as 'unified'. */
+  memory?: MemoryModel;
+  /** Bytes of dedicated memory (VRAM, or a carve-out); null on a unified GPU. */
+  vram_total?: number | null;
 }
 
 export interface NetIfInfo {
@@ -110,6 +118,10 @@ export interface GpuSample {
   throttle_mask: number | null;
   power_capped_pct: number | null;
   thermal_capped_pct: number | null;
+  /** Bytes of dedicated memory in use. */
+  vram_used?: number | null;
+  /** Bytes of system RAM the GPU holds (GB10: its per-process sum). */
+  shared_used?: number | null;
 }
 
 export interface MemSample {
@@ -117,6 +129,7 @@ export interface MemSample {
   available: number;
   used: number;
   free: number;
+  /** The sum of the GPUs' `shared_used`: GPU memory that lives in system RAM. */
   gpu: number | null;
   anon: number;
   cache: number;

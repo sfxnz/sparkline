@@ -1,12 +1,12 @@
 // Stable selectors for useLatest (module scope, so subscriptions keep their identity across renders).
-import { gpuTotals, type GpuReading, type NodeTotal } from '../../../lib/metrics';
+import { gpuTotals, type GpuReading, type ReadingTotal } from '../../../lib/metrics';
 import type { NodeInfo, Sample } from '../../../lib/types';
 import { gpuAt, gpuIndexes } from '../../../lib/gpu';
 
 type Select<T> = (s: Sample | null) => T;
 const readings = new Map<string, Select<number | null>>();
 const presence = new Map<number, Select<boolean | null>>();
-const totals = new Map<NodeTotal, Select<number | null>>();
+const totals = new Map<ReadingTotal, Select<number | null>>();
 
 /** One reading of the GPU with this index (not array position), memoised per index and reading. */
 export function gpuSelector(index: number, reading: GpuReading): Select<number | null> {
@@ -24,7 +24,7 @@ export function gpuPresent(index: number): Select<boolean | null> {
 }
 
 /** The node's GPU `field` from the key nodeGpuKey names: its one GPU's reading, or the node total over several. */
-export function nodeGpuSelector(info: NodeInfo | null | undefined, field: NodeTotal): Select<number | null> {
+export function nodeGpuSelector(info: NodeInfo | null | undefined, field: ReadingTotal): Select<number | null> {
   const [only = 0, ...more] = gpuIndexes(info);
   if (!more.length) return gpuSelector(only, field);
   let sel = totals.get(field);

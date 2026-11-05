@@ -10,7 +10,7 @@ import { Unsupported } from '../../design/components/Unsupported';
 import { interconnectGap, notReported } from '../../lib/capabilities';
 import { bytesParts, DASH, formatAgo, formatPercent, tempParts, wattsParts, type Formatter } from '../../lib/format';
 import { nodeGpuKey } from '../../lib/gpu';
-import type { NodeTotal } from '../../lib/metrics';
+import type { NodeTotal, ReadingTotal } from '../../lib/metrics';
 import type { NodeInfo } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -51,7 +51,7 @@ function LiveTotal({ node, field, parts, quantum, info }: { node: string; field:
   return <BigValue value={value} parts={parts} />;
 }
 
-function TotalFrom({ node, field }: { node: string; field: Exclude<NodeTotal, 'power_w'> }) {
+function TotalFrom({ node, field }: { node: string; field: Exclude<ReadingTotal, 'power_w'> }) {
   const from = useTotalFrom(node, field);
   return from ? <span className="wall-from">{from}</span> : null;
 }

@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { notReported, type NotReported } from '../../../lib/capabilities';
 import { gpuIndexes, notResponding } from '../../../lib/gpu';
-import { gpuKey, type NodeTotal } from '../../../lib/metrics';
+import { gpuKey, type ReadingTotal } from '../../../lib/metrics';
 import type { Sample } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
@@ -17,7 +17,7 @@ export function useGpuGap(nodeId: string, index: number): (key: string) => NotRe
 
 /** Why the node's GPU `field` has no value on the node tabs: its one GPU's gap (declared, or not responding this
  *  tick), or the gap of the node total over several GPUs. */
-export function useNodeGpuGap(nodeId: string, field: NodeTotal): NotReported | null {
+export function useNodeGpuGap(nodeId: string, field: ReadingTotal): NotReported | null {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const [only = 0, ...more] = gpuIndexes(info);
   const gpuGap = useGpuGap(nodeId, only);

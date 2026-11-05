@@ -1,5 +1,5 @@
 import { lostGpu, notReported, type NotReported } from './capabilities';
-import { gpuKey, gpuTotals, type GpuField, type NodeTotal } from './metrics';
+import { GPU_TOTALS, gpuKey, gpuTotals, gpuValue, isReadingTotal, type GpuField, type NodeTotal, type ReadingTotal } from './metrics';
 import type { GpuInfo, NodeInfo, Sample } from './types';
 
 /** The GPU with this `index`. A sample holds only the GPUs that reported this tick, so when one vendor's backend
@@ -14,10 +14,11 @@ export function gpuIndexes(info: NodeInfo | null | undefined): number[] {
 }
 
 /** The key that holds the node's GPU `field`: the GPU's own key on a node with at most one GPU (the same value, and
- *  its history predates the totals), the node total on a node with several. */
+ *  its history predates the totals), the node total on a node with several. A total no GPU key shares a name with
+ *  (memory) is the node total on any node. */
 export function nodeGpuKey(info: NodeInfo | null | undefined, field: NodeTotal): string {
   const [only = 0, ...more] = gpuIndexes(info);
-  return more.length ? `gpu.${field}` : gpuKey(only, field);
+  return more.length || !isReadingTotal(field) ? `gpu.${field}` : gpuKey(only, field);
 }
 
 /** Why none of the node's GPUs can be read: the first one's lost gap when every GPU the node lists is lost (GPU 0's
@@ -56,14 +57,17 @@ export function gpuSetGap(info: NodeInfo | null | undefined, field: GpuField, mo
   return indexes.length > 1 ? { ...named.gap, detail: `GPU ${named.index}: ${named.gap.detail}` } : named.gap;
 }
 
-const READING: Record<NodeTotal, string> = { util: 'utilisation', temp_c: 'temperature', power_w: 'power' };
+const READING: Record<NodeTotal, string> = { util: 'utilisation', temp_c: 'temperature', power_w: 'power', mem_used: 'memory' };
 
 /** Why the node's total of `field` is missing from this sample although the node is reporting. Null when it is
- *  present, when the node lists at most one GPU, or when a declared gap already explains it. */
+ *  present, when the node reads one GPU's own key instead (nodeGpuKey), or when a declared gap already explains it. */
 export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
-  if (!s || !info || info.gpus.length < 2 || notReported(info, `gpu.${field}`) || gpuTotals(s)[field] !== null) return null;
+  if (!s || !info || nodeGpuKey(info, field) !== `gpu.${field}` || notReported(info, `gpu.${field}`) || gpuTotals(s)[field] !== null) return null;
   const reporting = s.gpu.map((g) => g.index);
-  const empty = info.gpus.filter((g) => reporting.includes(g.index) && gpuAt(s.gpu, g.index)?.[field] == null).map((g) => g.index);
+  const empty = info.gpus.filter((g) => {
+    const reading = gpuAt(s.gpu, g.index);
+    return reading && gpuValue(reading, field) === null;
+  }).map((g) => g.index);
   const clauses = empty.length ? [`${gpuList(empty)} sent no ${READING[field]} reading this tick`] : [];
   for (const b of silentBackends(info, s.errors.gpu, reporting)) {
     const who = gpuList(b.gpus.map((g) => g.index));
@@ -73,7 +77,7 @@ export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, fi
     if (!s.errors.gpu) return null;
     clauses.push(`A GPU backend failed this tick (${s.errors.gpu})`);
   }
-  const why = field === 'power_w' ? ', so a sum would understate' : '';
+  const why = GPU_TOTALS[field].every ? ', so a sum would understate' : '';
   return { kind: 'hardware', label: 'No total', detail: `${clauses.join('; ')}${why}.` };
 }
 
@@ -92,7 +96,7 @@ export interface GpuCount {
 /** The GPUs the node's mean utilisation or hottest temperature reads, when that is fewer than the node lists (one
  *  lost, or silent this tick). Null on a node with one GPU, and when every GPU or none has `field`. A power total is
  *  never partial: it needs every GPU. */
-export function totalFrom(info: NodeInfo | null | undefined, s: Sample | null, field: Exclude<NodeTotal, 'power_w'>): GpuCount | null {
+export function totalFrom(info: NodeInfo | null | undefined, s: Sample | null, field: Exclude<ReadingTotal, 'power_w'>): GpuCount | null {
   const listed = info?.gpus ?? [];
   if (listed.length < 2 || !s) return null;
   const from = listed.filter((g) => gpuAt(s.gpu, g.index)?.[field] != null).length;

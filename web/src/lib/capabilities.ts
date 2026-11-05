@@ -1,3 +1,4 @@
+import { GPU_TOTALS, isNodeTotal } from './metrics';
 import { UNSUPPORTED_KINDS, type NodeInfo, type Unsupported, type UnsupportedKind } from './types';
 
 export interface NotReported {
@@ -35,14 +36,12 @@ export function lostGpu(info: NodeInfo | null | undefined, index: number): NotRe
   return u ? { ...describeGap(u), label: 'Not responding' } : null;
 }
 
-const NODE_TOTAL = /^gpu\.(util|temp_c|power_w)$/;
-
 export function notReported(info: NodeInfo | null | undefined, key: string): NotReported | null {
   let best: Unsupported | undefined;
   for (const u of info?.unsupported ?? []) if (covers(u.metric, key) && (!best || moreSpecific(u, best))) best = u;
   if (!best) return null;
-  const total = NODE_TOTAL.exec(key)?.[1];
-  if (total && info && info.gpus.length > 1 && info.gpus.some((g) => !notReported(info, `gpu${g.index}.${total}`))) {
+  const total = /^gpu\.(\w+)$/.exec(key)?.[1];
+  if (total && isNodeTotal(total) && info && info.gpus.length > 1 && info.gpus.some((g) => GPU_TOTALS[total].parts.some((p) => !notReported(info, `gpu${g.index}.${p}`)))) {
     return { ...describeGap(best), label: 'No total' };
   }
   const gpuKey = /^gpu(\d+)(?:\.|$)/.exec(key);
