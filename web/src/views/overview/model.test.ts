@@ -287,3 +287,27 @@ describe('breathLevel', () => {
     expect([null, 2, 20, 60, 95].map(breathLevel)).toEqual([0, 0, 1, 2, 3]);
   });
 });
+
+describe('workloads on nodes that cannot tell their GPU processes', () => {
+  const idle = [proc({ name: 'dockerd' })];
+
+  it('names the nodes that ran no GPU workload when the others cannot tell', () => {
+    expect(workloadSentence([{ id: 'spark1', procs: idle }, { id: 'amd1', procs: idle, cannotTell: true }])).toBe('No GPU workloads on spark1');
+    expect(workloadSentence([{ id: 'spark1', procs: idle }, { id: 'spark2', procs: idle }, { id: 'amd1', procs: idle, cannotTell: true }])).toBe(
+      'No GPU workloads on spark1 and spark2',
+    );
+  });
+
+  it('says GPU workloads are not reported when no node can tell, even before their first process list', () => {
+    expect(workloadSentence([{ id: 'amd1', procs: idle, cannotTell: true }])).toBe('GPU workloads not reported');
+    expect(workloadSentence([{ id: 'amd1', procs: null, cannotTell: true }, { id: 'amd2', procs: idle, cannotTell: true }])).toBe('GPU workloads not reported');
+  });
+
+  it('builds the positive sentence from the nodes that can tell', () => {
+    expect(workloadSentence([{ id: 'spark1', procs: [deepseek] }, { id: 'spark2', procs: [trainer], cannotTell: true }])).toBe('Serving DeepSeek-V4.1-Flash-EXL3 on spark1');
+  });
+
+  it('still waits for a node that can tell but has not sent its process list', () => {
+    expect(workloadSentence([{ id: 'spark1', procs: null }, { id: 'amd1', procs: idle, cannotTell: true }])).toBeNull();
+  });
+});

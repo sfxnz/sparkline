@@ -469,3 +469,70 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     });
   });
 });
+
+describe('GPU processes a node cannot tell, on the Overview', () => {
+  const NO_NVML = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+  const NV_ERROR = 'RuntimeError: synthesized NVML read failure';
+  const gb10 = gb10Sample as unknown as Sample;
+  const amd1 = {
+    node_id: 'amd1', hostname: 'amd1', gpus: [], net: [], cores: [], disks: [], sensors: [], mem_total: gb10.mem.total,
+    unsupported: [{ metric: 'gpu*', reason: NO_NVML, kind: 'dependency' }, { metric: 'mem.gpu', reason: NO_NVML, kind: 'dependency' }],
+  } as unknown as NodeInfo;
+  const idle = gb10.procs?.filter((p) => !p.gpu_mem) ?? [];
+  const show = (nodes: [NodeInfo, Partial<Sample>][]) => {
+    useCluster.getState().setHello(cluster(nodes.map(([info]) => node(info.node_id, { info }))));
+    act(() => {
+      for (const [info, over] of nodes) {
+        liveStore.removeNode(info.node_id);
+        liveStore.pushSample({ ...gb10, node_id: info.node_id, ts: now, ...over });
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const subtitle = (id: string) => within(screen.getByRole('region', { name: `Node ${id}` })).getByText(/GPU processes$/).closest('p') as HTMLElement;
+  const activity = () => document.querySelector('.ov-hero__activity') as HTMLElement;
+  const workload = () => document.querySelector('.ov-hero__workload');
+
+  it("says spark1 runs no GPU workload and amd1 cannot tell its GPU processes, when amd1 has no NVML", () => {
+    show([[gb10Info as unknown as NodeInfo, { procs: idle }], [amd1, { gpu: [], procs: idle }]]);
+    expect(workload()).toHaveTextContent(/^No GPU workloads on spark1$/);
+    expect(subtitle('spark1')).toHaveTextContent(/^No GPU processes$/);
+    expect(subtitle('amd1')).toHaveTextContent(/^GPU processes Helper tool missing/);
+    expect(within(subtitle('amd1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(NO_NVML);
+  });
+
+  it.each([
+    ['its process list', idle],
+    ['its first process list arrives', null],
+  ])('says GPU workloads are not reported, not a skeleton, when the only node has no NVML, before and after %s', (_, procs) => {
+    show([[amd1, { gpu: [], procs }]]);
+    expect(activity()).not.toHaveAttribute('aria-hidden');
+    expect(workload()).toHaveTextContent(/^GPU workloads not reported$/);
+    expect(subtitle('amd1')).toHaveTextContent(/^GPU processes Helper tool missing/);
+  });
+
+  it('says the GPU processes of a GB10 whose GPU is missing from the sample are not responding, not that it runs none', () => {
+    show([[gb10Info as unknown as NodeInfo, { gpu: [], procs: idle, errors: { gpu: `nvml: ${NV_ERROR}` } }]]);
+    expect(within(screen.getByRole('region', { name: 'Node spark1' })).queryByText('No GPU processes')).not.toBeInTheDocument();
+    expect(subtitle('spark1')).toHaveTextContent(/^GPU processes Not responding/);
+    expect(within(subtitle('spark1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(NV_ERROR);
+    expect(workload()).toHaveTextContent(/^GPU workloads not reported$/);
+  });
+
+  it('says the GPU processes are not known, not a skeleton forever, on a node whose process collector could not start', () => {
+    const why = 'The procs collector could not start: /proc: No such file or directory';
+    const info = { ...(gb10Info as unknown as NodeInfo), unsupported: [...(gb10Info as unknown as NodeInfo).unsupported, { metric: 'procs', reason: why, kind: 'hardware' as const }] };
+    show([[info, { procs: null }]]);
+    expect(subtitle('spark1')).toHaveTextContent(/^GPU processes Not reported by this hardware/);
+    expect(within(subtitle('spark1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(why);
+    expect(workload()).toHaveTextContent(/^GPU workloads not reported$/);
+  });
+
+  it('keeps a healthy GB10 serving its model as before', () => {
+    show([[gb10Info as unknown as NodeInfo, {}]]);
+    expect(within(screen.getByRole('region', { name: 'Node spark1' })).getByText('DeepSeek-V4.1-Flash-EXL3 · c5-2B-r0')).toBeInTheDocument();
+    expect(workload()).toHaveTextContent(/^Serving DeepSeek-V4\.1-Flash-EXL3 on spark1$/);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/^· GPU 62% at 24\.5 W$/);
+  });
+});
