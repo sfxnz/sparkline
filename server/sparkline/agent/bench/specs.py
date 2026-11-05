@@ -49,6 +49,9 @@ def mem_growth_label(info: NodeInfo | None) -> str:
 class Params(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    def needs_gpu(self) -> bool:
+        return True
+
 
 # --------------------------------------------------------------------------------------------------------
 # Parameter models
@@ -92,6 +95,9 @@ class MemBandwidthParams(Params):
     iterations: int = _param(
         20, "Iterations", "Repetitions; the best one is reported (STREAM style).", ge=5, le=200
     )
+
+    def needs_gpu(self) -> bool:
+        return self.side != "cpu"
 
 
 class CpuThroughputParams(Params):
@@ -444,6 +450,9 @@ class Bench:
 
     def validate(self, raw: dict[str, Any]) -> Params:
         return self.params.model_validate(raw)
+
+    def uses_gpu(self, p: Params) -> bool:
+        return self.gpu and p.needs_gpu()
 
     def estimate_on(self, p: Params, info: NodeInfo | None) -> Estimate:
         return Estimate(self.estimate(p), grounded=not self.gb10_rates or is_gb10(info))

@@ -522,13 +522,9 @@ class BenchRunner:
                 422, f"Invalid parameters for {bench.name}", validation_message(e), "Correct the parameters"
             ) from None
         self._check_role(bench, req)
-        if req.gpu_index is not None and not bench.gpu:
-            raise self._reject(
-                422,
-                f"{bench.name} does not run on a GPU",
-                f"The request chose GPU {req.gpu_index}",
-                "Start it from the Sparkline console, which offers a GPU only to GPU benchmarks",
-            )
+        uses_gpu = bench.uses_gpu(params)
+        if req.gpu_index is not None and not uses_gpu:
+            raise Rejected(422, probes.unused_gpu(bench.name, bench.gpu, req.gpu_index))
         if self.current is not None:
             cur = self.current.state
             raise self._reject(
@@ -551,7 +547,7 @@ class BenchRunner:
         problem, _ = probes.availability(bench.id, env)
         if problem is not None:
             raise Rejected(422, problem)
-        gpu = probes.resolve_gpu(self.node_id, self.info(), req.gpu_index) if bench.gpu else None
+        gpu = probes.resolve_gpu(self.node_id, self.info(), req.gpu_index) if uses_gpu else None
         if isinstance(gpu, Problem):
             raise Rejected(422, gpu)
         await asyncio.to_thread(metadata.suite_hashes)  # cached; the first call runs git

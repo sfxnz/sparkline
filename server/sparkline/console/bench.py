@@ -159,7 +159,20 @@ def validate_params(spec: BenchSpec, params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def validate_gpu_index(spec: BenchSpec, nodes: list[str], asked: dict[str, int]) -> dict[str, int]:
+def uses_gpu(bench_id: str, params: dict[str, Any]) -> bool:
+    bench = AGENT_REGISTRY.get(bench_id)
+    if bench is None:
+        return True
+    try:
+        return bench.uses_gpu(bench.validate(params))
+    except ValidationError:  # an agent of another release: its params are not this console's
+        return bench.gpu
+
+
+def validate_gpu_index(
+    spec: BenchSpec, nodes: list[str], asked: dict[str, int], params: dict[str, Any]
+) -> dict[str, int]:
+    gpu = uses_gpu(spec.id, params)
     for n, i in asked.items():
         if n not in nodes:
             raise BenchError(
@@ -181,6 +194,15 @@ def validate_gpu_index(spec: BenchSpec, nodes: list[str], asked: dict[str, int])
                     fix=f"Leave out the GPU for {n}, or update sparkline-agent on {n}",
                 ),
             )
+        if not gpu:
+            raise BenchError(
+                400,
+                Problem(
+                    message=f"The CPU side of {spec.name} runs on no GPU",
+                    cause=f"GPU {i} was chosen for {n}, and the run measures from the CPU only",
+                    fix=f"Leave out the GPU for {n}, or measure from the GPU",
+                ),
+            )
         opt = next((o for o in opts if o.index == i), None)
         if opt is None:
             raise BenchError(
@@ -193,6 +215,8 @@ def validate_gpu_index(spec: BenchSpec, nodes: list[str], asked: dict[str, int])
             )
         if opt.problem is not None:
             raise BenchError(400, opt.problem)
+    if not gpu:
+        return {}
     out = dict(asked)
     for n in nodes:
         first = next((o.index for o in spec.gpu_options.get(n, []) if o.problem is None), None)
@@ -680,7 +704,7 @@ class BenchManager:
                 400,
                 Problem(message="Invalid benchmark parameters", cause=str(e), fix="Correct it and try again"),
             ) from None
-        gpu_index = validate_gpu_index(spec, nodes, body.gpu_index)
+        gpu_index = validate_gpu_index(spec, nodes, body.gpu_index, params)
         now = time.time()
         run_id = new_run_id(now)
         while run_id in self.active or self.store.get(run_id) is not None:  # same ms + same suffix

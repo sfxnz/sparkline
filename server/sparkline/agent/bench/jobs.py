@@ -76,7 +76,7 @@ async def mem_bandwidth(job: Job, p: MemBandwidthParams) -> None:
     if eff := _cores(job, "efficiency"):
         args += ["--cores-eff", _csv(eff)]
     job.progress(0.0, "Starting container")
-    await job.run(job.docker_argv("mem_bw.py", args, gpus=dev == "cuda" and p.side != "cpu"))
+    await job.run(job.docker_argv("mem_bw.py", args, gpus=dev == "cuda" and p.needs_gpu()))
 
 
 async def cpu_throughput(job: Job, p: CpuThroughputParams) -> None:

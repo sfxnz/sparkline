@@ -62,6 +62,7 @@ from .bench import (
     rail_ip,
     regression_title,
     threshold_text,
+    uses_gpu,
 )
 from .bench_store import BenchStore
 from .cluster import Cluster
@@ -150,6 +151,11 @@ TE_SPEED = {"median_turn_ms", "responsiveness", "deployability"}
 
 def _modelled(bench: str, info: NodeInfo | None) -> dict[str, str]:
     return {MODELLED_KEY: MODELLED_ON} if bench in GB10_SPEEDS and not is_gb10(info) else {}
+
+
+def _gpu_load(bench: str, params: dict[str, Any]) -> float:
+    b = AGENT_REGISTRY.get(bench)
+    return 0.0 if b is not None and b.gpu and not uses_gpu(bench, params) else GPU_LOAD.get(bench, 0.0)
 
 
 def _unestimated(bench: str, params: dict[str, Any], info: NodeInfo | None) -> dict[str, None]:
@@ -1906,8 +1912,12 @@ class DemoBench:
             )
         params = validate(req.bench_id, req.params)
         info = self.cluster.sources[node].state.info
+        bench = AGENT_REGISTRY[req.bench_id]
         gpu: probes.GpuTarget | None = None
-        if AGENT_REGISTRY[req.bench_id].gpu and info is not None:
+        if not uses_gpu(req.bench_id, params):
+            if req.gpu_index is not None:
+                raise BenchError(400, probes.unused_gpu(bench.name, bench.gpu, req.gpu_index))
+        elif info is not None:
             target = probes.resolve_gpu(node, info, req.gpu_index)
             if isinstance(target, Problem):
                 raise BenchError(400, target)
@@ -1964,7 +1974,7 @@ class DemoBench:
         p = req.params
         rng = random.Random(f"{req.run_id}{sim.node}")
         t0 = time.time()
-        load = GPU_LOAD.get(req.bench_id, 0.0)
+        load = _gpu_load(req.bench_id, p)
         if load and req.role != "server":
             sim.window = BenchWindow(t0, t0 + sim.duration + 1, load, metadata.gpu_index(sim.gpu))
             model.bench_windows.append(sim.window)
@@ -2187,8 +2197,8 @@ def seed_history(
         )
         for n in nodes:
             m = models[n]
-            if bench in GPU_LOAD:
-                m.bench_windows.append(BenchWindow(started, started + dur, GPU_LOAD[bench]))
+            if load := _gpu_load(bench, params):
+                m.bench_windows.append(BenchWindow(started, started + dur, load))
             if bench == "storage-fio":
                 m.disk_windows += storage_windows(params, started, dur)
             first = n == nodes[0]
@@ -2305,8 +2315,7 @@ def _register_windows(store: BenchStore, models: dict[str, DemoNode]) -> None:
         for n in run.nodes:
             if n not in models:
                 continue
-            if run.bench_id in GPU_LOAD:
-                load = GPU_LOAD[run.bench_id]
+            if load := _gpu_load(run.bench_id, run.params):
                 models[n].bench_windows.append(
                     BenchWindow(run.started_ts, run.finished_ts, load, run.gpu_index.get(n, 0))
                 )
