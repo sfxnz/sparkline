@@ -26,6 +26,18 @@ test('a GB10 on the same console keeps the single-GPU layout', async ({ page }) 
   await expect(page.getByRole('region', { name: GPU_SECTION })).toHaveCount(0);
 });
 
+test('a discrete workstation shows system memory with no GPU segment, and one VRAM bar per GPU', async ({ page }) => {
+  await page.goto(`${MIXED}/node/ws1/memory`);
+  const vram = page.getByRole('list', { name: 'VRAM by GPU' }).getByRole('listitem');
+  await expect(vram).toHaveCount(4, { timeout: 15_000 });
+  for (let i = 0; i < 4; i++) await expect(vram.nth(i)).toContainText(new RegExp(`GPU ${String(i)}: \\d+\\.\\d\\sGiB of 48\\.0\\sGiB in use \\(\\d+%\\)`));
+  await expect(page.locator('.t-eyebrow', { hasText: 'memory' })).toHaveText('System memory');
+  await expect(page.getByRole('list', { name: 'Memory breakdown', exact: true })).not.toContainText('GPU-allocated');
+  await expect(page.getByText(/shared by CPU and GPU/)).toHaveCount(0);
+  const results = await new AxeBuilder({ page }).include('.view').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
+  expect(results.violations.map((v) => `${v.impact ?? ''} ${v.id}: ${v.help}`)).toEqual([]);
+});
+
 test('long GPU names on Thermals & Power wrap, so every reading stays in view', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${MIXED}/node/ws1/thermals`);
