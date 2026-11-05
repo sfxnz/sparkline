@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from platforms import GB10
+from platforms import AMD_THREADRIPPER, GB10, INTEL_HYBRID, workstation
 from test_no_private_identifiers import DETECTORS, REAL_LOOKING, findings
 
 from sparkline.agent.capture import OutputUnusable, capture, exercise, facts_of
@@ -264,13 +264,24 @@ def shape(v: Any) -> Any:
     return type(v).__name__
 
 
-def test_a_capture_of_the_gb10_recording_loads_with_no_nvml_misses_and_the_same_node_info_shape(tmp_path):
-    report = capture(recorded(GB10), tmp_path / "out", Facts())
+RECORDED_PLATFORMS: dict[str, Callable[[Path], Sources]] = {
+    "gb10": lambda tmp: recorded(GB10),
+    "4-GPU discrete workstation": workstation,
+    "amd-threadripper": lambda tmp: recorded(AMD_THREADRIPPER),
+    "intel-hybrid": lambda tmp: recorded(INTEL_HYBRID),
+}
+
+
+@pytest.mark.parametrize("platform", RECORDED_PLATFORMS)
+def test_a_capture_of_a_recorded_platform_loads_with_no_nvml_misses_and_the_same_node_info_shape(
+    platform, tmp_path
+):
+    report = capture(RECORDED_PLATFORMS[platform](tmp_path), tmp_path / "out", Facts())
     assert report.differences == []
     replay = recorded(tmp_path / "out")
     info, sample, _ = exercise(replay)
     assert isinstance(replay.nvml, NvmlReplay) and replay.nvml.misses == []
-    original, original_sample, _ = exercise(recorded(GB10))
+    original, original_sample, _ = exercise(RECORDED_PLATFORMS[platform](tmp_path / "original"))
     assert shape(info.model_dump(mode="json")) == shape(original.model_dump(mode="json"))
     assert sorted(flatten(sample)) == sorted(flatten(original_sample))
 
@@ -663,6 +674,20 @@ def test_a_name_that_is_only_a_fixed_word_of_the_recording_records_as_a_name_tha
     kind, name, no_word, tmp_path
 ):
     assert captured_with(kind, name, tmp_path) == captured_with(kind, no_word, tmp_path)
+
+
+@pytest.mark.parametrize("name", ["source", "atom"])
+def test_a_hostname_that_is_only_a_word_of_the_hybrid_pmu_links_records_as_a_hostname_that_is_no_word(
+    name, tmp_path
+):
+    def captured(hostname: str) -> dict[str, bytes]:
+        copy = tmp_path / hostname / "intel-hybrid"
+        shutil.copytree(INTEL_HYBRID, copy, symlinks=True)
+        named("hostname", hostname)(copy)
+        capture_of(copy, tmp_path / hostname / "out")
+        return tree(tmp_path / hostname / "out")
+
+    assert captured(name) == captured("zorbhost")
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
