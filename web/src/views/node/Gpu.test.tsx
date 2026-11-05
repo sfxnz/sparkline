@@ -559,3 +559,65 @@ describe('GPU notice while a GB10 GPU sends nothing for a while', () => {
     expect(note()).toHaveTextContent(/^GPU 0 \(NVIDIA GB10\) not responding: RuntimeError: NVML read failed\. The nvml backend has sent no reading for 12 s\.$/);
   });
 });
+
+describe('GPU processes panel while the node cannot tell which processes use its GPUs', () => {
+  const noGpuMem = (s: Sample): Sample => ({ ...s, procs: (s.procs ?? []).map((p) => ({ ...p, gpu_mem: null })) });
+  const nvmlFails = (p: Platform): Sample => ({ ...p.sample, gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } });
+  const showQuiet = (p: Platform, silent: Sample, seconds: number, info: NodeInfo = p.info) => {
+    const id = info.node_id;
+    liveStore.removeNode(id);
+    useCluster.setState({ clockOffset: 0, nodes: { [id]: { node_id: id, url: '', status: 'online', since: 0, last_sample_ts: TS, error: null, info, next_retry_ts: null } } });
+    act(() => {
+      liveStore.pushSample({ ...noGpuMem(p.sample), ts: TS });
+      for (let t = 1; t <= seconds; t++) liveStore.pushSample({ ...noGpuMem(silent), ts: TS + t });
+      liveStore.flush();
+    });
+    render(
+      <Router hook={memoryLocation({ path: '/' }).hook}>
+        <Gpu nodeId={id} />
+      </Router>,
+    );
+  };
+  const panel = () => screen.getByRole('region', { name: 'GPU processes' });
+  const said = () => within(panel()).getByText(/cannot tell which processes use its/);
+  const why = () => within(said()).getByRole('button', { name: 'Why is this not reported?' });
+
+  it('says a GB10 whose GPU has sent nothing for 5 s cannot tell which processes use its GPU, and why', () => {
+    showQuiet(gb10, nvmlFails(gb10), 5);
+    expect(said()).toHaveTextContent(/^spark1 cannot tell which processes use its GPU Not responding/);
+    expect(why()).toHaveAccessibleDescription(expect.stringContaining(NV_ERROR));
+    expect(panel()).not.toHaveTextContent('No processes are using the GPU');
+  });
+
+  it('says the same of a GB10 whose GPU stays in the sample with every fresh reading empty for 5 s', () => {
+    const empty: Sample = { ...gb10.sample, gpu: gb10.sample.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })) };
+    showQuiet(gb10, empty, 5);
+    expect(said()).toHaveTextContent(/^spark1 cannot tell which processes use its GPU Not responding/);
+    expect(why()).toHaveAccessibleDescription(expect.stringContaining('GPU 0'));
+    expect(panel()).not.toHaveTextContent('No processes are using the GPU');
+  });
+
+  it('says a workstation whose four GPUs have all sent nothing for 5 s cannot tell which processes use its GPUs, and why', () => {
+    showQuiet(workstation, nvmlFails(workstation), 5);
+    expect(said()).toHaveTextContent(/^ws1 cannot tell which processes use its GPUs Not responding/);
+    expect(why()).toHaveAccessibleDescription(expect.stringContaining(NV_ERROR));
+    expect(panel()).not.toHaveTextContent('No processes are using the GPU');
+  });
+
+  it('says a GB10 that declares per-process GPU memory not reported cannot tell, with its declared label', () => {
+    const reason = 'Per-process GPU memory not reported by NVIDIA GB10 (NVML: Not Supported)';
+    showQuiet(gb10, gb10.sample, 1, { ...gb10.info, unsupported: [...gb10.info.unsupported, { metric: 'gpu0.proc_mem', reason, kind: 'hardware' }] });
+    expect(said()).toHaveTextContent(/^spark1 cannot tell which processes use its GPU Not reported by this hardware/);
+    expect(why()).toHaveAccessibleDescription(reason);
+  });
+
+  it('marks "no processes on the GPU" with the GPUs it reads while GPU 2 of four has sent nothing for 5 s', () => {
+    showQuiet(workstation, { ...workstation.sample, gpu: workstation.sample.gpu.filter((g) => g.index !== 2) }, 5);
+    expect(within(panel()).getByText('No processes are using the GPU right now (3 of 4 GPUs).')).toBeInTheDocument();
+  });
+
+  it('says no process uses the GPU on a healthy GB10 that runs none', () => {
+    showQuiet(gb10, gb10.sample, 5);
+    expect(within(panel()).getByText('No processes are using the GPU right now.')).toBeInTheDocument();
+  });
+});
