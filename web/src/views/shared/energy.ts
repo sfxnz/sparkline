@@ -127,14 +127,17 @@ export const sameStops = (a: readonly GpuStop[], b: readonly GpuStop[]) =>
 /** "16:13": the local time of a reading. */
 export const formatHm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
+/** "until 16:13", or "until its last reading" when the time is unknown ("their last readings" for `many`). */
+export const untilText = (at: number | null, many = false) => `until ${at === null ? (many ? 'their last readings' : 'its last reading') : formatHm(at)}`;
+
 /** "GPU 2 until 16:13", "GPUs 1 and 2 until 16:13", "GPU 1 until 09:05 and GPU 2 until its last reading". */
 export function stopsText(stops: readonly GpuStop[]): string {
-  const byMinute = new Map<string, number[]>();
+  const byMinute = new Map<string, GpuStop[]>();
   for (const s of stops) {
     const hm = s.at === null ? '' : formatHm(s.at);
-    byMinute.set(hm, [...(byMinute.get(hm) ?? []), s.index]);
+    byMinute.set(hm, [...(byMinute.get(hm) ?? []), s]);
   }
-  return andList([...byMinute].map(([hm, indexes]) => `${gpuList(indexes)} until ${hm || (indexes.length > 1 ? 'their last readings' : 'its last reading')}`));
+  return andList([...byMinute.values()].map((g) => `${gpuList(g.map((s) => s.index))} ${untilText(g[0]?.at ?? null, g.length > 1)}`));
 }
 
 export const joulesToKwh = (j: number) => j / J_PER_KWH;

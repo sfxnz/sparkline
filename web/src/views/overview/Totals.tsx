@@ -11,7 +11,7 @@ import type { NodeState } from '../../lib/types';
 import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
-import { formatEnergyCost, formatHm, formatKwh } from '../shared/energy';
+import { formatEnergyCost, formatHm, formatKwh, stopsText, untilText } from '../shared/energy';
 import { excl } from '../shared/totalGap';
 import { nodeUtil, shallowEqual, useAcross, useEnergyToday, useOnlineIds, utilGpusRead } from './hooks';
 import { clusterTotals, gpuProcesses } from './model';
@@ -127,6 +127,7 @@ export function Totals() {
                 {energy.empty.length ? ` · ${excl(energy.empty)} (no energy reading today)` : ''}
                 {rate ? ` · ${formatEnergyCost(energy.joules, rate.energy_rate_per_kwh, rate.currency)}` : ''}
                 {Object.entries(energy.until).map(([id, ts]) => ` · ${id} until ${formatHm(ts)}`).join('')}
+                {Object.entries(energy.stops).map(([id, stops]) => ` · ${id} ${(infos[id]?.info?.gpus.length ?? 0) > 1 ? stopsText(stops) : untilText(stops[0]?.at ?? null)}`).join('')}
               </span>
             )
           }

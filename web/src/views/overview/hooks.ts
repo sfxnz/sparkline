@@ -8,10 +8,10 @@ import type { HistoryResponse, NodeInfo, NodeState, NodeStatus } from '../../lib
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
 import { liveStore } from '../../store/live';
-import { energyKeys, sumCounters } from '../shared/energy';
+import { energyKeys, gpuStops, sameStops, sumCounters, type GpuStop } from '../shared/energy';
 import { loadSpan } from '../shared/live';
 import { useShallow } from 'zustand/react/shallow';
-import { useLiveConditions } from '../../store/attention';
+import { quietGpusOf, useLiveConditions } from '../../store/attention';
 import { openAlerts, useEvents } from '../../store/events';
 import { breathLevel, clusterHealth, clusterTotals, openAlertCounts, type Health, type NodeNumbers } from './model';
 
@@ -186,16 +186,22 @@ export interface EnergyToday {
   empty: string[];
   /** Nodes counted up to their last reading because they are not reporting now: id -> time of that reading. */
   until: Record<string, number>;
+  /** Nodes reporting now with quiet GPUs (quietGpusOf), which the total counts only until their counters last moved. */
+  stops: Record<string, GpuStop[]>;
   loading: boolean;
 }
+
+const sameNodeStops = (a: Record<string, GpuStop[]>, b: Record<string, GpuStop[]>) =>
+  Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([id, s]) => sameStops(s, b[id] ?? []));
 
 /**
  * GPU (rail) energy since local midnight, summed over `ids` and each node's GPUs, computed exactly as the Thermals
  * tab does (sumCounters): the counters' history since midnight, refreshed every minute, extended with the live
  * readings. A node that stops reporting keeps its last good history, so the day's total never goes down; it counts
- * up to its last reading and is listed in `until`. Only a node whose history never loaded is left out (`missing`), a
- * node whose history holds no energy reading (`empty`), and a node with a GPU that has no energy counter (a partial
- * sum would understate).
+ * up to its last reading and is listed in `until`. A quiet GPU of a node still reporting counts up to its counter's
+ * last move and is listed in `stops`. Only a node whose history never loaded is left out (`missing`), a node whose
+ * history holds no energy reading (`empty`), and a node with a GPU that has no energy counter (a partial sum would
+ * understate).
  */
 export function useEnergyToday(ids: readonly string[]): EnergyToday {
   const nodes = useCluster((s) => s.nodes);
@@ -238,17 +244,24 @@ export function useEnergyToday(ids: readonly string[]): EnergyToday {
     () => {
       let sum: number | null = null;
       const empty: string[] = [];
+      const stops: Record<string, GpuStop[]> = {};
       for (const id of ids) {
+        const info = nodes[id]?.info;
         const r = data[id];
-        if (!r || gpuSetGap(nodes[id]?.info, 'energy_j', 'every')) continue;
+        if (!r || gpuSetGap(info, 'energy_j', 'every')) continue;
         const j = sumCounters(r, keysOf(id), (k, t) => liveStore.window(id, [k], t).values[0] ?? []);
-        if (j === null) empty.push(id);
-        else sum = (sum ?? 0) + j;
+        if (j === null) {
+          empty.push(id);
+          continue;
+        }
+        sum = (sum ?? 0) + j;
+        const quiet = quietGpusOf(id, info);
+        if (quiet.length) stops[id] = gpuStops(liveStore, id, quiet);
       }
       // 0.0001 kWh steps: the display has 3 significant figures, so finer changes are invisible.
-      return { joules: sum === null ? null : Math.round(sum / 360) * 360, empty: empty.join('\n') };
+      return { joules: sum === null ? null : Math.round(sum / 360) * 360, empty: empty.join('\n'), stops };
     },
-    shallowEqual,
+    (a, b) => a.joules === b.joules && a.empty === b.empty && sameNodeStops(a.stops, b.stops),
     `${bases.key}|${String(bases.at)}`,
   );
   const missing = ids.filter((id) => data[id] === null);
@@ -260,7 +273,9 @@ export function useEnergyToday(ids: readonly string[]): EnergyToday {
     const last = liveStore.lastTs(id) ?? nodes[id]?.last_sample_ts ?? null;
     if (last !== null) until[id] = last;
   }
-  return { joules: sums.joules, missing, empty, until, loading: !loaded };
+  // Filtered on each render, not in the cached sum, so a node that stops reporting moves to `until` at once.
+  const stops = Object.fromEntries(Object.entries(sums.stops).filter(([id]) => nodes[id]?.status === 'online'));
+  return { joules: sums.joules, missing, empty, until, stops, loading: !loaded };
 }
 
 // ------------------------------------------------------------------------------------------------ breathing glow
