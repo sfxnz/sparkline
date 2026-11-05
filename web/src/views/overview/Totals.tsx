@@ -102,6 +102,17 @@ export function Totals() {
   const energyExcl = [...new Set([...energyGaps.excl, ...energy.missing])];
   const powerOnly = power.excl.filter((id) => !energyExcl.includes(id));
   const nowExcl = powerOnly.length ? `Now ${excl(powerOnly)} · ` : '';
+  const today = (prefix: string) =>
+    energy.joules === null ? null : (
+      <span className="num">
+        {prefix}Today {formatKwh(energy.joules)}
+        {exclText(energyExcl)}
+        {energy.empty.length ? ` · ${excl(energy.empty)} (no energy reading today)` : ''}
+        {rate ? ` · ${formatEnergyCost(energy.joules, rate.energy_rate_per_kwh, rate.currency)}` : ''}
+        {Object.entries(energy.until).map(([id, ts]) => ` · ${id} until ${formatHm(ts)}`).join('')}
+        {Object.entries(energy.stops).map(([id, stops]) => ` · ${id} ${(infos[id]?.info?.gpus.length ?? 0) > 1 ? stopsText(stops) : untilText(stops[0]?.at ?? null)}`).join('')}
+      </span>
+    );
   const unified = ids.every((id) => memoryLayout(infos[id]?.info).name === 'Unified memory');
 
   return (
@@ -115,22 +126,8 @@ export function Totals() {
           format={wattsParts}
           {...staleProps}
           unsupported={power.gap}
-          footer={
-            energy.loading ? (
-              <Skeleton width={150} height={12} />
-            ) : energy.joules === null ? (
-              `${nowExcl}Energy today unavailable${exclText(energyGaps.excl)}`
-            ) : (
-              <span className="num">
-                {nowExcl}Today {formatKwh(energy.joules)}
-                {exclText(energyExcl)}
-                {energy.empty.length ? ` · ${excl(energy.empty)} (no energy reading today)` : ''}
-                {rate ? ` · ${formatEnergyCost(energy.joules, rate.energy_rate_per_kwh, rate.currency)}` : ''}
-                {Object.entries(energy.until).map(([id, ts]) => ` · ${id} until ${formatHm(ts)}`).join('')}
-                {Object.entries(energy.stops).map(([id, stops]) => ` · ${id} ${(infos[id]?.info?.gpus.length ?? 0) > 1 ? stopsText(stops) : untilText(stops[0]?.at ?? null)}`).join('')}
-              </span>
-            )
-          }
+          footer={energy.loading ? <Skeleton width={150} height={12} /> : (today(nowExcl) ?? `${nowExcl}Energy today unavailable${exclText(energyGaps.excl)}`)}
+          gapFooter={today('')}
         />
         <Stat
           label={unified ? 'Unified memory in use' : 'System memory in use'}
