@@ -29,6 +29,7 @@ const push = (procs: ProcSample[] | null) => {
   });
 };
 const node: NodeState = { node_id: NODE, url: 'http://x:9750', status: 'online', since: ts, last_sample_ts: ts, error: null, info: null, next_retry_ts: null };
+const gb10 = { gpus: [{ index: 0, name: 'NVIDIA GB10', vendor: 'nvidia', backend: 'nvml', memory: 'unified' }], mem_total: 128 * GiB, unsupported: [] } as unknown as NodeInfo;
 const bodyRows = () => within(screen.getAllByRole('rowgroup')[1] as HTMLElement).getAllByRole('row');
 
 describe('Processes tab', () => {
@@ -100,14 +101,13 @@ describe('Processes tab', () => {
     unmount();
     push([]);
     render(<Processes nodeId={NODE} />);
-    expect(screen.getByText('No processes reported')).toBeInTheDocument();
+    expect(screen.getByText('No processes reported', { selector: '.state__title' })).toBeInTheDocument();
   });
 });
 
 describe('Processes tab on a node that cannot tell its GPU processes', () => {
   const NO_NVML = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
   const idle = [proc(10, { name: 'dockerd' }), proc(11, { name: 'bash' })];
-  const gb10 = { gpus: [{ index: 0, name: 'NVIDIA GB10', vendor: 'nvidia', backend: 'nvml', memory: 'unified' }], mem_total: 128 * GiB, unsupported: [] } as unknown as NodeInfo;
   const show = (info: NodeInfo, sample: Partial<Sample>, ticks = 1) => {
     sessionStorage.clear();
     liveStore.removeNode(NODE);
@@ -152,9 +152,11 @@ describe('Processes tab with an empty process list', () => {
     useCluster.setState({ clockOffset: 0, nodes: { [NODE]: node } });
   });
 
-  it('gives no count of consumers, and says when the list refreshes', () => {
+  it('says no processes are reported on a healthy GB10 that sends an empty list, and when the list refreshes', () => {
+    useCluster.setState({ nodes: { [NODE]: { ...node, info: gb10 } } });
     push([]);
     render(<Processes nodeId={NODE} />);
+    expect(screen.getByText('No processes reported', { selector: '.panel__subtitle' })).toBeInTheDocument();
     expect(screen.queryByText(/biggest/)).not.toBeInTheDocument();
     expect(screen.getByText(refreshes)).toBeInTheDocument();
   });
