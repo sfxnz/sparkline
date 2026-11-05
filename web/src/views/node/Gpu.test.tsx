@@ -522,3 +522,40 @@ describe('GPU tab while one GPU stays in the sample with every fresh reading emp
     expect(within(section(1)).queryByText(/not responding/i)).not.toBeInTheDocument();
   });
 });
+
+describe('GPU notice while a GB10 GPU sends nothing for a while', () => {
+  const empty: Sample = { ...gb10.sample, gpu: gb10.sample.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })) };
+  const missing: Sample = { ...gb10.sample, gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } };
+  const showFor = (seconds: number, silent: Sample) => {
+    const id = gb10.info.node_id;
+    liveStore.removeNode(id);
+    useCluster.setState({ clockOffset: 0, nodes: { [id]: { node_id: id, url: '', status: 'online', since: 0, last_sample_ts: TS, error: null, info: gb10.info, next_retry_ts: null } } });
+    act(() => {
+      liveStore.pushSample({ ...gb10.sample, ts: TS });
+      for (let t = 1; t <= seconds; t++) liveStore.pushSample({ ...silent, ts: TS + t });
+      liveStore.flush();
+    });
+    render(<Gpu nodeId={id} />);
+  };
+  const note = () => screen.queryByRole('list', { name: 'Metrics unavailable' });
+
+  it('shows no note after one tick a GPU kept in the sample sent only held readings', () => {
+    showFor(1, empty);
+    expect(note()).toBeNull();
+  });
+
+  it('names such a GPU once it is quiet, and says how long it has sent nothing', () => {
+    showFor(12, empty);
+    expect(note()).toHaveTextContent(/^GPU 0 \(NVIDIA GB10\) not responding: The nvml backend has sent no reading for 12 s\.$/);
+  });
+
+  it('counts minutes past the first one', () => {
+    showFor(180, empty);
+    expect(note()).toHaveTextContent(/^GPU 0 \(NVIDIA GB10\) not responding: The nvml backend has sent no reading for 3 min\.$/);
+  });
+
+  it('keeps the backend error and says how long, for a GPU its backend dropped', () => {
+    showFor(12, missing);
+    expect(note()).toHaveTextContent(/^GPU 0 \(NVIDIA GB10\) not responding: RuntimeError: NVML read failed\. The nvml backend has sent no reading for 12 s\.$/);
+  });
+});
