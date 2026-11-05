@@ -1,10 +1,12 @@
 import { CircleCheck, Hourglass, TriangleAlert } from 'lucide-react';
+import { useMemo } from 'react';
 import { TimeSeriesChart, type SeriesSpec, type StackLayer } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { NoData, Unsupported } from '../../design/components/Unsupported';
 import { notReported } from '../../lib/capabilities';
 import { bytesParts, formatBytes, formatPercent } from '../../lib/format';
+import { memoryLayout } from '../../lib/memoryLayout';
 import type { Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useLatest } from '../../store/live';
@@ -17,6 +19,7 @@ import { MemoryHero } from './parts/MemoryHero';
 import { CollectorErrors } from './parts/Notices';
 import { ProcTable } from './parts/ProcTable';
 import { memSwapUsed } from './parts/selectors';
+import { VramPanel } from './parts/VramPanel';
 import type { NodeTabProps } from './tabs';
 
 const STACK: readonly StackLayer[] = [
@@ -27,6 +30,7 @@ const STACK: readonly StackLayer[] = [
   { key: 'mem.other', label: 'Other', className: 'mem-c-other' },
   { key: 'mem.cache', label: 'Page cache', className: 'mem-c-cache', hatched: true },
 ];
+const SYSTEM_STACK = STACK.filter((l) => l.key !== 'mem.gpu');
 const PSI: readonly SeriesSpec[] = [
   { key: 'mem.psi_some', label: 'Some stalled' },
   { key: 'mem.psi_full', label: 'All stalled' },
@@ -38,17 +42,19 @@ export default function Memory({ nodeId }: NodeTabProps) {
   const total = info?.mem_total;
   const swapTotal = info?.swap_total ?? null;
   const psiGap = PSI.every((s) => notReported(info, s.key));
+  const layout = useMemo(() => memoryLayout(info), [info]);
 
   return (
     <div className="view">
       <CollectorErrors nodeId={nodeId} only={['memory']} />
-      <Panel label="Unified memory">
-        <MemoryHero nodeId={nodeId} total={total ?? null} />
+      <Panel label={layout.name}>
+        <MemoryHero nodeId={nodeId} total={total ?? null} layout={layout} />
       </Panel>
+      {layout.dedicated.length ? <VramPanel nodeId={nodeId} gpus={layout.dedicated} /> : null}
 
       <div className="nmem__grid">
         <Panel title="Breakdown over time" subtitle="Stacked: each layer sits on the ones below; the space above is free memory">
-          <TimeSeriesChart node={nodeId} title="Unified memory breakdown" stack series={STACK} format={formatBytes} yMin={0} yMax={total} yIncrs={BYTE_INCRS} height={292} />
+          <TimeSeriesChart node={nodeId} title={`${layout.name} breakdown`} stack series={layout.sharesRam ? STACK : SYSTEM_STACK} format={formatBytes} yMin={0} yMax={total} yIncrs={BYTE_INCRS} height={292} />
         </Panel>
         <div className="nmem__side">
           <Panel title="Memory pressure" subtitle="Share of time processes waited for memory">
@@ -68,7 +74,7 @@ export default function Memory({ nodeId }: NodeTabProps) {
         </div>
       </div>
 
-      <Panel title="Top memory consumers" subtitle="Resident memory plus GPU allocations, which share the same pool" flush>
+      <Panel title="Top memory consumers" subtitle={layout.sharesRam ? 'Resident memory plus GPU allocations, which share the same pool' : 'Resident memory. GPU memory sits on each card, so it is listed apart'} flush>
         <ProcTable nodeId={nodeId} mode="memory" />
       </Panel>
     </div>

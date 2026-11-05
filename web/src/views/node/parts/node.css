@@ -359,6 +359,20 @@
 .nmem-note { display: flex; gap: var(--space-2); align-items: flex-start; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 .nmem-note svg { flex: none; width: 14px; height: 14px; margin-top: 1px; color: var(--text-3); }
 
+.nvram { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-5) var(--space-6); margin: 0; padding: 0; list-style: none; }
+.nvram__gpu { display: grid; gap: var(--space-2); align-content: start; min-width: 0; }
+.nvram__head { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.nvram__name { flex: none; font-size: var(--fs-callout); line-height: var(--lh-callout); font-weight: 600; color: var(--text-1); }
+.nvram__model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
+.nvram__value { display: flex; align-items: baseline; gap: var(--space-2); min-height: 28px; }
+.nvram__used { font-size: var(--fs-title3); line-height: var(--lh-title3); font-weight: 650; color: var(--text-1); }
+.nvram__of { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+.nvram__pct { margin-left: auto; font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: 600; color: var(--text-2); }
+.nvram__bar { height: 8px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
+.nvram__bar > span { display: block; height: 100%; border-radius: inherit; transition: width var(--dur-slow) var(--ease-out); }
+.nvram__bar--empty { background: repeating-linear-gradient(135deg, var(--fill-2) 0 4px, transparent 4px 8px); }
+.nvram--stale .nvram__bar { opacity: 0.45; transition: opacity var(--dur-base) var(--ease-out); }
+
 .nmem__grid { display: grid; gap: var(--space-5); grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); }
 @media (max-width: 1100px) {
   .nmem__grid { grid-template-columns: minmax(0, 1fr); }
@@ -421,6 +435,7 @@
 .nmem-hero--stale .nmem-hero__headline *,
 .nmem-hero--stale .nmem-hero__headline,
 .nmem-hero--stale .memlegend * ,
+.nvram--stale .nvram__value *,
 .ntable--stale td,
 .ntable--stale td :not(.procs__badge, .procs__badge *),
 .npsi--stale.npsi--stale * { color: var(--text-3); }
