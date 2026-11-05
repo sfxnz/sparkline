@@ -315,7 +315,7 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     expect(stat(card, 'GPU power')).toHaveTextContent('No total');
     expect(why(stat(card, 'GPU power'))).toHaveAccessibleDescription('GPU 2 sent no power reading this tick, so a sum would understate.');
     expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C/);
-    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 74% at 24\.5 W · excl\. ws1$/);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 82% at 24\.5 W · excl\. ws1$/);
     expect(tile('GPU power')).toHaveTextContent(/^GPU power24\.5W/);
     expect(await within(tile('GPU power')).findByText(/^Now excl\. ws1 · Today \d/)).not.toHaveTextContent(/Today.*excl\./);
     expect(tile('Cluster compute')).not.toHaveTextContent('excl.');
@@ -713,5 +713,13 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
       expect(stat(c, label)).toHaveTextContent('Not responding');
       expect(why(stat(c, label))).toHaveAccessibleDescription(`GPUs 0, 1, 2 and 3 not responding (${NVML_DOWN}).`);
     }
+  });
+
+  it('averages utilisation over GPUs, so a GB10 at 0 % beside ws1 at 100 % on four GPUs reads 80 %', () => {
+    const idle = gb10Reading('spark1', { gpu: (gb10Sample as unknown as Sample).gpu.map((g) => ({ ...g, util: 0 })) });
+    const busy = { ...(wsSample as unknown as Sample), ts: now, gpu: (wsSample as unknown as Sample).gpu.map((g) => ({ ...g, util: 100 })) };
+    show([[gb10('spark1'), idle], [wsInfo as unknown as NodeInfo, busy]]);
+    expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute80%/);
+    expect(hero()).toHaveTextContent(/GPU 80% at /);
   });
 });

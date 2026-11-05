@@ -84,4 +84,13 @@ describe('the wall says why it cannot read a node', () => {
     show([[gb10('spark1'), gb10Reading('spark1')], [gb10('spark2'), backendDown(gb10Reading('spark2'))]]);
     expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/·24\.5 W GPU power · excl\. spark2$/);
   });
+
+  it('averages utilisation over GPUs, so a GB10 at 0 % beside ws1 at 100 % on four GPUs reads 80 %', () => {
+    const reading = wsSample as unknown as Sample;
+    show([
+      [gb10('spark1'), gb10Reading('spark1', { gpu: (gb10Sample as unknown as Sample).gpu.map((g) => ({ ...g, util: 0 })) })],
+      [wsInfo as unknown as NodeInfo, { ...reading, ts: now, gpu: reading.gpu.map((g) => ({ ...g, util: 100 })) }],
+    ]);
+    expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/^GPU 80% across 2 live nodes·/);
+  });
 });
