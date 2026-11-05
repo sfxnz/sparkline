@@ -1287,7 +1287,7 @@ def run_the_command(
     )
 
     def no_core_file() -> None:
-        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, resource.getrlimit(resource.RLIMIT_CORE)[1]))
 
     return subprocess.run(
         [sys.executable, "-c", script],
@@ -1317,11 +1317,49 @@ def test_a_warning_prints_only_its_category(env, tmp_path):
     assert USER not in run.stderr and "zorbsecret" not in run.stderr
 
 
-def test_a_crash_prints_nothing_when_python_was_asked_for_faulthandler(tmp_path):
-    crashes = "import os, signal\ncli.live = lambda: os.kill(os.getpid(), signal.SIGSEGV)\n"
-    run = run_the_command(tmp_path / "out", crashes, {"PYTHONFAULTHANDLER": "1"})
-    assert run.returncode == -signal.SIGSEGV
-    assert run.stderr == ""
+def asked_while_capturing(question: str) -> str:
+    return (
+        "live = cli.live\n"
+        "def asked():\n"
+        f"    print('asked:', {question})\n"
+        "    return live()\n"
+        "cli.live = asked\n"
+    )
+
+
+def test_faulthandler_is_off_while_capturing_even_when_python_was_asked_for_it(tmp_path):
+    asks = "import faulthandler\n" + asked_while_capturing("faulthandler.is_enabled()")
+    run = run_the_command(tmp_path / "out", asks, {"PYTHONFAULTHANDLER": "1"})
+    assert run.returncode == 0
+    assert "asked: False" in run.stdout.splitlines()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PR_GET_DUMPABLE is a Linux prctl")
+def test_no_core_dump_can_hold_the_memory_of_a_capture(tmp_path):
+    pr_get_dumpable = 3
+    asks = "import ctypes, resource\n" + asked_while_capturing(
+        f"ctypes.CDLL(None).prctl({pr_get_dumpable}, 0, 0, 0, 0), resource.getrlimit(resource.RLIMIT_CORE)"
+    )
+    run = run_the_command(tmp_path / "out", asks)
+    assert run.returncode == 0
+    assert "asked: 0 (0, 0)" in run.stdout.splitlines()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_DUMPABLE is a Linux prctl")
+def test_a_capture_that_cannot_turn_off_core_dumps_does_not_start(tmp_path):
+    refused = (
+        "import ctypes\n"
+        "class NoPrctl:\n"
+        "    def prctl(self, *args):\n"
+        "        return -1\n"
+        "ctypes.CDLL = lambda *args, **kwargs: NoPrctl()\n"
+    )
+    out = tmp_path / "out"
+    run = run_the_command(out, refused)
+    assert run.returncode == 4
+    assert "sparkline-capture failed with OSError (message not shown)." in run.stderr.splitlines()
+    assert "Traceback" not in run.stderr
+    assert not out.exists()
 
 
 def signalled_while_archiving(signum: int, *, while_cleaning_up: bool = False) -> str:
