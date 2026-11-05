@@ -121,20 +121,52 @@ describe('Processes tab on a node that cannot tell its GPU processes', () => {
     return render(<Processes nodeId={NODE} />);
   };
   const subtitle = () => screen.getByText(/^The \d+ biggest/);
+  const why = () => within(subtitle()).getByRole('button', { name: 'Why is this not reported?' });
 
-  it('says only how many consumers it lists on a node without NVML', () => {
+  it('says a node without NVML cannot tell which processes use its GPUs, and why', () => {
     const noNvml = { gpus: [], mem_total: 128 * GiB, unsupported: [{ metric: 'gpu*', reason: NO_NVML, kind: 'dependency' }, { metric: 'mem.gpu', reason: NO_NVML, kind: 'dependency' }] } as unknown as NodeInfo;
     show(noNvml, { gpu: [] });
-    expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers$/);
+    expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers · ptest cannot tell which processes use its GPUs Helper tool missing/);
+    expect(why()).toHaveAccessibleDescription(NO_NVML);
   });
 
-  it('says only how many consumers it lists once the GPU has sent no reading for 5 s', () => {
+  it('says a GB10 whose GPU has sent no reading for 5 s cannot tell which processes use its GPU, and why', () => {
     show(gb10, { gpu: [], errors: { gpu: 'nvml: RuntimeError: NVML read failed' } }, 6);
-    expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers$/);
+    expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers · ptest cannot tell which processes use its GPU Not responding/);
+    expect(why()).toHaveAccessibleDescription('RuntimeError: NVML read failed');
   });
 
   it('still counts none on the GPU on a GB10 that reports and runs none', () => {
     show(gb10, {});
     expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers · 0 on the GPU$/);
+  });
+});
+
+describe('Processes tab with an empty process list', () => {
+  const NO_NVML = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+  const refreshes = `${NODE} sent an empty process list. It refreshes every 5 seconds.`;
+  beforeEach(() => {
+    sessionStorage.clear();
+    liveStore.removeNode(NODE);
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: node } });
+  });
+
+  it('gives no count of consumers, and says when the list refreshes', () => {
+    push([]);
+    render(<Processes nodeId={NODE} />);
+    expect(screen.queryByText(/biggest/)).not.toBeInTheDocument();
+    expect(screen.getByText(refreshes)).toBeInTheDocument();
+  });
+
+  it('still says a node without NVML cannot tell which processes use its GPUs, and why', () => {
+    const noNvml = { gpus: [], mem_total: 128 * GiB, unsupported: [{ metric: 'gpu*', reason: NO_NVML, kind: 'dependency' }] } as unknown as NodeInfo;
+    useCluster.setState({ nodes: { [NODE]: { ...node, info: noNvml } } });
+    push([]);
+    render(<Processes nodeId={NODE} />);
+    const said = screen.getByText(/cannot tell which processes use its GPUs/);
+    expect(said).toHaveTextContent(/^ptest cannot tell which processes use its GPUs Helper tool missing/);
+    expect(within(said).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(NO_NVML);
+    expect(screen.queryByText(/biggest/)).not.toBeInTheDocument();
+    expect(screen.getByText(refreshes)).toBeInTheDocument();
   });
 });
