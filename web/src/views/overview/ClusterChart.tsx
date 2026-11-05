@@ -8,6 +8,7 @@ import type { TimeRange } from '../../lib/prefs';
 import { useCluster } from '../../store/cluster';
 import { usePrefs } from '../../store/prefs';
 import { ChartSkeleton } from '../placeholders';
+import { useTotalFrom } from '../shared/totalGap';
 
 const TimeSeriesChart = lazy(() => import('../../charts/TimeSeriesChart').then((m) => ({ default: m.TimeSeriesChart })));
 
@@ -22,21 +23,26 @@ const RANGE_TEXT: Record<TimeRange, string> = {
 const CHART_H = 128;
 const pct = (n: number) => formatPercent(n);
 
+function NodeRow({ id }: { id: string }) {
+  const info = useCluster((s) => s.nodes[id]?.info);
+  const from = useTotalFrom(id, 'util');
+  return (
+    <div className="ov-chart__row">
+      <TimeSeriesChart node={id} title={`${id} GPU utilisation`} series={[{ key: nodeGpuKey(info, 'util'), label: from ? `${id} (${from})` : id }]} format={pct} yMin={0} yMax={100} height={CHART_H} />
+      <TimeSeriesChart node={id} title={`${id} GPU power`} series={[{ key: nodeGpuKey(info, 'power_w'), label: id }]} format={formatWatts} yMin={0} yGroup="overview-gpu-power" height={CHART_H} />
+    </div>
+  );
+}
+
 export function ClusterChart({ nodes }: { nodes: readonly string[] }) {
   const range = usePrefs((s) => s.timeRange);
-  const infos = useCluster((s) => s.nodes);
   return (
     <Suspense fallback={<ClusterChartSkeleton rows={nodes.length} />}>
       <Panel title="GPU activity" subtitle={`Utilisation and GPU power per node, on shared scales · ${RANGE_TEXT[range]}`}>
         <div className="ov-chart">
           <span className="ov-chart__col t-eyebrow" aria-hidden="true">Utilisation</span>
           <span className="ov-chart__col t-eyebrow" aria-hidden="true">GPU power</span>
-          {nodes.map((id) => (
-            <div key={id} className="ov-chart__row">
-              <TimeSeriesChart node={id} title={`${id} GPU utilisation`} series={[{ key: nodeGpuKey(infos[id]?.info, 'util'), label: id }]} format={pct} yMin={0} yMax={100} height={CHART_H} />
-              <TimeSeriesChart node={id} title={`${id} GPU power`} series={[{ key: nodeGpuKey(infos[id]?.info, 'power_w'), label: id }]} format={formatWatts} yMin={0} yGroup="overview-gpu-power" height={CHART_H} />
-            </div>
-          ))}
+          {nodes.map((id) => <NodeRow key={id} id={id} />)}
         </div>
       </Panel>
     </Suspense>
