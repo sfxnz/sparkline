@@ -874,6 +874,29 @@ CASES = [
         for script, name in NAMES_WITH_MARKS.items()
         for part, word in zip(("given name", "surname"), name.split(), strict=True)
     ),
+    *(
+        Case(
+            f"{part} alone in free text",
+            "refused",
+            (word,),
+            f"{word} lab",
+            full_name(name),
+            because="full name",
+        )
+        for part, name, word in (
+            ("Greek surname without its tonos", "Ζορμπίνα Κουξλέη", "Κουξλεη"),
+            ("Greek surname in capitals, which drop the tonos", "Ζορμπίνα Κουξλέη", "ΚΟΥΞΛΕΗ"),
+            ("Cyrillic surname with ё written е", "Зорбина Квуксёлева", "Квукселева"),
+            ("Hebrew surname without its points", NAMES_WITH_MARKS["Hebrew with points"], "קווקסלי"),
+            ("Arabic surname without its harakat", NAMES_WITH_MARKS["Arabic with harakat"], "كواكسلي"),
+            (
+                "Armenian surname in capitals, where the ligature և is two letters",
+                "Զորբինա Քուքսևյան",
+                "ՔՈՒՔՍԵՒՅԱՆ",
+            ),
+            ("Latin given name in capitals without its accent", "Zorbína Quuxley", "ZORBINA"),
+        )
+    ),
     Case(
         "dotted MAC after an accented letter",
         "replaced",
