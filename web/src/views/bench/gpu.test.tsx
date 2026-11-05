@@ -85,6 +85,23 @@ describe('choosing the GPU on a multi-GPU node', () => {
     expect(onRun).toHaveBeenCalledWith(['ws1'], MATMUL_DEFAULTS, { ws1: 2 });
   });
 
+  it('names beside the picker the GPU memory a workload on the node holds, and keeps each option short', () => {
+    cluster([{ info: WS1, sample: wsWith({ 2: 3 }) }]);
+    render(<ConfigureDialog spec={WS_MATMUL} open onClose={noop} onRun={noop} initialNodes={['ws1']} initialGpuIndex={{ ws1: 2 }} />);
+    const picker = screen.getByRole('combobox', { name: 'GPU on ws1' });
+    expect(picker).toHaveAccessibleDescription('ws1 is serving vllm-llama70b, which holds 161.7\u00a0GiB of GPU memory. Sparkline cannot see which GPUs hold it.');
+    expect(within(picker).getByRole('option', { selected: true })).toHaveTextContent(`GPU 2 · 3% busy · ${RTX}`);
+    act(() => { useConnection.setState({ status: 'reconnecting' }); });
+    expect(picker).toHaveAccessibleDescription('ws1 was serving vllm-llama70b, which held 161.7\u00a0GiB of GPU memory, when it last reported. Sparkline cannot see which GPUs hold it.');
+  });
+
+  it('names no GPU memory when no GPU process on the node holds any', () => {
+    cluster([{ info: WS1, sample: { ...wsWith({ 2: 3 }), procs: [] } }]);
+    render(<ConfigureDialog spec={WS_MATMUL} open onClose={noop} onRun={noop} initialNodes={['ws1']} initialGpuIndex={{ ws1: 2 }} />);
+    expect(screen.getByRole('combobox', { name: 'GPU on ws1' })).toHaveAccessibleDescription('');
+    expect(screen.queryByText(/GPU memory/)).toBeNull();
+  });
+
   it('warns about a quiet GPU on a node serving a model, since Sparkline cannot tell which GPUs hold its memory', () => {
     cluster([{ info: WS1, sample: wsWith({ 2: 0 }) }]);
     render(<ConfigureDialog spec={WS_MATMUL} open onClose={noop} onRun={noop} initialNodes={['ws1']} initialGpuIndex={{ ws1: 2 }} />);
