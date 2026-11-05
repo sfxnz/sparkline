@@ -1,4 +1,4 @@
-import { notReported } from './capabilities';
+import { gapAcross, notReported, notReportedByHardware, type NotReported } from './capabilities';
 import type { NodeInfo, Unsupported } from './types';
 
 const node = (...unsupported: Unsupported[]) => ({ unsupported }) as unknown as NodeInfo;
@@ -97,7 +97,7 @@ describe('notReported for a lost GPU', () => {
   } as unknown as NodeInfo;
 
   it("says every one of its metrics is not responding, not that the hardware lacks it", () => {
-    expect(notReported(info, 'gpu1.util')).toEqual({ kind: 'hardware', label: 'Not responding', detail: lost });
+    expect(notReported(info, 'gpu1.util')).toEqual({ kind: 'hardware', label: 'Not responding', detail: lost, silent: true });
     expect(notReported(info, 'gpu1.temp_c')?.label).toBe('Not responding');
   });
   it('leaves the other GPUs alone', () => {
@@ -127,5 +127,38 @@ describe('notReported for a node GPU total', () => {
     const reason = 'GPU 0: Not reported by this board';
     const info = { gpus, unsupported: [{ metric: 'gpu*.power_w', reason: 'Not reported by this board', kind: 'hardware' }, { metric: 'gpu.power_w', reason, kind: 'hardware' }] } as unknown as NodeInfo;
     expect(notReported(info, 'gpu.power_w')).toEqual({ kind: 'hardware', label: HARDWARE, detail: reason });
+  });
+});
+
+describe('gapAcross', () => {
+  const quiet = (detail: string, label = 'Not responding'): NotReported => ({ kind: 'hardware', label, detail, silent: true });
+  const declared = notReportedByHardware('No power sensor on this board');
+
+  it('says the nodes are not responding when every one went quiet, though their labels differ', () => {
+    const gap = gapAcross([['spark1', quiet('GPU 0 has sent no reading for 5\u00a0s.')], ['ws1', quiet('GPU 2 has sent no reading for 5\u00a0s, so a sum would understate.', 'No total')]]);
+    expect(gap?.label).toBe('Not responding');
+    expect(gap?.detail).toBe('spark1: GPU 0 has sent no reading for 5\u00a0s.\nws1: GPU 2 has sent no reading for 5\u00a0s, so a sum would understate.');
+  });
+
+  it('reads No total, claiming neither, when one node went quiet and another declares the gap', () => {
+    const gap = gapAcross([['spark1', quiet('GPU 0 has sent no reading for 5\u00a0s.')], ['amd1', declared]]);
+    expect(gap?.label).toBe('No total');
+    expect(gap?.detail).toBe('spark1: GPU 0 has sent no reading for 5\u00a0s.\namd1: No power sensor on this board');
+  });
+
+  it('says the gap is not reported on any node when every node declares it, for different reasons', () => {
+    const access: NotReported = { kind: 'access', label: 'No access', detail: 'Needs root' };
+    expect(gapAcross([['amd1', declared], ['ws1', access]])?.label).toBe('Not reported on any node');
+  });
+
+  it('names each node that went quiet, though they went quiet for the same reason', () => {
+    const same = quiet('GPU 0 has sent no reading for 5\u00a0s.');
+    expect(gapAcross([['spark1', same], ['spark2', same]])).toEqual({ ...same, detail: 'spark1: GPU 0 has sent no reading for 5\u00a0s.\nspark2: GPU 0 has sent no reading for 5\u00a0s.' });
+  });
+
+  it('keeps one reason for nodes that declare the same gap, and the one gap of a single node', () => {
+    expect(gapAcross([['amd1', declared], ['amd2', declared]])).toEqual(declared);
+    const one = quiet('GPU 0 has sent no reading for 5\u00a0s.');
+    expect(gapAcross([['spark1', one]])).toEqual(one);
   });
 });

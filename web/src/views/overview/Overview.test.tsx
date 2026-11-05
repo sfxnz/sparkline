@@ -1032,7 +1032,9 @@ describe("the cluster's GPU energy today names each node it cannot count", () =>
     const d = new Date(ts * 1000);
     return [d.getHours(), d.getMinutes()].map((n) => String(n).padStart(2, '0')).join(':');
   };
-  const showQuiet = (nodes: readonly (readonly [NodeInfo, Sample, number | null])[]) => {
+  // 'empty' keeps the quiet GPU in the sample with every fresh reading null and its energy counter held, as NVML
+  // sends a GPU whose reads fail.
+  const showQuiet = (nodes: readonly (readonly [NodeInfo, Sample, number | null])[], quietAs: 'missing' | 'empty' = 'missing') => {
     const series = (s: Sample) => Object.fromEntries(s.gpu.map((g) => [`gpu${String(g.index)}.energy_j`, [(g.energy_j ?? 0) - 360_000, g.energy_j]]));
     vi.mocked(globalThis.fetch).mockImplementation((url) => {
       const id = typeof url === 'string' ? new URL(url, 'http://x').searchParams.get('node') : null;
@@ -1045,7 +1047,8 @@ describe("the cluster's GPU energy today names each node it cannot count", () =>
       for (const [info, reading, quiet] of nodes) {
         liveStore.removeNode(info.node_id);
         const moved = (j: number) => reading.gpu.map((g) => (g.index === quiet ? { ...g, energy_j: (g.energy_j ?? 0) + j } : g));
-        const ticks = [moved(3600), moved(7200), ...Array.from({ length: 5 }, () => reading.gpu.filter((g) => g.index !== quiet))];
+        const silent = reading.gpu.flatMap((g) => (g.index !== quiet ? [g] : quietAs === 'empty' ? [{ ...g, energy_j: (g.energy_j ?? 0) + 7200, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null }] : []));
+        const ticks = [moved(3600), moved(7200), ...Array.from({ length: 5 }, () => silent)];
         ticks.forEach((gpu, i) => { liveStore.pushSample({ ...reading, node_id: info.node_id, gpu, ts: now - ticks.length + 1 + i }); });
       }
       liveStore.flush();
@@ -1064,6 +1067,14 @@ describe("the cluster's GPU energy today names each node it cannot count", () =>
     const last = showQuiet([[gb10('spark1'), gb10Reading, null], [gb10('spark2'), gb10Reading, 0]]);
     const today = await within(tile('GPU power')).findByText(/Today/);
     expect(today).toHaveTextContent(new RegExp(`^Now excl\\. spark2 · Today [\\d.]+ kWh · £[\\d.]+ · spark2 until ${hm(last)}$`));
+  });
+
+  const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+
+  it("says the cluster's GPU power is not responding, naming each node's reason, while a GB10 and a GPU of ws1 have sent nothing for 5 s", () => {
+    showQuiet([[gb10('spark1'), gb10Reading, 0], [ws1, wsReading, 2]], 'empty');
+    expect(tile('GPU power')).toHaveTextContent(/^GPU powerNot responding/);
+    expect(why(tile('GPU power'))).toHaveAccessibleDescription('spark1: GPU 0 has sent no reading for 5\u00a0s.\nws1: GPU 2 has sent no reading for 5\u00a0s, so a sum would understate.');
   });
 
   it('leaves the energy today of two healthy GB10s unmarked', async () => {

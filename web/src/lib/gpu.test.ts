@@ -66,7 +66,7 @@ describe('gpuSetGap', () => {
 
   it("keeps counting the other GPUs' processes when GPU 0 is lost, and says so for a sum", () => {
     expect(gpuSetGap(lostGpu0(), 'proc_mem', 'any')).toBeNull();
-    expect(gpuSetGap(lostGpu0(), 'energy_j', 'every')).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPU 0: ${LOST}` });
+    expect(gpuSetGap(lostGpu0(), 'energy_j', 'every')).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPU 0: ${LOST}`, silent: true });
   });
 
   it('names a GPU that answers when GPU 0 is lost and the others lack the field too', () => {
@@ -95,7 +95,7 @@ describe('totalGap', () => {
 
   it('names the GPU whose power reading is missing, since a sum without it would understate', () => {
     const s = withGpu(sample, 2, { power_w: null });
-    expect(totalGap(ws1, s, 'power_w')).toEqual({ kind: 'hardware', label: 'No total', detail: 'GPU 2 sent no power reading this tick, so a sum would understate.' });
+    expect(totalGap(ws1, s, 'power_w')).toEqual({ kind: 'hardware', label: 'No total', detail: 'GPU 2 sent no power reading this tick, so a sum would understate.', silent: true });
     expect(totalGap(ws1, s, 'util')).toBeNull();
     expect(totalGap(ws1, withGpu(s, 3, { power_w: null }), 'power_w')?.detail).toBe('GPUs 2 and 3 sent no power reading this tick, so a sum would understate.');
   });
@@ -130,25 +130,25 @@ describe('the gap of a node figure that reads less than every GPU the node lists
 
   it('says a GB10 whose GPU is missing from the sample is not responding, with its backend error', () => {
     for (const field of ['util', 'temp_c', 'power_w'] as const) {
-      expect(totalGap(gb10, backendDown(gb10Reading), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPU 0 not responding (${NVML_DOWN}).` });
+      expect(totalGap(gb10, backendDown(gb10Reading), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPU 0 not responding (${NVML_DOWN}).`, silent: true });
     }
   });
 
   it('says a GB10 whose GPU sends no power reading has no total, with no sum to understate', () => {
-    expect(totalGap(gb10, withGpu(gb10Reading, 0, { power_w: null }), 'power_w')).toEqual({ kind: 'hardware', label: 'No total', detail: 'GPU 0 sent no power reading this tick.' });
+    expect(totalGap(gb10, withGpu(gb10Reading, 0, { power_w: null }), 'power_w')).toEqual({ kind: 'hardware', label: 'No total', detail: 'GPU 0 sent no power reading this tick.', silent: true });
     expect(totalGap(gb10, gb10Reading, 'power_w')).toBeNull();
   });
 
   it('says ws1 is not responding, not that it has no total, while none of its GPUs is in the sample', () => {
     for (const field of ['util', 'temp_c', 'power_w'] as const) {
-      expect(nodeTotalGap(ws1, backendDown(sample), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPUs 0, 1, 2 and 3 not responding (${NVML_DOWN}).` });
+      expect(nodeTotalGap(ws1, backendDown(sample), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPUs 0, 1, 2 and 3 not responding (${NVML_DOWN}).`, silent: true });
     }
   });
 
   it('names the lost GPU first while GPU 0 is lost and its backend drops the other three', () => {
     const info = lostGpu0({ metric: 'gpu.power_w', reason: `GPU 0: ${LOST}`, kind: 'hardware' });
     for (const field of ['util', 'power_w'] as const) {
-      expect(nodeTotalGap(info, backendDown(sample), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPU 0: ${LOST}; GPUs 1, 2 and 3 not responding (${NVML_DOWN}).` });
+      expect(nodeTotalGap(info, backendDown(sample), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPU 0: ${LOST}; GPUs 1, 2 and 3 not responding (${NVML_DOWN}).`, silent: true });
     }
   });
 
@@ -159,7 +159,7 @@ describe('the gap of a node figure that reads less than every GPU the node lists
     );
     const s = { ...sample, gpu: [0, 1, 2, 3].map((index) => ({ index })) } as Sample;
     for (const field of ['util', 'temp_c', 'power_w'] as const) {
-      expect(nodeTotalGap(info, s, field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `${[0, 1, 2, 3].map((i) => `GPU ${String(i)}: ${lostReason(i)}`).join('; ')}.` });
+      expect(nodeTotalGap(info, s, field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `${[0, 1, 2, 3].map((i) => `GPU ${String(i)}: ${lostReason(i)}`).join('; ')}.`, silent: true });
     }
   });
 });
@@ -169,14 +169,14 @@ describe('a GPU that stays in the sample with every fresh reading empty, as NVML
 
   it('says a GB10 whose GPU sends only its energy counter and capped shares is not responding, as if it were missing', () => {
     for (const field of ['util', 'temp_c', 'power_w'] as const) {
-      expect(nodeGpuGap(gb10, emptied(gb10Reading, [0]), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: 'GPU 0 sent no reading this tick.' });
+      expect(nodeGpuGap(gb10, emptied(gb10Reading, [0]), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: 'GPU 0 sent no reading this tick.', silent: true });
       expect(nodeGpuGap(gb10, gb10Reading, field)).toBeNull();
     }
   });
 
   it('says ws1 is not responding while all four GPUs send only those readings', () => {
     for (const field of ['util', 'temp_c', 'power_w'] as const) {
-      expect(nodeTotalGap(ws1, emptied(sample, [0, 1, 2, 3]), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: 'GPUs 0, 1, 2 and 3 sent no reading this tick.' });
+      expect(nodeTotalGap(ws1, emptied(sample, [0, 1, 2, 3]), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: 'GPUs 0, 1, 2 and 3 sent no reading this tick.', silent: true });
     }
   });
 
