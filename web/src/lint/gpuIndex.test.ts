@@ -62,6 +62,7 @@ const flagged = [
   'function f({ gpus: list }) { return list.at(0) }',
   'let r; ({ gpu: r } = s); r[0]',
   'const { info: { gpus: list } } = node; list[0]',
+  'const gpus = load(); gpus.keys()',
 ];
 
 const allowed = [
@@ -92,6 +93,14 @@ const allowed = [
   'const { gpu: r } = s; r.length',
   'const { gpu: r } = s; gpuAt(r, 0)',
   'const { cores: r } = s; r[0]',
+  's.errors.gpu?.slice(0, 80)',
+  's.errors.gpu?.[0]',
+  'errors.gpu?.slice(0, 80)',
+  'const { gpu: msg } = s.errors; msg?.slice(0, 80)',
+  'let msg; ({ gpu: msg } = s.errors); msg?.[0]',
+  "const gpus = new Map([[0, 'a']]); [...gpus.keys()]",
+  "const gpus = new Map([[0, 'a']]); [...gpus.entries()]",
+  'const gpus = new Set([0]); [...gpus.keys()]',
 ];
 
 async function lint(): Promise<(code: string) => number> {
