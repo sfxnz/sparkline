@@ -732,4 +732,15 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
     show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), noNvmlReading('n1')], [gb10('spark3'), null]], { spark3: 'offline' });
     expect(tile('Cluster compute').querySelector('.stat__footer')).toHaveTextContent(/^Mean GPU utilisation · excl\. n1 · 2 of 3 nodes reporting$/);
   });
+
+  it('says the totals are not responding while every node is silent, each for its own reason', () => {
+    show([
+      [gb10('spark1'), backendDown(gb10Reading('spark1'), 'NVMLError_GpuIsLost: GPU is lost')],
+      [gb10('spark2'), backendDown(gb10Reading('spark2'))],
+    ]);
+    for (const label of ['Cluster compute', 'GPU power']) {
+      expect(tile(label)).toHaveTextContent('Not responding');
+      expect(why(tile(label))).toHaveAccessibleDescription(`spark1: NVMLError_GpuIsLost: GPU is lost\nspark2: ${NVML_DOWN}`);
+    }
+  });
 });
