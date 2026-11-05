@@ -175,6 +175,16 @@ UNKNOWN_IPV6 = j(":", "2a01", "4f8", "abcd", "", "1234")
 UNKNOWN_IPV4 = j(".", "10", "20", "30", "41")
 
 
+NAMES_WITH_MARKS = {
+    "Devanagari": "ज़ोरबिना क्वक्सलेकर",
+    "Bengali": "জোরবিনা কোয়াক্সলে",
+    "Thai": "ซอร์บีนา ควักซ์ลีย์",
+    "Hebrew with points": "זוֹרְבִּינָה קְוָוקְסְלִי",
+    "Arabic with harakat": "زُورْبِينَا كُوَاكْسْلِي",
+    "Yoruba": "Ọ̀zọ̀rbí Kúùxlè",
+}
+
+
 def uuid(head: str) -> str:
     return j("-", head, "1234", "5678", "9abc", j("", "def012", "345670"))
 
@@ -783,6 +793,18 @@ CASES = [
         "Quuxeley lab",
         full_name("Zorbina Quux\u1eb9\u0300ley"),
         because="full name",
+    ),
+    *(
+        Case(
+            f"{part} of a full name in {script} alone in free text",
+            "refused",
+            (word,),
+            f"{word} lab",
+            full_name(name),
+            because="full name",
+        )
+        for script, name in NAMES_WITH_MARKS.items()
+        for part, word in zip(("given name", "surname"), name.split(), strict=True)
     ),
     Case(
         "dotted MAC after an accented letter",
