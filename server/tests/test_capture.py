@@ -587,6 +587,13 @@ def test_a_hostname_shorter_than_three_letters_is_replaced(tmp_path):
     assert (tmp_path / "out/root/proc/sys/kernel/hostname").read_text() == "host1\n"
 
 
+def test_a_long_hostname_with_its_domain_becomes_one_placeholder(tmp_path):
+    copy = gb10_copy(tmp_path)
+    named("hostname", "zorbhost.zorbcorp.example")(copy)
+    capture_of(copy, tmp_path / "out")
+    assert (tmp_path / "out/root/proc/sys/kernel/hostname").read_text() == "host1\n"
+
+
 def test_one_identifier_keeps_one_placeholder_across_files_and_encodings(tmp_path):
     capture_of(planted(tmp_path), tmp_path / "out")
     out = tmp_path / "out"
