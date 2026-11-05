@@ -131,6 +131,8 @@
 .bench-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
 .bench-pair .ops-select { width: 100%; }
 .bench-gpu { justify-items: stretch; }
+.bench-gpu__held { display: grid; grid-template-columns: auto 1fr; gap: 6px; margin: 0; }
+.bench-gpu__held svg { width: 14px; height: 14px; margin-top: 2px; color: var(--warn); }
 
 .bench-form { display: grid; gap: var(--space-4); }
 .bench-field { display: grid; gap: 6px; justify-items: start; min-width: 0; margin: 0; padding: 0; border: 0; }

@@ -941,10 +941,21 @@ function latestTraffic(s: Sample, rails: readonly NetIfInfo[]): LinkTraffic[] {
 
 const gbps = (bytesPerS: number) => `${((bytesPerS * 8) / 1e9).toFixed(1)} Gb/s`;
 
-function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: string; what: string } | null {
+/** The node's top GPU workload and the GPU memory its processes hold; the wire does not say on which GPU (#20). */
+function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: string; what: string; mem: number } | null {
   const top = topGpuProcess(procs);
   if (!top) return null;
-  return { verb: isServing(top) ? 'serving' : 'running', what: workloadName(top) };
+  const what = workloadName(top);
+  const mem = gpuProcesses(procs).filter((p) => workloadName(p) === what).reduce((sum, p) => sum + (p.gpu_mem ?? 0), 0);
+  return { verb: isServing(top) ? 'serving' : 'running', what, mem };
+}
+
+/** "ws1 is serving vllm-llama70b, which holds 161.7 GiB of GPU memory.", or null when no GPU process holds any. */
+export function gpuMemoryHeld(node: string, procs: readonly ProcSample[] | null | undefined, live: boolean): string | null {
+  const work = gpuWorkload(procs);
+  if (!work?.mem) return null;
+  const mem = formatBytes(work.mem);
+  return live ? `${node} is ${work.verb} ${work.what}, which holds ${mem} of GPU memory.` : `${node} was ${work.verb} ${work.what}, which held ${mem} of GPU memory, when it last reported.`;
 }
 
 function chosenGpu(node: string, index: number, util: number | null, procs: readonly ProcSample[] | null | undefined, online: boolean): Competition {
@@ -957,7 +968,7 @@ function chosenGpu(node: string, index: number, util: number | null, procs: read
   const busyAt = util !== null && util >= GPU_BUSY_PCT ? pct(util) : null;
   const work = gpuWorkload(procs);
   if (!work) return busyAt ? { node, busy: true, text: `${which} is ${busyAt} busy; ${consequence}.` } : { node, busy: false, text: `${which} is idle${util !== null ? ` (${pct(util)})` : ''}.` };
-  const mem = gpuProcesses(procs).filter((p) => workloadName(p) === work.what).reduce((sum, p) => sum + (p.gpu_mem ?? 0), 0);
+  const mem = work.mem;
   const doing = `${node} is ${work.verb} ${work.what}${mem > 0 ? `, which holds ${formatBytes(mem)} of GPU memory` : ''}`;
   const oom = mem > 0 ? 'the run may run out of GPU memory' : null;
   if (busyAt) return { node, busy: true, text: `${which} is ${busyAt} busy while ${doing}; ${oom ? `results will be lower, the workload will slow down and ${oom}` : consequence}.` };

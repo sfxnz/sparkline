@@ -21,6 +21,7 @@ import {
   type Competition,
   type LinkTraffic,
   estimateOn,
+  gpuMemoryHeld,
   gpuOptions,
   gpuPick,
   type GpuIndex,
@@ -300,16 +301,24 @@ function GpuPicker({ spec, node, online, value, onChange }: { spec: BenchSpec; n
   const id = useId();
   const s = liveStore.latest(node);
   const options = gpuOptions(spec, node);
+  // Said once beside the picker, not in each option: the memory is the node's, not one GPU's (#20).
+  const held = gpuMemoryHeld(node, s?.procs, online);
   return (
     <div className="bench-field bench-gpu">
       <label className="bench-field__label" htmlFor={id}>GPU on {node}</label>
-      <Select id={id} value={value ?? ''} onChange={(e) => { onChange(Number(e.target.value)); }}>
+      <Select id={id} value={value ?? ''} aria-describedby={held ? `${id}-held` : undefined} onChange={(e) => { onChange(Number(e.target.value)); }}>
         {options.map((o) => {
           const util = gpuAt(s?.gpu, o.index)?.util;
           const text = o.problem ? `GPU ${o.index} — ${o.problem.message}` : [`GPU ${o.index}`, util != null ? `${online ? '' : 'was '}${Math.round(util)}% busy` : null, o.name].filter(Boolean).join(' · ');
           return <option key={o.index} value={o.index} disabled={!!o.problem}>{text}</option>;
         })}
       </Select>
+      {held ? (
+        <p id={`${id}-held`} className="bench-field__help bench-gpu__held">
+          <TriangleAlert aria-hidden="true" />
+          <span>{held} Sparkline cannot see which GPUs hold it.</span>
+        </p>
+      ) : null}
       {options.map((o) => (o.problem ? <p key={o.index} className="bench-field__help"><ProblemTip problem={o.problem} /></p> : null))}
     </div>
   );
