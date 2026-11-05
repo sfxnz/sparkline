@@ -142,6 +142,17 @@ def test_catalog_offers_each_gpu_of_a_workstation_to_its_gpu_benchmarks(tmp_path
     assert all(s["gpu_options"] == {} for s in probed_catalog(tmp_path, node_info).values())
 
 
+ON_GB10_RATES = {"gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio"}
+ON_GB10_RATES |= {"llm-inference", "llm-showcase", "tool-eval"}
+
+
+def test_a_workstation_says_it_has_no_estimate_for_benchmarks_timed_on_gb10_rates(tmp_path):
+    cat = probed_catalog(tmp_path, workstation_info)
+    assert {b for b, s in cat.items() if s["no_estimate"]} == ON_GB10_RATES
+    assert all(s["no_estimate"] == ["n1"] for b, s in cat.items() if b in ON_GB10_RATES)
+    assert all(s["no_estimate"] == [] for s in probed_catalog(tmp_path, node_info).values())
+
+
 def test_catalog_on_gb10_without_docker_still_names_docker(tmp_path):
     cat = probed_catalog(tmp_path, node_info)
     assert {cat[b]["availability"]["n1"]["message"] for b in GPU_BENCHES} == {"Docker is not reachable on n1"}

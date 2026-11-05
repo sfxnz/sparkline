@@ -97,6 +97,19 @@ def test_ws1_offers_its_four_gpus_to_the_gpu_benchmarks_and_spark1_offers_none()
     assert all(s.gpu_options == {} for s in demo_catalog("spark1", DemoModel("spark1", T0).info))
 
 
+ON_GB10_RATES = {"gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio"}
+ON_GB10_RATES |= {"llm-inference", "llm-showcase", "tool-eval"}
+
+
+def test_only_ws1_says_it_has_no_estimate_for_benchmarks_timed_on_gb10_rates(mixed):
+    ws1 = demo_catalog("ws1", FLEETS["mixed"]["ws1"](T0, 1.0).info)
+    assert {s.id: s.no_estimate for s in ws1} == {s.id: ["ws1"] if s.id in ON_GB10_RATES else [] for s in ws1}
+    assert all(s.no_estimate == [] for s in demo_catalog("spark1", DemoModel("spark1", T0).info))
+    _wait_for_infos(mixed)
+    merged = {s["id"]: s["no_estimate"] for s in mixed.get("/api/v1/bench/catalog").json()}
+    assert merged == {b: ["ws1"] if b in ON_GB10_RATES else [] for b in merged}
+
+
 def test_ws1_benchmark_load_lands_on_the_gpu_the_run_chose():
     t = T0 + 4000
     idle, busy = FLEETS["mixed"]["ws1"](T0, 1.0), FLEETS["mixed"]["ws1"](T0, 1.0)
@@ -130,6 +143,14 @@ async def test_the_demo_backend_refuses_a_gpu_ws1_cannot_run_on_as_its_agent_wou
     assert (e.value.status, e.value.problem.message) == (400, "GPU 9 is not a GPU of ws1")
 
 
+def _wait_for_infos(c) -> dict:
+    sources = c.app.state.cluster.sources
+    deadline = time.time() + 10
+    while any(src.state.info is None for src in sources.values()) and time.time() < deadline:
+        time.sleep(0.05)
+    return sources
+
+
 async def _backend_run(c, node: str, req: BenchStartRequest) -> NodeBenchState:
     backend = c.app.state.bench.backend
     await backend.start(node, req)
@@ -142,10 +163,7 @@ async def _backend_run(c, node: str, req: BenchStartRequest) -> NodeBenchState:
 
 
 async def test_the_cpu_side_takes_and_loads_no_gpu_in_the_demo_as_on_an_agent(mixed):
-    sources = mixed.app.state.cluster.sources
-    deadline = time.time() + 10
-    while any(sources[n].state.info is None for n in ("ws1", "spark1")) and time.time() < deadline:
-        time.sleep(0.05)
+    sources = _wait_for_infos(mixed)
     cpu = {"side": "cpu"}
     chosen = BenchStartRequest(run_id="c0", bench_id="mem-bandwidth", params=cpu, gpu_index=1)
     with pytest.raises(BenchError) as e:

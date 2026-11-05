@@ -102,6 +102,7 @@ BENCH_SPECS: list[dict[str, Any]] = [
 
 
 GPU_BENCHES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce")
+GB10_RATES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio")
 
 
 def bench_defaults() -> dict[str, Any]:
@@ -119,7 +120,11 @@ def bench_defaults() -> dict[str, Any]:
 
 
 def make_fake_agent(
-    token: str, interval: float = 0.2, info: dict | None = None, gpu_options: list[dict] | None = None
+    token: str,
+    interval: float = 0.2,
+    info: dict | None = None,
+    gpu_options: list[dict] | None = None,
+    no_estimate: bool = False,
 ) -> FastAPI:
     app = FastAPI()
     app.state.paused = False
@@ -219,6 +224,8 @@ def make_fake_agent(
             spec["availability"] = {info_doc["node_id"]: problem if off else None}
             if gpu_options and spec["id"] in GPU_BENCHES:
                 spec["gpu_options"] = {info_doc["node_id"]: gpu_options}
+            if no_estimate and spec["id"] in GB10_RATES:
+                spec["no_estimate"] = [info_doc["node_id"]]
             out.append(spec)
         return out
 

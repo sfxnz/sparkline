@@ -460,7 +460,10 @@ WS1_OPTIONS = [{"index": 0, "name": "RTX", "uuid": WS1_UUID[0], "problem": LOST}
 def gpus(tmp_path_factory):
     apps = {
         "w1": make_fake_agent(
-            "agent-tok", info=info_for("ws1", "203.0.113.5", "192.0.2.5"), gpu_options=WS1_OPTIONS
+            "agent-tok",
+            info=info_for("ws1", "203.0.113.5", "192.0.2.5"),
+            gpu_options=WS1_OPTIONS,
+            no_estimate=True,
         ),
         "s1": make_fake_agent("agent-tok", info=info_for("spark1", "203.0.113.6", "192.0.2.6")),
     }
@@ -503,6 +506,14 @@ def test_catalog_offers_a_nodes_gpus_under_the_consoles_name_for_it(gpus):
     assert specs["gpu-matmul"]["gpu_options"] == {"w1": WS1_OPTIONS}
     assert specs["nccl-allreduce"]["gpu_options"] == {"w1": WS1_OPTIONS}
     assert specs["rdma-bw-lat"]["gpu_options"] == {} and specs["storage-fio"]["gpu_options"] == {}
+
+
+def test_catalog_names_the_nodes_without_an_estimate_under_the_consoles_name_for_them(gpus):
+    specs = {s["id"]: s for s in gpus["http"].get("/api/v1/bench/catalog").json()}
+    gb10_rates = {"gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio"}
+    assert {b: s["no_estimate"] for b, s in specs.items()} == {
+        b: ["w1"] if b in gb10_rates else [] for b in specs
+    }
 
 
 def test_a_run_on_a_chosen_gpu_sends_it_to_that_agent_and_compares_only_with_that_gpu(gpus):
