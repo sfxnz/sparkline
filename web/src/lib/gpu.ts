@@ -107,7 +107,8 @@ export function totalGap(info: NodeInfo | null | undefined, s: Sample | null, fi
 }
 
 /** Why the node's GPU `field` has no value: the agent declares it not reported, or it dropped out of this sample
- *  (totalGap). On a node total, no GPU reporting comes first: a declared total (a lost GPU's) is not what holds now. */
+ *  (totalGap). On a node total, Not responding while no GPU reports comes first: it holds this tick over a total the
+ *  agent declares because a GPU is lost. */
 export function nodeTotalGap(info: NodeInfo | null | undefined, s: Sample | null, field: NodeTotal): NotReported | null {
   const key = nodeGpuKey(info, field);
   return (key === `gpu.${field}` ? everyGpuSilent(info, s) : null) ?? notReported(info, key) ?? totalGap(info, s, field);

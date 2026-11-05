@@ -184,7 +184,7 @@
 .ov-cx .ov-label { overflow-wrap: anywhere; }
 
 .ov-card__sparks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-/* A caption that wraps (a GPU count) keeps both charts on one line: each trend sits at the bottom of its cell. */
+/* A caption that wraps (one with a GPU count) leaves both charts level: each sits at the bottom of its cell. */
 .ov-spark { display: grid; gap: var(--space-1); min-width: 0; align-content: end; }
 .ov-spark__label { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 500; color: var(--text-2); }
 
