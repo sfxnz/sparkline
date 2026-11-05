@@ -72,21 +72,19 @@ export interface ClusterGpuNow {
   utilFrom: string;
 }
 
-/** "4 of 5 GPUs": the GPUs the nodes' utilisation totals read, while one node's total reads only some of its GPUs
- *  (`totalFrom`); '' otherwise, so a cluster of one-GPU nodes never shows it. */
+/** "4 of 5 GPUs": the GPUs the nodes' utilisation totals read, out of every GPU the nodes list, while any of them is
+ *  missing (a node reads only some of its GPUs, or has no utilisation at all); '' when every GPU is read. */
 export function utilGpusRead(ids: readonly string[], nodes: Readonly<Record<string, NodeState | undefined>>): string {
   let from = 0;
   let of = 0;
-  let partial = false;
   for (const id of ids) {
     const info = nodes[id]?.info;
     const listed = info?.gpus.length ?? 0;
-    const count = totalFrom(info, liveStore.latest(id), 'util');
-    partial ||= count !== null;
-    from += count?.from ?? (liveStore.latestValue(id, nodeGpuKey(info, 'util')) === null ? 0 : listed);
+    const read = liveStore.latestValue(id, nodeGpuKey(info, 'util')) !== null;
+    from += read ? (totalFrom(info, liveStore.latest(id), 'util')?.from ?? listed) : 0;
     of += listed;
   }
-  return partial ? gpuCountText({ from, of }) : '';
+  return from < of ? gpuCountText({ from, of }) : '';
 }
 
 /** The live nodes' GPU load and power from each node's totals: mean utilisation and summed power. A node whose power
