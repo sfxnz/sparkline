@@ -670,6 +670,18 @@ CASES = [
         because="domain name",
     ),
     Case(
+        "dotted MAC after an accented letter",
+        "replaced",
+        (j(".", "4caa", "bbcc", "ddee"),),
+        "é" + j(".", "4caa", "bbcc", "ddee"),
+    ),
+    Case(
+        "Docker bridge name after an accented letter",
+        "replaced",
+        ("br-5734120003bb",),
+        "ébr-5734120003bb up",
+    ),
+    Case(
         "bare MAC after a backspace in the GPU name, which JSON writes as \\b",
         "refused",
         (BARE_MAC,),
