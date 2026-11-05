@@ -62,7 +62,7 @@ file, so the recording still reads as one machine.
 | Hostname, with any domain after it, also written with `_` for `-`, in its `xn--` form or, from 8 characters, inside a longer word | `host1` |
 | Domain of the hostname, each parent domain, the label before the top-level domain, and each label of 4 or more characters, on their own | `domain1` |
 | User name, the home directory, and a disk mounted under `/media/<user>` | `user1`, `/home/<user1>`, `/media/<user1>` |
-| Full name of an account in `/etc/passwd`, and each word of 4 or more characters in that account's comment field, also without accents | `person1` |
+| Full name of an account in `/etc/passwd`, and each word in that account's comment field that has a letter and 4 or more characters, also without accents | `person1` |
 | IPv4 address, private ranges included | `198.51.100.1`, then `203.0.113.x` and `192.0.2.x` |
 | IPv6 address | `2001:db8::1` |
 | Link-local IPv6 address, which holds the MAC | `fe80::ff:fe00:1`, or `fe80::200:0:0:1` |
@@ -136,7 +136,7 @@ name into every entry of an archive. `recording.tgz` holds no user names and no 
 | 131 | You stopped it with `Ctrl-\` (SIGQUIT). | Nothing to do. It keeps no partial recording. |
 | 143 | Something stopped it with SIGTERM, such as `kill` or `timeout`. | Run it again. It keeps no partial recording. |
 
-A stop that comes after the recording is complete lets the command finish, so the recording is ready. `kill -9`
+A stop that comes while the command prints its summary lets it finish, so the recording is ready. `kill -9`
 can't be caught, so it can leave a partial directory behind. Delete that directory before you run the command
 again.
 
