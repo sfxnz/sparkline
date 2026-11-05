@@ -1,7 +1,7 @@
 // Pure logic behind the Overview: health and activity sentences, cluster totals, memory split, energy counters and
 // the interconnect topology. No React, no stores, so every rule here is unit-tested in model.test.ts.
 import type { Status } from '../../design/components/StatusPill';
-import type { LiveCondition } from '../../lib/condition';
+import { worstCondition, type GpuCondition, type NodeConditions } from '../../lib/condition';
 import type { Event, NetIfInfo, NodeInfo, NodeStatus, ProcSample } from '../../lib/types';
 import { linkRecoveries } from '../alerts/model';
 
@@ -22,10 +22,11 @@ const isAre = (ids: readonly string[]) => (ids.length === 1 ? 'is' : 'are');
 export interface NodeHealthInput {
   id: string;
   status: NodeStatus | undefined;
-  /** What the latest sample already flags (temperature at slowdown, hardware clock limits), if anything. */
-  condition?: LiveCondition | null;
-  /** The level of the node's worst open alert (a rule has fired), if any. */
-  alert?: 'warning' | 'critical' | null;
+  /** What the latest sample already flags on the node's GPUs (temperature at slowdown, hardware clock limits, a GPU
+   *  not responding), if anything. */
+  conditions?: NodeConditions | null;
+  /** The node's open warning and critical alerts (rules that have fired). */
+  alerts?: readonly Event[];
 }
 
 export interface AlertCounts {
@@ -43,7 +44,13 @@ export interface Health {
   sentence: string;
 }
 
-const alertCovers = (alert: 'warning' | 'critical' | null | undefined, level: LiveCondition['level']) => alert === 'critical' || alert === level;
+/** An open alert already says a GPU's condition when it fired on that GPU's key for the same reading (for temperature,
+ *  also the node's hottest-GPU total) at the condition's level or above. No rule watches a GPU that sends nothing. */
+function saidByAlert(alerts: readonly Event[], c: GpuCondition): boolean {
+  if (!c.field) return false;
+  const keys = c.field === 'temp_c' ? [`gpu${c.index}.temp_c`, 'gpu.temp_c'] : [`gpu${c.index}.${c.field}`];
+  return alerts.some((e) => (e.severity === 'critical' || e.severity === c.level) && keys.includes(e.metric ?? ''));
+}
 
 /** Alert rules whose event only restates a node state the sentence already names. */
 const NODE_STATE_RULES = new Set(['node_offline']);
@@ -82,7 +89,7 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   const stale = by('stale');
   const connecting = nodes.filter((n) => n.status === 'connecting' || n.status === undefined).map((n) => n.id);
   const flagged = nodes.flatMap((n) => {
-    const c = n.status === 'online' && n.condition ? (alertCovers(n.alert, n.condition.level) ? n.condition.outsideAlertRules : n.condition) : null;
+    const c = n.status === 'online' && n.conditions ? worstCondition({ ...n.conditions, gpus: n.conditions.gpus.filter((g) => !saidByAlert(n.alerts ?? [], g)) }) : null;
     return c ? [{ id: n.id, condition: c }] : [];
   });
 

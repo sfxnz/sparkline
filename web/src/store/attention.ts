@@ -2,7 +2,7 @@
 // flagging (temperature at slowdown, hardware/thermal clock limits), so a pill is never green beside a red flag.
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { nodeDisplayStatus, type Status } from '../design/components/StatusPill';
-import { nodeCondition, sameCondition, type LiveCondition } from '../lib/condition';
+import { nodeCondition, nodeConditions, sameCondition, sameNodeConditions, type LiveCondition, type NodeConditions } from '../lib/condition';
 import type { Sample } from '../lib/types';
 import { useCluster } from './cluster';
 import { useConnection } from './connection';
@@ -32,11 +32,11 @@ export function useNodeDisplayStatus(id: string): Status {
   return nodeDisplayStatus(status, worstLevel(alert, condition?.level ?? null), consoleLive);
 }
 
-/** Live conditions of several nodes (for the cluster sentence). Re-renders only when one of them changes. */
-export function useLiveConditions(ids: readonly string[]): Record<string, LiveCondition | null> {
+/** Live conditions of several nodes, GPU by GPU (for the cluster sentence). Re-renders only when one of them changes. */
+export function useLiveConditions(ids: readonly string[]): Record<string, NodeConditions | null> {
   const nodes = useCluster((s) => s.nodes);
   const idsKey = ids.join('\u0000');
-  const cache = useRef<{ sig: string; value: Record<string, LiveCondition | null> }>({ sig: '', value: {} });
+  const cache = useRef<{ sig: string; value: Record<string, NodeConditions | null> }>({ sig: '', value: {} });
   const subscribe = useCallback(
     (cb: () => void) => {
       const offs = (idsKey ? idsKey.split('\u0000') : []).map((id) => liveStore.subscribeSample(id, cb));
@@ -45,13 +45,13 @@ export function useLiveConditions(ids: readonly string[]): Record<string, LiveCo
     [idsKey],
   );
   const get = () => {
-    const value: Record<string, LiveCondition | null> = {};
+    const value: Record<string, NodeConditions | null> = {};
     for (const id of ids) {
       const n = nodes[id];
-      value[id] = n?.status === 'online' ? nodeCondition(n.info, liveStore.latest(id)) : null;
+      value[id] = n?.status === 'online' ? nodeConditions(n.info, liveStore.latest(id)) : null;
     }
     const prev = cache.current.value;
-    const same = cache.current.sig === idsKey && ids.every((id) => sameCondition(prev[id] ?? null, value[id] ?? null));
+    const same = cache.current.sig === idsKey && ids.every((id) => sameNodeConditions(prev[id] ?? null, value[id] ?? null));
     if (same) return prev;
     cache.current = { sig: idsKey, value };
     return value;

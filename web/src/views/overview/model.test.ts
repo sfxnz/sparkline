@@ -1,4 +1,5 @@
-import type { Event, NetIfInfo, NodeInfo, ProcSample } from '../../lib/types';
+import { nodeConditions } from '../../lib/condition';
+import type { Event, NetIfInfo, NodeInfo, ProcSample, Sample } from '../../lib/types';
 import {
   breathLevel,
   clusterHealth,
@@ -122,18 +123,22 @@ describe('openAlertCounts', () => {
   });
 });
 
+const gb10At = (temp_c: number) =>
+  nodeConditions({ gpus: [{ index: 0, temp_slowdown_c: 86 }], unsupported: [] } as unknown as NodeInfo, { gpu: [{ index: 0, temp_c, throttle_mask: 0 }] } as unknown as Sample);
+
 describe('clusterHealth with live conditions and explained alerts', () => {
-  const hot = { level: 'critical' as const, text: 'is at its GPU slowdown temperature' };
+  const hot = gb10At(90);
 
   it('never says healthy while a node is flagged live, before its alert rule fires', () => {
-    const h = clusterHealth([{ id: 'spark1', status: 'online', condition: hot }, { id: 'spark2', status: 'online' }], none);
+    const h = clusterHealth([{ id: 'spark1', status: 'online', conditions: hot }, { id: 'spark2', status: 'online' }], none);
     expect(h).toEqual({ status: 'critical', label: 'Critical', sentence: 'spark1 is at its GPU slowdown temperature' });
-    const warm = clusterHealth([{ id: 'spark1', status: 'online', condition: { level: 'warning', text: 'is heating up' } }], none);
+    const warm = clusterHealth([{ id: 'spark1', status: 'online', conditions: gb10At(81) }], none);
     expect(warm).toMatchObject({ status: 'warning', label: 'Needs attention', sentence: 'spark1 is heating up' });
   });
 
   it('lets the alert count speak once the rule has fired', () => {
-    const h = clusterHealth([{ id: 'spark1', status: 'online', condition: hot, alert: 'critical' }, { id: 'spark2', status: 'online' }], { critical: 1, warning: 0 });
+    const fired = ev({ severity: 'critical', rule_id: 'gpu_temp_critical', metric: 'gpu0.temp_c' });
+    const h = clusterHealth([{ id: 'spark1', status: 'online', conditions: hot, alerts: [fired] }, { id: 'spark2', status: 'online' }], { critical: 1, warning: 0 });
     expect(h.sentence).toBe('All 2 nodes online · 1 critical alert');
   });
 
@@ -143,7 +148,7 @@ describe('clusterHealth with live conditions and explained alerts', () => {
   });
 
   it('ignores conditions on nodes that are not online (stale values never raise a node)', () => {
-    expect(clusterHealth([{ id: 'spark1', status: 'stale', condition: hot }], none).sentence).toBe('spark1 is not reporting');
+    expect(clusterHealth([{ id: 'spark1', status: 'stale', conditions: hot }], none).sentence).toBe('spark1 is not reporting');
   });
 });
 
@@ -309,5 +314,26 @@ describe('workloads on nodes that cannot tell their GPU processes', () => {
 
   it('still waits for a node that can tell but has not sent its process list', () => {
     expect(workloadSentence([{ id: 'spark1', procs: null }, { id: 'amd1', procs: idle, cannotTell: true }])).toBeNull();
+  });
+});
+
+describe('clusterHealth: an open alert hides only the GPU condition it fired on', () => {
+  const ws1 = (over: Record<number, { temp_c?: number; throttle_mask?: number }>, lost: number[] = []) =>
+    nodeConditions(
+      { gpus: [0, 1, 2, 3].map((index) => ({ index, temp_slowdown_c: 93 })), unsupported: lost.map((i) => ({ metric: `gpu${String(i)}`, reason: 'GPU is lost', kind: 'hardware' })) } as unknown as NodeInfo,
+      { gpu: [0, 1, 2, 3].filter((i) => !lost.includes(i)).map((index) => ({ index, temp_c: 60, throttle_mask: 0, ...over[index] })) } as unknown as Sample,
+    );
+  const sentence = (conditions: ReturnType<typeof ws1>, alert: Partial<Event>) =>
+    clusterHealth([{ id: 'ws1', status: 'online', conditions, alerts: [ev({ node_id: 'ws1', ...alert })] }], openAlertCounts([ev(alert)])).sentence;
+
+  it.each<[string, ReturnType<typeof ws1>, Partial<Event>, string]>([
+    ["the node's hottest-GPU temperature", ws1({ 3: { temp_c: 89 } }), { metric: 'gpu.temp_c' }, 'ws1 is online · 1 warning'],
+    ["GPU 3's clock limit", ws1({ 3: { throttle_mask: 0x20 } }), { metric: 'gpu3.throttle_mask' }, 'ws1 is online · 1 warning'],
+    ["GPU 3's temperature, beside its clock limit", ws1({ 3: { throttle_mask: 0x20 } }), { metric: 'gpu3.temp_c' }, 'ws1 has GPU 3 clocks limited by thermal limit · 1 warning'],
+    ["GPU 3's temperature, below its slowdown level", ws1({ 3: { temp_c: 94 } }), { metric: 'gpu3.temp_c' }, 'ws1 has GPU 3 at its slowdown temperature · 1 warning'],
+    ["GPU 0's temperature, which never hides GPU 0 not responding", ws1({}, [0]), { severity: 'critical', metric: 'gpu0.temp_c' }, 'ws1 has GPU 0 not responding · 1 critical alert'],
+    ["GPU 3's temperature, leaving GPU 0 not responding", ws1({ 3: { temp_c: 89 } }, [0]), { metric: 'gpu3.temp_c' }, 'ws1 has GPU 0 not responding · 1 warning'],
+  ])('with an alert open on %s', (_, conditions, alert, expected) => {
+    expect(sentence(conditions, alert)).toBe(expected);
   });
 });

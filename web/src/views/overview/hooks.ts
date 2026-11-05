@@ -11,7 +11,7 @@ import { energyKeys, sumCounters } from '../shared/energy';
 import { loadSpan } from '../shared/live';
 import { useShallow } from 'zustand/react/shallow';
 import { useLiveConditions } from '../../store/attention';
-import { openAlertLevel, useEvents } from '../../store/events';
+import { openAlerts, useEvents } from '../../store/events';
 import { breathLevel, clusterHealth, openAlertCounts, type Health } from './model';
 
 const quantise = (v: number | null, q: number | undefined) => (v === null || !q ? v : Math.round(v / q) * q);
@@ -147,10 +147,10 @@ export function useClusterHealth(): Health {
   const consoleLive = useConnection((s) => s.status === 'live');
   const notLiveIds = order.filter((id) => nodes[id]?.status !== 'online');
   const alerts = useEvents(useShallow((s) => openAlertCounts(s.events, notLiveIds)));
-  const levels = useEvents(useShallow((s) => order.map((id) => openAlertLevel(s.events, id))));
+  const open = useEvents(useShallow((s) => openAlerts(s.events)));
   const conditions = useLiveConditions(order);
   return clusterHealth(
-    order.map((id, i) => ({ id, status: nodes[id]?.status, condition: conditions[id] ?? null, alert: levels[i] ?? null })),
+    order.map((id) => ({ id, status: nodes[id]?.status, conditions: conditions[id] ?? null, alerts: open.filter((e) => e.node_id === id) })),
     alerts,
     consoleLive,
   );

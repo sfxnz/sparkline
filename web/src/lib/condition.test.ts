@@ -65,7 +65,7 @@ describe('nodeCondition on a one-GPU node', () => {
 
   it('raises a warning for its one lost GPU at once', () => {
     const info = { gpus: [{ index: 0, temp_slowdown_c: 86 }], unsupported: [{ metric: 'gpu0', reason: 'NVML could not open GPU 0 (NVML: GPU is lost)', kind: 'hardware' }] } as unknown as NodeInfo;
-    expect(nodeCondition(info, { gpu: [{ index: 0 }] } as unknown as Sample)).toMatchObject({ level: 'warning', text: 'has a GPU not responding' });
+    expect(nodeCondition(info, { gpu: [{ index: 0 }] } as unknown as Sample)).toEqual({ level: 'warning', text: 'has a GPU not responding' });
   });
 });
 
@@ -97,10 +97,9 @@ describe('nodeCondition on a multi-GPU node (ws1, slowdown 93 °C)', () => {
   const empty = { util: null, temp_c: null, power_w: null, throttle_mask: null };
 
   it('raises a warning naming a lost GPU, which a GPU at its slowdown temperature outranks', () => {
-    const outsideAlertRules = { level: 'warning', text: 'has GPU 0 not responding' };
-    expect(nodeCondition(lost(0), withGpus({ 0: empty }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding', outsideAlertRules });
-    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 89 } }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding and GPU 3 heating up', outsideAlertRules });
-    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 94 } }))).toEqual({ level: 'critical', text: 'has GPU 3 at its slowdown temperature', outsideAlertRules });
+    expect(nodeCondition(lost(0), withGpus({ 0: empty }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding' });
+    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 89 } }))).toEqual({ level: 'warning', text: 'has GPU 0 not responding and GPU 3 heating up' });
+    expect(nodeCondition(lost(0), withGpus({ 0: empty, 3: { temp_c: 94 } }))).toEqual({ level: 'critical', text: 'has GPU 3 at its slowdown temperature' });
   });
 
   it('still names the GPU before the node info arrives, from the clock limit the sample shows', () => {
