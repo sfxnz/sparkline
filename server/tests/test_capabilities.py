@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from platforms import GB10, gb10, gb10_without
+from platforms import GB10, gb10, gb10_without, workstation
 
 from sparkline.agent.collectors import VOCABULARY, covers, declares
 from sparkline.agent.collectors.gpu.nvml import VIOLATION_EVERY_S
@@ -19,7 +19,7 @@ from sparkline.agent.info import Collectors, catch_all
 from sparkline.agent.sampler import Sampler
 from sparkline.agent.sources import NvmlReplay, Sources, recorded
 from sparkline.common.metrics import flatten
-from sparkline.common.schema import NodeInfo, Sample, UnsupportedKind
+from sparkline.common.schema import NodeInfo, Sample, Unsupported, UnsupportedKind
 from sparkline.console.demo import UNSUPPORTED
 from sparkline.console.demo_fleets import FLEETS
 
@@ -141,6 +141,7 @@ ZERO_INSTANCES = {
 
 RECORDED = {
     "gb10": lambda tmp: gb10(),
+    "4-GPU discrete workstation": workstation,
     **ZERO_INSTANCES,
     "degraded box without pressure or network files": lambda tmp: gb10_without(
         tmp, "/proc/pressure", "/sys/class/net", "/proc/self/net/dev"
@@ -233,6 +234,16 @@ def test_mem_gpu_on_a_demo_node_counts_only_the_memory_its_gpus_share(node):
 def test_the_demo_declares_what_the_gb10_recording_declares():
     golden = json.loads((GB10 / "golden.json").read_text())["node_info"]["unsupported"]
     assert [u.model_dump(mode="json") for u in UNSUPPORTED] == golden
+
+
+def test_the_demo_workstation_declares_the_gpu_and_memory_gaps_the_workstation_recording_declares(
+    monkeypatch, tmp_path
+):
+    def memory_gaps(info: NodeInfo) -> list[Unsupported]:
+        return [u for u in info.unsupported if u.metric.startswith(("gpu", "mem."))]
+
+    recorded_info, _, _ = warm(monkeypatch, workstation(tmp_path))
+    assert memory_gaps(FLEETS["mixed"]["ws1"](T0, 1.0).info) == memory_gaps(recorded_info)
 
 
 def test_a_box_without_pressure_files_declares_psi_unsupported(tmp_path):

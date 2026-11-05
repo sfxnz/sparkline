@@ -1,0 +1,31 @@
+{
+ "assumed": [
+  "Host files are the GB10 recording's (CPU, disks, NICs, sensors, /proc/stat, hostname, host.json): tests/platforms.py::workstation lays this directory over them. Moving it onto the Threadripper recording of #77 is a follow-up",
+  "Four NVIDIA RTX 6000 Ada Generation cards with the datasheet's Ada architecture, compute capability 8.9, 18,176 CUDA cores, 300 W board power and 48 GB of GDDR6, read as a v1 total of 48 GiB (a real card reports a little less)",
+  "Each card's v1 used is its one worker's usedGpuMemory plus 512 MiB the driver reserves, and free is total less used",
+  "One vLLM tensor-parallel worker per card (pids 41240, 41243, 41246, 41249) holding about 40.4 GiB each, about 161.6 GiB in all, more than the 43.5 GiB of system memory in use",
+  "The workers' /proc/<pid>/stat values and cmdline, which is vLLM's process title VLLM::Worker_TP<i> (comm cut to 15 characters)",
+  "Every /proc/meminfo value: 251 GiB of RAM, as ws1 in the demo, with AnonPages, Shmem and the kernel's share all inside the memory in use",
+  "Every clock, temperature, threshold, power, energy, utilisation, fan, PCIe and violation reading",
+  "ECC on; the driver 580.95.05, CUDA 13.0 and NVML 13.580.95.05, as ws1 in the demo",
+  "nvmlDeviceGetProcessUtilization answers NOT_FOUND: no sample is newer than timestamp 0",
+  "Placeholder GPU UUIDs GPU-00000000-0000-0000-0000-00000000000<i>"
+ ],
+ "built": "Synthesized by server/tests/synthesized_workstation.py from NVML's documented answers; no real device was read",
+ "device": "Workstation with 4x NVIDIA RTX 6000 Ada Generation, serving one model with vLLM tensor parallel 4",
+ "generated_by": "python tests/synthesized_workstation.py",
+ "platform": "linux",
+ "sources": {
+  "/usr/local/cuda-13.0/targets/sbsa-linux/include/nvml.h:1496": "NVML_DEVICE_ARCH_ADA is 8",
+  "/usr/local/cuda-13.0/targets/sbsa-linux/include/nvml.h:250-260": "nvmlMemory_t (v1): total = free + used, and used is reserved plus allocated",
+  "/usr/local/cuda-13.0/targets/sbsa-linux/include/nvml.h:262-274": "nvmlMemory_v2_t takes reserved out of used; the agent reads v1",
+  "/usr/local/cuda-13.0/targets/sbsa-linux/include/nvml.h:278-286 and :7214-7240": "BAR1, the CPU-visible aperture onto VRAM: its use is not VRAM use, so the agent does not read it",
+  "/usr/local/cuda-13.0/targets/sbsa-linux/include/nvml.h:303-313": "nvmlProcessInfo_t: usedGpuMemory, and instance ids of 0xFFFFFFFF outside MIG",
+  "/usr/local/cuda-13.0/targets/sbsa-linux/include/nvml.h:6286-6335": "nvmlDeviceGetMemoryInfo, for all products: NOT_SUPPORTED on an iGPU without a framebuffer, NO_PERMISSION in MIG mode without privilege",
+  "/usr/local/cuda-13.0/targets/sbsa-linux/include/nvml.h:6945-6985": "nvmlDeviceGetComputeRunningProcesses: usedGpuMemory is all the memory the application uses",
+  "/usr/local/cuda-13.0/targets/sbsa-linux/include/nvml.h:8040-8074": "nvmlDeviceGetProcessUtilization: NOT_FOUND when no sample is newer",
+  "https://docs.nvidia.com/deploy/nvml-api/api/group__nvmlDeviceQueries.html": "NVML device queries, the online reference nvml.h is published as",
+  "https://lenovopress.lenovo.com/LP1940": "NVIDIA RTX 6000 Ada Generation: Ada, 18,176 CUDA cores, 48 GB GDDR6, 300 W"
+ },
+ "synthesized": true
+}

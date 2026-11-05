@@ -10,9 +10,11 @@ from pathlib import Path
 import pynvml
 import pytest
 from fastapi.testclient import TestClient
-from platforms import GB10, gb10_without, paths_read
+from platforms import GB10, WORKSTATION, gb10_without, paths_read, workstation
+from synthesized_workstation import stat_line
 
 from sparkline.agent.app import create_app
+from sparkline.agent.collectors.gpu.nvml import VRAM_ONLY
 from sparkline.agent.collectors.net import NetCollector
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import AGENT_VERSION, Collectors
@@ -100,7 +102,7 @@ def start(src: Sources, tmp: Path) -> tuple[NodeInfo, Sample, Collectors]:
         collectors = Collectors(cfg, src)
         info = collectors.node_info(cfg)
         sample = Sampler(cfg.node_id, collectors.ordered(), ring_seconds=10).tick()
-    assert outside(seen, tmp / "gb10") == []
+    assert outside(seen, Path(src.fs.root).parent) == []
     return info, sample, collectors
 
 
@@ -165,3 +167,54 @@ def test_a_collector_that_cannot_start_logs_its_traceback_at_debug(offline, tmp_
     net = [r for r in caplog.records if r.getMessage().startswith("collector net could not start")]
     assert [(r.levelno, r.exc_info is None) for r in net] == [(logging.WARNING, True), (logging.DEBUG, False)]
     assert net[1].exc_info and isinstance(net[1].exc_info[1], FileNotFoundError)
+
+
+def _meminfo_bytes(text: str) -> dict[str, int]:
+    return {k: int(v.split()[0]) * 1024 for k, v in (line.split(":") for line in text.splitlines())}
+
+
+def test_the_recorded_workstation_shows_each_gpus_vram_and_no_gpu_segment_in_system_memory(offline, tmp_path):
+    src = workstation(tmp_path)
+    info, sample, _ = start(src, tmp_path)
+
+    calls = json.loads((WORKSTATION / "nvml.json").read_text())
+    memory = [calls["nvmlDeviceGetMemoryInfo"][f'["gpu{i}"]']["__fields__"] for i in range(4)]
+    held = {
+        p["__fields__"]["pid"]: p["__fields__"]["usedGpuMemory"]
+        for procs in calls["nvmlDeviceGetComputeRunningProcesses"].values()
+        for p in procs
+    }
+    mi = _meminfo_bytes((WORKSTATION / "root/proc/meminfo").read_text())
+    flat = flatten(sample)
+    assert sum(held.values()) > flat["mem.used"], "subtracting the workers' VRAM would empty the breakdown"
+
+    assert [(g.name, g.memory, g.vram_total) for g in info.gpus] == [
+        ("NVIDIA RTX 6000 Ada Generation", "dedicated", m["total"]) for m in memory
+    ]
+    assert [flat[f"gpu{i}.vram_used"] for i in range(4)] == [m["used"] for m in memory]
+    assert flat["gpu.mem_used"] == sum(m["used"] for m in memory)
+    assert "mem.gpu" not in flat and not [k for k in flat if k.endswith(".shared_used")]
+    assert (flat["mem.anon"], flat["mem.shmem"], flat["mem.kernel"]) == (
+        mi["AnonPages"],
+        mi["Shmem"],
+        mi["Slab"] + mi["KernelStack"] + mi["PageTables"] + mi["VmallocUsed"],
+    )
+    gaps = {u.metric: u.reason for u in info.unsupported if u.metric.startswith(("gpu", "mem."))}
+    assert gaps == {
+        **{f"gpu{i}.shared_used": VRAM_ONLY.reason for i in range(4)},
+        "mem.gpu": VRAM_ONLY.reason,
+    }
+    assert {p.pid: p.gpu_mem for p in sample.procs or [] if p.gpu_mem} == held
+    assert src.nvml.misses == []
+
+
+def test_on_gb10_mem_gpu_is_the_gpu_memory_of_the_process_table(offline, tmp_path):
+    src = gb10_without(tmp_path)
+    proc = tmp_path / "gb10/root/proc/3605742"
+    proc.mkdir()
+    (proc / "stat").write_text(stat_line(3605742, "python3", 1, 5_000, 300, 9_000_000, 120_000))
+    (proc / "cmdline").write_text("python3\0-m\0vllm.entrypoints.openai.api_server\0")
+    _, sample, _ = start(src, tmp_path)
+
+    assert sample.procs and [p.pid for p in sample.procs if p.gpu_mem] == [3605742]
+    assert sample.mem.gpu == sum(p.gpu_mem or 0 for p in sample.procs) == GOLDEN["flat"]["mem.gpu"]

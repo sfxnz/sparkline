@@ -1,0 +1,335 @@
+{
+ "nvmlDeviceGetArchitecture": {
+  "[\"gpu0\"]": 8,
+  "[\"gpu1\"]": 8,
+  "[\"gpu2\"]": 8,
+  "[\"gpu3\"]": 8
+ },
+ "nvmlDeviceGetClockInfo": {
+  "[\"gpu0\", 0]": 2730,
+  "[\"gpu0\", 1]": 2730,
+  "[\"gpu0\", 2]": 10001,
+  "[\"gpu0\", 3]": 1965,
+  "[\"gpu1\", 0]": 2715,
+  "[\"gpu1\", 1]": 2715,
+  "[\"gpu1\", 2]": 10001,
+  "[\"gpu1\", 3]": 1965,
+  "[\"gpu2\", 0]": 2700,
+  "[\"gpu2\", 1]": 2700,
+  "[\"gpu2\", 2]": 10001,
+  "[\"gpu2\", 3]": 1965,
+  "[\"gpu3\", 0]": 2685,
+  "[\"gpu3\", 1]": 2685,
+  "[\"gpu3\", 2]": 10001,
+  "[\"gpu3\", 3]": 1965
+ },
+ "nvmlDeviceGetComputeRunningProcesses": {
+  "[\"gpu0\"]": [
+   {
+    "__fields__": {
+     "computeInstanceId": 4294967295,
+     "gpuInstanceId": 4294967295,
+     "pid": 41240,
+     "usedGpuMemory": 43348131840
+    }
+   }
+  ],
+  "[\"gpu1\"]": [
+   {
+    "__fields__": {
+     "computeInstanceId": 4294967295,
+     "gpuInstanceId": 4294967295,
+     "pid": 41243,
+     "usedGpuMemory": 43364909056
+    }
+   }
+  ],
+  "[\"gpu2\"]": [
+   {
+    "__fields__": {
+     "computeInstanceId": 4294967295,
+     "gpuInstanceId": 4294967295,
+     "pid": 41246,
+     "usedGpuMemory": 43381686272
+    }
+   }
+  ],
+  "[\"gpu3\"]": [
+   {
+    "__fields__": {
+     "computeInstanceId": 4294967295,
+     "gpuInstanceId": 4294967295,
+     "pid": 41249,
+     "usedGpuMemory": 43398463488
+    }
+   }
+  ]
+ },
+ "nvmlDeviceGetCount": {
+  "[]": 4
+ },
+ "nvmlDeviceGetCudaComputeCapability": {
+  "[\"gpu0\"]": [
+   8,
+   9
+  ],
+  "[\"gpu1\"]": [
+   8,
+   9
+  ],
+  "[\"gpu2\"]": [
+   8,
+   9
+  ],
+  "[\"gpu3\"]": [
+   8,
+   9
+  ]
+ },
+ "nvmlDeviceGetCurrentClocksEventReasons": {
+  "[\"gpu0\"]": 0,
+  "[\"gpu1\"]": 0,
+  "[\"gpu2\"]": 0,
+  "[\"gpu3\"]": 0
+ },
+ "nvmlDeviceGetEccMode": {
+  "[\"gpu0\"]": [
+   1,
+   1
+  ],
+  "[\"gpu1\"]": [
+   1,
+   1
+  ],
+  "[\"gpu2\"]": [
+   1,
+   1
+  ],
+  "[\"gpu3\"]": [
+   1,
+   1
+  ]
+ },
+ "nvmlDeviceGetFanSpeed": {
+  "[\"gpu0\"]": 41,
+  "[\"gpu1\"]": 44,
+  "[\"gpu2\"]": 47,
+  "[\"gpu3\"]": 50
+ },
+ "nvmlDeviceGetHandleByIndex": {
+  "[0]": "gpu0",
+  "[1]": "gpu1",
+  "[2]": "gpu2",
+  "[3]": "gpu3"
+ },
+ "nvmlDeviceGetMaxClockInfo": {
+  "[\"gpu0\", 1]": 3105,
+  "[\"gpu1\", 1]": 3105,
+  "[\"gpu2\", 1]": 3105,
+  "[\"gpu3\", 1]": 3105
+ },
+ "nvmlDeviceGetMemoryInfo": {
+  "[\"gpu0\"]": {
+   "__fields__": {
+    "free": 7654604800,
+    "total": 51539607552,
+    "used": 43885002752
+   }
+  },
+  "[\"gpu1\"]": {
+   "__fields__": {
+    "free": 7637827584,
+    "total": 51539607552,
+    "used": 43901779968
+   }
+  },
+  "[\"gpu2\"]": {
+   "__fields__": {
+    "free": 7621050368,
+    "total": 51539607552,
+    "used": 43918557184
+   }
+  },
+  "[\"gpu3\"]": {
+   "__fields__": {
+    "free": 7604273152,
+    "total": 51539607552,
+    "used": 43935334400
+   }
+  }
+ },
+ "nvmlDeviceGetName": {
+  "[\"gpu0\"]": "NVIDIA RTX 6000 Ada Generation",
+  "[\"gpu1\"]": "NVIDIA RTX 6000 Ada Generation",
+  "[\"gpu2\"]": "NVIDIA RTX 6000 Ada Generation",
+  "[\"gpu3\"]": "NVIDIA RTX 6000 Ada Generation"
+ },
+ "nvmlDeviceGetNumGpuCores": {
+  "[\"gpu0\"]": 18176,
+  "[\"gpu1\"]": 18176,
+  "[\"gpu2\"]": 18176,
+  "[\"gpu3\"]": 18176
+ },
+ "nvmlDeviceGetPcieThroughput": {
+  "[\"gpu0\", 0]": 1843200,
+  "[\"gpu1\", 0]": 1844224,
+  "[\"gpu2\", 0]": 1845248,
+  "[\"gpu3\", 0]": 1846272
+ },
+ "nvmlDeviceGetPerformanceState": {
+  "[\"gpu0\"]": 0,
+  "[\"gpu1\"]": 0,
+  "[\"gpu2\"]": 0,
+  "[\"gpu3\"]": 0
+ },
+ "nvmlDeviceGetPowerManagementLimit": {
+  "[\"gpu0\"]": 300000,
+  "[\"gpu1\"]": 300000,
+  "[\"gpu2\"]": 300000,
+  "[\"gpu3\"]": 300000
+ },
+ "nvmlDeviceGetPowerUsage": {
+  "[\"gpu0\"]": 271500,
+  "[\"gpu1\"]": 267250,
+  "[\"gpu2\"]": 263000,
+  "[\"gpu3\"]": 258750
+ },
+ "nvmlDeviceGetProcessUtilization": {
+  "[\"gpu0\", 0]": {
+   "__error__": 6,
+   "str": "Not Found"
+  },
+  "[\"gpu1\", 0]": {
+   "__error__": 6,
+   "str": "Not Found"
+  },
+  "[\"gpu2\", 0]": {
+   "__error__": 6,
+   "str": "Not Found"
+  },
+  "[\"gpu3\", 0]": {
+   "__error__": 6,
+   "str": "Not Found"
+  }
+ },
+ "nvmlDeviceGetTemperature": {
+  "[\"gpu0\", 0]": 66,
+  "[\"gpu1\", 0]": 68,
+  "[\"gpu2\", 0]": 70,
+  "[\"gpu3\", 0]": 72
+ },
+ "nvmlDeviceGetTemperatureThreshold": {
+  "[\"gpu0\", 0]": 96,
+  "[\"gpu0\", 1]": 93,
+  "[\"gpu0\", 3]": 89,
+  "[\"gpu1\", 0]": 96,
+  "[\"gpu1\", 1]": 93,
+  "[\"gpu1\", 3]": 89,
+  "[\"gpu2\", 0]": 96,
+  "[\"gpu2\", 1]": 93,
+  "[\"gpu2\", 3]": 89,
+  "[\"gpu3\", 0]": 96,
+  "[\"gpu3\", 1]": 93,
+  "[\"gpu3\", 3]": 89
+ },
+ "nvmlDeviceGetTotalEnergyConsumption": {
+  "[\"gpu0\"]": 41873215442,
+  "[\"gpu1\"]": 41874215445,
+  "[\"gpu2\"]": 41875215448,
+  "[\"gpu3\"]": 41876215451
+ },
+ "nvmlDeviceGetUUID": {
+  "[\"gpu0\"]": "GPU-00000000-0000-0000-0000-000000000000",
+  "[\"gpu1\"]": "GPU-00000000-0000-0000-0000-000000000001",
+  "[\"gpu2\"]": "GPU-00000000-0000-0000-0000-000000000002",
+  "[\"gpu3\"]": "GPU-00000000-0000-0000-0000-000000000003"
+ },
+ "nvmlDeviceGetUtilizationRates": {
+  "[\"gpu0\"]": {
+   "__fields__": {
+    "gpu": 92,
+    "memory": 61
+   }
+  },
+  "[\"gpu1\"]": {
+   "__fields__": {
+    "gpu": 91,
+    "memory": 60
+   }
+  },
+  "[\"gpu2\"]": {
+   "__fields__": {
+    "gpu": 90,
+    "memory": 59
+   }
+  },
+  "[\"gpu3\"]": {
+   "__fields__": {
+    "gpu": 89,
+    "memory": 58
+   }
+  }
+ },
+ "nvmlDeviceGetViolationStatus": {
+  "[\"gpu0\", 0]": {
+   "__fields__": {
+    "referenceTime": 1793782407871489,
+    "violationTime": 0
+   }
+  },
+  "[\"gpu0\", 1]": {
+   "__fields__": {
+    "referenceTime": 1793782407871489,
+    "violationTime": 0
+   }
+  },
+  "[\"gpu1\", 0]": {
+   "__fields__": {
+    "referenceTime": 1793782407871489,
+    "violationTime": 0
+   }
+  },
+  "[\"gpu1\", 1]": {
+   "__fields__": {
+    "referenceTime": 1793782407871489,
+    "violationTime": 0
+   }
+  },
+  "[\"gpu2\", 0]": {
+   "__fields__": {
+    "referenceTime": 1793782407871489,
+    "violationTime": 0
+   }
+  },
+  "[\"gpu2\", 1]": {
+   "__fields__": {
+    "referenceTime": 1793782407871489,
+    "violationTime": 0
+   }
+  },
+  "[\"gpu3\", 0]": {
+   "__fields__": {
+    "referenceTime": 1793782407871489,
+    "violationTime": 0
+   }
+  },
+  "[\"gpu3\", 1]": {
+   "__fields__": {
+    "referenceTime": 1793782407871489,
+    "violationTime": 0
+   }
+  }
+ },
+ "nvmlInit": {
+  "[]": null
+ },
+ "nvmlSystemGetCudaDriverVersion_v2": {
+  "[]": 13000
+ },
+ "nvmlSystemGetDriverVersion": {
+  "[]": "580.95.05"
+ },
+ "nvmlSystemGetNVMLVersion": {
+  "[]": "13.580.95.05"
+ }
+}

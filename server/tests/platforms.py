@@ -13,6 +13,7 @@ from sparkline.agent.sources import Sources, recorded
 
 PLATFORMS = Path(__file__).parent / "fixtures" / "platforms"
 GB10 = PLATFORMS / "gb10"
+WORKSTATION = PLATFORMS / "workstation"
 
 _FS_EVENTS = {"open", "os.listdir", "os.scandir", "glob.glob", "glob.glob/2"}
 _seen: list[str] | None = None
@@ -52,4 +53,13 @@ def gb10_without(tmp: Path, *missing: str) -> Sources:
             shutil.rmtree(target)
         else:
             target.unlink()
+    return recorded(copy)
+
+
+def workstation(tmp: Path) -> Sources:
+    """The synthesized 4-GPU workstation (its NVML answers, /proc/meminfo and vLLM workers) laid over the GB10
+    recording's host files, as its platform.json says."""
+    copy = tmp / "workstation"
+    shutil.copytree(GB10, copy, symlinks=True)
+    shutil.copytree(WORKSTATION, copy, symlinks=True, dirs_exist_ok=True)
     return recorded(copy)
