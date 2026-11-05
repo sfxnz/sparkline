@@ -146,3 +146,56 @@ describe('Thermals tab', () => {
     expect(within(hot as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toBeInTheDocument();
   });
 });
+
+describe('Thermals tab while the GPU backend fails a tick', () => {
+  const NV_ERROR = 'RuntimeError: synthesized NVML read failure';
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    usePrefs.setState({ timeRange: 'live' });
+    useConnection.setState({ status: 'live', everLive: true });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(Response.json({ node_id: NODE, resolution_s: 10, ts: [], series: {}, min: {}, max: {} })));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const show = (sample: Partial<Sample>, nodeInfo: NodeInfo = info) => {
+    liveStore.removeNode(nodeInfo.node_id);
+    useCluster.setState({ clockOffset: 0, nodes: { [nodeInfo.node_id]: { ...state('online'), node_id: nodeInfo.node_id, info: nodeInfo } } });
+    act(() => {
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: nodeInfo.node_id, ts: 1_800_000_000, ...sample });
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={nodeInfo.node_id} />);
+  };
+  const energy = () => screen.getByText('GPU energy today').closest('.stat') as HTMLElement;
+  const notes = () => screen.getByRole('list', { name: 'Metrics unavailable' });
+
+  it("says today's GPU energy is not responding, like the temperature and power beside it, and names the silent GPU", () => {
+    show({ gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } });
+    expect(energy()).toHaveTextContent(/^GPU energy todayNot responding/);
+    expect(energy()).not.toHaveTextContent('kWh');
+    expect(within(energy()).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(NV_ERROR);
+    expect(notes()).toHaveTextContent(`GPU 0 (NVIDIA GB10) not responding: ${NV_ERROR}.`);
+  });
+
+  it('names the first silent GPU in the energy gap on a node with several', () => {
+    const gpus = [0, 1].map((index) => ({ ...(gpuAt(info.gpus, 0) as GpuInfo), index, name: 'NVIDIA RTX 6000 Ada Generation' }));
+    show({ gpu: [], errors: { gpu: `nvml: ${NV_ERROR}` } }, { ...info, node_id: 'ttest2', gpus });
+    expect(energy()).toHaveTextContent(/^GPU energy todayNot responding/);
+    expect(within(energy()).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0: ${NV_ERROR}`);
+    expect(notes()).toHaveTextContent('GPUs 0 and 1 (NVIDIA RTX 6000 Ada Generation) not responding');
+  });
+
+  it('says when the temperature sensors fail a tick', () => {
+    show({ errors: { thermal: 'OSError: hwmon vanished' } });
+    expect(notes()).toHaveTextContent('Temperature sensors unavailable: OSError: hwmon vanished. Other panels are unaffected.');
+  });
+
+  it('shows no notice and no energy gap on a healthy GB10', () => {
+    show({});
+    expect(screen.queryByRole('list', { name: 'Metrics unavailable' })).not.toBeInTheDocument();
+    expect(energy()).not.toHaveTextContent('Not responding');
+  });
+});
