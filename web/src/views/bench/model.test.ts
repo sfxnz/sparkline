@@ -641,9 +641,9 @@ describe('GPU choice', () => {
 
   it('names the GPU of each node that had a choice, from the run metadata', () => {
     const meta = { nodes: { ws1: { gpu_name: 'NVIDIA RTX 6000 Ada Generation', gpu_index: 2 } } };
-    expect(runGpuParts(run({ id: 'a', nodes: ['ws1'], gpu_index: { ws1: 2 }, metadata: meta }))).toEqual([['GPU 2', 'NVIDIA RTX 6000 Ada Generation']]);
-    expect(runGpuParts(run({ id: 'b', nodes: ['ws1'], gpu_index: { ws1: 2 } }))).toEqual([['GPU 2']]);
-    expect(runGpuParts(run({ id: 'c', nodes: ['spark1', 'ws1'], gpu_index: { ws1: 3 }, metadata: meta }))).toEqual([['ws1 GPU 3', 'NVIDIA RTX 6000 Ada Generation']]);
+    expect(runGpuParts(run({ id: 'a', nodes: ['ws1'], gpu_index: { ws1: 2 }, metadata: meta }))).toEqual(['GPU 2', 'NVIDIA RTX 6000 Ada Generation']);
+    expect(runGpuParts(run({ id: 'b', nodes: ['ws1'], gpu_index: { ws1: 2 } }))).toEqual(['GPU 2']);
+    expect(runGpuParts(run({ id: 'c', nodes: ['spark1', 'ws1'], gpu_index: { ws1: 3 }, metadata: meta }))).toEqual(['ws1 GPU 3', 'NVIDIA RTX 6000 Ada Generation']);
     expect(runGpuParts(run({ id: 'd', metadata: { nodes: { spark1: { gpu_name: 'NVIDIA GB10' } } } }))).toEqual([]);
   });
 

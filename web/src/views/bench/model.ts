@@ -349,15 +349,15 @@ export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly st
 
 export const runGpu = (run: Pick<BenchRun, 'gpu_index'>, node: string): number | undefined => run.gpu_index?.[node];
 
-/** For the run header, the GPU of each node that had a choice: [["GPU 2", "NVIDIA RTX 6000 Ada Generation"]]. */
-export function runGpuParts(run: Pick<BenchRun, 'gpu_index' | 'nodes' | 'metadata' | 'node_states'>): string[][] {
+/** For the run header, the GPU of each node that had a choice: ["GPU 2", "NVIDIA RTX 6000 Ada Generation"]. */
+export function runGpuParts(run: Pick<BenchRun, 'gpu_index' | 'nodes' | 'metadata' | 'node_states'>): string[] {
   const meta = nodeMeta(run);
   return run.nodes.flatMap((n) => {
     const index = runGpu(run, n);
     if (index === undefined) return [];
     const name = meta[n]?.gpu_name;
     const gpu = run.nodes.length > 1 ? `${n} GPU ${index}` : `GPU ${index}`;
-    return [typeof name === 'string' && name ? [gpu, name] : [gpu]];
+    return typeof name === 'string' && name ? [gpu, name] : [gpu];
   });
 }
 

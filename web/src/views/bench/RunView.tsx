@@ -180,7 +180,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
   const modelled = modelledNodes(run);
   const sub = [
     [nodesText(run.bench_id, run.nodes)],
-    ...runGpuParts(run),
+    ...runGpuParts(run).map((part) => [part]),
     servedParts(run.results),
     [`Started ${formatDateTime(run.started_ts ?? run.created_ts)}`],
     spec?.params.length ? paramParts(spec, run.params, 4) : [],
