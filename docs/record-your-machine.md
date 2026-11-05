@@ -66,7 +66,7 @@ is how Linux holds an internationalized hostname, is also found in Unicode.
 | Value | Placeholder |
 | --- | --- |
 | Hostname, with any domain after it, also written with `_` for `-` or, from 8 characters, inside a longer word | `host1` |
-| Domain of the hostname, each parent domain, the organization, and each label of 4 or more characters, on their own, also written with `_` for `-` or, from 8 characters, inside a longer word. The organization is the label before the top-level domain, or before a public suffix of two labels: `ts.net`, or a registry label such as `co`, `com`, `ac`, `edu`, `gov`, `net` or `org` under a two-letter country code, as in `co.uk` or `edu.cn` | `domain1` |
+| Domain of the hostname, each parent domain down to the organization's, the organization, and each label of 4 or more characters outside a public suffix, on their own, also written with `_` for `-` or, from 8 characters, inside a longer word | `domain1` |
 | User name, the home directory, and a disk mounted under `/media/<user>` | `user1`, `/home/<user1>`, `/media/<user1>` |
 | Full name of an account in `/etc/passwd`, each word in that account's comment field that has a letter and 4 or more characters, also without accents, and each number there of 6 or more digits, such as a phone number, as written and as its digits alone | `person1` |
 | IPv4 address, private ranges included | `198.51.100.1`, then `203.0.113.x` and `192.0.2.x` |
@@ -85,6 +85,13 @@ is how Linux holds an internationalized hostname, is also found in Unicode.
 | FAT volume id | `0000-0001` |
 | Private Hugging Face organization and model in a cache path or a `huggingface.co` address | `<org1>`, `<model1>` |
 | Mount source that is not a disk, such as an LVM or ZFS name | `<source1>` |
+
+The organization of a domain is the label before the longest public suffix that has a label before it, or
+else the label before the top-level domain. A public suffix here is `ts.net`, `k12.<state>.us`,
+`<area>.sch.uk`, or one of these labels under a two-letter country code, as in `co.uk` or `edu.cn`: `ac`,
+`biz`, `co`, `com`, `edu`, `go`, `gob`, `gov`, `govt`, `info`, `ltd`, `me`, `mil`, `ne`, `net`, `nhs`,
+`nom`, `or`, `org`, `plc` and `sch`. So the organization of `zrb.lancs.sch.uk` is `zrb`, and that of `org.ch`
+is `org`.
 
 The recording leaves out the processes that use no GPU, the rest of each command line, the mounts that are not
 on a local disk, the mount options, the os-release lines other than `PRETTY_NAME`, the names in a directory
