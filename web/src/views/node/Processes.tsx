@@ -7,7 +7,7 @@ import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
 import { Unsupported } from '../../design/components/Unsupported';
 import { formatBytes } from '../../lib/format';
-import { gpuProcessesGap } from '../../lib/gpu';
+import { gpuCountText, gpuProcessesGap, gpusWithUnknownProcesses } from '../../lib/gpu';
 import type { ProcSample, Sample } from '../../lib/types';
 import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
@@ -40,6 +40,11 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const hasSample = useLatest(nodeId, (s) => s !== null);
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const gap = useLatest(nodeId, useCallback((s: Sample | null) => gpuProcessesGap(info, s, quietGpusOf(nodeId, info)), [nodeId, info]), sameGap);
+  const from = useLatest(nodeId, useCallback((s: Sample | null) => {
+    const of = info?.gpus.length ?? 0;
+    const unknown = gpusWithUnknownProcesses(info, s, quietGpusOf(nodeId, info)).length;
+    return unknown ? gpuCountText({ from: of - unknown, of }) : '';
+  }, [nodeId, info]));
   const status = useCluster((s) => s.nodes[nodeId]?.status);
   const stale = useNodeStale(nodeId);
   const [view, setView] = useState<ProcView>(loadView);
@@ -55,8 +60,8 @@ export default function Processes({ nodeId }: { nodeId: string }) {
     if (cannotTell) return <>{listed} · {cannotTell}</>;
     const onGpu = procs.filter((p) => p.gpu_mem != null);
     const gpuBytes = onGpu.reduce((a, p) => a + (p.gpu_mem ?? 0), 0);
-    return `${listed} · ${onGpu.length} on the GPU${onGpu.length ? ` using ${formatBytes(gpuBytes)}` : ''}`;
-  }, [procs, gap, nodeId, info]);
+    return `${listed} · ${onGpu.length} on the GPU${onGpu.length ? ` using ${formatBytes(gpuBytes)}` : ''}${from ? ` (${from})` : ''}`;
+  }, [procs, gap, from, nodeId, info]);
   const ts = listTs(nodeId, procs);
   const waiting = !procs && !stale && (hasSample || status === 'connecting' || status === 'online' || !status);
 

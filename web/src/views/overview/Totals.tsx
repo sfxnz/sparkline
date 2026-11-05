@@ -5,7 +5,7 @@ import { Stat } from '../../design/components/Stat';
 import { gapAcross, notReported, type NotReported } from '../../lib/capabilities';
 import { formatBytes, formatPercent, percentParts, wattsParts, type Formatter } from '../../lib/format';
 import { memoryLayout } from '../../lib/memoryLayout';
-import { gpuProcessesGap, gpuSetGap, nodeGpuKey, nodeTotalGap } from '../../lib/gpu';
+import { gpuList, gpuProcessesGap, gpuSetGap, gpusWithUnknownProcesses, nodeGpuKey, nodeTotalGap } from '../../lib/gpu';
 import type { NodeTotal } from '../../lib/metrics';
 import type { NodeState } from '../../lib/types';
 import { quietGpusOf } from '../../store/attention';
@@ -55,6 +55,10 @@ export function Totals() {
       );
       const procsOut = ids.filter((id) => procsGap(id));
       const counted = ids.filter((id) => !procsOut.includes(id));
+      const procsPartly = counted.flatMap((id) => {
+        const unknown = gpusWithUnknownProcesses(infos[id]?.info, liveStore.latest(id), quietGpusOf(id, infos[id]?.info));
+        return unknown.length ? [`${id}: ${gpuList(unknown)}`] : [];
+      });
       const procs = counted.flatMap((id) => gpuProcesses(liveStore.latest(id)?.procs).map((p) => ({ id, p })));
       // A container is per node: the same name on two nodes (a TP=2 job) is two containers.
       const containers = new Set(procs.filter(({ p }) => p.container).map(({ id, p }) => `${id}/${p.container ?? ''}`)).size;
@@ -74,6 +78,7 @@ export function Totals() {
         procs: known ? procs.length : null,
         containers,
         procsOut: procsOut.join('\n'),
+        procsPartly: procsPartly.join('\n'),
         utilDropped: droppedOut(ids, infos, 'util'),
         utilFrom: utilGpusRead(ids, infos),
         powerDropped: droppedOut(ids, infos, 'power_w'),
@@ -95,6 +100,7 @@ export function Totals() {
   const util = leftOut(ids, totalOut('util', totals.utilDropped));
   const power = leftOut(ids, totalOut('power_w', totals.powerDropped));
   const gpuProcs = leftOut(ids, (id) => (totals.procsOut.split('\n').includes(id) ? procsGap(id) : null));
+  const gpuProcsExcl = [...gpuProcs.excl, ...(totals.procsPartly ? totals.procsPartly.split('\n') : [])];
   const energyGaps = leftOut(ids, (id) => gpuSetGap(infos[id]?.info, 'energy_j', 'every'));
   const energyExcl = [...new Set([...energyGaps.excl, ...energy.missing])];
   const powerOnly = power.excl.filter((id) => !energyExcl.includes(id));
@@ -155,7 +161,7 @@ export function Totals() {
           format={countParts}
           {...staleProps}
           unsupported={gpuProcs.gap}
-          footer={`${totals.procs === null ? of : totals.containers ? `In ${totals.containers} ${totals.containers === 1 ? 'container' : 'containers'}` : 'No containers'}${exclText(gpuProcs.excl)}`}
+          footer={`${totals.procs === null ? of : totals.containers ? `In ${totals.containers} ${totals.containers === 1 ? 'container' : 'containers'}` : 'No containers'}${exclText(gpuProcsExcl)}`}
         />
       </div>
     </Panel>

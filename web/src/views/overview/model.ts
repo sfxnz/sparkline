@@ -2,6 +2,7 @@
 // the interconnect topology. No React, no stores, so every rule here is unit-tested in model.test.ts.
 import type { Status } from '../../design/components/StatusPill';
 import { worstCondition, type GpuCondition, type NodeConditions } from '../../lib/condition';
+import { gpuCountText, type GpuCount } from '../../lib/gpu';
 import { gpuKey } from '../../lib/metrics';
 import type { Event, NetIfInfo, NodeInfo, NodeStatus, ProcSample } from '../../lib/types';
 import { linkRecoveries } from '../alerts/model';
@@ -182,16 +183,21 @@ export interface NodeActivityInput {
   procs: readonly ProcSample[] | null;
   /** The node cannot tell which processes use its GPUs (gpuProcessesGap). */
   cannotTell?: boolean;
+  /** How many of the GPUs it lists it can tell the processes of (gpusWithUnknownProcesses). */
+  gpusRead?: GpuCount;
 }
 
 /**
  * What the cluster is running, grouped by workload: "Serving DeepSeek-V4.1-Flash-EXL3 across 2 nodes",
- * "Serving X across 2 nodes and Y on spark3", "Running train.py on spark1", read from the nodes that can tell. Null
- * with no nodes, or while no GPU process is known and a node that can tell has sent no process list.
+ * "Serving X across 2 nodes and Y on spark3", "Running train.py on spark1", read from the nodes that can tell, with
+ * "(3 of 4 GPUs)" while they can tell the processes of only some of their GPUs. Null with no nodes, or while no GPU
+ * process is known and a node that can tell has sent no process list.
  */
 export function workloadSentence(nodes: readonly NodeActivityInput[]): string | null {
   const tellers = nodes.filter((n) => !n.cannotTell);
   if (!tellers.length) return nodes.length ? 'GPU workloads not reported' : null;
+  const read = tellers.reduce((c, n) => ({ from: c.from + (n.gpusRead?.from ?? 0), of: c.of + (n.gpusRead?.of ?? 0) }), { from: 0, of: 0 });
+  const mark = read.from < read.of ? ` (${gpuCountText(read)})` : '';
   const groups = new Map<string, { nodes: string[]; serving: boolean }>();
   for (const n of tellers) {
     const top = topGpuProcess(n.procs);
@@ -204,7 +210,7 @@ export function workloadSentence(nodes: readonly NodeActivityInput[]): string | 
   }
   if (!groups.size) {
     if (tellers.some((n) => !n.procs)) return null;
-    return tellers.length < nodes.length ? `No GPU workloads on ${listNodes(tellers.map((n) => n.id))}` : 'No GPU workloads';
+    return `${tellers.length < nodes.length ? `No GPU workloads on ${listNodes(tellers.map((n) => n.id))}` : 'No GPU workloads'}${mark}`;
   }
   const sorted = [...groups.entries()].sort((a, b) => b[1].nodes.length - a[1].nodes.length);
   const phrase = ([name, g]: [string, { nodes: string[] }]) => `${name} ${g.nodes.length > 1 ? `across ${g.nodes.length} nodes` : `on ${g.nodes[0] ?? ''}`}`;
@@ -218,7 +224,7 @@ export function workloadSentence(nodes: readonly NodeActivityInput[]): string | 
     text += `${sameVerb && !more ? ' and' : ','} ${sameVerb ? '' : `${verb(second[1].serving).toLowerCase()} `}${phrase(second)}`;
   }
   text += more;
-  return text;
+  return text + mark;
 }
 
 // ------------------------------------------------------------------------------------------------ totals

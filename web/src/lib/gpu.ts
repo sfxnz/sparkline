@@ -214,13 +214,22 @@ export const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 export function gpuProcessesGap(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): NotReported | null {
   const declared = notReported(info, 'procs') ?? gpuSetGap(info, 'proc_mem', 'any');
   if (declared || !info?.gpus.length) return declared;
-  const indexes = gpuIndexes(info);
-  const gaps = indexes.flatMap((i) => {
-    const gap = lostGpu(info, i) ?? (quiet.includes(i) ? notResponding(info, s, i) : null);
-    return gap ? [{ index: i, gap }] : [];
-  });
+  const gaps = processGaps(info, s, quiet);
   const [first] = gaps;
-  if (!first || gaps.length < indexes.length) return null;
+  if (!first || gaps.length < info.gpus.length) return null;
   if (gaps.length === 1) return first.gap;
   return everyGpuSilent(info, s) ?? { ...first.gap, detail: sentence(gaps.map((g) => `GPU ${String(g.index)}: ${g.gap.detail}`).join('; ')) };
+}
+
+/** The GPUs whose processes the node cannot tell while it can tell the others': each one lost, or quiet and not
+ *  responding. Empty when it can tell every GPU's, and when gpuProcessesGap says it can tell none. */
+export function gpusWithUnknownProcesses(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): number[] {
+  return gpuProcessesGap(info, s, quiet) ? [] : processGaps(info, s, quiet).map((g) => g.index);
+}
+
+function processGaps(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): { index: number; gap: NotReported }[] {
+  return (info?.gpus ?? []).flatMap((g) => {
+    const gap = lostGpu(info, g.index) ?? (quiet.includes(g.index) ? notResponding(info, s, g.index) : null);
+    return gap ? [{ index: g.index, gap }] : [];
+  });
 }

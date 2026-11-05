@@ -3,7 +3,7 @@ import { AnimatedNumber } from '../../design/components/AnimatedNumber';
 import { Skeleton } from '../../design/components/Skeleton';
 import { StatusPill } from '../../design/components/StatusPill';
 import { wattsParts } from '../../lib/format';
-import { gpuProcessesGap } from '../../lib/gpu';
+import { gpuProcessesGap, gpusWithUnknownProcesses } from '../../lib/gpu';
 import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
@@ -39,7 +39,10 @@ function Activity() {
       return {
         workload: workloadSentence(online.map((id) => {
           const s = liveStore.latest(id);
-          return { id, procs: s?.procs ?? null, cannotTell: gpuProcessesGap(nodes[id]?.info, s, quietGpusOf(id, nodes[id]?.info)) !== null };
+          const info = nodes[id]?.info;
+          const quiet = quietGpusOf(id, info);
+          const of = info?.gpus.length ?? 0;
+          return { id, procs: s?.procs ?? null, cannotTell: gpuProcessesGap(info, s, quiet) !== null, gpusRead: { from: of - gpusWithUnknownProcesses(info, s, quiet).length, of } };
         })),
         util: now.util === null ? null : Math.round(now.util),
         power: now.power === null ? null : Math.round(now.power * 10) / 10,
