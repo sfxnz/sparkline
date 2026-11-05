@@ -76,11 +76,13 @@ export function gpuSetGap(info: NodeInfo | null | undefined, field: GpuField, mo
 
 const READING: Record<NodeTotal, string> = { util: 'utilisation', temp_c: 'temperature', power_w: 'power', mem_used: 'memory' };
 
+/** "GPUs 2 and 3 not responding (<error>)", or "… sent no reading this tick" when the backend named no error: the one
+ *  form of every not-responding detail, so a tooltip over several nodes reads alike on each line. */
+const silentClause = (indexes: readonly number[], message: string | null) =>
+  message ? `${gpuList(indexes)} not responding (${message})` : `${gpuList(indexes)} sent no reading this tick`;
+
 const silentClauses = (info: NodeInfo | null | undefined, s: Sample) =>
-  silentBackends(info, s.errors.gpu, answeredIndexes(s)).map((b) => {
-    const who = gpuList(b.gpus.map((g) => g.index));
-    return b.message ? `${who} not responding (${b.message})` : `${who} sent no reading this tick`;
-  });
+  silentBackends(info, s.errors.gpu, answeredIndexes(s)).map((b) => silentClause(b.gpus.map((g) => g.index), b.message));
 
 /** Why no GPU the node lists answered this tick: each one is lost, or did not answer (answeredGpu). Null while any of
  *  them answers, and on a node that lists none. */
@@ -191,7 +193,7 @@ export function silentBackends(info: NodeInfo | null | undefined, errors: string
 export function notResponding(info: NodeInfo | null | undefined, s: Sample | null, index: number): NotReported | null {
   if (!s || !gpuAt(info?.gpus, index) || answeredGpu(s, index) || lostGpu(info, index)) return null;
   const silent = silentBackends(info, s.errors.gpu, answeredIndexes(s)).find((b) => b.gpus.some((g) => g.index === index));
-  return { kind: 'hardware', label: 'Not responding', detail: silent?.message ?? `GPU ${index} sent no reading this tick.` };
+  return { kind: 'hardware', label: 'Not responding', detail: sentence(silentClause([index], silent?.message ?? null)) };
 }
 
 /** "1", "1 and 2", "1, 2 and 3". */

@@ -294,7 +294,7 @@ describe('GPU tab on a node with two vendors', () => {
     expect(within(gpu0).queryByText('61')).not.toBeInTheDocument();
     expect(within(gpu0).queryByText('140')).not.toBeInTheDocument();
     expect(within(gpu0).getByText('GPU 0 not responding')).toBeInTheDocument();
-    expect(gpu0).toHaveTextContent(`${NV_ERROR}. GPUs 1 and 2 still report.`);
+    expect(gpu0).toHaveTextContent(`GPU 0 not responding (${NV_ERROR}). GPUs 1 and 2 still report.`);
     expect(within(section(1)).getByText('37')).toBeInTheDocument();
   });
 
@@ -337,7 +337,7 @@ describe('GPU tab on a node with two vendors', () => {
     const lost = 'NVML could not open GPU 0 (NVML: GPU is lost)';
     showHybrid({ ...base, gpu: [{ index: 0 } as GpuSample], errors: { gpu: 'amdgpu-sysfs: RuntimeError: boom' } }, { ...hybrid, unsupported: [{ metric: 'gpu0', reason: lost, kind: 'hardware' }] });
 
-    for (const [index, reason] of [[0, `${lost}.`], [1, 'RuntimeError: boom.'], [2, 'RuntimeError: boom.']] as const) {
+    for (const [index, reason] of [[0, `${lost}.`], [1, 'GPU 1 not responding (RuntimeError: boom).'], [2, 'GPU 2 not responding (RuntimeError: boom).']] as const) {
       const gpu = section(index);
       expect(within(gpu).getByText(`GPU ${String(index)} not responding`)).toBeInTheDocument();
       expect(gpu).toHaveTextContent(reason);
@@ -382,7 +382,7 @@ describe('GPU tab on a node with two vendors', () => {
 
     expect(within(now).getAllByText('Not responding').length).toBeGreaterThanOrEqual(4);
     const why = within(now).getAllByRole('button', { name: 'Why is this not reported?' });
-    for (const button of why) expect(button).toHaveAccessibleDescription(NV_ERROR);
+    for (const button of why) expect(button).toHaveAccessibleDescription(`GPU 0 not responding (${NV_ERROR}).`);
   });
 });
 

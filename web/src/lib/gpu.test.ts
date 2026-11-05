@@ -125,7 +125,7 @@ describe('the gap of a node figure that reads less than every GPU the node lists
 
   it('says a GB10 whose GPU is missing from the sample is not responding, with its backend error', () => {
     for (const field of ['util', 'temp_c', 'power_w'] as const) {
-      expect(totalGap(gb10, backendDown(gb10Reading), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: NVML_DOWN });
+      expect(totalGap(gb10, backendDown(gb10Reading), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `GPU 0 not responding (${NVML_DOWN}).` });
     }
   });
 

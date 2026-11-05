@@ -517,7 +517,7 @@ describe('GPU processes a node cannot tell, on the Overview', () => {
     show([[gb10Info as unknown as NodeInfo, { gpu: [], procs: idle, errors: { gpu: `nvml: ${NV_ERROR}` } }]], 6);
     expect(within(screen.getByRole('region', { name: 'Node spark1' })).queryByText('No GPU processes')).not.toBeInTheDocument();
     expect(subtitle('spark1')).toHaveTextContent(/^GPU processes Not responding/);
-    expect(within(subtitle('spark1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(NV_ERROR);
+    expect(within(subtitle('spark1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0 not responding (${NV_ERROR}).`);
     expect(workload()).toHaveTextContent(/^GPU workloads not reported$/);
   });
 
@@ -711,7 +711,7 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
     expect(ring(c)).toHaveTextContent('Not responding');
     for (const label of ['GPU temp', 'GPU power']) {
       expect(stat(c, label)).toHaveTextContent('Not responding');
-      expect(why(stat(c, label))).toHaveAccessibleDescription(NVML_DOWN);
+      expect(why(stat(c, label))).toHaveAccessibleDescription(`GPU 0 not responding (${NVML_DOWN}).`);
     }
   });
 
@@ -764,7 +764,7 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
     ]);
     for (const label of ['Cluster compute', 'GPU power']) {
       expect(tile(label)).toHaveTextContent('Not responding');
-      expect(why(tile(label))).toHaveAccessibleDescription(`spark1: NVMLError_GpuIsLost: GPU is lost\nspark2: ${NVML_DOWN}`);
+      expect(why(tile(label))).toHaveAccessibleDescription(`spark1: GPU 0 not responding (NVMLError_GpuIsLost: GPU is lost).\nspark2: GPU 0 not responding (${NVML_DOWN}).`);
     }
   });
 
