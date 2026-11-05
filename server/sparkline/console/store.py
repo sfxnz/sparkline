@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import secrets
 import sqlite3
 import time
@@ -14,6 +15,8 @@ from ..common.schema import Event
 
 SESSION_TTL_S = 30 * 86400
 EVENT_RETENTION_S = 30 * 86400
+
+log = logging.getLogger("sparkline.console.store")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (id_hash TEXT PRIMARY KEY, created REAL NOT NULL, expires REAL NOT NULL);
@@ -83,7 +86,13 @@ class Store:
     # -- kv -------------------------------------------------------------------------------------
     def kv_get(self, key: str) -> Any | None:
         row = self.db.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
-        return json.loads(row[0]) if row else None
+        if not row:
+            return None
+        try:
+            return json.loads(row[0])
+        except json.JSONDecodeError:
+            log.warning("Ignoring the stored %r row: it is not valid JSON", key)
+            return None
 
     def kv_set(self, key: str, value: Any) -> None:
         self.db.execute("INSERT OR REPLACE INTO kv VALUES (?,?)", (key, json.dumps(value)))
