@@ -94,10 +94,12 @@ else the label before the top-level domain. A public suffix here is `ts.net`, `k
 is `org`.
 
 A comment-field word in Latin letters is also found written in ASCII. That spelling removes the combining
-marks, writes ł, ø, đ and ı as l, o, d and i, and writes ß, æ, œ and þ as ss, ae, oe and th. It leaves out
-any other letter that it cannot write in ASCII, such as Icelandic ð, Maltese ħ, Azerbaijani ə, and Hausa ɓ,
-ɗ, ƙ and ƴ. So a word that holds one of those letters is not found where an ASCII letter stands in its place,
-such as `Horbina` for `Ħorbina`.
+marks, writes ł, ø, đ and ı as l, o, d and i, and writes ß, æ, œ and þ as ss, ae, oe and th. It also writes
+a letter that Unicode defines as a form of other letters as those letters, such as ĳ as ij, ǆ as dz, ſ as s,
+ŀ as l, ŉ as n, the ligatures ﬁ and ﬂ as fi and fl, and a fullwidth, superscript or subscript letter as the
+plain letter. It leaves out any other letter that it cannot write in ASCII, such as Icelandic ð, Maltese ħ,
+Azerbaijani ə, and Hausa ɓ, ɗ, ƙ and ƴ. So a word that holds one of those letters is not found where an ASCII
+letter stands in its place, such as `Horbina` for `Ħorbina`.
 
 The recording keeps these addresses as written, because every machine has the same ones or they belong to no
 host:
