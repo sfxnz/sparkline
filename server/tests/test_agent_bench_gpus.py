@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
+from platforms import gb10_without
 from test_agent_bench_runner import RTX, amd_info, mac_info, node_info, workstation_info, ws_uuid
+from test_capabilities import warm
 
 from sparkline.agent.bench.probes import GpuTarget, gpu_options, gpu_problem, resolve_gpu
+from sparkline.agent.collectors.gpu.nvml import NO_DRIVER
 from sparkline.common.schema import GpuOption, Problem
 
 NVIDIA_SMI = "Check `nvidia-smi` on ws1, then restart sparkline-agent"
@@ -45,6 +50,16 @@ def test_a_linux_node_without_gpus_keeps_todays_problem():
         cause="NVML reported no GPUs when the agent started",
         fix="Check `nvidia-smi` on spark1, then restart sparkline-agent",
     )
+
+
+def test_a_linux_node_without_an_nvidia_driver_is_told_gpu_benchmarks_need_one_not_to_check_nvidia_smi(
+    monkeypatch, tmp_path
+):
+    info, _, _ = warm(monkeypatch, replace(gb10_without(tmp_path, "/proc/driver/nvidia"), nvml=None))
+    assert info.platform == "linux" and info.gpus == []
+    p = gpu_problem("ws2", info)
+    assert p is not None and p.message == NEED and NO_DRIVER in p.cause
+    assert "nvidia-smi" not in p.fix and "ws2" in p.fix
 
 
 def test_every_nvidia_gpu_lost_names_each_reason():
