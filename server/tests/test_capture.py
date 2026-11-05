@@ -810,6 +810,38 @@ def test_a_capture_refuses_an_output_directory_that_has_files(tmp_path):
     assert (out / "notes.txt").read_text() == "mine"
 
 
+def under_a_missing_directory(tmp: Path) -> Path:
+    return tmp / "missing" / "out"
+
+
+def under_a_read_only_directory(tmp: Path) -> Path:
+    (tmp / "locked").mkdir(mode=0o555)
+    return tmp / "locked" / "out"
+
+
+def a_file(tmp: Path) -> Path:
+    (tmp / "out").write_text("mine")
+    return tmp / "out"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes into a read-only directory")
+@pytest.mark.parametrize(
+    ("output", "says"),
+    [(under_a_missing_directory, "does not exist"), (under_a_read_only_directory, "write"), (a_file, "file")],
+    ids=["missing parent", "read-only parent", "a file"],
+)
+def test_an_output_path_that_cannot_hold_a_recording_is_a_usage_error(
+    output, says, tmp_path, monkeypatch, capsys
+):
+    out = output(tmp_path)
+    before = sorted(tmp_path.rglob("*"))
+    assert main_of(tmp_path, monkeypatch, str(out)) == 3
+    err = capsys.readouterr().err
+    assert "usage: sparkline-capture" in err and says in err
+    assert "open an issue" not in err and "not empty" not in err
+    assert sorted(tmp_path.rglob("*")) == before, "it writes nothing"
+
+
 def test_capturing_a_capture_changes_nothing(tmp_path):
     capture_of(planted(tmp_path), tmp_path / "first")
     capture_of(tmp_path / "first", tmp_path / "second")
