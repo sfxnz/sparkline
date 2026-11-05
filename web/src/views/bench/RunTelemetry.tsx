@@ -156,6 +156,7 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
   const start = run.started_ts ?? run.created_ts;
   const charts = telemetryCharts(category);
   const nodeInfos = useCluster((s) => s.nodes);
+  const hello = useCluster((s) => s.cluster !== null);
   const infos: Infos = (n) => nodeInfos[n]?.info ?? undefined;
   const tick = useLiveTick(run.nodes, active);
   const saved = useMemo(() => (active ? null : fromSaved(run, charts)), [active, run, charts]);
@@ -166,14 +167,17 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
 
   // Finished without saved telemetry for these charts: the console's history for the run's span.
   const needHistory = !active && !saved && !inLive;
-  const span = `${run.id}|${start}|${run.finished_ts ?? ''}|${charts.map((c) => c.id).join(',')}`;
+  // Keys from NodeInfo (disks, cores, rails) are unknown until the console's hello brings it: nothing to ask for yet.
+  const waiting = !hello && run.nodes.some((n) => charts.some((c) => !c.keys(infos(n), runGpu(run, n) ?? 0).length));
+  const keys = run.nodes.map((n) => allKeys(charts, infos(n), runGpu(run, n) ?? 0).join(',')).join('|');
+  const span = `${run.id}|${start}|${run.finished_ts ?? ''}|${charts.map((c) => c.id).join(',')}|${keys}`;
   useEffect(() => {
-    if (!needHistory) return;
+    if (!needHistory || waiting) return;
     let cancelled = false;
     const to = (run.finished_ts ?? serverNow()) + LEAD_S;
     Promise.all(
       run.nodes.map((node) => {
-        const info = useCluster.getState().nodes[node]?.info ?? undefined;
+        const info = infos(node);
         const gpu = runGpu(run, node) ?? 0;
         const keys = allKeys(charts, info, gpu);
         return api.history(node, keys, start - LEAD_S, to, 600).then(
@@ -186,7 +190,7 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
     }, () => undefined);
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needHistory, span]);
+  }, [needHistory, waiting, span]);
 
   const now = serverNow();
   const data: Data = active ? fromLive(run, charts, infos, start - LEAD_S) : (saved ?? (inLive ? recent : history.id === span ? history.data : null));
