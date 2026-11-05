@@ -847,6 +847,7 @@ _NO_DECOMPOSITION = str.maketrans(
         "Đ": "D",
         "ı": "i",
         "ß": "ss",
+        "ẞ": "SS",
         "æ": "ae",
         "Æ": "AE",
         "œ": "oe",
