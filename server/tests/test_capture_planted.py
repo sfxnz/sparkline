@@ -576,7 +576,7 @@ CASES = [
         "refused",
         ("tail7f3a9c",),
         "tail7f3a9c peer",
-        hostname=f"{HOST}.tail7f3a9c.ts.net",
+        hostname=j(".", HOST, "tail7f3a9c", "ts", "net"),
         because="domain name",
     ),
     Case(
