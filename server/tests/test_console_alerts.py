@@ -606,3 +606,12 @@ def test_rows_this_console_can_read_get_no_side_key_and_no_warning(tmp_path, cap
     assert cluster.settings == ConsoleSettings(stale_after_s=9)
     assert cluster.store.db.execute("SELECT key FROM kv WHERE key LIKE '%.unreadable'").fetchall() == []
     assert [r for r in caplog.records if r.levelname == "WARNING"] == []
+
+
+def test_an_empty_stored_settings_row_starts_the_console_on_its_configured_settings(tmp_path, caplog):
+    store = Store(tmp_path / "console.sqlite")
+    store.kv_set("settings", {})
+    cluster = Cluster(store, Hub(), ConsoleSettings(stale_after_s=7))
+    assert cluster.settings == ConsoleSettings(stale_after_s=7)
+    assert store.kv_get("settings.unreadable") is None
+    assert [r for r in caplog.records if r.levelname == "WARNING"] == []
