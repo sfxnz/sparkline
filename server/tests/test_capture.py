@@ -26,7 +26,7 @@ import pytest
 from platforms import GB10
 from test_no_private_identifiers import DETECTORS, REAL_LOOKING, findings
 
-from sparkline.agent.capture import OutputNotEmpty, capture, exercise, facts_of
+from sparkline.agent.capture import OutputUnusable, capture, exercise, facts_of
 from sparkline.agent.collectors.memory import MemoryCollector
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors
@@ -804,7 +804,7 @@ def test_a_capture_refuses_an_output_directory_that_has_files(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     (out / "notes.txt").write_text("mine")
-    with pytest.raises(OutputNotEmpty):
+    with pytest.raises(OutputUnusable):
         capture(recorded(GB10), out, Facts())
     assert [p.name for p in out.iterdir()] == ["notes.txt"]
     assert (out / "notes.txt").read_text() == "mine"
@@ -827,7 +827,11 @@ def a_file(tmp: Path) -> Path:
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes into a read-only directory")
 @pytest.mark.parametrize(
     ("output", "says"),
-    [(under_a_missing_directory, "does not exist"), (under_a_read_only_directory, "write"), (a_file, "file")],
+    [
+        (under_a_missing_directory, "does not exist"),
+        (under_a_read_only_directory, "write"),
+        (a_file, "not a directory"),
+    ],
     ids=["missing parent", "read-only parent", "a file"],
 )
 def test_an_output_path_that_cannot_hold_a_recording_is_a_usage_error(

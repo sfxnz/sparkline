@@ -92,8 +92,14 @@ _PID = re.compile(r"/proc/(\d+)(?:/|$)")
 _FAMILY = {socket.AF_INET: "AF_INET", socket.AF_INET6: "AF_INET6", psutil.AF_LINK: "AF_LINK"}
 
 
-class OutputNotEmpty(Exception):
+class OutputUnusable(Exception):
     pass
+
+
+NOT_A_DIRECTORY = "The output path exists and is not a directory. Give a new or empty directory."
+NOT_EMPTY = "The output directory already exists and is not empty. Choose another directory."
+NO_PARENT = "The directory that would hold the output does not exist. Create it, or give another path."
+NOT_WRITABLE = "sparkline-capture cannot write there. Give a directory that you can write to."
 
 
 @dataclass
@@ -651,9 +657,23 @@ def _remove(out: Path, created: bool) -> None:
             child.unlink()
 
 
+def _check_output(out: Path) -> None:
+    if out.exists() or out.is_symlink():
+        if not out.is_dir():
+            raise OutputUnusable(NOT_A_DIRECTORY)
+        if any(out.iterdir()):
+            raise OutputUnusable(NOT_EMPTY)
+        where = out
+    elif out.parent.is_dir():
+        where = out.parent
+    else:
+        raise OutputUnusable(NO_PARENT)
+    if not os.access(where, os.W_OK | os.X_OK):
+        raise OutputUnusable(NOT_WRITABLE)
+
+
 def capture(src: Sources, out: Path, facts: Facts) -> Report:
-    if out.exists() and (not out.is_dir() or any(out.iterdir())):
-        raise OutputNotEmpty("the output directory already exists and is not empty")
+    _check_output(out)
     tsrc, tape = traced(src)
     info, sample, gpu_pids = exercise(tsrc)
     tree, dropped = materialize(tape, src.fs, gpu_pids)
@@ -761,10 +781,9 @@ def _run(argv: list[str] | None) -> int:
         src = live()
         report = capture(src, Path(os.path.expanduser(args.out)), _session_facts(facts_of(src)))
         print(_summary(report, default if args.out == default else None))
-    except OutputNotEmpty:
-        print(
-            "The output directory already exists and is not empty. Choose another directory.", file=sys.stderr
-        )
+    except OutputUnusable as e:
+        parser.print_usage(sys.stderr)
+        print(e, file=sys.stderr)
         return NOT_USABLE
     except CaptureRefused as e:
         print(e, file=sys.stderr)
