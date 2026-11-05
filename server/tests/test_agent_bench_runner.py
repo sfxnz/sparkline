@@ -698,11 +698,14 @@ async def test_a_gpu_container_sees_the_chosen_gpu_on_a_workstation_and_every_gp
     assert argv.count("--gpus") == 1 and argv[argv.index("--gpus") + 1] == gpus
 
 
-async def test_the_cpu_side_of_mem_bandwidth_gets_no_gpu_on_a_workstation_either(tmp_path):
+async def test_the_cpu_side_of_mem_bandwidth_takes_no_gpu_on_a_workstation_whose_first_gpu_is_lost(tmp_path):
     seen: list[list[dict]] = []
-    r = make_runner(tmp_path, {"mem-bandwidth": capturing("mem-bandwidth", seen)}, info=workstation_info)
-    await finish(r, req(bench_id="mem-bandwidth", params={"side": "cpu"}, gpu_index=2))
+    info = workstation_info({0: "NVML: Unknown Error"})
+    r = make_runner(tmp_path, {"mem-bandwidth": capturing("mem-bandwidth", seen)}, info=lambda: info)
+    md = (await finish(r, req(bench_id="mem-bandwidth", params={"side": "cpu"}))).metadata
     assert "--gpus" not in seen[0][0]["argv"]
+    first = next(g for g in info.gpus if g.index == 0)
+    assert "gpu_index" not in md and (md["gpu_uuid"], md["gpu_name"]) == (first.uuid, first.name)
 
 
 async def test_a_workstation_run_records_its_gpu_and_that_gpus_telemetry(tmp_path):
@@ -731,6 +734,10 @@ async def test_start_refuses_a_gpu_the_benchmark_cannot_run_on(tmp_path):
         (req(bench_id="gpu-matmul", gpu_index=9), "GPU 9 is not a GPU of n1"),
         (req(bench_id="thermal-soak", gpu_index=2), "GPU 2 on n1 is not responding"),
         (req(bench_id="cpu-throughput", gpu_index=0), "CPU throughput by core type does not run on a GPU"),
+        (
+            req(bench_id="mem-bandwidth", params={"side": "cpu"}, gpu_index=1),
+            "The CPU side of Unified memory bandwidth runs on no GPU",
+        ),
     ]
     for rq, msg in cases:
         with pytest.raises(Rejected) as e:
@@ -743,12 +750,17 @@ async def test_start_refuses_a_gpu_the_benchmark_cannot_run_on(tmp_path):
     assert r.current is None and amd.current is None
 
 
-async def test_a_gpu_choice_for_a_benchmark_without_one_is_refused_before_busy(tmp_path):
-    r = make_runner(tmp_path, {"cpu-throughput": fake("hang"), "storage-fio": fake("ok")})
+async def test_a_gpu_choice_for_a_run_without_one_is_refused_before_busy(tmp_path):
+    fns = {"cpu-throughput": fake("hang"), "storage-fio": fake("ok"), "mem-bandwidth": fake("ok")}
+    r = make_runner(tmp_path, fns, info=workstation_info)
     await r.start(req("a"))
-    with pytest.raises(Rejected) as e:
-        await r.start(req("b", "storage-fio", gpu_index=0))
-    assert e.value.status == 422
+    for rq in (
+        req("b", "storage-fio", gpu_index=0),
+        req("c", "mem-bandwidth", params={"side": "cpu"}, gpu_index=0),
+    ):
+        with pytest.raises(Rejected) as e:
+            await r.start(rq)
+        assert e.value.status == 422 and "GPU" in e.value.problem.message, rq
     r.cancel("a")
     await wait_for(lambda: r.current is None)
 

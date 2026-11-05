@@ -3,6 +3,7 @@ reflects the load, seeded history with a baseline and a regression."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 import time
@@ -19,7 +20,7 @@ from sparkline.console.app import create_app
 from sparkline.console.bench import REGISTRY, BenchError, params_key, validate_params
 from sparkline.console.bench_store import BenchStore
 from sparkline.console.config import ConsoleConfig
-from sparkline.console.demo import BenchWindow, DemoModel
+from sparkline.console.demo import BenchWindow, DemoModel, bench_load
 from sparkline.console.demo_bench import (
     demo_catalog,
     demo_duration,
@@ -126,6 +127,46 @@ async def test_the_demo_backend_refuses_a_gpu_ws1_cannot_run_on_as_its_agent_wou
     with pytest.raises(BenchError) as e:
         await mixed.app.state.bench.backend.start("ws1", req)
     assert (e.value.status, e.value.problem.message) == (400, "GPU 9 is not a GPU of ws1")
+
+
+async def _backend_run(c, node: str, req: BenchStartRequest) -> NodeBenchState:
+    backend = c.app.state.bench.backend
+    await backend.start(node, req)
+    deadline = time.time() + 15
+    while (st := await backend.get(node, req.run_id)) is not None and st.status == "running":
+        assert time.time() < deadline, f"{req.run_id} did not finish"
+        await asyncio.sleep(0.1)
+    assert st is not None
+    return st
+
+
+async def test_the_cpu_side_takes_and_loads_no_gpu_in_the_demo_as_on_an_agent(mixed):
+    sources = mixed.app.state.cluster.sources
+    deadline = time.time() + 10
+    while any(sources[n].state.info is None for n in ("ws1", "spark1")) and time.time() < deadline:
+        time.sleep(0.05)
+    cpu = {"side": "cpu"}
+    chosen = BenchStartRequest(run_id="c0", bench_id="mem-bandwidth", params=cpu, gpu_index=1)
+    with pytest.raises(BenchError) as e:
+        await mixed.app.state.bench.backend.start("ws1", chosen)
+    assert e.value.status == 400
+    for node in ("ws1", "spark1"):
+        st = await _backend_run(
+            mixed, node, BenchStartRequest(run_id=f"c-{node}", bench_id="mem-bandwidth", params=cpu)
+        )
+        assert st.status == "succeeded" and "gpu_index" not in st.metadata, node
+        assert st.started_ts is not None
+        windows, mid = sources[node].model.bench_windows, st.started_ts + 0.5
+        assert all(bench_load(windows, mid, g.index) == (0.0, 0.0) for g in sources[node].state.info.gpus), (
+            node
+        )
+    rq = BenchStartRequest(run_id="g1", bench_id="mem-bandwidth", params={"side": "gpu"}, gpu_index=2)
+    st = await _backend_run(mixed, "ws1", rq)
+    assert st.metadata["gpu_index"] == 2 and st.started_ts is not None
+    loaded = {
+        i for i in range(4) if bench_load(sources["ws1"].model.bench_windows, st.started_ts + 0.5, i)[0]
+    }
+    assert loaded == {2}
 
 
 def test_off_gb10_a_demo_run_estimated_from_gb10_rates_reports_no_estimate(mixed):

@@ -45,6 +45,25 @@ BENCH_SPECS: list[dict[str, Any]] = [
         "max_nodes": 1,  # as the real agent says; the console still runs it on several nodes at once
     },
     {
+        "id": "mem-bandwidth",
+        "name": "Unified memory bandwidth",
+        "category": "memory",
+        "description": "STREAM",
+        "est_duration_s": 30,
+        "impact": {"thermal": "medium", "power": "medium", "disruptive": True, "note": "Busy memory"},
+        "params": [
+            {
+                "name": "side",
+                "label": "Measure from",
+                "type": "enum",
+                "default": "both",
+                "choices": ["both", "gpu", "cpu"],
+            }
+        ],
+        "min_nodes": 1,
+        "max_nodes": 1,
+    },
+    {
         "id": "rdma-bw-lat",
         "name": "RDMA",
         "category": "interconnect",
@@ -82,7 +101,7 @@ BENCH_SPECS: list[dict[str, Any]] = [
 ]
 
 
-GPU_BENCHES = ("gpu-matmul", "nccl-allreduce")
+GPU_BENCHES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce")
 
 
 def bench_defaults() -> dict[str, Any]:

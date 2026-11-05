@@ -117,10 +117,11 @@ def events(env, limit: int = 20) -> list[dict]:
 
 def test_catalog_merges_nodes_and_availability(env):
     specs = [BenchSpec.model_validate(s) for s in env["http"].get("/api/v1/bench/catalog").json()]
-    assert [s.id for s in specs] == ["gpu-matmul", "nccl-allreduce", "rdma-bw-lat", "storage-fio"]
+    ids = ["gpu-matmul", "mem-bandwidth", "nccl-allreduce", "rdma-bw-lat", "storage-fio"]
+    assert [s.id for s in specs] == ids
     gm = specs[0]
     assert gm.availability == {"n1": None, "n2": None, "n3": None}
-    assert gm.max_nodes is None and specs[1].max_nodes == 2  # per-node benches run on any number of nodes
+    assert gm.max_nodes is None and specs[2].max_nodes == 2  # per-node benches run on any number of nodes
     fio = specs[-1].availability
     assert fio["n1"] is not None and fio["n1"].message == "fio missing"
 
@@ -481,10 +482,16 @@ def gpus(tmp_path_factory):
         t.stop()
 
 
-def gpu_run(gpus, nodes: list[str], gpu_index: dict | None = None, bench_id: str = "gpu-matmul"):
+def gpu_run(
+    gpus,
+    nodes: list[str],
+    gpu_index: dict | None = None,
+    bench_id: str = "gpu-matmul",
+    params: dict | None = None,
+):
     for a in gpus["apps"].values():
         a.state.bench_starts.clear()
-    body = {"bench_id": bench_id, "nodes": nodes, "confirm": True}
+    body = {"bench_id": bench_id, "nodes": nodes, "params": params or {}, "confirm": True}
     return gpus["http"].post(
         "/api/v1/bench/runs", json=body | ({"gpu_index": gpu_index} if gpu_index else {})
     )
@@ -539,3 +546,20 @@ def test_a_gpu_the_run_cannot_use_is_refused_before_any_agent_hears_of_it(gpus, 
 def test_a_node_without_a_gpu_choice_says_to_update_its_agent(gpus):
     fix = gpu_run(gpus, ["s1"], {"s1": 0}).json()["problem"]["fix"]
     assert fix == "Leave out the GPU for s1, or update sparkline-agent on s1"
+
+
+def test_the_cpu_side_of_mem_bandwidth_takes_no_gpu_and_refuses_a_chosen_one(gpus):
+    cpu = {"side": "cpu"}
+    r = gpu_run(gpus, ["w1", "s1"], bench_id="mem-bandwidth", params=cpu)
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(r.json())
+    assert run.gpu_index == {} and "@gpu" not in run.params_key
+    assert [s["gpu_index"] for a in gpus["apps"].values() for _, s in a.state.bench_starts] == [None, None]
+    finished(gpus, run.id)
+    refused = gpu_run(gpus, ["w1"], {"w1": 1}, bench_id="mem-bandwidth", params=cpu)
+    assert refused.status_code == 400, refused.json()
+    assert all(not a.state.bench_starts for a in gpus["apps"].values())
+    for side in ("gpu", "both"):
+        r = gpu_run(gpus, ["w1"], bench_id="mem-bandwidth", params={"side": side})
+        assert r.status_code == 201 and r.json()["gpu_index"] == {"w1": 1}, r.json()
+        finished(gpus, r.json()["id"])
