@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 from platforms import gb10_without
 
@@ -492,3 +494,18 @@ def test_a_rule_metrics_entry_that_is_not_a_metric_loads_its_rule_as_if_it_had_n
     assert started_with_rule_metrics(tmp_path, row).alerts.rules == edited(
         DEFAULT_RULES, "gpu_temp_critical", metric="gpu0.temp_c"
     )
+
+
+def test_a_rule_save_that_fails_part_way_leaves_the_saved_rules_as_they_were(tmp_path):
+    cluster = Cluster(Store(tmp_path / "console.sqlite"), Hub(), ConsoleSettings())
+    mine = edited(DEFAULT_RULES, "gpu_throttle", metric="gpu0.throttle_mask")
+    cluster.update_rules(mine)
+    metrics_before = cluster.store.kv_get("alert_rule_metrics")
+    cluster.store.db.execute(
+        "CREATE TRIGGER disk_full BEFORE INSERT ON kv WHEN NEW.key='alert_rules' "
+        "BEGIN SELECT RAISE(ABORT,'disk full'); END"
+    )
+    with pytest.raises(sqlite3.Error, match="disk full"):
+        cluster.update_rules(DEFAULT_RULES)
+    assert cluster.store.kv_get("alert_rule_metrics") == metrics_before
+    assert restart(cluster).alerts.rules == mine
