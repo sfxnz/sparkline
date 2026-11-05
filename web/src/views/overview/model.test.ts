@@ -327,7 +327,7 @@ describe('clusterHealth: an open alert hides only the GPU condition it fired on'
     clusterHealth([{ id: 'ws1', status: 'online', conditions, alerts: [ev({ node_id: 'ws1', ...alert })] }], openAlertCounts([ev(alert)])).sentence;
 
   it.each<[string, ReturnType<typeof ws1>, Partial<Event>, string]>([
-    ["the node's hottest-GPU temperature", ws1({ 3: { temp_c: 89 } }), { metric: 'gpu.temp_c' }, 'ws1 is online · 1 warning'],
+    ["the node's hottest-GPU temperature, which is not GPU 3's own reading", ws1({ 3: { temp_c: 89 } }), { metric: 'gpu.temp_c' }, 'ws1 has GPU 3 heating up · 1 warning'],
     ["GPU 3's clock limit", ws1({ 3: { throttle_mask: 0x20 } }), { metric: 'gpu3.throttle_mask' }, 'ws1 is online · 1 warning'],
     ["GPU 3's temperature, beside its clock limit", ws1({ 3: { throttle_mask: 0x20 } }), { metric: 'gpu3.temp_c' }, 'ws1 has GPU 3 clocks limited by thermal limit · 1 warning'],
     ["GPU 3's temperature, below its slowdown level", ws1({ 3: { temp_c: 94 } }), { metric: 'gpu3.temp_c' }, 'ws1 has GPU 3 at its slowdown temperature · 1 warning'],
@@ -335,5 +335,23 @@ describe('clusterHealth: an open alert hides only the GPU condition it fired on'
     ["GPU 3's temperature, leaving GPU 0 not responding", ws1({ 3: { temp_c: 89 } }, [0]), { metric: 'gpu3.temp_c' }, 'ws1 has GPU 0 not responding · 1 warning'],
   ])('with an alert open on %s', (_, conditions, alert, expected) => {
     expect(sentence(conditions, alert)).toBe(expected);
+  });
+});
+
+describe("clusterHealth: the node's hottest-GPU alert hides a condition only on a node with one GPU", () => {
+  const hottest = (node_id: string) => ev({ node_id, rule_id: 'gpu_temp_high', metric: 'gpu.temp_c' });
+  const sentence = (id: string, conditions: ReturnType<typeof nodeConditions>) =>
+    clusterHealth([{ id, status: 'online', conditions, alerts: [hottest(id)] }], openAlertCounts([hottest(id)])).sentence;
+
+  it('lets the warning say a one-GPU node is heating up, and still counts it', () => {
+    expect(sentence('spark1', gb10At(81))).toBe('spark1 is online · 1 warning');
+  });
+
+  it('still says a four-GPU node has GPUs 1 and 2 heating up, and counts the warning', () => {
+    const ws1 = nodeConditions(
+      { gpus: [0, 1, 2, 3].map((index) => ({ index, temp_slowdown_c: 93 })), unsupported: [] } as unknown as NodeInfo,
+      { gpu: [0, 1, 2, 3].map((index) => ({ index, temp_c: index === 1 || index === 2 ? 89 : 60, throttle_mask: 0 })) } as unknown as Sample,
+    );
+    expect(sentence('ws1', ws1)).toBe('ws1 has GPUs 1 and 2 heating up · 1 warning');
   });
 });
