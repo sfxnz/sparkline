@@ -531,3 +531,18 @@ def test_a_stored_row_that_is_not_json_starts_the_console_as_if_the_row_were_abs
     assert cluster.alerts.rules == DEFAULT_RULES
     assert store.bind_sessions_to_token("t") is False
     assert f"Ignoring the stored {key!r} row: it is not valid JSON" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("key", "row"),
+    [("settings", {"stale_after_s": "soon"}), ("alert_rules", [{"id": "x"}]), ("alert_rules", 7)],
+)
+def test_a_stored_row_of_the_wrong_shape_starts_the_console_as_if_the_row_were_absent(
+    tmp_path, caplog, key, row
+):
+    store = Store(tmp_path / "console.sqlite")
+    store.kv_set(key, row)
+    cluster = Cluster(store, Hub(), ConsoleSettings(stale_after_s=7))
+    assert cluster.settings == ConsoleSettings(stale_after_s=7)
+    assert cluster.alerts.rules == DEFAULT_RULES
+    assert f"Ignoring the stored {key!r} row" in caplog.text
