@@ -212,3 +212,16 @@ for (const [state, temp, flag, gaps] of [
     expect(clipped).toEqual([]);
   });
 }
+
+test('the ws1 card paints "3 of 4 GPUs" in its utilisation sparkline caption on a phone and a laptop while GPU 0 is lost', async ({ page }) => {
+  await workstation(page, (g) => (g.index === 0 ? { index: 0 } : g), LOST_GPU0);
+  await page.goto('/');
+  const caption = page.getByRole('region', { name: 'Node ws1' }).locator('.ov-spark__label').first();
+  await expect(caption).toContainText('3 of 4 GPUs');
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const text of ['GPU utilisation', '3 of 4 GPUs', '3 min']) {
+      await expect.poll(() => caption.evaluate(paintsInFull, text), { message: `caption shows "${text}" in full at ${String(width)} px` }).toBe(true);
+    }
+  }
+});

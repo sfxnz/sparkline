@@ -772,4 +772,15 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
     expect(within(tile('Cluster compute')).getByRole('tooltip')).not.toHaveTextContent('more nodes');
     expect(why(tile('Cluster compute'))).toHaveAccessibleDescription(ids.map((id) => `${id}: ${reason(id)}`).join('\n'));
   });
+
+  it('counts the GPUs in the utilisation sparkline caption while the total reads only some of them', () => {
+    const LOST = 'NVML could not open GPU 0 (NVML: GPU is lost)';
+    const ws1 = wsInfo as unknown as NodeInfo;
+    const lost = { ...ws1, unsupported: [...ws1.unsupported, { metric: 'gpu0', reason: LOST, kind: 'hardware' }] } as NodeInfo;
+    const reading = wsSample as unknown as Sample;
+    show([[gb10('spark1'), gb10Reading('spark1')], [lost, { ...reading, ts: now, gpu: reading.gpu.map((g) => (g.index === 0 ? ({ index: 0 } as Sample['gpu'][number]) : g)) }]]);
+    const captions = (id: string) => [...card(id).querySelectorAll('.ov-spark__label')].map((el) => el.textContent.replace(/\s+/g, ' '));
+    expect(captions('ws1')).toEqual(['GPU utilisation · 3 of 4 GPUs · 3 min', 'GPU power · 3 min']);
+    expect(captions('spark1')).toEqual(['GPU utilisation · 3 min', 'GPU power · 3 min']);
+  });
 });
