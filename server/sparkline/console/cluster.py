@@ -82,6 +82,7 @@ class Cluster:
         self.settings = store.kv_read("settings", ConsoleSettings.model_validate) or default_settings
         metrics = _saved_rule_metrics(store, store.kv_read(RULE_METRICS_KEY, _METRICS.validate_python))
         rules = store.kv_read(RULES_KEY, lambda rows: load_rules(_ROWS.validate_python(rows), metrics))
+        self.rules_reset = rules is None and store.kv_has(RULES_KEY)
         self.alerts = AlertEngine(
             DEFAULT_RULES if rules is None else rules, self.add_event, self.resolve_event
         )
@@ -132,6 +133,7 @@ class Cluster:
                 RULES_KEY: [{**r.model_dump(), "metric": _stored_metric(r)} for r in rules],
             }
         )
+        self.rules_reset = False
         self.alerts.set_rules(rules, time.time())
 
     # -- events -------------------------------------------------------------------------------------

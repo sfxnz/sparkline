@@ -104,6 +104,9 @@ class Store:
         log.warning("Ignoring the stored %r row: %s. Kept its text as %r", key, why, aside)
         return None
 
+    def kv_has(self, key: str) -> bool:
+        return self.db.execute("SELECT 1 FROM kv WHERE key=?", (key,)).fetchone() is not None
+
     def kv_set_aside(self, key: str) -> str:
         """Copy the row's text to `<key>.unreadable` and return that key. The next save overwrites a row this
         console cannot read, and a newer console may have written it, so the copy is never deleted."""
