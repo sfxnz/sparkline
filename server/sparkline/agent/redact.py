@@ -128,24 +128,26 @@ GENERIC_NAMES = {
     "home",
     "sparkline-capture",
 }
-# Two-label public suffixes from the Public Suffix List (https://publicsuffix.org/list/public_suffix_list.dat):
-# common ones from its ICANN section, and Tailscale's ts.net from its private section.
-TWO_LABEL_SUFFIXES = frozenset(
-    f"{label}.{top}"
-    for tops, labels in {
-        "uk": "ac co gov ltd me net org plc",
-        "au": "com edu gov net org",
-        "jp": "ac co go ne or",
-        "nz": "ac co govt net org",
-        "za": "ac co org",
-        "kr": "ac co ne or",
-        "id il in th": "co",
-        "ar br cn hk mx my ph sg tr tw": "com",
-        "net": "ts",
-    }.items()
-    for top in tops.split()
-    for label in labels.split()
-)
+# Labels that the ICANN section of the Public Suffix List has as registries under country codes, as in co.uk,
+# com.au, edu.cn and ac.jp, and ts.net from its private section: https://publicsuffix.org/list/
+REGISTRY_LABELS = {
+    "ac",
+    "co",
+    "com",
+    "edu",
+    "go",
+    "gob",
+    "gov",
+    "govt",
+    "ltd",
+    "mil",
+    "ne",
+    "net",
+    "or",
+    "org",
+    "plc",
+}
+PRIVATE_SUFFIXES = {"ts.net"}
 OS_RELEASE = ("/etc/os-release", "/usr/lib/os-release")
 OS_RELEASE_KEYS = {"PRETTY_NAME"}
 SYSTEM_BIN = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin", "/snap/bin"}
@@ -736,9 +738,15 @@ class _Harvest:
         self._pairs("hex", values, placeholders, category)
 
 
+def _ends_in_a_two_label_suffix(labels: list[str]) -> bool:
+    second, top = [label.lower() for label in labels[-2:]] if len(labels) >= 2 else ("", "")
+    country = len(top) == 2 and top.isalpha()
+    return f"{second}.{top}" in PRIVATE_SUFFIXES or (country and second in REGISTRY_LABELS)
+
+
 def _domain_names(domain: str) -> list[str]:
     labels = domain.split(".")
-    if ".".join(labels[-2:]).lower() in TWO_LABEL_SUFFIXES:
+    if _ends_in_a_two_label_suffix(labels):
         owned = labels[:-2]
         parents = [".".join(labels[i:]) for i in range(len(owned))]
         return parents + owned[-1:] + [label for label in owned if len(label) >= NAME_PART]
