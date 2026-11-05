@@ -8,6 +8,7 @@ import logging
 import secrets
 import sqlite3
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -85,14 +86,30 @@ class Store:
 
     # -- kv -------------------------------------------------------------------------------------
     def kv_get(self, key: str) -> Any | None:
+        return self.kv_read(key, lambda value: value)
+
+    def kv_read[T](self, key: str, parse: Callable[[Any], T]) -> T | None:
+        """The stored row through `parse`, or None when there is none. A row that is not JSON, or that `parse`
+        rejects with a ValueError, reads as None after kv_set_aside keeps its text."""
         row = self.db.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
         if not row:
             return None
         try:
-            return json.loads(row[0])
+            return parse(json.loads(row[0]))
         except json.JSONDecodeError:
-            log.warning("Ignoring the stored %r row: it is not valid JSON", key)
-            return None
+            why = "it is not valid JSON"
+        except ValueError:
+            why = "it does not match what this console expects"
+        aside = self.kv_set_aside(key)
+        log.warning("Ignoring the stored %r row: %s. Kept its text as %r", key, why, aside)
+        return None
+
+    def kv_set_aside(self, key: str) -> str:
+        """Copy the row's text to `<key>.unreadable` and return that key. The next save overwrites a row this
+        console cannot read, and a newer console may have written it, so the copy is never deleted."""
+        aside = f"{key}.unreadable"
+        self.db.execute("INSERT OR REPLACE INTO kv SELECT ?, value FROM kv WHERE key=?", (aside, key))
+        return aside
 
     def kv_set(self, key: str, value: Any) -> None:
         self.db.execute("INSERT OR REPLACE INTO kv VALUES (?,?)", (key, json.dumps(value)))

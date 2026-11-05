@@ -7,10 +7,9 @@ import contextlib
 import json
 import logging
 import time
-from collections.abc import Callable
 from importlib.metadata import version as pkg_version
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
 from ..common.schema import AlertRule, ClusterState, ConsoleSettings, Event, NodeState, Problem, Sample
 from .alerts import DEFAULT_RULES, AlertEngine
@@ -36,6 +35,7 @@ RULES_KEY = "alert_rules"
 # stored metric still matches its entry here was last saved by a console that knows the gpu* defaults.
 RULE_METRICS_KEY = "alert_rule_metrics"
 _ROWS = TypeAdapter(list[object])
+_METRICS = TypeAdapter(dict[str, object])
 
 
 def _stored_metric(r: AlertRule) -> str | None:
@@ -44,18 +44,19 @@ def _stored_metric(r: AlertRule) -> str | None:
     return "gpu0.throttle_mask" if r.kind == "throttle" and r.metric == "gpu*.throttle_mask" else r.metric
 
 
-def _saved_rule_metrics(row: object) -> dict[str, str | None] | None:
-    if not isinstance(row, dict):
+def _saved_rule_metrics(store: Store, row: dict[str, object] | None) -> dict[str, str | None] | None:
+    if row is None:
         return None
-    return {k: v for k, v in row.items() if v is None or isinstance(v, str)}
-
-
-def _well_formed[T](key: str, parse: Callable[[], T]) -> T | None:
-    try:
-        return parse()
-    except ValidationError:
-        log.warning("Ignoring the stored %r row: it does not match what this console expects", key)
-        return None
+    metrics = {k: v for k, v in row.items() if v is None or isinstance(v, str)}
+    if not_metrics := sorted(row.keys() - metrics.keys()):
+        aside = store.kv_set_aside(RULE_METRICS_KEY)
+        log.warning(
+            "Ignoring the stored %r entries for %s: they are not metrics. Kept the row's text as %r",
+            RULE_METRICS_KEY,
+            ", ".join(not_metrics),
+            aside,
+        )
+    return metrics
 
 
 def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> list[AlertRule]:
@@ -78,18 +79,12 @@ class Cluster:
         self.store = store
         self.hub = hub
         self.demo = demo
-        saved = store.kv_get("settings")
-        settings = _well_formed("settings", lambda: ConsoleSettings.model_validate(saved)) if saved else None
-        self.settings = settings or default_settings
-        saved_rules = store.kv_get(RULES_KEY)
-        metrics = _saved_rule_metrics(store.kv_get(RULE_METRICS_KEY)) if saved_rules is not None else None
-        rules = (
-            _well_formed(RULES_KEY, lambda: load_rules(_ROWS.validate_python(saved_rules), metrics))
-            if saved_rules is not None
-            else None
+        self.settings = store.kv_read("settings", ConsoleSettings.model_validate) or default_settings
+        metrics = _saved_rule_metrics(store, store.kv_read(RULE_METRICS_KEY, _METRICS.validate_python))
+        rules = store.kv_read(RULES_KEY, lambda rows: load_rules(_ROWS.validate_python(rows), metrics))
+        self.alerts = AlertEngine(
+            DEFAULT_RULES if rules is None else rules, self.add_event, self.resolve_event
         )
-        rules = DEFAULT_RULES if rules is None else rules
-        self.alerts = AlertEngine(rules, self.add_event, self.resolve_event)
         self.sources: dict[str, NodeSource] = {}
         self._tasks: list[asyncio.Task] = []
 
