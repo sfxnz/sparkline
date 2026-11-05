@@ -3,22 +3,24 @@ reflects the load, seeded history with a baseline and a regression."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 import time
 
 import pytest
 from fastapi.testclient import TestClient
+from test_agent_bench_runner import amd_info, mac_info
 
 from sparkline.agent.bench.runner import DETAIL_MAX_BYTES, LIVE_MAX_BYTES
 from sparkline.agent.bench.specs import REGISTRY as AGENT_REGISTRY
-from sparkline.common.schema import BenchRun, BenchSpec, Event, NodeBenchState
+from sparkline.common.schema import BenchRun, BenchSpec, BenchStartRequest, Event, NodeBenchState
 from sparkline.console import demo_bench
 from sparkline.console.app import create_app
-from sparkline.console.bench import REGISTRY, params_key, validate_params
+from sparkline.console.bench import REGISTRY, BenchError, params_key, validate_params
 from sparkline.console.bench_store import BenchStore
 from sparkline.console.config import ConsoleConfig
-from sparkline.console.demo import DemoModel
+from sparkline.console.demo import BenchWindow, DemoModel, bench_load
 from sparkline.console.demo_bench import (
     demo_catalog,
     demo_duration,
@@ -76,13 +78,133 @@ def test_demo_results_modelled_on_gb10_are_offered_only_on_gb10_nodes(tmp_path):
             assert r.status_code == 400 and r.json()["problem"]["message"] == reason
 
 
-def _soak(model) -> dict[str, float]:
+GPU_BENCHES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce", "thermal-soak")
+
+
+@pytest.mark.parametrize(
+    ("info", "fix"), [(amd_info, "AMD GPUs (ROCm) yet"), (mac_info, "Apple GPUs yet")], ids=["amd", "mac"]
+)
+def test_the_demo_says_gpu_benchmarks_need_an_nvidia_gpu_on_other_hardware(info, fix):
+    av = {s.id: s.availability["n1"] for s in demo_catalog("n1", info())}
+    assert all(av[b] and av[b].message == "GPU benchmarks need an NVIDIA GPU" for b in GPU_BENCHES), av
+    assert all(fix in av[b].fix for b in GPU_BENCHES)
+
+
+def test_ws1_offers_its_four_gpus_to_the_gpu_benchmarks_and_spark1_offers_none():
+    ws1 = {s.id: s.gpu_options for s in demo_catalog("ws1", FLEETS["mixed"]["ws1"](T0, 1.0).info)}
+    assert {b for b, o in ws1.items() if o} == set(GPU_BENCHES)
+    assert [(o.index, o.problem) for o in ws1["thermal-soak"]["ws1"]] == [(i, None) for i in range(4)]
+    assert all(s.gpu_options == {} for s in demo_catalog("spark1", DemoModel("spark1", T0).info))
+
+
+ON_GB10_RATES = {"gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio"}
+ON_GB10_RATES |= {"llm-inference", "llm-showcase", "tool-eval"}
+
+
+def test_only_ws1_says_it_has_no_estimate_for_benchmarks_timed_on_gb10_rates(mixed):
+    ws1 = demo_catalog("ws1", FLEETS["mixed"]["ws1"](T0, 1.0).info)
+    assert {s.id: s.no_estimate for s in ws1} == {s.id: ["ws1"] if s.id in ON_GB10_RATES else [] for s in ws1}
+    assert all(s.no_estimate == [] for s in demo_catalog("spark1", DemoModel("spark1", T0).info))
+    _wait_for_infos(mixed)
+    merged = {s["id"]: s["no_estimate"] for s in mixed.get("/api/v1/bench/catalog").json()}
+    assert merged == {b: ["ws1"] if b in ON_GB10_RATES else [] for b in merged}
+
+
+def test_ws1_benchmark_load_lands_on_the_gpu_the_run_chose():
+    t = T0 + 4000
+    idle, busy = FLEETS["mixed"]["ws1"](T0, 1.0), FLEETS["mixed"]["ws1"](T0, 1.0)
+    busy.bench_windows.append(BenchWindow(t, t + 90, 1.0, gpu=2))
+    before = {g.index: g.util for g in idle.sample_at(t + 60).gpu}
+    during = {g.index: g.util for g in busy.sample_at(t + 60).gpu}
+    assert during.pop(2) >= 95 and before.pop(2) < 95 and during == before
+
+
+def test_a_ws1_thermal_soak_on_gpu_2_records_gpu_2(mixed):
+    body = {"bench_id": "thermal-soak", "nodes": ["ws1"], "gpu_index": {"ws1": 2}, "confirm": True}
+    r = mixed.post("/api/v1/bench/runs", json=body)
+    assert r.status_code == 201, r.json()
+    run = BenchRun.model_validate(_wait(mixed, r.json()["id"]))
+    assert run.status == "succeeded" and run.results, run.error
+    md = run.metadata["nodes"]["ws1"]
+    gpu2 = next(g for g in FLEETS["mixed"]["ws1"](T0, 1.0).info.gpus if g.index == 2)
+    assert run.gpu_index == {"ws1": 2} and (md["gpu_index"], md["gpu_uuid"]) == (2, gpu2.uuid)
+    assert json.loads(run.params_key) == {**run.params, "@gpu_uuid": {"ws1": gpu2.uuid}}
+    assert "ws1.gpu2.sm_mhz" in run.series and not any(k.startswith("ws1.gpu0.") for k in run.series)
+    assert {"sm_mhz_mean", "temp_max_c", "throttled_pct"} <= {x.metric for x in run.results}
+
+
+async def test_the_demo_backend_refuses_a_gpu_ws1_cannot_run_on_as_its_agent_would(mixed):
+    deadline = time.time() + 10
+    while mixed.app.state.cluster.sources["ws1"].state.info is None and time.time() < deadline:
+        time.sleep(0.05)
+    req = BenchStartRequest(run_id="x1", bench_id="thermal-soak", gpu_index=9)
+    with pytest.raises(BenchError) as e:
+        await mixed.app.state.bench.backend.start("ws1", req)
+    assert (e.value.status, e.value.problem.message) == (400, "GPU 9 is not a GPU of ws1")
+
+
+def _wait_for_infos(c) -> dict:
+    sources = c.app.state.cluster.sources
+    deadline = time.time() + 10
+    while any(src.state.info is None for src in sources.values()) and time.time() < deadline:
+        time.sleep(0.05)
+    return sources
+
+
+async def _backend_run(c, node: str, req: BenchStartRequest) -> NodeBenchState:
+    backend = c.app.state.bench.backend
+    await backend.start(node, req)
+    deadline = time.time() + 15
+    while (st := await backend.get(node, req.run_id)) is not None and st.status == "running":
+        assert time.time() < deadline, f"{req.run_id} did not finish"
+        await asyncio.sleep(0.1)
+    assert st is not None
+    return st
+
+
+async def test_the_cpu_side_takes_and_loads_no_gpu_in_the_demo_as_on_an_agent(mixed):
+    sources = _wait_for_infos(mixed)
+    cpu = {"side": "cpu"}
+    chosen = BenchStartRequest(run_id="c0", bench_id="mem-bandwidth", params=cpu, gpu_index=1)
+    with pytest.raises(BenchError) as e:
+        await mixed.app.state.bench.backend.start("ws1", chosen)
+    assert e.value.status == 400
+    for node in ("ws1", "spark1"):
+        st = await _backend_run(
+            mixed, node, BenchStartRequest(run_id=f"c-{node}", bench_id="mem-bandwidth", params=cpu)
+        )
+        assert st.status == "succeeded" and "gpu_index" not in st.metadata, node
+        gpu_keys = {k for k in ("gpu_name", "gpu_uuid", "gpu_cc") if k in st.metadata}
+        assert gpu_keys == (set() if node == "ws1" else {"gpu_name", "gpu_uuid", "gpu_cc"}), node
+        assert ("sm_mhz" in st.metadata["start"]) == (node == "spark1"), node
+        assert st.started_ts is not None
+        windows, mid = sources[node].model.bench_windows, st.started_ts + 0.5
+        assert all(bench_load(windows, mid, g.index) == (0.0, 0.0) for g in sources[node].state.info.gpus), (
+            node
+        )
+    rq = BenchStartRequest(run_id="g1", bench_id="mem-bandwidth", params={"side": "gpu"}, gpu_index=2)
+    st = await _backend_run(mixed, "ws1", rq)
+    assert st.metadata["gpu_index"] == 2 and st.started_ts is not None
+    loaded = {
+        i for i in range(4) if bench_load(sources["ws1"].model.bench_windows, st.started_ts + 0.5, i)[0]
+    }
+    assert loaded == {2}
+
+
+def test_off_gb10_a_demo_run_estimated_from_gb10_rates_reports_no_estimate(mixed):
+    run = _llm_run(mixed, "ws1", False)
+    assert run.node_states["ws1"].metadata["est_duration_s"] is None
+    assert run.metadata["nodes"]["ws1"]["est_duration_s"] is None
+    assert "est_duration_s" not in _llm_run(mixed, "spark1", False).metadata["nodes"]["spark1"]
+
+
+def _soak(model, gpu: int = 0) -> dict[str, float]:
     series: dict[str, list[float]] = {}
     rng = random.Random(0)
     for k in range(0, 60, 2):
-        for key, v in soak_point(model, T0 + k, rng).items():
+        for key, v in soak_point(model, T0 + k, rng, gpu).items():
             series.setdefault(key, []).append(v)
-    return {r.metric: r.value for r in soak_results(series)}
+    return {r.metric: r.value for r in soak_results(series, gpu)}
 
 
 def test_the_thermal_soak_reports_gb10_throughput_only_on_gb10():
@@ -167,7 +289,7 @@ def test_demo_numbers_are_plausible_for_gb10():
 def test_demo_telemetry_reflects_a_running_benchmark():
     m = DemoModel("spark2", T0)
     t = T0 + 4000
-    m.bench_windows.append([t, t + 90, 1.0])
+    m.bench_windows.append(BenchWindow(t, t + 90, 1.0))
     start, later = m.sample_at(t + 2).gpu[0], m.sample_at(t + 85).gpu[0]
     assert start.util >= 95 and later.util >= 95
     assert later.power_w > start.power_w - 1 and later.power_w >= 38

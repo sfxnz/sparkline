@@ -40,6 +40,7 @@ from sparkline.common.schema import (
     Problem,
     ProcSample,
     Sample,
+    Unsupported,
 )
 
 FIX = Path(__file__).parent / "fixtures" / "agent" / "bench"
@@ -91,6 +92,31 @@ def node_info() -> NodeInfo:
         tools={},
         sample_interval_ms=1000,
         boot_time=0,
+    )
+
+
+RTX = "NVIDIA RTX 6000 Ada Generation"
+
+
+def ws_uuid(index: int) -> str:
+    return f"GPU-00000000-0000-0000-0000-{index:012x}"
+
+
+def workstation_info(lost: dict[int, str] | None = None) -> NodeInfo:
+    gpus = [GpuInfo(index=i, name=RTX, uuid=ws_uuid(i), compute_capability="8.9") for i in range(4)]
+    gaps = [Unsupported(metric=f"gpu{i}", reason=why) for i, why in (lost or {}).items()]
+    return node_info().model_copy(update={"gpus": gpus, "unsupported": gaps})
+
+
+def amd_info() -> NodeInfo:
+    amd = GpuInfo(index=0, name="AMD Radeon 8060S", vendor="amd", backend="amdgpu-sysfs")
+    return node_info().model_copy(update={"gpus": [amd], "driver": None, "cuda": None, "nvml": None})
+
+
+def mac_info() -> NodeInfo:
+    gap = Unsupported(metric="gpu*", reason="No GPU backend reads darwin yet", kind="agent")
+    return node_info().model_copy(
+        update={"platform": "darwin", "gpus": [], "unsupported": [gap], "driver": None, "cuda": None}
     )
 
 
@@ -251,7 +277,7 @@ async def test_cancel_removes_container(tmp_path):
     removed: list[str] = []
 
     async def fn(job: Job, _p) -> None:
-        argv = job.docker_argv("x.py", [])
+        argv = job.docker_argv("x.py", [], gpus=False)
         assert argv[:2] == ["docker", "run"]
         await job.run([sys.executable, str(FAKE), "hang"])
 
@@ -271,7 +297,7 @@ async def test_cancel_removes_container(tmp_path):
 
 
 async def test_timeout_fails_with_problem(tmp_path, monkeypatch):
-    monkeypatch.setattr(specs.Bench, "timeout_s", lambda self, p: 0.5)
+    monkeypatch.setattr(specs.Estimate, "timeout_s", property(lambda self: 0.5))
     r = make_runner(tmp_path, {"cpu-throughput": fake("hang")})
     await r.start(req())
     pids_file = tmp_path / "work" / "r1" / "pids"
@@ -538,8 +564,10 @@ def capture(job: Job, outputs=None):
 def make_job(tmp_path, bench_id: str, params: dict | None = None, **rq) -> Job:
     r = make_runner(tmp_path)
     b = specs.REGISTRY[bench_id]
+    gpu = probes.resolve_gpu("n1", r.info(), None) if b.gpu else None
+    assert not isinstance(gpu, Problem)
     return Job(
-        r, req(bench_id=bench_id, **rq), b, b.validate(params or {}), probes.Env(gids={"A": 3, "B": 5})
+        r, req(bench_id=bench_id, **rq), b, b.validate(params or {}), probes.Env(gids={"A": 3, "B": 5}), gpu
     )
 
 
@@ -622,6 +650,204 @@ async def test_gpu_and_soak_and_mem_argv(tmp_path):
         argv[argv.index("--perf-label") + 1] == "Cortex-X925"
         and argv[argv.index("--all-cores") + 1] == "0,1,2"
     )
+
+
+def workstation_sample(ts: float) -> Sample:
+    gpus = [
+        GpuSample(index=i, util=90, sm_mhz=1000.0 + 100 * i, temp_c=60.0 + i, power_w=200, throttle_mask=0)
+        for i in (1, 2, 3, 0)
+    ]
+    return sample(ts).model_copy(update={"gpu": gpus})
+
+
+def capturing(bench_id: str, seen: list[list[dict]]):
+    async def fn(job: Job, p) -> None:
+        seen.append(capture(job))
+        await jobs.JOBS[bench_id](job, p)
+
+    return fn
+
+
+async def finish(r: BenchRunner, rq: BenchStartRequest):
+    await r.start(rq)
+    if r.current is not None and r.current.task is not None:
+        await r.current.task
+    return r.get(rq.run_id)
+
+
+GPU_RUNS = [
+    ("gpu-matmul", {}, {}),
+    ("mem-bandwidth", {"side": "gpu"}, {}),
+    ("mem-bandwidth", {"side": "both"}, {}),
+    ("thermal-soak", {"minutes": 1}, {}),
+    ("nccl-allreduce", {}, {"role": "rank", "rank": 0, "world_size": 2}),
+    ("nccl-allreduce", {}, {"role": "rank", "rank": 1, "world_size": 2, "peer_ip": "10.0.8.2"}),
+]
+
+
+@pytest.mark.parametrize(("bench_id", "params", "role"), GPU_RUNS)
+@pytest.mark.parametrize(
+    ("info", "asked", "gpus"),
+    [
+        (workstation_info, 2, f"device={ws_uuid(2)}"),
+        (workstation_info, None, f"device={ws_uuid(0)}"),
+        (node_info, None, "all"),
+    ],
+    ids=["ws-chosen", "ws-default", "gb10"],
+)
+async def test_a_gpu_container_sees_the_chosen_gpu_on_a_workstation_and_every_gpu_on_gb10(
+    tmp_path, bench_id, params, role, info, asked, gpus
+):
+    seen: list[list[dict]] = []
+    r = make_runner(tmp_path, {bench_id: capturing(bench_id, seen)}, info=info)
+    await finish(r, req(bench_id=bench_id, params=params, gpu_index=asked, **role))
+    (call,) = seen[0]
+    argv = call["argv"]
+    assert argv.count("--gpus") == 1 and argv[argv.index("--gpus") + 1] == gpus
+
+
+GPU_KEYS = {"gpu_index", "gpu_name", "gpu_uuid", "gpu_cc"}
+GPU_SNAPSHOT = {"sm_mhz", "temp_c", "power_w", "throttle_mask", "util"}
+
+
+async def test_the_cpu_side_of_mem_bandwidth_takes_no_gpu_on_a_workstation_whose_first_gpu_is_lost(tmp_path):
+    seen: list[list[dict]] = []
+    info = workstation_info({0: "NVML: Unknown Error"})
+    r = make_runner(tmp_path, {"mem-bandwidth": capturing("mem-bandwidth", seen)}, info=lambda: info)
+    md = (await finish(r, req(bench_id="mem-bandwidth", params={"side": "cpu"}))).metadata
+    assert "--gpus" not in seen[0][0]["argv"]
+    assert not GPU_KEYS & md.keys()
+
+
+async def test_a_workstation_run_records_its_gpu_and_that_gpus_telemetry(tmp_path):
+    r = make_runner(
+        tmp_path,
+        {"thermal-soak": fake("ok")},
+        info=workstation_info,
+        latest=lambda: workstation_sample(time.time()),
+    )
+    md = (await finish(r, req(bench_id="thermal-soak", gpu_index=2))).metadata
+    assert (md["gpu_index"], md["gpu_uuid"], md["gpu_name"]) == (2, ws_uuid(2), RTX)
+    assert md["start"]["sm_mhz"] == md["end"]["sm_mhz"] == 1200.0
+
+
+async def test_only_a_gpu_benchmark_on_a_node_with_a_choice_records_gpu_index(tmp_path):
+    gb10 = make_runner(tmp_path, {"thermal-soak": fake("ok")})
+    assert "gpu_index" not in (await finish(gb10, req(bench_id="thermal-soak"))).metadata
+    ws = make_runner(tmp_path, {"cpu-throughput": fake("ok")}, info=workstation_info)
+    assert "gpu_index" not in (await finish(ws, req(bench_id="cpu-throughput"))).metadata
+
+
+NO_GPU_RUNS = [
+    ("cpu-throughput", {}),
+    ("mem-bandwidth", {"side": "cpu"}),
+    ("storage-fio", {}),
+    ("llm-inference", {}),
+]
+
+
+@pytest.mark.parametrize(("bench_id", "params"), NO_GPU_RUNS)
+async def test_a_run_on_no_gpu_of_a_multi_gpu_node_records_no_single_gpu(tmp_path, bench_id, params):
+    r = make_runner(
+        tmp_path,
+        {bench_id: fake("ok")},
+        info=workstation_info,
+        latest=lambda: workstation_sample(time.time()),
+    )
+    md = (await finish(r, req(bench_id=bench_id, params=params))).metadata
+    assert not GPU_KEYS & md.keys()
+    assert md["start"] and not GPU_SNAPSHOT & (md["start"].keys() | md["end"].keys())
+
+
+@pytest.mark.parametrize(("bench_id", "params"), NO_GPU_RUNS)
+async def test_a_run_on_no_gpu_of_a_gb10_still_records_its_gpu(tmp_path, bench_id, params):
+    r = make_runner(tmp_path, {bench_id: fake("ok")}, latest=lambda: sample(time.time()))
+    md = (await finish(r, req(bench_id=bench_id, params=params))).metadata
+    assert (md["gpu_name"], md["gpu_uuid"], md["gpu_cc"]) == ("NVIDIA GB10", "GPU-abc", None)
+    assert md["start"]["sm_mhz"] == md["end"]["sm_mhz"] == 2000.0 and "gpu_index" not in md
+
+
+async def test_start_refuses_a_gpu_the_benchmark_cannot_run_on(tmp_path):
+    r = make_runner(tmp_path, {**jobs.JOBS}, info=lambda: workstation_info({2: "NVML: Unknown Error"}))
+    cases = [
+        (req(bench_id="gpu-matmul", gpu_index=9), "GPU 9 is not a GPU of n1"),
+        (req(bench_id="thermal-soak", gpu_index=2), "GPU 2 on n1 is not responding"),
+        (req(bench_id="cpu-throughput", gpu_index=0), "CPU throughput by core type does not run on a GPU"),
+        (
+            req(bench_id="mem-bandwidth", params={"side": "cpu"}, gpu_index=1),
+            "Unified memory bandwidth measured from the CPU uses no GPU",
+        ),
+    ]
+    for rq, msg in cases:
+        with pytest.raises(Rejected) as e:
+            await r.start(rq)
+        assert (e.value.status, e.value.problem.message) == (422, msg), rq
+    amd = make_runner(tmp_path, {**jobs.JOBS}, info=amd_info)
+    with pytest.raises(Rejected) as e:
+        await amd.start(req(bench_id="gpu-matmul"))
+    assert (e.value.status, e.value.problem.message) == (422, "GPU benchmarks need an NVIDIA GPU")
+    assert r.current is None and amd.current is None
+
+
+async def test_a_gpu_choice_for_a_run_without_one_is_refused_before_busy(tmp_path):
+    fns = {"cpu-throughput": fake("hang"), "storage-fio": fake("ok"), "mem-bandwidth": fake("ok")}
+    r = make_runner(tmp_path, fns, info=workstation_info)
+    await r.start(req("a"))
+    for rq in (
+        req("b", "storage-fio", gpu_index=0),
+        req("c", "mem-bandwidth", params={"side": "cpu"}, gpu_index=0),
+    ):
+        with pytest.raises(Rejected) as e:
+            await r.start(rq)
+        assert e.value.status == 422 and "GPU" in e.value.problem.message, rq
+    r.cancel("a")
+    await wait_for(lambda: r.current is None)
+
+
+async def test_a_thermal_soak_on_gpu_2_records_and_summarises_gpu_2(tmp_path, monkeypatch):
+    t = [time.time()]
+
+    def latest() -> Sample:
+        t[0] += 0.3
+        return workstation_sample(t[0])
+
+    async def soak(job: Job, p) -> None:
+        async def run(argv, **_kw):
+            job.handle({"gauge": {"tflops": 90.0}})
+            await asyncio.sleep(1.2)
+            return 0, []
+
+        monkeypatch.setattr(job, "run", run)
+        await jobs.thermal_soak(job, p)
+
+    r = make_runner(tmp_path, {"thermal-soak": soak}, info=workstation_info, latest=latest)
+    st = await finish(r, req(bench_id="thermal-soak", params={"minutes": 1}, gpu_index=2))
+    assert st.status == "succeeded", st.error
+    assert set(st.series["gpu2.sm_mhz"]) == {1200.0} and not any(k.startswith("gpu0.") for k in st.series)
+    res = {x.metric: x for x in st.results}
+    assert (res["sm_mhz_mean"].value, res["temp_max_c"].value) == (1200.0, 62.0)
+
+
+async def test_off_gb10_a_run_estimated_from_gb10_rates_reports_no_estimate(tmp_path):
+    est = specs.est_storage(specs.StorageParams())
+    gb10 = make_runner(tmp_path, {"storage-fio": fake("ok")})
+    md = (await finish(gb10, req(bench_id="storage-fio"))).metadata
+    assert (md["est_duration_s"], md["timeout_s"]) == (round(est, 1), est * 3 + 120)
+    ws = make_runner(tmp_path, {"storage-fio": fake("ok"), "thermal-soak": fake("ok")}, info=workstation_info)
+    md = (await finish(ws, req(bench_id="storage-fio"))).metadata
+    guard = est * 3 + 120
+    assert "est_duration_s" in md and md["est_duration_s"] is None and md["timeout_s"] == guard * 2
+    soak = (await finish(ws, req("t", "thermal-soak", params={"minutes": 1}))).metadata
+    assert soak["est_duration_s"] == round(specs.est_soak(specs.ThermalSoakParams(minutes=1)), 1)
+
+
+async def test_a_timeout_names_the_estimate_only_where_it_holds(tmp_path, monkeypatch):
+    monkeypatch.setattr(specs.Estimate, "timeout_s", property(lambda self: 0.5))
+    for info, named in ((node_info, True), (workstation_info, False)):
+        r = make_runner(tmp_path, {"storage-fio": fake("hang")}, info=info)
+        st = await finish(r, req(bench_id="storage-fio"))
+        assert st.status == "failed" and "timed out" in st.error.message
+        assert ("(estimate" in st.error.cause) == named, st.error.cause
 
 
 async def test_nccl_job_env_and_roles(tmp_path):
@@ -823,7 +1049,7 @@ async def test_thermal_soak_aligns_payload_tflops_with_samples(tmp_path):
     assert {x.metric for x in job.state.results} >= {"sm_mhz_mean", "temp_max_c"}
 
 
-async def test_thermal_soak_gauges_flow_through_the_real_pipeline(tmp_path):
+async def test_thermal_soak_gauges_flow_through_the_real_pipeline(tmp_path, monkeypatch):
     """Gauge lines from a real subprocess go through Job.run's parser into the soak series and results."""
     t = [time.time()]
 
@@ -833,12 +1059,9 @@ async def test_thermal_soak_gauges_flow_through_the_real_pipeline(tmp_path):
 
     r = make_runner(tmp_path, latest=latest)
     r.jobs = {"thermal-soak": jobs.thermal_soak}
-    Job.docker_argv = lambda self, *a, **k: [sys.executable, str(FAKE), "soak"]  # type: ignore[method-assign]
-    try:
-        await r.start(req(bench_id="thermal-soak", params={"minutes": 1}))
-        await r.current.task
-    finally:
-        del Job.docker_argv  # back to the class attribute lookup
+    monkeypatch.setattr(Job, "docker_argv", lambda self, *a, **k: [sys.executable, str(FAKE), "soak"])
+    await r.start(req(bench_id="thermal-soak", params={"minutes": 1}))
+    await r.current.task
     st = r.get("r1")
     assert st.status == "succeeded", st.error
     assert set(st.series["tflops"]) <= {91.0, 92.5} and len(st.series["tflops"]) >= 3

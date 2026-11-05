@@ -96,6 +96,8 @@
 .bench-config__estimate { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-callout); color: var(--text-2); }
 .bench-config__estimate svg { width: 1.15em; height: 1.15em; color: var(--text-3); }
 .bench-config__estimate strong { color: var(--text-1); font-weight: 600; }
+.bench-config__estimate:has(.bench-config__estimate-why) { flex-wrap: wrap; row-gap: 0; }
+.bench-config__estimate-why { flex-basis: 100%; padding-left: calc(1.15em + 6px); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 .bench-config__back { margin-right: auto; }
 .bench-config__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); }
 .bench-config__body > * { min-width: 0; }
@@ -128,6 +130,9 @@
 .bench-node__why .bench-tip { max-width: 18rem; }
 .bench-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
 .bench-pair .ops-select { width: 100%; }
+.bench-gpu { justify-items: stretch; }
+.bench-gpu__held { display: grid; grid-template-columns: auto 1fr; gap: 6px; margin: 0; }
+.bench-gpu__held svg { width: 14px; height: 14px; margin-top: 2px; color: var(--warn); }
 
 .bench-form { display: grid; gap: var(--space-4); }
 .bench-field { display: grid; gap: 6px; justify-items: start; min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -158,10 +163,12 @@
 .bench-review__compete { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); border: var(--hairline) solid var(--separator); }
 .bench-review__compete.is-busy { background: var(--tone-bg); border-color: color-mix(in srgb, var(--tone) 30%, transparent); }
 .bench-review__compete.is-busy .bench-config__h { color: var(--tone-text); }
+.bench-review__compete.is-stale { background: var(--tone-bg); }
 .bench-review__compete ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .bench-review__compete li { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2); font-size: var(--fs-callout); line-height: var(--lh-callout); color: var(--text-1); }
 .bench-review__compete li svg { width: 15px; height: 15px; margin-top: 2px; color: var(--ok); }
 .bench-review__compete li.is-busy svg { color: var(--warn); }
+.bench-review__compete li.is-stale svg { color: var(--stale); }
 .bench-review__cancel { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 
 /* -------------------------------------------------------------- history */
@@ -189,7 +196,13 @@
 .bench-run__head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
 .bench-run__titles { display: grid; gap: var(--space-1); min-width: 0; }
 .bench-run__title-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
-.bench-run__sub { display: flex; flex-wrap: wrap; gap: 0 var(--space-2); font-size: var(--fs-callout); color: var(--text-2); }
+/* Each part after the first carries its "·" in a leading gutter. A line is shifted left by one gutter and clipped
+   there, so the part that starts a visual line has its "·" cut off and no line starts or ends with one. */
+.bench-run__sub, .bench-run__item { display: flex; flex-wrap: wrap; margin-left: calc(-1 * var(--sep)); clip-path: inset(0 0 0 var(--sep)); }
+.bench-run__sub { --sep: calc(2 * var(--space-2) + 0.28em); font-size: var(--fs-callout); color: var(--text-2); }
+.bench-run__item { --sep: 0.84em; }
+.bench-run__sub > span, .bench-run__item > span { position: relative; padding-left: var(--sep); }
+.bench-run__sep { position: absolute; left: 0; width: var(--sep); text-align: center; white-space: pre; }
 .bench-run__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 .bench-progress { display: grid; gap: var(--space-3); }
@@ -205,6 +218,7 @@
 .bench-progress__times { display: flex; gap: var(--space-8); margin: 0; flex-wrap: wrap; }
 .bench-progress__times dt { font-size: var(--fs-footnote); color: var(--text-2); }
 .bench-progress__times dd { margin: 0; font-size: var(--fs-title3); line-height: var(--lh-title3); font-weight: 600; }
+.bench-progress__note { margin: 0; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 .bench-nodeprog { list-style: none; margin: var(--space-1) 0 0; padding: var(--space-3) 0 0; border-top: var(--hairline) solid var(--separator); display: grid; gap: var(--space-2); }
 .bench-nodeprog__row { display: grid; grid-template-columns: 5rem 4rem minmax(0, 1fr) minmax(80px, 180px) 3.5ch auto; align-items: center; gap: var(--space-3); font-size: var(--fs-footnote); }
 .bench-nodeprog__node { font-weight: 600; font-size: var(--fs-callout); }

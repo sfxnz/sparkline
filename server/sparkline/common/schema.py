@@ -367,6 +367,15 @@ class BenchImpact(BaseModel):
     note: str
 
 
+class GpuOption(BaseModel):
+    """A GPU a GPU benchmark can run on, offered on nodes with two or more NVIDIA GPUs."""
+
+    index: int  # GpuInfo.index: the GPU number the UI shows
+    name: str
+    uuid: str | None = None  # GpuInfo.uuid: Docker pins the container to it (--gpus device=<uuid>)
+    problem: Problem | None = None  # why the benchmark cannot run on this GPU, e.g. it is not responding
+
+
 class BenchSpec(BaseModel):
     id: str
     name: str
@@ -379,6 +388,9 @@ class BenchSpec(BaseModel):
     max_nodes: int | None = 1
     requires: list[str] = Field(default_factory=list)  # NodeInfo.tools keys
     availability: dict[str, Problem | None] = Field(default_factory=dict)  # node_id -> None if runnable
+    gpu_options: dict[str, list[GpuOption]] = Field(default_factory=dict)  # node_id -> GPUs to choose from
+    # Nodes whose agent gives no duration estimate: its rates are GB10 figures and the node is not a GB10.
+    no_estimate: list[str] = Field(default_factory=list)
 
 
 RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
@@ -416,6 +428,7 @@ class BenchRun(BaseModel):
     params_key: str = ""  # canonical params JSON; baselines compare equal bench_id+params_key
     baseline_run_id: str | None = None  # the baseline this run's results were compared against
     node_states: dict[str, NodeBenchState] = Field(default_factory=dict)  # per-node progress from agents
+    gpu_index: dict[str, int] = Field(default_factory=dict)  # node_id -> its GPU, on nodes with a choice
 
 
 class BenchCreate(BaseModel):
@@ -425,6 +438,7 @@ class BenchCreate(BaseModel):
     nodes: list[str]
     params: dict[str, Any] = Field(default_factory=dict)
     confirm: bool  # must be true; the UI only sets it from the confirmation dialog
+    gpu_index: dict[str, int] = Field(default_factory=dict)  # node_id -> chosen GPU (BenchSpec.gpu_options)
 
 
 class BenchStartRequest(BaseModel):
@@ -439,6 +453,7 @@ class BenchStartRequest(BaseModel):
     peer_node: str | None = None
     peer_ip: str | None = None  # rdma server IP (client role) or rendezvous/master IP (rank role)
     peer_port: int | None = None
+    gpu_index: int | None = None  # the GPU to run a GPU benchmark on; None: the node's first usable GPU
 
 
 class NodeBenchState(BaseModel):

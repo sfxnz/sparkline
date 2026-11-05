@@ -34,6 +34,7 @@ from ..common.schema import (
     BenchSpec,
     BenchStartRequest,
     Event,
+    GpuOption,
     NodeBenchState,
     NodeInfo,
     Problem,
@@ -94,7 +95,7 @@ def canonical(params: dict[str, Any]) -> str:
     return json.dumps(params, sort_keys=True, separators=(",", ":"))
 
 
-def params_key(bench_id: str, params: dict[str, Any]) -> str:
+def params_key(bench_id: str, params: dict[str, Any], gpu_uuid: dict[str, str | None] | None = None) -> str:
     """Baseline identity of validated params: canonical JSON, leaving out KEY_NEUTRAL params while neutral.
     llm-inference without a sweep counts the requests it sends (at least one per stream since 2026-10-21), so
     an older run with Requests below Concurrency, which sent fewer at once, is never compared with it."""
@@ -102,6 +103,8 @@ def params_key(bench_id: str, params: dict[str, Any]) -> str:
     key = {k: v for k, v in params.items() if k not in neutral or v != neutral[k]}
     if bench_id == "llm-inference" and not params.get("sweep"):
         key["requests"] = max(params["requests"], params["concurrency"])
+    if gpu_uuid:
+        key["@gpu_uuid"] = gpu_uuid
     return canonical(key)
 
 
@@ -155,6 +158,73 @@ def validate_params(spec: BenchSpec, params: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(f"{where} must be at most {p.max:g}")
         out[p.name] = v
     return out
+
+
+def uses_gpu(bench_id: str, params: dict[str, Any]) -> bool:
+    bench = AGENT_REGISTRY.get(bench_id)
+    if bench is None:
+        return True
+    try:
+        return bench.uses_gpu(bench.validate(params))
+    except ValidationError:
+        return bench.gpu
+
+
+def validate_gpu_index(
+    spec: BenchSpec, nodes: list[str], asked: dict[str, int], params: dict[str, Any]
+) -> dict[str, GpuOption]:
+    gpu = uses_gpu(spec.id, params)
+    chosen: dict[str, GpuOption] = {}
+    for n, i in asked.items():
+        if n not in nodes:
+            raise BenchError(
+                400,
+                Problem(
+                    message=f"A GPU was chosen for {n}, which this run does not include",
+                    cause=f"The run is on {', '.join(nodes)}",
+                    fix="Choose GPUs only for the nodes the benchmark runs on",
+                ),
+            )
+        opts = spec.gpu_options.get(n, [])
+        if not opts:
+            raise BenchError(
+                400,
+                Problem(
+                    message=f"{n} offers no GPU to choose for {spec.name}",
+                    cause=f"The agent on {n} lists no GPUs to choose from: the node has one GPU, or its "
+                    "sparkline-agent predates GPU choice",
+                    fix=f"Leave out the GPU for {n}, or update sparkline-agent on {n}",
+                ),
+            )
+        if not gpu:
+            raise BenchError(
+                400,
+                Problem(
+                    message=f"{spec.name} measured from the CPU uses no GPU",
+                    cause=f"GPU {i} was chosen for {n}, and the run measures from the CPU only",
+                    fix=f"Leave out the GPU for {n}, or measure from the GPU",
+                ),
+            )
+        opt = next((o for o in opts if o.index == i), None)
+        if opt is None:
+            raise BenchError(
+                400,
+                Problem(
+                    message=f"GPU {i} is not offered on {n}",
+                    cause=f"{n} offers GPU {', '.join(str(o.index) for o in opts)}",
+                    fix="Choose one of the GPUs listed for the node",
+                ),
+            )
+        if opt.problem is not None:
+            raise BenchError(400, opt.problem)
+        chosen[n] = opt
+    if not gpu:
+        return {}
+    for n in nodes:
+        first = next((o for o in spec.gpu_options.get(n, []) if o.problem is None), None)
+        if n not in chosen and first is not None:
+            chosen[n] = first
+    return chosen
 
 
 def rail_ip(info: NodeInfo | None, rail: str) -> str | None:
@@ -439,6 +509,12 @@ class AgentBackend:
 # ---------------------------------------------------------------------------------------------------------
 
 
+def _own[T](per_node: dict[str, T], node: str) -> T | None:
+    if node in per_node:
+        return per_node[node]
+    return next(iter(per_node.values())) if len(per_node) == 1 else None
+
+
 @dataclass
 class _Active:
     run: BenchRun
@@ -527,7 +603,9 @@ class BenchManager:
         for specs, _ in got:
             for s in specs:
                 if s.id not in merged:
-                    merged[s.id] = s.model_copy(deep=True, update={"availability": {}})
+                    merged[s.id] = s.model_copy(
+                        deep=True, update={"availability": {}, "gpu_options": {}, "no_estimate": []}
+                    )
                     if s.min_nodes <= 1:  # per-node benchmark: the console runs it on any number of nodes
                         merged[s.id].max_nodes = None
         for spec in merged.values():
@@ -537,6 +615,10 @@ class BenchManager:
                 spec.availability[node] = problem or self._availability(node, spec, mine)
                 if mine is not None:
                     descriptions[node] = mine.description
+                    if opts := _own(mine.gpu_options, node):
+                        spec.gpu_options[node] = opts
+                    if node in mine.no_estimate or len(mine.no_estimate) == 1:
+                        spec.no_estimate.append(node)
             spec.description = merge_description(spec.id, descriptions) or spec.description
         order = {b: i for i, b in enumerate(REGISTRY)}
         return sorted(merged.values(), key=lambda s: (order.get(s.id, len(order)), s.id))
@@ -548,8 +630,7 @@ class BenchManager:
                 cause=f"The agent on {node} does not list this benchmark",
                 fix=f"Upgrade sparkline-agent on {node} to the console's release",
             )
-        av = mine.availability
-        p = av[node] if node in av else (next(iter(av.values())) if len(av) == 1 else None)
+        p = _own(mine.availability, node)
         if p is None and spec.min_nodes >= 2 and rail_ip(self.cluster.sources[node].state.info, "A") is None:
             p = Problem(
                 message=f"{node} has no ConnectX-7 peer",
@@ -629,6 +710,7 @@ class BenchManager:
                 400,
                 Problem(message="Invalid benchmark parameters", cause=str(e), fix="Correct it and try again"),
             ) from None
+        gpus = validate_gpu_index(spec, nodes, body.gpu_index, params)
         now = time.time()
         run_id = new_run_id(now)
         while run_id in self.active or self.store.get(run_id) is not None:  # same ms + same suffix
@@ -641,8 +723,9 @@ class BenchManager:
             status="queued",
             created_ts=now,
             phase="Starting",
-            params_key=params_key(spec.id, params),
+            params_key=params_key(spec.id, params, {n: o.uuid for n, o in gpus.items()}),
             metadata={"bench_name": spec.name},
+            gpu_index={n: o.index for n, o in gpus.items()},
         )
         act = _Active(run=run, name=spec.name, last_broadcast=now)  # nothing goes out while dispatching
         self.active[run.id] = act  # reserves the nodes while dispatching
@@ -703,11 +786,14 @@ class BenchManager:
                     peer_node=run.nodes[1 - i],
                     peer_ip=ip,
                     peer_port=NCCL_PORT,
+                    gpu_index=run.gpu_index.get(n),
                 )
                 for i, n in enumerate(run.nodes)
             }
         else:
-            act.requests = {n: BenchStartRequest(**base, role="single") for n in run.nodes}
+            act.requests = {
+                n: BenchStartRequest(**base, role="single", gpu_index=run.gpu_index.get(n)) for n in run.nodes
+            }
         out = await asyncio.gather(*(self._start_node(act, n) for n in run.nodes), return_exceptions=True)
         errors = [e for e in out if isinstance(e, BaseException)]
         if errors:
@@ -998,10 +1084,10 @@ class BenchManager:
         run = act.run
         act.tele_last[n] = ts
         prev = act.tele_prev.setdefault(n, {})
-        pre = f"telemetry.{n}."
+        pre, gpu = f"telemetry.{n}.", f"gpu{run.gpu_index.get(n, 0)}."
         run.series.setdefault(pre + "ts", []).append(round(ts, 3))
         for key in TELEMETRY_KEYS:
-            v = flat.get(f"gpu0.{key}", prev.get(key, 0.0))  # series hold floats: carry forward
+            v = flat.get(gpu + key, prev.get(key, 0.0))  # series hold floats: carry forward
             prev[key] = v
             run.series.setdefault(pre + key, []).append(v)
         if len(run.series[pre + "ts"]) > TELEMETRY_MAX:  # same length as _halve: ceil(n / 2)

@@ -92,13 +92,20 @@ class Job:
     """Context handed to a bench function: progress/results/logging and subprocess helpers."""
 
     def __init__(
-        self, runner: BenchRunner, req: BenchStartRequest, bench: Bench, params: Params, env: probes.Env
+        self,
+        runner: BenchRunner,
+        req: BenchStartRequest,
+        bench: Bench,
+        params: Params,
+        env: probes.Env,
+        gpu: probes.GpuTarget | None = None,
     ) -> None:
         self.runner = runner
         self.req = req
         self.bench = bench
         self.params = params
         self.env: probes.Env = env
+        self.gpu = gpu
         self.info: NodeInfo = runner.info()
         self.node_id = runner.node_id
         self.dir = Path(runner.work_dir) / req.run_id
@@ -107,8 +114,8 @@ class Job:
         self.expect_results = True
         self.payload_error: Problem | None = None
         self.gauges: dict[str, float] = {}  # latest {"gauge": ...} values from the payload
-        self.timeout_s = bench.timeout_s(params)
-        self.est_s = bench.estimate(params)
+        self.estimate = bench.estimate_on(params, self.info)
+        self.timeout_s = self.estimate.timeout_s
         self._log: deque[str] = deque(maxlen=LOG_TAIL)
         self._logged_once: set[str] = set()
         self.task: asyncio.Task | None = None
@@ -238,7 +245,8 @@ class Job:
         argv = ["docker", "run", "--rm", "--name", self.container_name()]
         argv += ["--label", f"sparkline.bench={self.req.run_id}", "--label", f"sparkline.node={self.node_id}"]
         if gpus:
-            argv += ["--gpus", "all"]
+            assert self.gpu is not None, f"{self.bench.id} has no GPU to give its container"
+            argv += ["--gpus", self.gpu.docker_gpus]
         argv += ["--ipc=host", "--ulimit", "memlock=-1", "--network", "host"]
         if infiniband:
             argv += ["--device", "/dev/infiniband"]
@@ -434,6 +442,8 @@ class BenchRunner:
 
     async def catalog(self) -> list[BenchSpec]:
         env = await self.env()
+        info = self.info()
+        options = {self.node_id: probes.gpu_options(self.node_id, info)}
         out = []
         for b in REGISTRY.values():
             problem, note = probes.availability(b.id, env)
@@ -442,7 +452,8 @@ class BenchRunner:
                     f"{note} SMOKE MODE: this agent runs GPU payloads on the CPU (bench_payload_device = "
                     '"cpu"); tiny sizes, results are flagged smoke and are not GPU measurements.'
                 ).strip()
-            out.append(b.spec({self.node_id: problem}, note))
+            no_estimate = [] if b.grounded_on(info) else [self.node_id]
+            out.append(b.spec({self.node_id: problem}, note, options, no_estimate))
         return out
 
     # -- lifecycle -------------------------------------------------------------------------------------
@@ -513,6 +524,9 @@ class BenchRunner:
                 422, f"Invalid parameters for {bench.name}", validation_message(e), "Correct the parameters"
             ) from None
         self._check_role(bench, req)
+        uses_gpu = bench.uses_gpu(params)
+        if req.gpu_index is not None and not uses_gpu:
+            raise Rejected(422, probes.unused_gpu(bench.name, bench.gpu, req.gpu_index))
         if self.current is not None:
             cur = self.current.state
             raise self._reject(
@@ -535,13 +549,19 @@ class BenchRunner:
         problem, _ = probes.availability(bench.id, env)
         if problem is not None:
             raise Rejected(422, problem)
+        gpu = probes.resolve_gpu(self.node_id, self.info(), req.gpu_index) if uses_gpu else None
+        if isinstance(gpu, Problem):
+            raise Rejected(422, gpu)
         await asyncio.to_thread(metadata.suite_hashes)  # cached; the first call runs git
         if self.current is not None:  # re-check after the awaits
             raise self._reject(409, f"A benchmark is already running on {self.node_id}", "", "Wait or cancel")
-        job = Job(self, req, bench, params, env)
+        job = Job(self, req, bench, params, env, gpu)
         docker = "docker" in bench.requires
+        est = job.estimate
         job.state.metadata = {
-            **metadata.static(job.info, self.image if docker else None, env.image_id if docker else None),
+            **metadata.static(
+                job.info, self.image if docker else None, env.image_id if docker else None, gpu
+            ),
             "params": params.model_dump(),
             "role": req.role,
             "rank": req.rank,
@@ -549,8 +569,8 @@ class BenchRunner:
             "peer_node": req.peer_node,
             "peer_ip": req.peer_ip,
             "timeout_s": job.timeout_s,
-            "est_duration_s": round(job.est_s, 1),
-            "start": metadata.telemetry(self.latest()),
+            "est_duration_s": round(est.seconds, 1) if est.grounded else None,
+            "start": metadata.telemetry(self.latest(), gpu),
             "started_ts": job.state.started_ts,
         }
         self.current = job
@@ -588,9 +608,11 @@ class BenchRunner:
                 )
         except TimeoutError:
             status = "failed"
+            est = job.estimate
             error = Problem(
                 message=f"{job.bench.name} timed out on {job.node_id}",
-                cause=f"Still running after {job.timeout_s:.0f} s (estimate {job.est_s:.0f} s)",
+                cause=f"Still running after {job.timeout_s:.0f} s"
+                + (f" (estimate {est.seconds:.0f} s)" if est.grounded else ""),
                 fix="Check the log tail; another workload may be competing for the GPU or link. "
                 "Run again when the node is idle.",
             )
@@ -620,7 +642,7 @@ class BenchRunner:
             st.phase = "Done"
         else:
             st.phase = {"cancelled": "Cancelled", "failed": "Failed"}[status]
-        st.metadata["end"] = metadata.telemetry(self.latest())
+        st.metadata["end"] = metadata.telemetry(self.latest(), job.gpu)
         st.metadata["finished_ts"] = st.finished_ts
         self.finished.appendleft(st)
         self.current = None

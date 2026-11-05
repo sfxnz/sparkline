@@ -15,7 +15,7 @@ import psutil
 
 from ...common.schema import Problem, Sample
 from ...common.throttle import LIMITING_MASK, POWER_CAP_BIT, REASONS
-from . import probes
+from . import metadata, probes
 from .parsers import parse_fio_json, parse_perftest_bw, parse_perftest_lat
 from .runner import BenchError, Job, JobFn
 from .specs import (
@@ -76,7 +76,7 @@ async def mem_bandwidth(job: Job, p: MemBandwidthParams) -> None:
     if eff := _cores(job, "efficiency"):
         args += ["--cores-eff", _csv(eff)]
     job.progress(0.0, "Starting container")
-    await job.run(job.docker_argv("mem_bw.py", args, gpus=dev == "cuda" and p.side != "cpu"))
+    await job.run(job.docker_argv("mem_bw.py", args, gpus=dev == "cuda" and p.needs_gpu()))
 
 
 async def cpu_throughput(job: Job, p: CpuThroughputParams) -> None:
@@ -496,32 +496,42 @@ def _local_ips() -> set[str]:
     return {a.address for addrs in psutil.net_if_addrs().values() for a in addrs}
 
 
-SOAK_KEYS = ("gpu0.sm_mhz", "gpu0.temp_c", "gpu0.power_w", "gpu0.throttle_mask", "gpu0.util")
+def soak_keys(index: int) -> tuple[str, str, str, str, str]:
+    return (
+        f"gpu{index}.sm_mhz",
+        f"gpu{index}.temp_c",
+        f"gpu{index}.power_w",
+        f"gpu{index}.throttle_mask",
+        f"gpu{index}.util",
+    )
 
 
 async def thermal_soak(job: Job, p: ThermalSoakParams) -> None:
     t0 = time.time()
+    index = metadata.gpu_index(job.gpu)
+    keys = soak_keys(index)
 
     def record(s: Sample) -> None:
         tflops = job.gauges.get("tflops")
-        if not s.gpu or tflops is None:  # nothing before the load starts (container start-up is not soak)
+        g = metadata.gpu_sample(s, index)
+        if g is None or tflops is None:  # nothing before the load starts (container start-up is not soak)
             return
-        g = s.gpu[0]
         vals = (g.sm_mhz, g.temp_c, g.power_w, g.throttle_mask, g.util)
         if any(v is None for v in vals):
             return
-        point = {"t": round(s.ts - t0, 2), **dict(zip(SOAK_KEYS, vals, strict=True)), "tflops": tflops}
+        point = {"t": round(s.ts - t0, 2), **dict(zip(keys, vals, strict=True)), "tflops": tflops}
         job.append_series({k: [float(v)] for k, v in point.items() if v is not None})  # (none are)
 
     dev = job.runner.payload_device
     args = ["--seconds", str(p.minutes * 60), "--size", p.size, "--device", dev]
     job.progress(0.0, "Starting container")
     await _with_sampling(job, job.run(job.docker_argv("thermal_soak.py", args, gpus=dev == "cuda")), record)
-    soak_results(job, {k: job.state.series.get(k, []) for k in SOAK_KEYS})
+    soak_results(job, {k: job.state.series.get(k, []) for k in keys})
 
 
 def soak_results(job: Job, s: dict[str, list[float]]) -> None:
-    clk, temp, mask = s["gpu0.sm_mhz"], s["gpu0.temp_c"], s["gpu0.throttle_mask"]
+    sm_mhz, temp_c, _, throttle_mask, _ = soak_keys(metadata.gpu_index(job.gpu))
+    clk, temp, mask = s[sm_mhz], s[temp_c], s[throttle_mask]
     if len(clk) < 2:
         job.log("too few telemetry samples to summarise clocks")
         return

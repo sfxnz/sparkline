@@ -520,6 +520,23 @@ def test_telemetry_overlay_holds_gpu_values_and_carries_gaps_forward(tmp_path):
     }
 
 
+def test_telemetry_overlay_follows_the_gpu_the_run_chose(tmp_path):
+    sample = Sample.model_validate_json((FIX / "sample.json").read_text())
+    mgr, cluster = _manager(tmp_path, ["ws1", "spark1"])
+    run = _run("r", "{}", 1.0, status="running").model_copy(
+        update={"nodes": ["ws1", "spark1"], "gpu_index": {"ws1": 2}}
+    )
+    act = _Active(run=run, name="GPU matmul")
+    (g,) = sample.gpu
+    gpus = [g.model_copy(update={"index": i, "util": 10.0 * i}) for i in (1, 2, 3, 0)]
+    t0 = time.time() - 1
+    cluster.sources["ws1"].got_sample(sample.model_copy(update={"ts": t0, "gpu": gpus}))
+    cluster.sources["spark1"].got_sample(sample.model_copy(update={"ts": t0, "gpu": gpus}))
+    mgr._record_telemetry(act, t0)
+    assert act.run.series["telemetry.ws1.util"] == [20.0]
+    assert act.run.series["telemetry.spark1.util"] == [0.0]
+
+
 def test_bench_api_requires_auth_and_same_origin(tmp_path):
     cfg = ConsoleConfig(token="tok", agent_token="a", web_dist=tmp_path / "nodist")
     auth = {"Authorization": "Bearer tok"}

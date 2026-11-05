@@ -174,14 +174,17 @@ interface RunJson {
   id: string;
   status: string;
   results: { metric: string; label: string; extras: Record<string, unknown> }[];
+  gpu_index?: Record<string, number>;
+  series: Record<string, number[]>;
+  metadata: { nodes?: Record<string, Record<string, unknown>> };
 }
 
 const STREAMS_NOTE = 'For ws1, token rates and timings are modelled on GB10, not measured.';
 const TOOL_EVAL_NOTE = 'For ws1, timings and the Responsiveness and Deployability scores are modelled on GB10, not measured.';
 const FOOTNOTE = 'For ws1, figures marked † are modelled on GB10, not measured.';
 
-async function startRun(page: Page, bench: string, nodes: string[], params: Record<string, unknown>): Promise<string> {
-  const res = await page.request.post(`${MIXED}/api/v1/bench/runs`, { data: { bench_id: bench, nodes, params, confirm: true } });
+async function startRun(page: Page, bench: string, nodes: string[], params: Record<string, unknown>, gpuIndex?: Record<string, number>): Promise<string> {
+  const res = await page.request.post(`${MIXED}/api/v1/bench/runs`, { data: { bench_id: bench, nodes, params, confirm: true, gpu_index: gpuIndex } });
   expect(res.status(), await res.text()).toBe(201);
   return ((await res.json()) as RunJson).id;
 }
@@ -283,6 +286,55 @@ const heights = (scopes: Locator, label: string) =>
     label,
   );
 
+async function danglingSeparators(page: Page, width: number): Promise<{ lines: string[]; seen: number }> {
+  await page.setViewportSize({ width, height: 900 });
+  return page.locator('.bench-run__sub').evaluate((el, w) => {
+    const glyphs: { c: string; top: number; left: number }[] = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const text = n.textContent ?? '';
+      for (let i = 0; i < text.length; i++) {
+        if (/\s/.test(text.charAt(i))) continue;
+        const r = document.createRange();
+        r.setStart(n, i);
+        r.setEnd(n, i + 1);
+        const box = r.getBoundingClientRect();
+        if (!box.width || !box.height) continue;
+        const unclipped = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === n.parentElement;
+        if (!unclipped) continue;
+        glyphs.push({ c: text.charAt(i), top: box.top, left: box.left });
+      }
+    }
+    const rows: (typeof glyphs)[] = [];
+    for (const g of glyphs) {
+      const row = rows.find((x) => Math.abs((x[0]?.top ?? 0) - g.top) < 4);
+      if (row) row.push(g);
+      else rows.push([g]);
+    }
+    const lines = rows.map((x) => x.sort((a, b) => a.left - b.left));
+    return {
+      seen: glyphs.filter((g) => g.c === '·').length,
+      lines: lines.filter((x) => x[0]?.c === '·' || x.at(-1)?.c === '·').map((x) => `${w} px: ${x.map((g) => g.c).join('')}`),
+    };
+  }, width);
+}
+
+async function walkWidths(page: Page, id: string, label: RegExp) {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${MIXED}/benchmarks/runs/${id}`);
+  await expect(page.locator('.bench-run__sub')).toContainText(label, { timeout: 15_000 });
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  const bad: string[] = [];
+  let seen = 0;
+  for (let width = 320; width <= 1440; width += 4) {
+    const r = await danglingSeparators(page, width);
+    bad.push(...r.lines);
+    seen = Math.max(seen, r.seen);
+  }
+  expect(seen, 'the walk sees the separators').toBeGreaterThan(1);
+  expect(bad).toEqual([]);
+}
+
 test.describe.serial('figures ws1 shows from the GB10 model', () => {
   test("a † never covers the text beside it, and no ws1 headline or row is taller than spark1's", async ({ page }) => {
     test.setTimeout(120_000);
@@ -348,5 +400,69 @@ test.describe.serial('figures ws1 shows from the GB10 model', () => {
     await succeeded(page, id);
     await expect(page.getByRole('region', { name: 'Results' }).getByRole('table')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/modelled|†/i)).toHaveCount(0);
+  });
+
+  test('a thermal soak on ws1 runs on the GPU you pick, and the run says which', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.goto(`${MIXED}/benchmarks`);
+    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^ws1/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.bench-card').first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Configure Thermal soak…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Configure Thermal soak' });
+    await dialog.getByRole('checkbox', { name: /^ws1/ }).check();
+    await dialog.getByRole('checkbox', { name: /^spark1/ }).uncheck();
+    await dialog.getByLabel('GPU on ws1').selectOption('2');
+    await dialog.getByLabel('Duration').fill('1');
+    await dialog.getByRole('button', { name: /Review & run/ }).click();
+    const confirm = page.getByRole('dialog', { name: 'Run Thermal soak?' });
+    await expect(confirm.getByText('Runs Thermal soak on ws1 GPU 2.')).toBeVisible();
+    await confirm.getByRole('button', { name: 'Run benchmark' }).click();
+    await expect.poll(() => page.url(), { timeout: 15_000 }).toMatch(/\/benchmarks\/runs\/(?!pending-)/);
+    const header = page.locator('.bench-run__sub');
+    await expect(header).toContainText('GPU 2', { timeout: 15_000 });
+    const run = await succeeded(page, decodeURIComponent(page.url().split('/').pop() ?? ''));
+    await expect(header).toContainText('GPU 2 · NVIDIA RTX 6000 Ada Generation', { timeout: 15_000 });
+    expect(run.gpu_index).toEqual({ ws1: 2 });
+    expect(run.metadata.nodes?.ws1?.gpu_index).toBe(2);
+    const soak = Object.keys(run.series).filter((k) => /^ws1\.gpu\d+\./.test(k));
+    expect(soak.length).toBeGreaterThan(0);
+    expect(soak.every((k) => k.startsWith('ws1.gpu2.')), soak.join()).toBe(true);
+  });
+
+  test('no separator in a run header starts or ends a line, at any width, on ws1 and on GB10', async ({ page }) => {
+    test.setTimeout(180_000);
+    const ws1 = await succeeded(page, await startRun(page, 'thermal-soak', ['ws1'], { minutes: 1 }, { ws1: 2 }));
+    await walkWidths(page, ws1.id, /GPU 2 · NVIDIA RTX 6000 Ada Generation/);
+    const seeded = (await (await page.request.get(`${MIXED}/api/v1/bench/runs`)).json()) as { id: string; bench_id: string; nodes: string[] }[];
+    for (const bench of ['gpu-matmul', 'tool-eval']) {
+      const gb10 = seeded.find((r) => r.bench_id === bench && r.nodes.join() === 'spark1');
+      expect(gb10, bench).toBeDefined();
+      await walkWidths(page, gb10?.id ?? '', /^spark1/);
+    }
+  });
+
+  test('llm-inference on ws1 gives no duration estimate and says why, while spark1 keeps its own', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`${MIXED}/benchmarks?configure=llm-inference`);
+    const dialog = page.getByRole('dialog', { name: 'Configure LLM inference' });
+    const estimate = dialog.locator('.bench-config__estimate');
+    await expect(dialog.getByRole('checkbox', { name: /^spark1/ })).toBeChecked({ timeout: 15_000 });
+    await expect(estimate).toContainText(/^Estimated ≈/);
+    await dialog.getByRole('checkbox', { name: /^ws1/ }).check();
+    await dialog.getByRole('checkbox', { name: /^spark1/ }).uncheck();
+    await expect(estimate).toHaveText('Estimated —ws1 is not a DGX Spark');
+    const box = await estimate.boundingBox();
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(375);
+    await dialog.getByRole('button', { name: /Review & run/ }).click();
+    const confirm = page.getByRole('dialog', { name: 'Run LLM inference?' });
+    await expect(confirm.getByText('Sparkline estimates this from DGX Spark rates, and ws1 is not a DGX Spark.')).toBeVisible();
+    await expect(confirm.getByText(/≈/)).toHaveCount(0);
+    await confirm.getByRole('button', { name: 'Run benchmark' }).click();
+    await expect.poll(() => page.url(), { timeout: 15_000 }).toMatch(/\/benchmarks\/runs\/(?!pending-)/);
+    const progress = page.getByRole('region', { name: 'Progress' });
+    await expect(progress.getByText('Remaining').locator('xpath=following-sibling::dd')).toHaveText('—');
+    await expect(progress.getByText('Expected total').locator('xpath=following-sibling::dd')).toHaveText('—');
+    await succeeded(page, decodeURIComponent(page.url().split('/').pop() ?? ''));
   });
 });

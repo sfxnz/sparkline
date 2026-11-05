@@ -10,7 +10,8 @@ import subprocess
 from collections import Counter
 from typing import Any
 
-from ...common.schema import NodeInfo, Sample
+from ...common.schema import GpuInfo, GpuSample, NodeInfo, Sample
+from .probes import GpuTarget
 
 PAYLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "bench", "payloads")
 _BENCH_DIR = os.path.dirname(__file__)
@@ -47,23 +48,50 @@ def suite_hashes() -> dict[str, str | bool | None]:
     return {"suite_git": git, "suite_git_dirty": dirty, "suite_sha256": h.hexdigest()}
 
 
-def telemetry(s: Sample | None) -> dict[str, Any]:
-    """GPU 0 clocks/temp/power/throttle and memory use from the sampler's latest sample."""
+def gpu_index(target: GpuTarget | None) -> int:
+    return target.gpu.index if target else 0
+
+
+def described_gpu(count: int, target: GpuTarget | None) -> int | None:
+    if target:
+        return target.gpu.index
+    return 0 if count <= 1 else None
+
+
+def gpu_sample(s: Sample, index: int) -> GpuSample | None:
+    return next((g for g in s.gpu if g.index == index), None)
+
+
+def gpu(gpus: list[GpuInfo], target: GpuTarget | None) -> dict[str, Any]:
+    i = described_gpu(len(gpus), target)
+    if i is None:
+        return {}
+    g = next((x for x in gpus if x.index == i), None)
+    out = {
+        "gpu_name": g.name if g else None,
+        "gpu_uuid": g.uuid if g else None,
+        "gpu_cc": g.compute_capability if g else None,
+    }
+    return {**out, "gpu_index": i} if target and target.pinned else out
+
+
+def telemetry(s: Sample | None, target: GpuTarget | None) -> dict[str, Any]:
     if s is None:
         return {}
     out: dict[str, Any] = {"ts": s.ts, "mem_used": s.mem.used, "mem_gpu": s.mem.gpu}
-    if s.gpu:
-        g = s.gpu[0]
+    i = described_gpu(len(s.gpu), target)
+    if i is not None and (g := gpu_sample(s, i)) is not None:
         out.update(
             sm_mhz=g.sm_mhz, temp_c=g.temp_c, power_w=g.power_w, throttle_mask=g.throttle_mask, util=g.util
         )
     return out
 
 
-def static(info: NodeInfo, image: str | None, image_id: str | None) -> dict[str, Any]:
+def static(
+    info: NodeInfo, image: str | None, image_id: str | None, target: GpuTarget | None
+) -> dict[str, Any]:
     kinds = Counter(c.kind for c in info.cores)
     models = Counter(c.model for c in info.cores if c.model)
-    gpu = info.gpus[0] if info.gpus else None
     return {
         "hostname": socket.gethostname(),
         "node_id": info.node_id,
@@ -73,9 +101,7 @@ def static(info: NodeInfo, image: str | None, image_id: str | None) -> dict[str,
         "driver": info.driver,
         "cuda": info.cuda,
         "nvml": info.nvml,
-        "gpu_name": gpu.name if gpu else None,
-        "gpu_uuid": gpu.uuid if gpu else None,
-        "gpu_cc": gpu.compute_capability if gpu else None,
+        **gpu(info.gpus, target),
         "cpu_model": info.cpu_model,
         "cpu_cores": {"total": len(info.cores), **dict(kinds), "models": dict(models)},
         "bench_image": image,

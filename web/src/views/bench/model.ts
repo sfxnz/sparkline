@@ -4,8 +4,8 @@
 import type { Status } from '../../design/components/StatusPill';
 import { formatBytes, formatDuration, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
 import { decodeThrottle } from '../../lib/throttle';
-import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, NetIfInfo, ProcSample, RunStatus, Sample } from '../../lib/types';
-import { isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
+import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, NodeStatus, ProcSample, RunStatus, Sample } from '../../lib/types';
+import { gpuProcesses, isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
 import { gpuAt } from '../../lib/gpu';
 
 // ------------------------------------------------------------------------------------------------ catalog
@@ -251,6 +251,13 @@ export function estimateDuration(spec: BenchSpec, values: Partial<ParamValues>):
   return Math.max(1, (spec.est_duration_s + extra) * factor);
 }
 
+export const unestimated = (spec: Pick<BenchSpec, 'no_estimate'>, nodes: readonly string[]): string[] => nodes.filter((n) => spec.no_estimate?.includes(n));
+
+export const estimateOn = (spec: BenchSpec, nodes: readonly string[], values: Partial<ParamValues>): number | null =>
+  unestimated(spec, nodes).length ? null : estimateDuration(spec, values);
+
+export const notDgxSpark = (nodes: readonly string[]) => `${listNodes(nodes)} ${nodes.length === 1 ? 'is not a DGX Spark' : 'are not DGX Sparks'}`;
+
 const CHOICE_TEXT: Record<string, string> = {
   both: 'Both',
   gpu: 'GPU',
@@ -299,20 +306,51 @@ export function paramText(p: BenchParam | undefined, v: unknown): string {
   return p?.unit ? `${s} ${p.unit}` : s;
 }
 
-/** Short summary of the params that differ from the defaults ("BF16, FP8 · 16384"), or "Default parameters". */
-export function paramsSummary(spec: BenchSpec | undefined, params: Record<string, unknown>, max = 3): string {
-  if (!spec) return Object.entries(params).slice(0, max).map(([k, v]) => `${k} ${paramText(undefined, v)}`).join(' · ') || 'Default parameters';
+export function paramParts(spec: BenchSpec | undefined, params: Record<string, unknown>, max = 3): string[] {
+  if (!spec) {
+    const raw = Object.entries(params).slice(0, max).map(([k, v]) => `${k} ${paramText(undefined, v)}`);
+    return raw.length ? raw : ['Default parameters'];
+  }
   const defaults = defaultParams(spec);
   const changed = spec.params.filter((p) => p.name in params && JSON.stringify(params[p.name]) !== JSON.stringify(defaults[p.name]));
-  if (!changed.length) return 'Default parameters';
-  return changed
-    .slice(0, max)
-    .map((p) => {
-      const text = paramText(p, params[p.name]);
-      // A value that already names itself ("Rail B") is not prefixed with its label again ("Rail Rail B").
-      return text.toLowerCase().startsWith(`${p.label.toLowerCase()} `) ? text : `${p.label} ${text}`;
-    })
-    .join(' · ');
+  if (!changed.length) return ['Default parameters'];
+  return changed.slice(0, max).map((p) => {
+    const text = paramText(p, params[p.name]);
+    // A value that already names itself ("Rail B") is not prefixed with its label again ("Rail Rail B").
+    return text.toLowerCase().startsWith(`${p.label.toLowerCase()} `) ? text : `${p.label} ${text}`;
+  });
+}
+
+/** Short summary of the params that differ from the defaults ("BF16, FP8 · 16384"), or "Default parameters". */
+export const paramsSummary = (spec: BenchSpec | undefined, params: Record<string, unknown>, max = 3): string => paramParts(spec, params, max).join(' · ');
+
+export type GpuIndex = Readonly<Record<string, number>>;
+
+export const gpuOptions = (spec: Pick<BenchSpec, 'gpu_options'>, node: string): readonly GpuOption[] => spec.gpu_options?.[node] ?? [];
+
+export const usesGpu = (spec: Pick<BenchSpec, 'id'>, values: Partial<ParamValues>): boolean => spec.id !== 'mem-bandwidth' || values.side !== 'cpu';
+
+export function gpuPick(spec: Pick<BenchSpec, 'gpu_options'>, nodes: readonly string[], prev: GpuIndex = {}): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const n of nodes) {
+    const usable = gpuOptions(spec, n).filter((o) => !o.problem);
+    const pick = usable.find((o) => o.index === prev[n]) ?? usable[0];
+    if (pick) out[n] = pick.index;
+  }
+  return out;
+}
+
+export const runGpu = (run: Pick<BenchRun, 'gpu_index'>, node: string): number | undefined => run.gpu_index?.[node];
+
+export function runGpuParts(run: Pick<BenchRun, 'gpu_index' | 'nodes' | 'metadata' | 'node_states'>): string[] {
+  const meta = nodeMeta(run);
+  return run.nodes.flatMap((n) => {
+    const index = runGpu(run, n);
+    if (index === undefined) return [];
+    const name = meta[n]?.gpu_name;
+    const gpu = run.nodes.length > 1 ? `${n} GPU ${index}` : `GPU ${index}`;
+    return typeof name === 'string' && name ? [gpu, name] : [gpu];
+  });
 }
 
 // ------------------------------------------------------------------------------------------------ run state
@@ -340,6 +378,19 @@ export function elapsed(run: Pick<BenchRun, 'created_ts' | 'started_ts' | 'finis
 /** Expected total duration: the estimate, or elapsed + remaining once progress is reported. */
 export function projectedTotal(run: Pick<BenchRun, 'created_ts' | 'started_ts' | 'finished_ts' | 'progress'>, now: number, estimate: number): number {
   return elapsed(run, now) + (eta(run, now, estimate) ?? 0);
+}
+
+export function unestimatedRunNodes(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states'>, spec: Pick<BenchSpec, 'no_estimate'> | undefined): string[] {
+  const meta = nodeMeta(run);
+  const none = new Set([...Object.keys(meta).filter((n) => meta[n]?.est_duration_s === null), ...(spec ? unestimated(spec, run.nodes) : [])]);
+  return run.nodes.filter((n) => none.has(n));
+}
+
+export function runEstimate(run: Pick<BenchRun, 'metadata' | 'nodes' | 'node_states' | 'params'>, spec: BenchSpec | undefined): number | null {
+  const metas = Object.values(nodeMeta(run));
+  if (unestimatedRunNodes(run, spec).length) return null;
+  const agent = Math.max(0, ...metas.map((m) => (typeof m.est_duration_s === 'number' ? m.est_duration_s : 0)));
+  return agent > 0 ? agent : spec ? estimateDuration(spec, run.params as Partial<ParamValues>) : 60;
 }
 
 export function eta(run: Pick<BenchRun, 'created_ts' | 'started_ts' | 'finished_ts' | 'progress'>, now: number, estimate: number): number | null {
@@ -547,9 +598,14 @@ export function baselineCoverage(results: readonly BenchResult[]): { with: strin
 
 /** "OpenAI-compatible · Qwen3-8B": the engine and model an LLM run measured, from its results' extras. */
 export function servedModel(results: readonly BenchResult[]): string | null {
+  const parts = servedParts(results);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+export function servedParts(results: readonly BenchResult[]): string[] {
   const ex = results.find((r) => typeof r.extras.model === 'string' && r.extras.model)?.extras;
-  if (!ex) return null;
-  return [ex.engine, ex.model].filter((x): x is string => typeof x === 'string' && !!x).join(' · ');
+  if (!ex) return [];
+  return [ex.engine, ex.model].filter((x): x is string => typeof x === 'string' && !!x);
 }
 
 /** Benchmarks where one node acts on the other (source → target); the rest are symmetric. */
@@ -851,8 +907,10 @@ export interface Competition {
   text: string;
   /** Something is running that the benchmark will compete with. */
   busy: boolean;
+  stale?: boolean;
 }
 
+const consequence = 'results will be lower and the workload will slow down';
 const GPU_BUSY_PCT = 10;
 const CPU_BUSY_PCT = 25;
 const DISK_BUSY_PCT = 20;
@@ -882,10 +940,48 @@ function latestTraffic(s: Sample, rails: readonly NetIfInfo[]): LinkTraffic[] {
 
 const gbps = (bytesPerS: number) => `${((bytesPerS * 8) / 1e9).toFixed(1)} Gb/s`;
 
-function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: string; what: string } | null {
+function gpuWorkload(procs: readonly ProcSample[] | null | undefined): { verb: string; what: string; nodeMem: number } | null {
   const top = topGpuProcess(procs);
   if (!top) return null;
-  return { verb: isServing(top) ? 'serving' : 'running', what: workloadName(top) };
+  const what = workloadName(top);
+  const nodeMem = gpuProcesses(procs).filter((p) => workloadName(p) === what).reduce((sum, p) => sum + (p.gpu_mem ?? 0), 0);
+  return { verb: isServing(top) ? 'serving' : 'running', what, nodeMem };
+}
+
+export function gpuMemoryHeld(node: string, procs: readonly ProcSample[] | null | undefined, live: boolean): string | null {
+  const work = gpuWorkload(procs);
+  if (!work?.nodeMem) return null;
+  const mem = formatBytes(work.nodeMem);
+  return live ? `${node} is ${work.verb} ${work.what}, which holds ${mem} of GPU memory.` : `When ${node} last reported, it was ${work.verb} ${work.what}, which held ${mem} of GPU memory.`;
+}
+
+function notReporting(node: string, what: string, last: string | null): Competition {
+  const text = last ? `${node} is not reporting; ${last} when it last reported, so its current ${what} is unknown.` : `${node} is not reporting, so its current ${what} is unknown.`;
+  return { node, busy: false, stale: true, text };
+}
+
+function cpuLoad(node: string, s: Sample, online: boolean): Competition {
+  const pct = `${Math.round(s.cpu.util)}%`;
+  if (!online) return notReporting(node, 'CPU load', `its CPUs were ${pct} busy`);
+  const busy = s.cpu.util >= CPU_BUSY_PCT;
+  return busy ? { node, busy, text: `${node} CPUs are ${pct} busy right now; ${consequence}.` } : { node, busy, text: `${node} CPUs are mostly idle (${pct}).` };
+}
+
+function chosenGpu(node: string, index: number, util: number | null, procs: readonly ProcSample[] | null | undefined, online: boolean): Competition {
+  const pct = (v: number) => `${Math.round(v)}%`;
+  if (!online) {
+    const text = util === null ? `${node} is not reporting, so the current load of GPU ${index} is unknown.` : `${node} is not reporting; GPU ${index} was ${pct(util)} busy when it last reported, so its current load is unknown.`;
+    return { node, busy: false, stale: true, text };
+  }
+  const which = `${node} GPU ${index}`;
+  const busyAt = util !== null && util >= GPU_BUSY_PCT ? pct(util) : null;
+  const work = gpuWorkload(procs);
+  if (!work) return busyAt ? { node, busy: true, text: `${which} is ${busyAt} busy; ${consequence}.` } : { node, busy: false, text: `${which} is idle${util !== null ? ` (${pct(util)})` : ''}.` };
+  const mem = work.nodeMem;
+  const doing = `${node} is ${work.verb} ${work.what}${mem > 0 ? `, which holds ${formatBytes(mem)} of GPU memory` : ''}`;
+  const oom = mem > 0 ? 'the run may run out of GPU memory' : null;
+  if (busyAt) return { node, busy: true, text: `${which} is ${busyAt} busy while ${doing}; ${oom ? `results will be lower, the workload will slow down and ${oom}` : consequence}.` };
+  return { node, busy: true, text: `${util !== null ? `${which} is ${pct(util)} busy, but ` : ''}${doing}; if it shares GPU ${index}, ${oom ?? consequence}.` };
 }
 
 /**
@@ -900,24 +996,25 @@ export function competition(
   latest: (node: string) => Sample | null,
   interconnects: (node: string) => readonly NetIfInfo[] = () => [],
   linkTraffic?: (node: string, rails: readonly NetIfInfo[]) => LinkTraffic[],
+  gpuIndex: GpuIndex = {},
+  status: (node: string) => NodeStatus = () => 'online',
+  byCpu: (node: string) => boolean = () => false,
 ): Competition[] {
-  const consequence = 'results will be lower and the workload will slow down';
   return nodes.map((node) => {
     const s = latest(node);
-    if (!s) return { node, text: `${node} has not reported live data, so its current load is unknown.`, busy: false };
-    const gpu = gpuAt(s.gpu, 0);
+    if (!s) return { node, text: `${node} has not reported live data, so its current load is unknown.`, busy: false, stale: true };
+    const online = status(node) === 'online';
+    const chosen = gpuIndex[node];
+    const gpu = gpuAt(s.gpu, chosen ?? 0);
     const util = gpu?.util ?? null;
     const work = gpuWorkload(s.procs);
     const pct = (v: number) => `${Math.round(v)}%`;
     switch (spec.category) {
-      case 'cpu': {
-        const busy = s.cpu.util >= CPU_BUSY_PCT;
-        return busy
-          ? { node, busy, text: `${node} CPUs are ${pct(s.cpu.util)} busy right now; ${consequence}.` }
-          : { node, busy, text: `${node} CPUs are mostly idle (${pct(s.cpu.util)}).` };
-      }
+      case 'cpu':
+        return cpuLoad(node, s, online);
       case 'storage': {
         const disk = [...s.disk].sort((a, b) => b.busy_pct - a.busy_pct)[0];
+        if (!online) return notReporting(node, 'storage load', disk ? `${disk.name} was ${pct(disk.busy_pct)} busy` : null);
         const busy = (disk?.busy_pct ?? 0) >= DISK_BUSY_PCT;
         return busy && disk
           ? { node, busy, text: `${node} ${disk.name} is ${pct(disk.busy_pct)} busy right now; ${consequence}.` }
@@ -927,6 +1024,7 @@ export function competition(
         const rails = interconnects(node);
         const traffic = (linkTraffic ? linkTraffic(node, rails) : latestTraffic(s, rails)).filter((t) => t.rx + t.tx >= LINK_BUSY_BPS);
         const moving = traffic.map((t) => `${t.label} ${gbps(t.rx)} in / ${gbps(t.tx)} out`).join(', ');
+        if (!online) return notReporting(node, 'ConnectX-7 traffic', traffic.length ? `its link carried ${moving}` : work ? `it was ${work.verb} ${work.what}` : 'its link was quiet');
         if (traffic.length) {
           const why = work ? ` (${work.verb} ${work.what})` : '';
           return { node, busy: true, text: `${node} ConnectX-7 traffic${why}: ${moving}; ${consequence}.` };
@@ -935,9 +1033,12 @@ export function competition(
         return { node, busy: false, text: `${node} ConnectX-7 link is quiet.` };
       }
       default: {
+        if (byCpu(node)) return cpuLoad(node, s, online);
+        if (chosen !== undefined) return chosenGpu(node, chosen, util, s.procs, online);
+        const at = util !== null ? ` at ${pct(util)} GPU` : '';
+        if (!online) return notReporting(node, 'GPU load', work ? `it was ${work.verb} ${work.what}${at}` : util !== null ? `its GPU was ${pct(util)} busy` : null);
         const busy = (util ?? 0) >= GPU_BUSY_PCT || work !== null;
         if (!busy) return { node, busy, text: `${node} GPU is idle${util !== null ? ` (${pct(util)})` : ''}.` };
-        const at = util !== null ? ` at ${pct(util)} GPU` : '';
         return work
           ? { node, busy, text: `${node} is currently ${work.verb} ${work.what}${at}; ${consequence}.` }
           : { node, busy, text: `${node} GPU is ${pct(util ?? 0)} busy; ${consequence}.` };
@@ -947,9 +1048,10 @@ export function competition(
 }
 
 /** "Runs GPU matmul on spark1 and spark2 (source spark1, target spark2)." */
-export function runSentence(spec: Pick<BenchSpec, 'name' | 'min_nodes'>, nodes: readonly string[]): string {
-  if (spec.min_nodes === 2 && nodes.length === 2) return `Runs ${spec.name} between ${nodes[0] ?? ''} (source) and ${nodes[1] ?? ''} (target).`;
-  return `Runs ${spec.name} on ${listNodes(nodes)}.`;
+export function runSentence(spec: Pick<BenchSpec, 'name' | 'min_nodes'>, nodes: readonly string[], gpuIndex: GpuIndex = {}): string {
+  const where = nodes.map((n) => (gpuIndex[n] === undefined ? n : `${n} GPU ${gpuIndex[n]}`));
+  if (spec.min_nodes === 2 && where.length === 2) return `Runs ${spec.name} between ${where[0] ?? ''} (source) and ${where[1] ?? ''} (target).`;
+  return `Runs ${spec.name} on ${listNodes(where)}.`;
 }
 
 export const cancelSentence = (nodes: readonly string[]) =>
@@ -1039,7 +1141,7 @@ export function metaLabel(key: string): string {
 }
 
 /** Known metadata first (driver, CUDA, GPU, image, suite), then the rest in their own order. */
-export const META_ORDER = ['hostname', 'driver', 'cuda', 'nvml', 'gpu', 'gpu_name', 'gpu_uuid', 'image', 'suite_git', 'suite_sha', 'git_sha', 'agent_version', 'engine', 'runner'];
+export const META_ORDER = ['hostname', 'driver', 'cuda', 'nvml', 'gpu', 'gpu_index', 'gpu_name', 'gpu_uuid', 'image', 'suite_git', 'suite_sha', 'git_sha', 'agent_version', 'engine', 'runner'];
 
 export function orderedMeta(meta: Record<string, unknown>): [string, unknown][] {
   const rank = (k: string) => {

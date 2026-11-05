@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { BenchCompare, BenchParam, BenchSpec, Sample } from '../../lib/types';
+import type { BenchCompare, BenchParam, BenchSpec, NodeStatus, Sample } from '../../lib/types';
 import { boundRuns, mergeRun } from '../../store/bench';
-import { CATALOG, LLM, MATMUL, RDMA, SOAK, result, run } from './fixtures';
+import { CATALOG, LLM, MATMUL, RDMA, SOAK, WS_MATMUL, WS_MEMBW, result, run, wsGpuOptions } from './fixtures';
 import { LIVE_4, llmRun, nodeState } from './streams/fixtures';
 import {
   aboutDuration,
@@ -17,6 +17,7 @@ import {
   eta,
   filterRuns,
   formatValue,
+  gpuPick,
   groupCatalog,
   headlineCaption,
   headlineDetail,
@@ -30,17 +31,22 @@ import {
   modelledOn,
   modelledResults,
   nodesText,
+  orderedMeta,
   paramText,
   paramsSummary,
   parseCompareIds,
   parseRunSeries,
   resultDelta,
   resultText,
+  runEstimate,
+  runGpuParts,
   runnableNodes,
+  runSentence,
   signedFormat,
   soakStats,
   splitDescription,
   toForm,
+  unestimatedRunNodes,
   unitText,
   validateParams,
   valueWithUnit,
@@ -480,11 +486,37 @@ describe('competition', () => {
   it('says when a node is idle or has no data', () => {
     const idle = sample({ gpu: [{ index: 0, util: 0 }] as Sample['gpu'], procs: [] });
     expect(competition(MATMUL, ['spark1'], () => idle)[0]).toMatchObject({ busy: false, text: 'spark1 GPU is idle (0%).' });
-    expect(competition(MATMUL, ['spark9'], () => null)[0]?.text).toMatch(/has not reported/);
+    expect(competition(MATMUL, ['spark9'], () => null)[0]).toStrictEqual({ node: 'spark9', busy: false, stale: true, text: 'spark9 has not reported live data, so its current load is unknown.' });
   });
   it("reads GPU 0's load by index, not another vendor's GPU that came first", () => {
     const amdOnly = sample({ gpu: [{ index: 1, util: 96 }] as Sample['gpu'], procs: [] });
     expect(competition(MATMUL, ['spark1'], () => amdOnly)[0]?.text).toBe('spark1 GPU is idle.');
+  });
+  it('keeps the GB10 sentences word for word while the node reports', () => {
+    const on = (s: Sample) => competition(MATMUL, ['spark1'], () => s, undefined, undefined, undefined, () => 'online')[0];
+    expect(on(sample())).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 is currently serving DeepSeek-V4.1-Flash-EXL3 at 96% GPU; results will be lower and the workload will slow down.' });
+    expect(on(sample({ gpu: [] }))).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 is currently serving DeepSeek-V4.1-Flash-EXL3; results will be lower and the workload will slow down.' });
+    expect(on(sample({ procs: [] }))).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 GPU is 96% busy; results will be lower and the workload will slow down.' });
+    expect(on(sample({ gpu: [{ index: 0, util: 3 }] as Sample['gpu'], procs: [] }))).toStrictEqual({ node: 'spark1', busy: false, text: 'spark1 GPU is idle (3%).' });
+  });
+  it('never judges a node that is not reporting idle or busy, and says what it last saw', () => {
+    const CPU_BENCH = { ...MATMUL, category: 'cpu' as const };
+    const STORAGE = { ...MATMUL, category: 'storage' as const };
+    const railsInfo = () => [{ name: 'enp1s0f1np1', label: 'ConnectX-7 rail A' }] as never;
+    const on = (spec: Pick<BenchSpec, 'category' | 'impact'>, s: Sample, status: NodeStatus = 'stale') => competition(spec, ['spark1'], () => s, railsInfo, undefined, undefined, () => status)[0]?.text;
+    for (const status of ['stale', 'offline', 'error', 'connecting'] as const) {
+      for (const spec of [MATMUL, CPU_BENCH, STORAGE, RDMA]) expect(competition(spec, ['spark1'], () => sample(), railsInfo, undefined, undefined, () => status)[0]).toMatchObject({ busy: false, stale: true });
+    }
+    expect(on(MATMUL, sample())).toBe('spark1 is not reporting; it was serving DeepSeek-V4.1-Flash-EXL3 at 96% GPU when it last reported, so its current GPU load is unknown.');
+    expect(on(MATMUL, sample({ gpu: [] }))).toBe('spark1 is not reporting; it was serving DeepSeek-V4.1-Flash-EXL3 when it last reported, so its current GPU load is unknown.');
+    expect(on(MATMUL, sample({ gpu: [{ index: 0, util: 3 }] as Sample['gpu'], procs: [] }))).toBe('spark1 is not reporting; its GPU was 3% busy when it last reported, so its current GPU load is unknown.');
+    expect(on(MATMUL, sample({ gpu: [], procs: [] }))).toBe('spark1 is not reporting, so its current GPU load is unknown.');
+    expect(on(CPU_BENCH, sample())).toBe('spark1 is not reporting; its CPUs were 12% busy when it last reported, so its current CPU load is unknown.');
+    expect(on(STORAGE, sample())).toBe('spark1 is not reporting; nvme0n1 was 3% busy when it last reported, so its current storage load is unknown.');
+    expect(on(STORAGE, sample({ disk: [] }))).toBe('spark1 is not reporting, so its current storage load is unknown.');
+    expect(on(RDMA, sample())).toBe('spark1 is not reporting; its link carried rail A 16.0 Gb/s in / 8.0 Gb/s out when it last reported, so its current ConnectX-7 traffic is unknown.');
+    expect(on(RDMA, sample({ net: [] }))).toBe('spark1 is not reporting; it was serving DeepSeek-V4.1-Flash-EXL3 when it last reported, so its current ConnectX-7 traffic is unknown.');
+    expect(on(RDMA, sample({ net: [], procs: [] }))).toBe('spark1 is not reporting; its link was quiet when it last reported, so its current ConnectX-7 traffic is unknown.');
   });
   it('looks at the CX7 link for interconnect benches', () => {
     const rails = () => [{ name: 'enp1s0f1np1' }] as never;
@@ -608,5 +640,116 @@ describe('valueWithUnit matches the live screens', () => {
     expect(resultText(result({ metric: 'tflops_change_pct', value: -12, unit: '%' }))).toBe('−12.0%');
     expect(resultText(result({ metric: 'completion_rate', value: 86.7, unit: '%' }))).toBe('86.7%');
     expect(valueWithUnit(89, '%')).toBe('89.0%');
+  });
+});
+
+describe('GPU choice', () => {
+  const lost = { message: 'GPU 1 on ws1 is not responding', cause: 'NVML: GPU is lost', fix: 'Reset GPU 1 on ws1' };
+  const spec = { ...WS_MATMUL, gpu_options: { ws1: wsGpuOptions({ 1: lost }) } };
+
+  it('picks the first GPU that can run it, keeps a previous pick while it still can, and leaves single-GPU nodes out', () => {
+    expect(gpuPick(spec, ['spark1', 'ws1'])).toEqual({ ws1: 0 });
+    expect(gpuPick(spec, ['ws1'], { ws1: 2 })).toEqual({ ws1: 2 });
+    expect(gpuPick(spec, ['ws1'], { ws1: 1 })).toEqual({ ws1: 0 });
+    expect(gpuPick(spec, ['ws1'], { ws1: 9 })).toEqual({ ws1: 0 });
+    expect(gpuPick({ gpu_options: { ws1: wsGpuOptions({ 0: lost }) } }, ['ws1'])).toEqual({ ws1: 1 });
+    expect(gpuPick(spec, ['spark1'], { ws1: 2 })).toEqual({});
+    expect(gpuPick(MATMUL, ['spark1', 'spark2'])).toEqual({});
+  });
+
+  it('names the GPU of each node that had a choice, from the run metadata', () => {
+    const meta = { nodes: { ws1: { gpu_name: 'NVIDIA RTX 6000 Ada Generation', gpu_index: 2 } } };
+    expect(runGpuParts(run({ id: 'a', nodes: ['ws1'], gpu_index: { ws1: 2 }, metadata: meta }))).toEqual(['GPU 2', 'NVIDIA RTX 6000 Ada Generation']);
+    expect(runGpuParts(run({ id: 'b', nodes: ['ws1'], gpu_index: { ws1: 2 } }))).toEqual(['GPU 2']);
+    expect(runGpuParts(run({ id: 'c', nodes: ['spark1', 'ws1'], gpu_index: { ws1: 3 }, metadata: meta }))).toEqual(['ws1 GPU 3', 'NVIDIA RTX 6000 Ada Generation']);
+    expect(runGpuParts(run({ id: 'd', metadata: { nodes: { spark1: { gpu_name: 'NVIDIA GB10' } } } }))).toEqual([]);
+  });
+
+  it('says which GPU of a node with a choice the run gets, and nothing new elsewhere', () => {
+    expect(runSentence(WS_MATMUL, ['ws1'], { ws1: 2 })).toBe('Runs GPU matmul on ws1 GPU 2.');
+    expect(runSentence(WS_MATMUL, ['spark1', 'ws1'], { ws1: 2 })).toBe('Runs GPU matmul on spark1 and ws1 GPU 2.');
+    expect(runSentence({ name: 'NCCL all-reduce', min_nodes: 2 }, ['ws1', 'ws2'], { ws1: 2, ws2: 0 })).toBe('Runs NCCL all-reduce between ws1 GPU 2 (source) and ws2 GPU 0 (target).');
+    expect(runSentence(MATMUL, ['spark1', 'spark2'])).toBe('Runs GPU matmul on spark1 and spark2.');
+  });
+
+  it('lists the GPU index with the other GPU facts in the metadata', () => {
+    expect(orderedMeta({ gpu_uuid: 'GPU-x', gpu_name: 'NVIDIA RTX 6000 Ada Generation', role: 'single', gpu_index: 2, hostname: 'ws1' }).map(([k]) => k)).toEqual(['hostname', 'gpu_index', 'gpu_name', 'gpu_uuid', 'role']);
+  });
+});
+
+describe('run estimate', () => {
+  const st = (node_id: string, metadata: Record<string, unknown>) => nodeState({ node_id, bench_id: 'gpu-matmul', metadata });
+  it("is the agents' own estimate once reported, else the catalog's for the run's parameters", () => {
+    expect(runEstimate(run({ id: 'a', status: 'running', node_states: { spark1: st('spark1', { est_duration_s: 120 }) } }), MATMUL)).toBe(120);
+    expect(runEstimate(run({ id: 'b', status: 'running', params: { ...defaultParams(MATMUL), iterations: 100 } }), MATMUL)).toBe(180);
+    expect(runEstimate(run({ id: 'c', status: 'running' }), undefined)).toBe(60);
+  });
+  it('is unknown when an agent reports none, never the GB10 catalog figure', () => {
+    const states = { spark1: st('spark1', { est_duration_s: 120 }), ws1: st('ws1', { est_duration_s: null }) };
+    expect(runEstimate(run({ id: 'd', status: 'running', nodes: ['spark1', 'ws1'], node_states: states }), MATMUL)).toBeNull();
+  });
+  it('names the nodes it has no estimate for, from their agents or the catalog', () => {
+    const spec = { ...WS_MATMUL, no_estimate: ['ws2'] };
+    const states = { spark1: st('spark1', { est_duration_s: 120 }), ws1: st('ws1', { est_duration_s: null }) };
+    expect(unestimatedRunNodes(run({ id: 'h', status: 'running', nodes: ['spark1', 'ws1', 'ws2'], node_states: states }), spec)).toEqual(['ws1', 'ws2']);
+    expect(unestimatedRunNodes(run({ id: 'i', status: 'running', node_states: { spark1: states.spark1 } }), spec)).toEqual([]);
+  });
+  it('is unknown from the start on a node the catalog gives no estimate for, and kept on the others', () => {
+    const spec = { ...WS_MATMUL, no_estimate: ['ws1'] };
+    expect(runEstimate(run({ id: 'e', status: 'queued', nodes: ['ws1'], started_ts: null, finished_ts: null, progress: 0 }), spec)).toBeNull();
+    expect(runEstimate(run({ id: 'f', status: 'queued', nodes: ['spark1', 'ws1'], started_ts: null, finished_ts: null, progress: 0 }), spec)).toBeNull();
+    expect(runEstimate(run({ id: 'g', status: 'queued', nodes: ['spark1'], started_ts: null, finished_ts: null, progress: 0 }), spec)).toBe(90);
+  });
+});
+
+describe('competition on a node with a choice of GPU', () => {
+  const ws = (utils: Record<number, number>, procs: Sample['procs'] = []) =>
+    ({ node_id: 'ws1', gpu: Object.entries(utils).map(([i, util]) => ({ index: Number(i), util })), cpu: { util: 5 }, disk: [], net: [], procs }) as unknown as Sample;
+  const serve = { pid: 1, name: 'vllm', cmdline: 'vllm serve nvidia/Llama-3.3-70B-Instruct-FP8', gpu_mem: null, gpu_util: null, model: 'nvidia/Llama-3.3-70B-Instruct-FP8', container: 'vllm-llama70b' };
+  const workers = [0, 1, 2, 3].map((g) => ({ pid: 10 + g, name: 'VLLM::Worker_TP', cmdline: `VLLM::Worker_TP${g}`, gpu_mem: 43.4e9, gpu_util: 86, model: null, container: 'vllm-llama70b' }));
+  const vllm = [serve, ...workers] as unknown as Sample['procs'];
+  const on = (s: Sample, gpu: number, status: NodeStatus = 'online') => competition(WS_MATMUL, ['ws1'], () => s, undefined, undefined, { ws1: gpu }, () => status)[0];
+
+  it('is not idle at 0% while the node serves a model, whose GPUs Sparkline cannot tell', () => {
+    expect(on(ws({ 0: 86, 1: 87, 2: 0, 3: 86 }, vllm), 2)).toStrictEqual({
+      node: 'ws1',
+      busy: true,
+      text: 'ws1 GPU 2 is 0% busy, but ws1 is serving vllm-llama70b, which holds 161.7\u00a0GiB of GPU memory; if it shares GPU 2, the run may run out of GPU memory.',
+    });
+  });
+  it('names the load of a busy GPU, and the workload on the node with its GPU memory', () => {
+    expect(on(ws({ 0: 86, 2: 0 }, vllm), 0)).toStrictEqual({
+      node: 'ws1',
+      busy: true,
+      text: 'ws1 GPU 0 is 86% busy while ws1 is serving vllm-llama70b, which holds 161.7\u00a0GiB of GPU memory; results will be lower, the workload will slow down and the run may run out of GPU memory.',
+    });
+    expect(on(ws({ 0: 1, 3: 40 }), 3)?.text).toBe('ws1 GPU 3 is 40% busy; results will be lower and the workload will slow down.');
+  });
+  it('is idle only with a low load and no GPU process on the node', () => {
+    expect(on(ws({ 0: 86, 2: 3 }), 2)).toStrictEqual({ node: 'ws1', busy: false, text: 'ws1 GPU 2 is idle (3%).' });
+  });
+  it('marks a reading from a node that is not reporting as stale, never idle or busy', () => {
+    for (const procs of [[], vllm]) {
+      expect(on(ws({ 2: 3 }, procs), 2, 'stale')).toStrictEqual({
+        node: 'ws1',
+        busy: false,
+        stale: true,
+        text: 'ws1 is not reporting; GPU 2 was 3% busy when it last reported, so its current load is unknown.',
+      });
+    }
+    expect(on(ws({ 0: 86 }), 2, 'error')).toStrictEqual({ node: 'ws1', busy: false, stale: true, text: 'ws1 is not reporting, so the current load of GPU 2 is unknown.' });
+  });
+  it('judges the nodes it is told to by their CPUs, never by one of their GPUs', () => {
+    const spark = { ...ws({ 0: 0 }), node_id: 'spark1' };
+    const cpuSide = (s: Sample) => competition(WS_MEMBW, ['spark1', 'ws1'], (n) => (n === 'ws1' ? s : spark), undefined, undefined, {}, undefined, (n) => n === 'ws1');
+    expect(cpuSide(ws({ 0: 86, 2: 3 }, vllm))).toStrictEqual([
+      { node: 'spark1', busy: false, text: 'spark1 GPU is idle (0%).' },
+      { node: 'ws1', busy: false, text: 'ws1 CPUs are mostly idle (5%).' },
+    ]);
+    expect(cpuSide({ ...ws({ 0: 86, 2: 3 }), cpu: { util: 60 } } as Sample)[1]).toStrictEqual({ node: 'ws1', busy: true, text: 'ws1 CPUs are 60% busy right now; results will be lower and the workload will slow down.' });
+  });
+  it('keeps the GB10 sentence for a node without a choice in the same run', () => {
+    const spark = { ...ws({ 0: 0 }), node_id: 'spark1' };
+    expect(competition(WS_MATMUL, ['spark1', 'ws1'], (n) => (n === 'ws1' ? ws({ 2: 3 }) : spark), undefined, undefined, { ws1: 2 }).map((c) => c.text)).toEqual(['spark1 GPU is idle (0%).', 'ws1 GPU 2 is idle (3%).']);
   });
 });

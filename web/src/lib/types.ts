@@ -330,6 +330,17 @@ export interface BenchImpact {
   note: string;
 }
 
+/** A GPU a GPU benchmark can run on, offered on nodes with two or more NVIDIA GPUs. */
+export interface GpuOption {
+  /** The GPU number the UI shows (GpuInfo.index). */
+  index: number;
+  name: string;
+  /** GpuInfo.uuid: the agent pins the container to it. */
+  uuid: string | null;
+  /** Why the benchmark cannot run on this GPU, e.g. it is not responding. */
+  problem: Problem | null;
+}
+
 export interface BenchSpec {
   id: string;
   name: string;
@@ -342,6 +353,10 @@ export interface BenchSpec {
   max_nodes: number | null;
   requires: string[];
   availability: Record<string, Problem | null>;
+  /** Node -> the GPUs a run can choose from. Absent for single-GPU nodes and older agents. */
+  gpu_options?: Record<string, GpuOption[]>;
+  /** Nodes whose agent gives no duration estimate (its rates are GB10's and the node is not one). Absent from older consoles. */
+  no_estimate?: string[];
 }
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
@@ -381,6 +396,8 @@ export interface BenchRun {
   baseline_run_id: string | null;
   /** Per-node progress from the agents. Omitted by GET /api/v1/bench/runs (list). */
   node_states?: Record<string, NodeBenchState>;
+  /** Node -> the GPU the run uses, for nodes with a choice. */
+  gpu_index?: Record<string, number>;
 }
 
 /** Browser -> console: POST /api/v1/bench/runs. */
@@ -390,6 +407,8 @@ export interface BenchCreate {
   params: Record<string, unknown>;
   /** Must be true; only set from the confirmation dialog. */
   confirm: boolean;
+  /** Node -> the chosen GPU, for nodes with BenchSpec.gpu_options. */
+  gpu_index?: Record<string, number>;
 }
 
 /** Agent -> console per-node progress (nested in BenchRun.node_states). */

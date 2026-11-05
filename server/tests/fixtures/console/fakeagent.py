@@ -45,6 +45,25 @@ BENCH_SPECS: list[dict[str, Any]] = [
         "max_nodes": 1,  # as the real agent says; the console still runs it on several nodes at once
     },
     {
+        "id": "mem-bandwidth",
+        "name": "Unified memory bandwidth",
+        "category": "memory",
+        "description": "STREAM",
+        "est_duration_s": 30,
+        "impact": {"thermal": "medium", "power": "medium", "disruptive": True, "note": "Busy memory"},
+        "params": [
+            {
+                "name": "side",
+                "label": "Measure from",
+                "type": "enum",
+                "default": "both",
+                "choices": ["both", "gpu", "cpu"],
+            }
+        ],
+        "min_nodes": 1,
+        "max_nodes": 1,
+    },
+    {
         "id": "rdma-bw-lat",
         "name": "RDMA",
         "category": "interconnect",
@@ -82,6 +101,10 @@ BENCH_SPECS: list[dict[str, Any]] = [
 ]
 
 
+GPU_BENCHES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce")
+GB10_RATES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio")
+
+
 def bench_defaults() -> dict[str, Any]:
     """Per-agent knobs for the fake bench runner (app.state.bench)."""
     return {
@@ -96,7 +119,13 @@ def bench_defaults() -> dict[str, Any]:
     }
 
 
-def make_fake_agent(token: str, interval: float = 0.2, info: dict | None = None) -> FastAPI:
+def make_fake_agent(
+    token: str,
+    interval: float = 0.2,
+    info: dict | None = None,
+    gpu_options: list[dict] | None = None,
+    no_estimate: bool = False,
+) -> FastAPI:
     app = FastAPI()
     app.state.paused = False
     app.state.ts_offset = 0.0  # simulated agent clock skew
@@ -193,6 +222,10 @@ def make_fake_agent(token: str, interval: float = 0.2, info: dict | None = None)
             off = spec.pop("unavailable", False)
             problem = {"message": "fio missing", "cause": "not installed", "fix": "apt install fio"}
             spec["availability"] = {info_doc["node_id"]: problem if off else None}
+            if gpu_options and spec["id"] in GPU_BENCHES:
+                spec["gpu_options"] = {info_doc["node_id"]: gpu_options}
+            if no_estimate and spec["id"] in GB10_RATES:
+                spec["no_estimate"] = [info_doc["node_id"]]
             out.append(spec)
         return out
 
