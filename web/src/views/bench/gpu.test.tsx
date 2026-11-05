@@ -125,7 +125,7 @@ describe('choosing the GPU on a multi-GPU node', () => {
     cluster([{ info: WS1, sample: wsWith({ 2: 3 }) }]);
     useConnection.setState({ status: 'reconnecting' });
     render(<ConfigureDialog spec={WS_MATMUL} open onClose={noop} onRun={noop} initialNodes={['ws1']} initialGpuIndex={{ ws1: 2 }} />);
-    expect(screen.getByText(/^not reporting · serving vllm-llama70b · GPU.2.at.3%$/)).toBeInTheDocument();
+    expect(screen.getByText(/^not reporting · serving vllm-llama70b · GPU.2.was.3%$/)).toBeInTheDocument();
     expect(within(screen.getByRole('combobox', { name: 'GPU on ws1' })).getByRole('option', { selected: true })).toHaveTextContent(/^GPU 2 · was 3% busy · /);
     review();
     expect(screen.getByRole('heading', { name: 'Current load unknown' })).toBeInTheDocument();
@@ -227,6 +227,18 @@ describe('the review of a node whose reading Sparkline cannot vouch for', () => 
     markNodes('stale');
     expect(verdict()).toHaveAccessibleName('Current load unknown');
     expect(sentences()).toEqual(stale);
+  });
+
+  it('puts the GPU load in a node row in the past tense while the node is not reporting', () => {
+    cluster(spark);
+    render(<ConfigureDialog spec={MATMUL} open onClose={noop} onRun={noop} />);
+    const row = () => screen.getByRole('checkbox', { name: /^spark1/ }).closest('label') as HTMLElement;
+    expect(within(row()).getByText('serving DeepSeek-V4.1-Flash-EXL3 · GPU 62%')).toBeInTheDocument();
+    act(() => { useConnection.setState({ status: 'reconnecting' }); });
+    expect(within(row()).getByText('not reporting · serving DeepSeek-V4.1-Flash-EXL3 · GPU was 62%')).toBeInTheDocument();
+    act(() => { useConnection.setState({ status: 'live' }); });
+    markNodes('stale');
+    expect(within(row()).getByText('not reporting · serving DeepSeek-V4.1-Flash-EXL3 · GPU was 62%')).toBeInTheDocument();
   });
 });
 
