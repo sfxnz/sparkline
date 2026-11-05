@@ -136,7 +136,6 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
         <>
           <dl className="tp-energy__list">
             {range === '7d' ? null : <EnergyRow label={`Last ${RANGE_SHORT[range]}`} value={rangeJ} rate={rate} currency={currency} />}
-            {/* Day and week totals in kWh, like the header's "GPU energy today" and the Overview. */}
             <EnergyRow label="Today" value={todayJ} rate={rate} currency={currency} kwh />
             <EnergyRow label="Last 7 days" value={weekJ} rate={rate} currency={currency} kwh />
           </dl>
@@ -156,8 +155,6 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
   );
 }
 
-/** The node's quiet GPUs (quietGpusOf), each with when its energy counter last moved: the energy totals count them
- *  only until then. */
 export function useGpuStops(nodeId: string, info: NodeInfo | null | undefined, store: LiveStore = liveStore): GpuStop[] {
   return useLiveDerived(nodeId, useCallback((st: LiveStore) => gpuStops(st, nodeId, quietGpusOf(nodeId, info)), [nodeId, info]), sameStops, store);
 }

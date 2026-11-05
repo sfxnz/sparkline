@@ -996,7 +996,6 @@ describe("GPU processes while some or all of a node's GPUs send nothing", () => 
 describe("the cluster's GPU energy today names each node it cannot count", () => {
   const gb10 = (id: string) => ({ ...(gb10Info as unknown as NodeInfo), node_id: id, hostname: id });
   const tile = (label: string) => within(screen.getByRole('region', { name: 'Cluster totals' })).getByText(label, { selector: '.stat__label' }).closest('.stat') as HTMLElement;
-  /** spark1's history since midnight holds its energy counter; spark2's loads but holds no energy reading. */
   const show = (spark2: NodeState['status']) => {
     vi.mocked(globalThis.fetch).mockImplementation((url) => {
       const spark1 = typeof url === 'string' && new URL(url, 'http://x').searchParams.get('node') === 'spark1';
@@ -1033,8 +1032,6 @@ describe("the cluster's GPU energy today names each node it cannot count", () =>
     const d = new Date(ts * 1000);
     return [d.getHours(), d.getMinutes()].map((n) => String(n).padStart(2, '0')).join(':');
   };
-  /** Each node's history since midnight holds 0.1 kWh on each GPU's counter. Live, GPU `quiet` of a node moves its
-   *  counter twice, then sends nothing for 5 s while the node's other GPUs keep reporting. Returns when it last read. */
   const showQuiet = (nodes: readonly (readonly [NodeInfo, Sample, number | null])[]) => {
     const series = (s: Sample) => Object.fromEntries(s.gpu.map((g) => [`gpu${String(g.index)}.energy_j`, [(g.energy_j ?? 0) - 360_000, g.energy_j]]));
     vi.mocked(globalThis.fetch).mockImplementation((url) => {

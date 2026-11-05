@@ -89,8 +89,6 @@ class Store:
         return self.kv_read(key, lambda value: value)
 
     def kv_read[T](self, key: str, parse: Callable[[Any], T]) -> T | None:
-        """The stored row through `parse`, or None when there is none. A row that is not JSON, or that `parse`
-        rejects with a ValueError, reads as None after kv_set_aside keeps its text."""
         row = self.db.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
         if not row:
             return None
@@ -108,8 +106,7 @@ class Store:
         return self.db.execute("SELECT 1 FROM kv WHERE key=?", (key,)).fetchone() is not None
 
     def kv_set_aside(self, key: str) -> str:
-        """Copy the row's text to `<key>.unreadable` and return that key. The next save overwrites a row this
-        console cannot read, and a newer console may have written it, so the copy is never deleted."""
+        # Kept for good: a newer console may have written the row, and the next save here overwrites it.
         aside = f"{key}.unreadable"
         self.db.execute("INSERT OR REPLACE INTO kv SELECT ?, value FROM kv WHERE key=?", (aside, key))
         return aside

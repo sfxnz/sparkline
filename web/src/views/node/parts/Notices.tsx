@@ -32,7 +32,6 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
   return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 };
 
-/** The GPUs that answered in the latest sample, as a key ("0,2"). */
 export const selectReporting = (s: Sample | null) => (s ? answeredIndexes(s).join(',') : '');
 
 const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
@@ -41,7 +40,6 @@ const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
 interface GpuSilence {
   index: number;
   quiet: boolean;
-  /** Whole seconds it has sent nothing (gpuSilentForOf). */
   seconds: number;
 }
 const sameSilence = (a: GpuSilence[], b: GpuSilence[]) =>
@@ -49,8 +47,7 @@ const sameSilence = (a: GpuSilence[], b: GpuSilence[]) =>
 
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
  *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. A GPU
- *  failure is one note per backend whose GPUs went silent, naming them: at once when the backend reports an error,
- *  once they are quiet when it does not. */
+ *  failure is one note per backend whose GPUs went silent, naming them. */
 export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?: readonly string[]; link?: boolean }) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const errors = useLatest(nodeId, selectErrors, sameErrors);

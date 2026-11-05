@@ -225,8 +225,6 @@ describe('GPU energy on a four-GPU workstation while GPU 2 sends nothing', () =>
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
-  /** Today's history holds 0.1 kWh on each GPU's counter. Live, GPU 2 sends `readings` of its counter, one a tick,
-   *  then nothing for `silent` ticks while GPUs 0, 1 and 3 keep reporting. Returns the time of GPU 2's last reading. */
   const show = (readings: readonly number[], silent: number) => {
     const now = Date.now() / 1000;
     const series = Object.fromEntries(reading.gpu.map((g) => [`gpu${String(g.index)}.energy_j`, [(g.energy_j ?? 0) - 360_000, g.energy_j]]));

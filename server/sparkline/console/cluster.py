@@ -60,7 +60,6 @@ def _saved_rule_metrics(store: Store, row: dict[str, object] | None) -> dict[str
 
 
 def _saved_settings(row: object) -> ConsoleSettings | None:
-    """None for an empty row: nothing was saved, so the configured settings apply."""
     return ConsoleSettings.model_validate(row) if row != {} else None
 
 

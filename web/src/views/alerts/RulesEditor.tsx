@@ -60,7 +60,6 @@ export function RulesEditor() {
   const changed = drafts.map((d) => draftChanged(d, savedById.get(d.rule.id)));
   const dirty = changed.some(Boolean) || drafts.length !== saved.length;
   const invalid = errors.some(hasErrors);
-  // After a reset, saving the rules unedited is how the user keeps them.
   const savable = dirty || (load.status === 'ready' && load.reset);
 
   // Leaving the page with unsaved edits asks first (browser close / reload).

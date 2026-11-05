@@ -99,12 +99,9 @@ const silentCondition = (index: number): GpuCondition => ({
   index, level: 'warning', text: 'has a GPU not responding', what: NOT_RESPONDING, reading: NOT_RESPONDING, clause: { one: 'not responding', many: 'not responding' }, field: null,
 });
 
-/** How long a GPU sends nothing before it is quiet: as long as the console takes to call a whole node not reporting. */
 export const quietAfterS = (info: NodeInfo | null | undefined, staleAfterS: number | undefined) =>
   Math.max(staleAfterS ?? 5, (2 * (info?.sample_interval_ms ?? 1000)) / 1000 + 1);
 
-/** The GPUs the node lists, not lost, that have sent no reading for quietAfterS. `silentFor` is LiveStore.gpuSilentFor
- *  for the node. */
 export function quietGpus(info: NodeInfo | null | undefined, staleAfterS: number | undefined, silentFor: (index: number, gapS: number) => number | null): number[] {
   const afterS = quietAfterS(info, staleAfterS);
   return (info?.gpus ?? []).filter((g) => !lostGpu(info, g.index) && (silentFor(g.index, afterS) ?? 0) >= afterS).map((g) => g.index);

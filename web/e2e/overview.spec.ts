@@ -84,8 +84,6 @@ interface GpuReading { index: number; temp_c?: number | null }
 
 interface StubNode { id: string; platform: 'gb10' | 'workstation'; gpus?: (g: GpuReading) => GpuReading | null; gaps?: unknown[]; errors?: Record<string, string> }
 
-/** A stubbed console with one online node per entry, each sending its recorded platform sample once; `gpus` returning
- *  null drops that GPU from the sample. */
 async function stubbed(page: Page, nodes: StubNode[]) {
   const now = Date.now() / 1000;
   const infoOf = (n: StubNode) => {
@@ -265,7 +263,6 @@ test('a healthy GB10 card keeps its plain headroom line beside its temperature a
   }
 });
 
-/** Each wrapped line of an element: [left of its first line, left of each later line], in px, plus 1em in px. */
 const lineStarts = (el: Element) => [...el.querySelectorAll('.unsupported__line')].map((line) => {
   const range = document.createRange();
   range.selectNodeContents(line);

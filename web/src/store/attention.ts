@@ -20,7 +20,6 @@ const staleAfterS = () => useCluster.getState().cluster?.settings.stale_after_s;
 export const quietGpusOf = (id: string, info: NodeInfo | null | undefined) =>
   quietGpus(info, staleAfterS(), (index, gapS) => liveStore.gpuSilentFor(id, index, gapS));
 
-/** Seconds GPU `index` of node `id` has sent nothing, counted as quietGpusOf counts it but past its threshold. */
 export const gpuSilentForOf = (id: string, info: NodeInfo | null | undefined, index: number) =>
   liveStore.gpuSilentFor(id, index, quietAfterS(info, staleAfterS()), Infinity);
 

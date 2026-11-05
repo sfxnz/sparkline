@@ -21,13 +21,8 @@ export class NodeBuffer {
   length = 0;
   latest: Sample | null = null;
   largestTick = 0;
-  /** Bumped by every live sample and seed, from one counter for all nodes, so a node removed and added again never
-   *  repeats a revision. */
   revision = 0;
-  /** The node left online and has sent no live sample since (LiveStore.endRun). */
   runEnded = false;
-  /** Ts of the last live sample each GPU index answered in (answeredIndexes). Its rings alone cannot tell: some
-   *  readings that answer (pstate, the graphics and video clocks) have no ring. */
   readonly gpuSeen = new Map<number, number>();
 
   constructor(readonly capacity: number) {
@@ -164,8 +159,6 @@ export class LiveStore {
     this.markDirty(resp.node_id, keys);
   }
 
-  /** The node's status left online. Until its next live sample, its GPUs' silence is unknown, so a node coming back is
-   *  not flagged on the samples from before it left. */
   endRun(node: string): void {
     const b = this.nodes.get(node);
     if (!b || b.runEnded) return;
@@ -182,15 +175,10 @@ export class LiveStore {
     return this.nodes.get(node)?.latest ?? null;
   }
 
-  /** Changes whenever the node's samples or history change; 0 for a node the store does not hold. */
   revision(node: string): number {
     return this.nodes.get(node)?.revision ?? 0;
   }
 
-  /** Seconds GPU `index` has sent nothing, up to the latest live sample: since its last fresh reading (live or seeded;
-   *  HELD_READINGS do not count) or the last live sample it answered in. A gap of `gapS` or more between ticks starts
-   *  the count again. The walk stops once the silence reaches `atMost`. Null before any live sample, and from endRun to
-   *  the next one. */
   gpuSilentFor(node: string, index: number, gapS = Infinity, atMost = gapS): number | null {
     const b = this.nodes.get(node);
     if (!b?.latest || b.runEnded) return null;
@@ -316,7 +304,7 @@ export const liveStore = new LiveStore();
 /**
  * Subscribe a component to a derived value of a node's latest Sample. The component re-renders only when
  * `isEqual(previous, next)` is false, so a Stat showing GPU temperature ignores ticks where the temperature
- * did not change. The selector runs again after a seed too, since a selector may read the node's history.
+ * did not change.
  */
 export function useLatest<T>(
   node: string,

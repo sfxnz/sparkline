@@ -91,15 +91,11 @@ export function sumCounters(resp: Parameters<typeof historyPlusLive>[0], keys: r
   return sum;
 }
 
-/** A quiet GPU in an energy total, which counts it only until its counter last moved: `at` (epoch s), or null when
- *  the readings on hand never show the counter move. */
 export interface GpuStop {
   index: number;
   at: number | null;
 }
 
-/** When a counter last moved: the time of the first reading of the value it holds now. A silent GPU's counter sends
- *  nothing after its last reading, or repeats it. Null when no reading shows the counter move. */
 export function lastMove(ts: readonly number[], values: readonly (number | null)[]): number | null {
   let held: number | null = null;
   let since: number | null = null;
@@ -113,7 +109,6 @@ export function lastMove(ts: readonly number[], values: readonly (number | null)
   return null;
 }
 
-/** The `quiet` GPUs of `node`, each with when its energy counter last moved in the store. */
 export function gpuStops(store: Pick<LiveStore, 'window'>, node: string, quiet: readonly number[]): GpuStop[] {
   return quiet.map((index) => {
     const w = store.window(node, [gpuKey(index, 'energy_j')]);
@@ -124,13 +119,10 @@ export function gpuStops(store: Pick<LiveStore, 'window'>, node: string, quiet: 
 export const sameStops = (a: readonly GpuStop[], b: readonly GpuStop[]) =>
   a.length === b.length && a.every((s, i) => s.index === b[i]?.index && s.at === b[i].at);
 
-/** "16:13": the local time of a reading. */
 export const formatHm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
-/** "until 16:13", or "until its last reading" when the time is unknown ("their last readings" for `many`). */
 export const untilText = (at: number | null, many = false) => `until ${at === null ? (many ? 'their last readings' : 'its last reading') : formatHm(at)}`;
 
-/** "GPU 2 until 16:13", "GPUs 1 and 2 until 16:13", "GPU 1 until 09:05 and GPU 2 until its last reading". */
 export function stopsText(stops: readonly GpuStop[]): string {
   const byMinute = new Map<string, GpuStop[]>();
   for (const s of stops) {

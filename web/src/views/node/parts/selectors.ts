@@ -16,7 +16,6 @@ export function gpuSelector(index: number, reading: GpuReading): Select<number |
   return sel;
 }
 
-/** Whether the GPU with this index answered in the latest sample (answeredGpu); null before the first sample. */
 export function gpuAnswered(index: number): Select<boolean | null> {
   let sel = answers.get(index);
   if (!sel) answers.set(index, (sel = (s) => (s ? answeredGpu(s, index) !== undefined : null)));

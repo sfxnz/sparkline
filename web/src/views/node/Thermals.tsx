@@ -111,8 +111,6 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
   );
 }
 
-/** Why the node has no GPU energy figure: a GPU has no energy counter (a partial sum would understate), or no GPU the
- *  node lists answers, said as the GPU temperature beside it says it. */
 function gpuEnergyGap(info: NodeInfo | null | undefined, s: Sample | null): NotReported | null {
   const [only = 0, ...more] = gpuIndexes(info);
   return gpuSetGap(info, 'energy_j', 'every') ?? (more.length ? everyGpuSilent(info, s) : notResponding(info, s, only));
