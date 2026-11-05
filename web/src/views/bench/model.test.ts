@@ -670,6 +670,12 @@ describe('run estimate', () => {
     const states = { spark1: st('spark1', { est_duration_s: 120 }), ws1: st('ws1', { est_duration_s: null }) };
     expect(runEstimate(run({ id: 'd', status: 'running', nodes: ['spark1', 'ws1'], node_states: states }), MATMUL)).toBeNull();
   });
+  it('is unknown from the start on a node the catalog gives no estimate for, and kept on the others', () => {
+    const spec = { ...WS_MATMUL, no_estimate: ['ws1'] };
+    expect(runEstimate(run({ id: 'e', status: 'queued', nodes: ['ws1'], started_ts: null, finished_ts: null, progress: 0 }), spec)).toBeNull();
+    expect(runEstimate(run({ id: 'f', status: 'queued', nodes: ['spark1', 'ws1'], started_ts: null, finished_ts: null, progress: 0 }), spec)).toBeNull();
+    expect(runEstimate(run({ id: 'g', status: 'queued', nodes: ['spark1'], started_ts: null, finished_ts: null, progress: 0 }), spec)).toBe(90);
+  });
 });
 
 describe('competition on a node with a choice of GPU', () => {

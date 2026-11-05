@@ -10,7 +10,7 @@ import { useBench } from '../../store/bench';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
 import { ConfigureDialog } from './ConfigureDialog';
-import { MAC_GPU, MATMUL, SOAK, WS1, WS_MATMUL, WS_MEMBW, run, wsGpuOptions } from './fixtures';
+import { LLM, MAC_GPU, MATMUL, SOAK, WS1, WS_MATMUL, WS_MEMBW, run, wsGpuOptions } from './fixtures';
 import { Home } from './Home';
 import { Availability } from './parts';
 import type { ChartSeries } from './RunChart';
@@ -139,6 +139,44 @@ describe('choosing the GPU on a multi-GPU node', () => {
     expect(baseElement.textContent).not.toMatch(GPU_NUMBER);
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
     expect(onRun).toHaveBeenCalledWith(['spark1'], MATMUL_DEFAULTS, {});
+  });
+});
+
+describe('the duration estimate of a benchmark timed on DGX Spark rates', () => {
+  const footer = () => screen.getByText('Estimated').textContent.replace(/\s+/g, ' ');
+  const fact = () => screen.getByText('Estimated duration').parentElement as HTMLElement;
+  const WHY = 'Sparkline estimates this from DGX Spark rates, and ws1 is not a DGX Spark.';
+
+  it('is shown as unknown on ws1, in the footer and the review, with why', () => {
+    for (const spec of [{ ...LLM, availability: { spark1: null, ws1: null }, no_estimate: ['ws1'] }, { ...WS_MATMUL, no_estimate: ['ws1'] }]) {
+      cluster([{ info: GB10, sample: GB10_SAMPLE }, { info: WS1, sample: wsWith({}) }]);
+      const { unmount } = render(<ConfigureDialog spec={spec} open onClose={noop} onRun={noop} initialNodes={['ws1']} />);
+      expect(footer()).toBe('Estimated —');
+      expect(screen.getByText('ws1 is not a DGX Spark')).toBeInTheDocument();
+      review();
+      expect(within(fact()).getByText('—')).toBeInTheDocument();
+      expect(within(fact()).getByText(WHY)).toBeInTheDocument();
+      expect(screen.queryByText(/≈/)).toBeNull();
+      unmount();
+    }
+  });
+
+  it('is unknown for a run on spark1 and ws1 together, naming ws1 only', () => {
+    cluster([{ info: GB10, sample: GB10_SAMPLE }, { info: WS1, sample: wsWith({}) }]);
+    render(<ConfigureDialog spec={{ ...WS_MATMUL, no_estimate: ['ws1'] }} open onClose={noop} onRun={noop} initialNodes={['spark1', 'ws1']} />);
+    expect(footer()).toBe('Estimated —');
+    review();
+    expect(within(fact()).getByText(WHY)).toBeInTheDocument();
+  });
+
+  it('keeps its estimate on a DGX Spark', () => {
+    cluster([{ info: GB10, sample: GB10_SAMPLE }, { info: WS1, sample: wsWith({}) }]);
+    render(<ConfigureDialog spec={{ ...WS_MATMUL, no_estimate: ['ws1'] }} open onClose={noop} onRun={noop} initialNodes={['spark1']} />);
+    expect(footer()).toBe('Estimated ≈ 2 min');
+    expect(screen.queryByText(/DGX Spark/)).toBeNull();
+    review();
+    expect(within(fact()).getByText('≈ 2 min')).toBeInTheDocument();
+    expect(screen.queryByText(/DGX Spark/)).toBeNull();
   });
 });
 
