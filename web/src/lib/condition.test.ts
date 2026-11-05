@@ -10,7 +10,7 @@ import wsInfo from '../test/fixtures/platforms/workstation/info.json';
 import wsSample from '../test/fixtures/platforms/workstation/sample.json';
 import Thermals from '../views/node/Thermals';
 import { NodeCard } from '../views/overview/NodeCard';
-import { gpuConditions, nodeCondition, tempRoom } from './condition';
+import { gpuConditions, nodeCondition, quietGpus, tempRoom } from './condition';
 import type { GpuSample, NodeInfo, NodeState, Sample } from './types';
 import { gpuAt } from './gpu';
 
@@ -176,5 +176,35 @@ describe('one GPU temperature rule on every surface (slowdown 86 °C, shutdown 9
       header: toneOf(header, 'nlevel-crit', 'nlevel-warn'),
       row: toneOf(row, 'tone-crit', 'tone-warn'),
     }).toEqual({ card: level, pill: level, header: level, row: level });
+  });
+});
+
+describe('quietGpus: the GPUs a node lists that have sent nothing as long as the console takes to call a node not reporting', () => {
+  const silent = (seconds: Record<number, number>) => (index: number) => seconds[index] ?? 0;
+
+  it('counts a GPU silent for stale_after_s, never one silent a moment less, and never a lost GPU', () => {
+    const lost1 = { ...ws1, unsupported: [{ metric: 'gpu1', reason: 'NVML could not open GPU 1 (NVML: GPU is lost)', kind: 'hardware' }] } as NodeInfo;
+    expect(quietGpus(lost1, 5, silent({ 0: 5, 1: 60, 2: 4.9, 3: 0 }))).toEqual([0]);
+  });
+
+  it('waits two sample intervals and a second when that is longer, and 5 s without the console settings', () => {
+    expect(quietGpus({ ...ws1, sample_interval_ms: 5000 }, 5, silent({ 0: 10.9, 1: 11 }))).toEqual([1]);
+    expect(quietGpus(ws1, undefined, silent({ 0: 4.9, 1: 5 }))).toEqual([1]);
+  });
+
+  it('counts nothing before the browser holds a live sample of the node', () => {
+    expect(quietGpus(ws1, 5, () => null)).toEqual([]);
+  });
+
+  it('says quiet GPUs are not responding, grouped as lost ones are, and a GPU at slowdown still outranks them', () => {
+    const failed: Sample = { ...wsReading, gpu: [], errors: { ...wsReading.errors, gpu: 'nvml: Unknown Error' } };
+    expect(nodeCondition(ws1, failed, [0, 1, 2, 3])).toEqual({ level: 'warning', text: 'has GPUs 0, 1, 2 and 3 not responding' });
+    const hot3 = withGpus({ 3: { temp_c: 94 } });
+    expect(nodeCondition(ws1, { ...hot3, gpu: hot3.gpu.filter((g) => g.index !== 0) }, [0])).toEqual({ level: 'critical', text: 'has GPU 3 at its slowdown temperature' });
+  });
+
+  it('says a one-GPU node has a GPU not responding', () => {
+    const gb10 = { gpus: [{ index: 0, temp_slowdown_c: 86 }], unsupported: [] } as unknown as NodeInfo;
+    expect(nodeCondition(gb10, { gpu: [], errors: { gpu: 'nvml: Unknown Error' } } as unknown as Sample, [0])).toEqual({ level: 'warning', text: 'has a GPU not responding' });
   });
 });

@@ -255,3 +255,35 @@ describe('useLatest', () => {
     expect(getByTestId('t').textContent).toBe('75');
   });
 });
+
+describe('LiveStore GPU silence', () => {
+  const without = (ts: number): Sample => ({ ...mk(ts), gpu: [] });
+
+  it("counts the seconds since a GPU was last in a live sample, up to the latest one", () => {
+    const { store } = manual(8);
+    store.pushSample(mk(1));
+    for (let t = 2; t <= 6; t++) store.pushSample(without(t));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(5);
+    store.pushSample(mk(7));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(0);
+  });
+
+  it('counts a GPU no live sample has held from the first live sample, never from seeded history', () => {
+    const { store } = manual(8);
+    store.seed({ node_id: 'spark1', resolution_s: 1, ts: [1, 2, 3], series: { 'gpu0.util': [10, 20, 30] }, min: {}, max: {} });
+    expect(store.gpuSilentFor('spark1', 0)).toBeNull();
+    for (let t = 10; t <= 13; t++) store.pushSample(without(t));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(3);
+    expect(store.gpuSilentFor('spark1', 7)).toBe(3);
+  });
+
+  it('knows nothing of a node with no live sample, and forgets a removed node', () => {
+    const { store } = manual(8);
+    expect(store.gpuSilentFor('spark1', 0)).toBeNull();
+    store.pushSample(mk(1));
+    store.pushSample(without(9));
+    store.removeNode('spark1');
+    store.pushSample(without(20));
+    expect(store.gpuSilentFor('spark1', 0)).toBe(0);
+  });
+});

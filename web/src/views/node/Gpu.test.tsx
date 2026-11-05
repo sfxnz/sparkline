@@ -481,3 +481,32 @@ describe('GPU notice on a one-GPU node whose backend fails a tick', () => {
     expect(screen.getByRole('list', { name: 'Metrics unavailable' })).toHaveTextContent(/^GPU metrics unavailable: amdgpu-sysfs: RuntimeError: partial read\. Other panels are unaffected\.$/);
   });
 });
+
+describe('GPU needs attention while NVML fails on a node with two vendors', () => {
+  const all = { ...base, gpu: [reading(0, 91, 71, 32.4), reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: {} };
+  const nvmlFails = { ...base, gpu: [reading(1, 37, 61, 140), reading(2, 57, 64, 240)], errors: { gpu: `nvml: ${NV_ERROR}` } };
+  const showTicks = (samples: Sample[]) => {
+    liveStore.removeNode(NODE);
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { node_id: NODE, url: 'http://x:9750', status: 'online', since: 0, last_sample_ts: TS, error: null, info: hybrid, next_retry_ts: null } } });
+    act(() => {
+      samples.forEach((s, i) => { liveStore.pushSample({ ...s, node_id: NODE, ts: TS + i }); });
+      liveStore.flush();
+    });
+    render(
+      <Router hook={memoryLocation({ path: '/' }).hook}>
+        <Gpu nodeId={NODE} />
+      </Router>,
+    );
+  };
+  const attention = () => screen.queryByRole('list', { name: 'GPU needs attention' });
+
+  it('lists GPU 0 as not responding once NVML has failed for 5 s, as the status pill says', () => {
+    showTicks([all, nvmlFails, nvmlFails, nvmlFails, nvmlFails, nvmlFails]);
+    expect(within(attention() as HTMLElement).getAllByRole('button').map((r) => r.textContent)).toEqual(['Warning: GPU 0Not responding']);
+  });
+
+  it('lists nothing after one tick NVML failed', () => {
+    showTicks([all, nvmlFails]);
+    expect(attention()).toBeNull();
+  });
+});

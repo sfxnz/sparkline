@@ -590,4 +590,29 @@ describe('the pill and the cluster sentence while GPUs send nothing', () => {
     expect(screen.getByRole('heading', { name: 'spark1 is online · 1 critical alert' })).toBeInTheDocument();
     expect(heroPill()).toHaveAttribute('data-status', 'critical');
   });
+
+  const nvmlFails = (s: Sample): Sample => ({ ...s, gpu: [], errors: { ...s.errors, gpu: 'nvml: Unknown Error' } });
+  const failingFor = (seconds: number, s: Sample) => [s, ...Array.from({ length: seconds }, () => nvmlFails(s))];
+
+  it.each([
+    ['for 5 s after its last reading', failingFor(5, gb10Reading)],
+    ['on all 6 samples this browser received', Array.from({ length: 6 }, () => nvmlFails(gb10Reading))],
+  ])('says a GB10 whose NVML failed every tick %s has a GPU not responding', (_, samples) => {
+    show(gb10, samples);
+    expect(screen.getByRole('heading', { name: 'spark1 has a GPU not responding' })).toBeInTheDocument();
+    expect(heroPill()).toHaveTextContent('Needs attention');
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'warning');
+  });
+
+  it('keeps a GB10 healthy after one tick its NVML failed', () => {
+    show(gb10, failingFor(1, gb10Reading));
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'healthy');
+  });
+
+  it('names all four GPUs of ws1 once its NVML has failed for 5 s', () => {
+    show(ws1, failingFor(5, wsReading));
+    expect(screen.getByRole('heading', { name: 'ws1 has GPUs 0, 1, 2 and 3 not responding' })).toBeInTheDocument();
+    expect(cardPill('ws1')).toHaveAttribute('data-status', 'warning');
+  });
 });
