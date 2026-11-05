@@ -2,6 +2,7 @@
 // component re-renders only when its own value changes, never on every tick.
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { api } from '../../../lib/api';
+import { dataOf } from '../../../lib/loadable';
 import type { TimeRange } from '../../../lib/prefs';
 import type { AlertRule, NodeInfo } from '../../../lib/types';
 import { serverNow, useCluster } from '../../../store/cluster';
@@ -70,8 +71,9 @@ export function useCounterTotals(node: string, keys: readonly string[], range: T
     const [oldest, ...totals] = live.split('|').map(Number);
     return { totals, oldest: oldest ?? null };
   }
-  if (hist.state !== 'ready') return { totals: keys.map(() => null), oldest: null };
-  return { totals: keys.map((k) => { const v = hist.data.series[k]; return v ? counterTotal(v) : null; }), oldest: hist.data.ts[0] ?? null };
+  const data = dataOf(hist);
+  if (!data) return { totals: keys.map(() => null), oldest: null };
+  return { totals: keys.map((k) => { const v = data.series[k]; return v ? counterTotal(v) : null; }), oldest: data.ts[0] ?? null };
 }
 
 // ---------------------------------------------------------------- alert rules (read-only, shared)

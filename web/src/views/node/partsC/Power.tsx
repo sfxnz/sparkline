@@ -8,6 +8,7 @@ import { Tooltip } from '../../../design/components/Tooltip';
 import { NoData, Unsupported } from '../../../design/components/Unsupported';
 import { notReported, type NotReported } from '../../../lib/capabilities';
 import { DASH, formatWatts, wattsParts } from '../../../lib/format';
+import { dataOf, mapLoadable, type Loadable } from '../../../lib/loadable';
 import type { TimeRange } from '../../../lib/prefs';
 import type { NodeInfo } from '../../../lib/types';
 import { paths } from '../../../app/routes';
@@ -17,7 +18,7 @@ import { liveStore, type LiveStore } from '../../../store/live';
 import { counterDelta, energyKeys, formatEnergyAuto, formatEnergyCost, formatKwh, gpuStops, historyEnergy, sameStops, stopsText, type GpuStop } from '../../shared/energy';
 import { useNodeGpuGap } from '../parts/useGpuGap';
 import { powerStats } from './energy';
-import { useRangeHistory, type Loadable } from '../../shared/live';
+import { useRangeHistory } from '../../shared/live';
 import { useLiveDerived, useSpanEnergy } from './hooks';
 import { RANGE_SHORT } from './SensorGroup';
 import { gpuSetGap, nodeGpuKey, powerLimit } from '../../../lib/gpu';
@@ -51,10 +52,10 @@ export function PowerPanel({ nodeId, info, range, stale, updatedAt, store = live
     store,
   );
   const hist = useRangeHistory(nodeId, keys, live ? null : range);
-  const histStats = useMemo(
-    () => (hist.state === 'ready' ? powerStats(hist.data.series[key] ?? [], hist.data.max[key]) : null),
-    [hist, key],
-  );
+  const histStats = useMemo(() => {
+    const data = dataOf(hist);
+    return data ? powerStats(data.series[key] ?? [], data.max[key]) : null;
+  }, [hist, key]);
   const stats = live ? liveStats : histStats;
   const span = RANGE_SHORT[range];
   const limit = powerLimit(info);
@@ -112,9 +113,7 @@ export function EnergyPanel({ nodeId, info, range, stale, store = liveStore }: O
   const rangeHist = useRangeHistory(nodeId, keys, live ? null : range);
   const rangeJ: Loadable<number | null> = live
     ? { state: 'ready', data: liveJ }
-    : rangeHist.state === 'ready'
-      ? { state: 'ready', data: sumOf(keys.map((k) => historyEnergy(rangeHist.data.series[k], rangeHist.data.min[k]))) }
-      : rangeHist;
+    : mapLoadable(rangeHist, (d) => sumOf(keys.map((k) => historyEnergy(d.series[k], d.min[k]))));
   const todayJ = useSpanEnergy(nodeId, keys, 'today', store);
   const weekJ = useSpanEnergy(nodeId, keys, '7d', store);
   const stops = useGpuStops(nodeId, info, store);
@@ -176,7 +175,7 @@ function EnergyRow({ label, value, rate, currency, kwh }: { label: string; value
             <Skeleton width={44} height={14} />
           </>
         ) : value.state === 'error' ? (
-          <Tooltip content={`History unavailable: ${value.message}`}>
+          <Tooltip content={`History unavailable: ${value.error instanceof Error ? value.error.message : String(value.error)}`}>
             <button type="button" className="tp-energy__err">{DASH}<span className="visually-hidden"> History unavailable</span></button>
           </Tooltip>
         ) : (

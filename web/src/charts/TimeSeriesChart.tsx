@@ -10,11 +10,13 @@ import 'uplot/dist/uPlot.min.css';
 import { Button, IconButton } from '../design/components/Button';
 import { HistoryUnavailable } from './HistoryUnavailable';
 import { NoDataInRange } from './NoDataInRange';
+import { RefreshFailed } from './RefreshFailed';
 import { Skeleton } from '../design/components/Skeleton';
 import { Unsupported } from '../design/components/Unsupported';
 import { useNow } from '../design/useNow';
 import { notReported, type NotReported } from '../lib/capabilities';
 import { formatAgo } from '../lib/format';
+import { dataOf, useLoadable } from '../lib/loadable';
 import type { TimeRange } from '../lib/prefs';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
@@ -86,7 +88,7 @@ type Props = BaseProps &
       }
   );
 
-type LoadState = 'loading' | 'ready' | 'empty' | 'error';
+type Plotted = 'points' | 'empty';
 
 export const LIVE_WINDOW_S = 180;
 const SYNC_KEY = 'spark';
@@ -189,9 +191,8 @@ export function TimeSeriesChart({
   const formatRef = useRef(format);
   const pausedRef = useRef(false);
   const [paused, setPaused] = useState(false);
-  // Load state is tagged with the data identity it belongs to; anything else reads as 'loading'.
-  const [loadTagged, setLoadTagged] = useState<{ id: string; state: LoadState }>({ id: '', state: 'loading' });
-  const [error, setError] = useState<unknown>(null);
+  /** The data identity dataRef holds, so a rebuilt plot (theme, size) keeps its history if the refetch fails. */
+  const dataIdRef = useRef('');
   const [summary, setSummary] = useState(title);
   const [showTable, setShowTable] = useState(false);
   const [tableData, setTableData] = useState<{ ts: number[]; values: (number | null)[][] } | null>(null);
@@ -205,7 +206,7 @@ export function TimeSeriesChart({
   const keysId = JSON.stringify(series.map((s) => s.key));
   const keys = useMemo(() => JSON.parse(keysId) as string[], [keysId]);
   const dataId = `${node}|${keysId}|${range}|${reloadKey}`;
-  const load = loadTagged.id === dataId ? loadTagged.state : 'loading';
+  const [load, updateLoad] = useLoadable<Plotted>(dataId);
   const labelsId = JSON.stringify(series.map((s) => s.label));
   const labels = useMemo(() => JSON.parse(labelsId) as string[], [labelsId]);
   const seriesGpuId = JSON.stringify(series.map((s) => s.gpu ?? null));
@@ -290,8 +291,9 @@ export function TimeSeriesChart({
       return (gpu == null ? theme.series[i % theme.series.length] : theme.gpuColors[gpu]) ?? theme.axis;
     };
     const k = theme.fontPx / 11; // axis room grows with the user's font size
-    // Same tag and state => same object, so React skips the render: only transitions re-render, not every sample.
-    const setLoad = (state: LoadState) => { setLoadTagged((prev) => (prev.id === dataId && prev.state === state ? prev : { id: dataId, state })); };
+    const setLoad = (state: 'loading' | Plotted) => { updateLoad(state === 'loading' ? state : { data: state }); };
+    const sameData = dataIdRef.current === dataId;
+    dataIdRef.current = dataId;
     const thresholdList: Threshold[] = JSON.parse(thresholdsId) as Threshold[];
     const layers = layersId ? (JSON.parse(layersId) as StackLayer[]) : null;
     const stacked = layers && stackedSeries(layers, el, theme.surface);
@@ -459,7 +461,7 @@ export function TimeSeriesChart({
       let timer = 0;
       let visible = true;
       let lastSummary = 0;
-      let state: LoadState = 'loading';
+      let state: 'loading' | Plotted = 'loading';
       const pull = () => {
         const raw = store.window(node, keys, serverNow() - liveWindowS - 5);
         const w = insertGaps(raw.ts, raw.values, (store.latest(node)?.interval_ms ?? 1000) / 1000, 3);
@@ -467,7 +469,7 @@ export function TimeSeriesChart({
         // Nothing buffered for an online node yet (the bootstrap or first sample is on its way) is loading, not
         // empty: "No data in this range" only when the node has data but not for these keys, or is not online.
         const online = useCluster.getState().nodes[node]?.status === 'online';
-        state = anyValue(w.values) ? 'ready' : store.lastTs(node) !== null || !online ? 'empty' : 'loading';
+        state = anyValue(w.values) ? 'points' : store.lastTs(node) !== null || !online ? 'empty' : 'loading';
         setLoad(state);
         return state;
       };
@@ -525,7 +527,7 @@ export function TimeSeriesChart({
         dirty = true;
         // Offscreen charts do not draw, but their overlay and summary must not keep saying "no data" once data
         // has arrived: a cheap pull settles the state, and the plot draws on intersect.
-        if (!visible && state !== 'ready' && pull() === 'ready') updateSummary();
+        if (!visible && state !== 'points' && pull() === 'points') updateSummary();
         wake();
       });
       pull();
@@ -554,17 +556,14 @@ export function TimeSeriesChart({
             if (!pausedRef.current) resetView();
             paintLegend(null);
             updateSummary();
-            setLoad(anyValue(w.values) ? 'ready' : 'empty');
-            setError(null);
+            setLoad(anyValue(w.values) ? 'points' : 'empty');
           })
-          .catch((e: unknown) => {
-            if (cancelled) return;
-            setError(e);
-            setLoad('error');
+          .catch((error: unknown) => {
+            if (!cancelled) updateLoad({ error });
           });
       };
       // The summary names the new range at once (no longer "last 3 minutes" while the history loads).
-      dataRef.current = [[]];
+      if (!sameData) dataRef.current = [[]];
       updateSummary();
       fetchOnce();
       const stop = joinHistoryRefresh(range, fetchOnce);
@@ -581,7 +580,7 @@ export function TimeSeriesChart({
       uRef.current = null;
       if (yGroup) yGroups.get(yGroup)?.delete(yToken);
     };
-  }, [node, keys, labels, seriesGpu, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateSummary, snapshotTable, paintLegend]);
+  }, [node, keys, labels, seriesGpu, range, live, liveWindowS, height, yMin, yMax, yIncrs, yGroup, thresholdsId, layersId, themeVersion, isUnsupported, store, reloadKey, dataId, updateLoad, updateSummary, snapshotTable, paintLegend]);
 
   const swatches = stack
     ? series.map((s) => `tschart__swatch--area ${s.className}${s.hatched ? ' tschart__swatch--hatched' : ''}`)
@@ -619,8 +618,9 @@ export function TimeSeriesChart({
     );
   }
 
-  const waiting = load === 'loading' || (live && load === 'empty' && (connStatus !== 'live' || nodeStatus === 'connecting' || !nodeStatus));
-  const overlay = waiting ? 'loading' : load === 'empty' ? 'empty' : load === 'error' ? 'error' : null;
+  const plottedNow = dataOf(load);
+  const waiting = load.state === 'loading' || (live && plottedNow === 'empty' && (connStatus !== 'live' || nodeStatus === 'connecting' || !nodeStatus));
+  const overlay = waiting ? 'loading' : plottedNow === 'empty' ? 'empty' : load.state === 'error' ? 'error' : null;
 
   return (
     <figure className={`tschart${nodeStale && live ? ' tschart--stale' : ''}`}>
@@ -631,6 +631,7 @@ export function TimeSeriesChart({
               wraps the legend onto a second line. */}
           <span className="tschart__legend-time num" aria-hidden="true"><span ref={legendTimeRef} /></span>
           {nodeStale && live ? <StaleBadge node={node} store={store} /> : null}
+          {load.state === 'refresh-failed' ? <RefreshFailed error={load.error} /> : null}
           {paused ? (
             <Button size="sm" variant="secondary" icon={<Undo2 />} onClick={() => { resetRef.current(); }} className="tschart__chip">
               {live ? 'Back to live' : 'Reset zoom'}
@@ -662,9 +663,9 @@ export function TimeSeriesChart({
           <div className="tschart__overlay">
             <NoDataInRange node={node} offerLive={rangeProp === undefined} />
           </div>
-        ) : overlay === 'error' ? (
+        ) : load.state === 'error' ? (
           <div className="tschart__overlay">
-            <HistoryUnavailable node={node} error={error} offerLive={rangeProp === undefined} onRetry={() => { historyCache.clear(); setReloadKey((k) => k + 1); }} />
+            <HistoryUnavailable node={node} error={load.error} offerLive={rangeProp === undefined} onRetry={() => { historyCache.clear(); setReloadKey((k) => k + 1); }} />
           </div>
         ) : null}
       </div>
