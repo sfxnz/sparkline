@@ -56,7 +56,7 @@ class Recording:
 class User:
     name: str
     home: str
-    full_name: str = ""
+    gecos: str = ""
 
 
 @dataclass(frozen=True)
@@ -738,9 +738,17 @@ def _idna_forms(value: str) -> list[str]:
 
 
 def _full_name_spellings(user: User) -> list[str]:
-    parts = user.full_name.split()
-    whole = [user.full_name.strip()] if len(parts) > 1 else []
-    return whole + [p for p in parts if len(p) >= NAME_PART and p.lower() != user.name.lower()]
+    full_name = user.gecos.split(",")[0].strip()
+    whole = [full_name] if len(full_name.split()) > 1 else []
+    parts = [
+        p for p in re.split(r"[\s,@-]+", user.gecos) if len(p) >= NAME_PART and re.search(r"[^\W\d_]", p)
+    ]
+    names = [n for n in whole + parts if n.lower() != user.name.lower()]
+    return names + [a for n in names if (a := _ascii(n)) != n and len(a) >= NAME_PART]
+
+
+def _ascii(text: str) -> str:
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
 
 
 def _harvest(rec: Recording, facts: Facts, ph: Placeholders) -> list[Spelling]:
