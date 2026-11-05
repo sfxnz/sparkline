@@ -36,8 +36,8 @@ const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
   name === 'gpu' ? gpuCollectorDown(info) : notReported(info, COLLECTORS[name]?.metric ?? name) !== null;
 
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
- *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. While
- *  some GPUs still report, a GPU failure is one note per backend that went silent, naming its GPUs. */
+ *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. A GPU
+ *  failure is one note per backend whose GPUs went silent, naming them. */
 export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?: readonly string[]; link?: boolean }) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const errors = useLatest(nodeId, selectErrors, sameErrors);
@@ -45,7 +45,7 @@ export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?:
   const entries = Object.entries(errors).filter(([k]) => (!only || only.includes(k)) && !collectorDown(info, k));
   if (!entries.length) return null;
   const reporting = reportingKey ? reportingGpus(info, reportingKey.split(',').map(Number)) : [];
-  const silent = reporting.length ? silentBackends(info, errors.gpu, reporting) : [];
+  const silent = silentBackends(info, errors.gpu, reporting);
   return (
     <ul className="nnotes" aria-label="Metrics unavailable">
       {entries.flatMap(([name, msg]) => {
@@ -84,7 +84,7 @@ function SilentNote({ item, reporting, details }: { item: SilentBackend; reporti
         <strong>{indexes.length === 1 ? 'GPU' : 'GPUs'} {andList(indexes)} ({names}) not responding:</strong>{' '}
         <span className="nnote__msg">{sentence(item.message ?? 'no reading this tick')}</span>
         <span className="nnote__aside">
-          {' '}The <code>{item.backend}</code> backend sent no reading this tick. {stillReport(others)}
+          {' '}The <code>{item.backend}</code> backend sent no reading this tick.{others.length ? ` ${stillReport(others)}` : null}
         </span>
       </p>
       {details}
