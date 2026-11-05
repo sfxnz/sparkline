@@ -42,7 +42,7 @@ export function RulesEditor() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.rules(), api.rulesStatus()])
+    Promise.all([api.rules(), api.rulesStatus().catch(() => ({ reset: false }))])
       .then(([rules, { reset }]) => {
         if (cancelled) return;
         setLoad({ status: 'ready', saved: rules, reset });
