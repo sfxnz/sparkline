@@ -17,6 +17,7 @@ from .bench.runner import BenchRunner
 from .config import load_config
 from .info import Collectors
 from .sampler import Sampler
+from .sources import live
 from .store import Store
 
 log = logging.getLogger("sparkline-agent")
@@ -71,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         log.warning("No token configured: API is unauthenticated (allowed only because bind is loopback)")
 
-    collectors = Collectors(cfg)
+    collectors = Collectors(cfg, live())
     info = collectors.node_info(cfg)
     sampler = Sampler(
         cfg.node_id,

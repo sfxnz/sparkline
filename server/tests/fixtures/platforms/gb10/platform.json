@@ -1,0 +1,7 @@
+{
+ "captured": "2026-11-04, read only, from a live DGX Spark",
+ "device": "NVIDIA DGX Spark (GB10)",
+ "platform": "linux",
+ "redacted": "hostname, MAC addresses, IPv4 addresses, NIC GUIDs and switch ids, GPU UUID; IPv6 addresses, Docker images and snap/user mounts dropped",
+ "synthesized": false
+}

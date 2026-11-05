@@ -1,0 +1,521 @@
+{
+ "flat": {
+  "cpu.core0.mhz": 2764.125,
+  "cpu.core0.util": 0.0,
+  "cpu.core1.mhz": 2805.257,
+  "cpu.core1.util": 0.0,
+  "cpu.core10.mhz": 2804.14,
+  "cpu.core10.util": 0.0,
+  "cpu.core11.mhz": 2795.761,
+  "cpu.core11.util": 0.0,
+  "cpu.core12.mhz": 2784.589,
+  "cpu.core12.util": 0.0,
+  "cpu.core13.mhz": 2804.14,
+  "cpu.core13.util": 0.0,
+  "cpu.core14.mhz": 2804.14,
+  "cpu.core14.util": 0.0,
+  "cpu.core15.mhz": 3892.535,
+  "cpu.core15.util": 0.0,
+  "cpu.core16.mhz": 3892.535,
+  "cpu.core16.util": 0.0,
+  "cpu.core17.mhz": 3880.88,
+  "cpu.core17.util": 0.0,
+  "cpu.core18.mhz": 3880.88,
+  "cpu.core18.util": 0.0,
+  "cpu.core19.mhz": 3898.425,
+  "cpu.core19.util": 0.0,
+  "cpu.core2.mhz": 2805.257,
+  "cpu.core2.util": 0.0,
+  "cpu.core3.mhz": 2808.0,
+  "cpu.core3.util": 0.0,
+  "cpu.core4.mhz": 2802.515,
+  "cpu.core4.util": 0.0,
+  "cpu.core5.mhz": 3892.382,
+  "cpu.core5.util": 0.0,
+  "cpu.core6.mhz": 3896.191,
+  "cpu.core6.util": 0.0,
+  "cpu.core7.mhz": 3896.191,
+  "cpu.core7.util": 0.0,
+  "cpu.core8.mhz": 3896.191,
+  "cpu.core8.util": 0.0,
+  "cpu.core9.mhz": 3900.0,
+  "cpu.core9.util": 0.0,
+  "cpu.eff_util": 0.0,
+  "cpu.load1": 9.49,
+  "cpu.load15": 5.59,
+  "cpu.load5": 9.15,
+  "cpu.perf_util": 0.0,
+  "cpu.psi_some": 0.0,
+  "cpu.util": 0.0,
+  "disk.nvme0n1.busy_pct": 0.0,
+  "disk.nvme0n1.read_bps": 0.0,
+  "disk.nvme0n1.read_iops": 0.0,
+  "disk.nvme0n1.write_bps": 0.0,
+  "disk.nvme0n1.write_iops": 0.0,
+  "fs.root.free": 244777209856.0,
+  "fs.root.total": 4031871553536.0,
+  "fs.root.used": 3746112647168.0,
+  "fs.root.used_pct": 93.86660071750188,
+  "gpu0.energy_j": 8907439.052,
+  "gpu0.power_w": 10.234,
+  "gpu0.sm_mhz": 2190.0,
+  "gpu0.temp_c": 52.0,
+  "gpu0.throttle_mask": 0.0,
+  "gpu0.util": 0.0,
+  "mem.anon": 5884833792.0,
+  "mem.available": 118078951424.0,
+  "mem.cache": 2303696896.0,
+  "mem.gpu": 609206272.0,
+  "mem.kernel": 2188042240.0,
+  "mem.other": 2043817984.0,
+  "mem.psi_full": 0.0,
+  "mem.psi_some": 0.0,
+  "mem.shmem": 1856286720.0,
+  "mem.swap_used": 3158773760.0,
+  "mem.used": 12582187008.0,
+  "mem.used_pct": 9.629632160711772,
+  "net.enP2p1s0f0np0.drops": 0.0,
+  "net.enP2p1s0f0np0.errors": 0.0,
+  "net.enP2p1s0f0np0.rx_bps": 0.0,
+  "net.enP2p1s0f0np0.tx_bps": 0.0,
+  "net.enP2p1s0f0np0.up": 0.0,
+  "net.enP2p1s0f1np1.drops": 0.0,
+  "net.enP2p1s0f1np1.errors": 0.0,
+  "net.enP2p1s0f1np1.rx_bps": 0.0,
+  "net.enP2p1s0f1np1.tx_bps": 0.0,
+  "net.enP2p1s0f1np1.up": 1.0,
+  "net.enP7s7.drops": 0.0,
+  "net.enP7s7.errors": 0.0,
+  "net.enP7s7.rx_bps": 0.0,
+  "net.enP7s7.tx_bps": 0.0,
+  "net.enP7s7.up": 1.0,
+  "net.enp1s0f0np0.drops": 0.0,
+  "net.enp1s0f0np0.errors": 0.0,
+  "net.enp1s0f0np0.rx_bps": 0.0,
+  "net.enp1s0f0np0.tx_bps": 0.0,
+  "net.enp1s0f0np0.up": 0.0,
+  "net.enp1s0f1np1.drops": 0.0,
+  "net.enp1s0f1np1.errors": 0.0,
+  "net.enp1s0f1np1.rx_bps": 0.0,
+  "net.enp1s0f1np1.tx_bps": 0.0,
+  "net.enp1s0f1np1.up": 1.0,
+  "temp.acpitz.0": 67.9,
+  "temp.acpitz.1": 59.1,
+  "temp.acpitz.2": 67.9,
+  "temp.acpitz.3": 59.7,
+  "temp.acpitz.4": 67.6,
+  "temp.acpitz.5": 56.2,
+  "temp.acpitz.6": 61.6,
+  "temp.mlx5.0": 59.0,
+  "temp.mt7925_phy0.1": 49.0,
+  "temp.nvme.composite": 55.85,
+  "temp.nvme.sensor_1": 58.85,
+  "temp.nvme.sensor_2": 55.85
+ },
+ "node_info": {
+  "boot_time": 1792665000.0,
+  "cores": [
+   {
+    "cluster": 0,
+    "id": 0,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 0,
+    "id": 1,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 0,
+    "id": 2,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 0,
+    "id": 3,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 0,
+    "id": 4,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 0,
+    "id": 5,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   },
+   {
+    "cluster": 0,
+    "id": 6,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   },
+   {
+    "cluster": 0,
+    "id": 7,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   },
+   {
+    "cluster": 0,
+    "id": 8,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   },
+   {
+    "cluster": 0,
+    "id": 9,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   },
+   {
+    "cluster": 1,
+    "id": 10,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 1,
+    "id": 11,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 1,
+    "id": 12,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 1,
+    "id": 13,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 1,
+    "id": 14,
+    "kind": "efficiency",
+    "max_mhz": 2808.0,
+    "model": "Cortex-A725"
+   },
+   {
+    "cluster": 1,
+    "id": 15,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   },
+   {
+    "cluster": 1,
+    "id": 16,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   },
+   {
+    "cluster": 1,
+    "id": 17,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   },
+   {
+    "cluster": 1,
+    "id": 18,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   },
+   {
+    "cluster": 1,
+    "id": 19,
+    "kind": "performance",
+    "max_mhz": 3900.0,
+    "model": "Cortex-X925"
+   }
+  ],
+  "cpu_model": "10\u00d7 Cortex-X925 + 10\u00d7 Cortex-A725",
+  "cuda": "13.0",
+  "disks": [
+   {
+    "model": "SAMSUNG MZALC4T0HBL1-00B07",
+    "mounts": [
+     "/"
+    ],
+    "name": "nvme0n1",
+    "size_bytes": 4096805658624
+   }
+  ],
+  "driver": "580.178.04",
+  "gpus": [
+   {
+    "arch": "Blackwell",
+    "compute_capability": "12.1",
+    "cuda_cores": 6144,
+    "index": 0,
+    "name": "NVIDIA GB10",
+    "power_limit_w": null,
+    "sm_mhz_max": 3003.0,
+    "temp_max_c": 99.0,
+    "temp_shutdown_c": 90.0,
+    "temp_slowdown_c": 86.0,
+    "uuid": "GPU-00000000-0000-0000-0000-000000000000"
+   }
+  ],
+  "hostname": "spark-gb10",
+  "kernel": "7.0.0-1019-nvidia",
+  "mem_total": 130661138432,
+  "net": [
+   {
+    "counter_source": "netdev_rdma",
+    "ipv4": [
+     "203.0.113.1"
+    ],
+    "label": "ConnectX-7 rail A",
+    "mac": "02:00:00:00:00:06",
+    "name": "enp1s0f1np1",
+    "peer": null,
+    "rdma_device": "rocep1s0f1",
+    "role": "interconnect",
+    "speed_mbps": 200000
+   },
+   {
+    "counter_source": "netdev_rdma",
+    "ipv4": [
+     "192.0.2.1"
+    ],
+    "label": "ConnectX-7 rail B",
+    "mac": "02:00:00:00:00:03",
+    "name": "enP2p1s0f1np1",
+    "peer": null,
+    "rdma_device": "roceP2p1s0f1",
+    "role": "interconnect",
+    "speed_mbps": 200000
+   },
+   {
+    "counter_source": "netdev_rdma",
+    "ipv4": [],
+    "label": "ConnectX-7 port (no cable)",
+    "mac": "02:00:00:00:00:02",
+    "name": "enP2p1s0f0np0",
+    "peer": null,
+    "rdma_device": "roceP2p1s0f0",
+    "role": "interconnect",
+    "speed_mbps": null
+   },
+   {
+    "counter_source": "netdev_rdma",
+    "ipv4": [],
+    "label": "ConnectX-7 port (no cable)",
+    "mac": "02:00:00:00:00:05",
+    "name": "enp1s0f0np0",
+    "peer": null,
+    "rdma_device": "rocep1s0f0",
+    "role": "interconnect",
+    "speed_mbps": null
+   },
+   {
+    "counter_source": "netdev",
+    "ipv4": [
+     "198.51.100.48"
+    ],
+    "label": "LAN",
+    "mac": "02:00:00:00:00:04",
+    "name": "enP7s7",
+    "peer": null,
+    "rdma_device": null,
+    "role": "lan",
+    "speed_mbps": 10000
+   },
+   {
+    "counter_source": "netdev",
+    "ipv4": [
+     "172.17.0.1"
+    ],
+    "label": "docker0",
+    "mac": "02:00:00:00:00:01",
+    "name": "docker0",
+    "peer": null,
+    "rdma_device": null,
+    "role": "virtual",
+    "speed_mbps": null
+   },
+   {
+    "counter_source": "netdev",
+    "ipv4": [
+     "100.64.0.113"
+    ],
+    "label": "tailscale0",
+    "mac": null,
+    "name": "tailscale0",
+    "peer": null,
+    "rdma_device": null,
+    "role": "virtual",
+    "speed_mbps": null
+   },
+   {
+    "counter_source": "netdev",
+    "ipv4": [],
+    "label": "wlP9s9",
+    "mac": "02:00:00:00:00:08",
+    "name": "wlP9s9",
+    "peer": null,
+    "rdma_device": null,
+    "role": "wireless",
+    "speed_mbps": null
+   }
+  ],
+  "node_id": "gb10",
+  "nvml": "13.580.178.04",
+  "os": "Ubuntu 24.04.5 LTS",
+  "sample_interval_ms": 1000,
+  "schema_version": 1,
+  "sensors": [
+   {
+    "crit_c": null,
+    "group": "soc",
+    "id": "acpitz.0",
+    "label": "ACPI zone 0"
+   },
+   {
+    "crit_c": null,
+    "group": "soc",
+    "id": "acpitz.1",
+    "label": "ACPI zone 1"
+   },
+   {
+    "crit_c": null,
+    "group": "soc",
+    "id": "acpitz.2",
+    "label": "ACPI zone 2"
+   },
+   {
+    "crit_c": null,
+    "group": "soc",
+    "id": "acpitz.3",
+    "label": "ACPI zone 3"
+   },
+   {
+    "crit_c": null,
+    "group": "soc",
+    "id": "acpitz.4",
+    "label": "ACPI zone 4"
+   },
+   {
+    "crit_c": null,
+    "group": "soc",
+    "id": "acpitz.5",
+    "label": "ACPI zone 5"
+   },
+   {
+    "crit_c": null,
+    "group": "soc",
+    "id": "acpitz.6",
+    "label": "ACPI zone 6"
+   },
+   {
+    "crit_c": 105.0,
+    "group": "nic",
+    "id": "mlx5.0",
+    "label": "ConnectX-7 ASIC"
+   },
+   {
+    "crit_c": null,
+    "group": "wireless",
+    "id": "mt7925_phy0.1",
+    "label": "Wi-Fi"
+   },
+   {
+    "crit_c": 84.85,
+    "group": "nvme",
+    "id": "nvme.composite",
+    "label": "NVMe Composite"
+   },
+   {
+    "crit_c": null,
+    "group": "nvme",
+    "id": "nvme.sensor_1",
+    "label": "NVMe Sensor 1"
+   },
+   {
+    "crit_c": null,
+    "group": "nvme",
+    "id": "nvme.sensor_2",
+    "label": "NVMe Sensor 2"
+   }
+  ],
+  "swap_total": 17179865088,
+  "tools": {
+   "docker": true,
+   "fio": false,
+   "nccl_tests": false,
+   "nvcc": true,
+   "perftest": true,
+   "pytorch_image": true
+  },
+  "unsupported": [
+   {
+    "kind": "hardware",
+    "metric": "gpu0.power_limit_w",
+    "reason": "Power limit not reported by NVIDIA GB10 (NVML: Not Supported)"
+   },
+   {
+    "kind": "hardware",
+    "metric": "gpu0.mem_mhz",
+    "reason": "Memory clock not reported by NVIDIA GB10 (NVML: Not Supported)"
+   },
+   {
+    "kind": "hardware",
+    "metric": "gpu0.fan_pct",
+    "reason": "Fan speed not reported by NVIDIA GB10 (NVML: Not Supported)"
+   },
+   {
+    "kind": "hardware",
+    "metric": "gpu0.fb_memory",
+    "reason": "Dedicated GPU memory (FB) not reported by NVIDIA GB10 (NVML: Not Supported) \u2014 unified memory is reported under Memory instead"
+   },
+   {
+    "kind": "hardware",
+    "metric": "gpu0.ecc",
+    "reason": "ECC not reported by NVIDIA GB10 (NVML: Not Supported)"
+   },
+   {
+    "kind": "hardware",
+    "metric": "gpu0.pcie_bps",
+    "reason": "PCIe throughput not reported by NVIDIA GB10 (NVML: Not Supported)"
+   },
+   {
+    "kind": "hardware",
+    "metric": "cpu.temp",
+    "reason": "Per-core CPU temperature is not exposed (only unlabelled ACPI zones)"
+   },
+   {
+    "kind": "hardware",
+    "metric": "system.power_w",
+    "reason": "Whole-system power is not exposed; only the GPU rail (NVML) is"
+   }
+  ]
+ }
+}

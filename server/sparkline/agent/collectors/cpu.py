@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import glob
-import os
 import re
 from collections import Counter
 from typing import Literal
 
 from ...common.schema import CoreInfo, CpuSample
-from . import parse_psi, read, read_once
+from ..sources import RootFs, Sources
+from . import Caps, parse_psi
 
 # MIDR "CPU part" for implementer 0x41 (Arm Ltd).
 ARM_PARTS = {
@@ -126,54 +125,58 @@ def describe_cpu(cores: list[CoreInfo]) -> str:
     return " + ".join(f"{n}× {model}" for (_, model), n in sorted(counts.items())) or "unknown CPU"
 
 
-def _int(path: str) -> int | None:
-    v = read_once(path)
+def _int(fs: RootFs, path: str) -> int | None:
+    v = fs.read_once(path)
     try:
         return int(v) if v is not None else None
     except ValueError:
         return None
 
 
-def _clock_path(core: int) -> str:
+def _clock_path(fs: RootFs, core: int) -> str:
     """cpuinfo_avg_freq is the measured clock; scaling_cur_freq can be the requested one (flat on GB10).
     It fails with EAGAIN while the core has no recent sample (idle), and that tick then reports None."""
     d = f"{SYS_CPU}/cpu{core}/cpufreq"
-    return f"{d}/cpuinfo_avg_freq" if os.path.exists(f"{d}/cpuinfo_avg_freq") else f"{d}/scaling_cur_freq"
+    return f"{d}/cpuinfo_avg_freq" if fs.exists(f"{d}/cpuinfo_avg_freq") else f"{d}/scaling_cur_freq"
 
 
 class CpuCollector:
     name = "cpu"
 
-    def __init__(self) -> None:
+    def __init__(self, src: Sources) -> None:
+        fs = self.fs = src.fs
         ids = sorted(
-            int(m.group(1)) for p in glob.glob(f"{SYS_CPU}/cpu[0-9]*") if (m := re.search(r"cpu(\d+)$", p))
+            int(m.group(1)) for p in fs.glob(f"{SYS_CPU}/cpu[0-9]*") if (m := re.search(r"cpu(\d+)$", p))
         )
-        models = parse_cpuinfo_parts(read_once("/proc/cpuinfo") or "")
+        models = parse_cpuinfo_parts(fs.read_once("/proc/cpuinfo") or "")
         self.cores = classify_cores(
-            {i: _int(f"{SYS_CPU}/cpu{i}/cpufreq/cpuinfo_max_freq") for i in ids},
+            {i: _int(fs, f"{SYS_CPU}/cpu{i}/cpufreq/cpuinfo_max_freq") for i in ids},
             models,
-            {i: _int(f"{SYS_CPU}/cpu{i}/topology/cluster_id") for i in ids},
+            {i: _int(fs, f"{SYS_CPU}/cpu{i}/topology/cluster_id") for i in ids},
         )
         self.model = describe_cpu(self.cores)
         self.ids = ids
         self.perf = [n for n, c in enumerate(self.cores) if c.kind == "performance"]
         self.eff = [n for n, c in enumerate(self.cores) if c.kind == "efficiency"]
-        self._freq_paths = [_clock_path(i) for i in ids]
+        self._freq_paths = [_clock_path(fs, i) for i in ids]
         self._prev: dict[int, tuple[int, int]] | None = None
-        self._psi = os.path.exists("/proc/pressure/cpu")
+        self._psi = fs.exists("/proc/pressure/cpu")
+
+    def caps(self) -> Caps:
+        return {}
 
     def collect(self) -> dict:
-        cur = parse_proc_stat(read("/proc/stat"))
+        cur = parse_proc_stat(self.fs.read("/proc/stat"))
         per_core = core_utils(self._prev, cur, self.ids)
         self._prev = cur
         freq: list[float | None] = []
         for p in self._freq_paths:
             try:
-                freq.append(int(read(p)) / 1000)
+                freq.append(int(self.fs.read(p)) / 1000)
             except (OSError, ValueError):
                 freq.append(None)
-        l1, l5, l15 = parse_loadavg(read("/proc/loadavg"))
-        psi = parse_psi(read("/proc/pressure/cpu")).get("some") if self._psi else None
+        l1, l5, l15 = parse_loadavg(self.fs.read("/proc/loadavg"))
+        psi = parse_psi(self.fs.read("/proc/pressure/cpu")).get("some") if self._psi else None
 
         def mean(idx: list[int]) -> float | None:
             return sum(per_core[n] for n in idx) / len(idx) if idx else None

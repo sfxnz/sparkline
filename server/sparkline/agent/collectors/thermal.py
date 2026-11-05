@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import glob
 import os
 import re
 import time
@@ -10,7 +9,8 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from ...common.schema import SensorInfo, TempSample, Unsupported
-from . import SLOW_EVERY_S, read, read_once, slow_due
+from ..sources import RootFs, Sources
+from . import SLOW_EVERY_S, Caps, slow_due
 
 # A read of these is a command to the device (NVMe admin command, Wi-Fi firmware query).
 SLOW_GROUPS = ("nvme", "wireless")
@@ -79,29 +79,29 @@ def build_sensors(chips: list[Chip]) -> list[tuple[SensorInfo, list[tuple[str, i
     return out
 
 
-def _first_reading(paths: list[str]) -> float | None:
+def _first_reading(fs: RootFs, paths: list[str]) -> float | None:
     for p in paths:
         try:
-            return int(read(p)) / 1000
+            return int(fs.read(p)) / 1000
         except (OSError, ValueError):
             continue
     return None
 
 
-def _milli(path: str) -> float | None:
-    v = read_once(path)
+def _milli(fs: RootFs, path: str) -> float | None:
+    v = fs.read_once(path)
     try:
         return int(v) / 1000 if v else None
     except ValueError:
         return None
 
 
-def scan_hwmon(root: str = "/sys/class/hwmon") -> tuple[list[Chip], bool, bool]:
+def scan_hwmon(fs: RootFs) -> tuple[list[Chip], bool, bool]:
     """-> (chips with temp inputs, any fan inputs, any power inputs)."""
     chips, fans, power = [], False, False
-    for h in sorted(glob.glob(f"{root}/hwmon*")):
+    for h in sorted(fs.glob("/sys/class/hwmon/hwmon*")):
         try:
-            files = os.listdir(h)
+            files = fs.listdir(h)
         except OSError:  # removed between glob and listdir (driver unbind, NVMe reset)
             continue
         fans |= any(re.fullmatch(r"fan\d+_input", f) for f in files)
@@ -111,17 +111,17 @@ def scan_hwmon(root: str = "/sys/class/hwmon") -> tuple[list[Chip], bool, bool]:
             m = re.fullmatch(r"temp(\d+)_input", f)
             if m:
                 i = int(m.group(1))
-                temps[i] = (read_once(f"{h}/temp{i}_label"), _milli(f"{h}/temp{i}_crit"))
+                temps[i] = (fs.read_once(f"{h}/temp{i}_label"), _milli(fs, f"{h}/temp{i}_crit"))
         if temps:
-            dev = os.path.realpath(f"{h}/device") if os.path.exists(f"{h}/device") else h
-            guids = glob.glob(f"{dev}/infiniband/*/sys_image_guid")
+            dev = fs.realpath(f"{h}/device") if fs.exists(f"{h}/device") else h
+            guids = fs.glob(f"{dev}/infiniband/*/sys_image_guid")
             chips.append(
                 Chip(
-                    name=read_once(f"{h}/name") or os.path.basename(h),
+                    name=fs.read_once(f"{h}/name") or os.path.basename(h),
                     device=dev,
                     temps=temps,
                     path=h,
-                    nic=read_once(guids[0]) if guids else None,
+                    nic=fs.read_once(guids[0]) if guids else None,
                 )
             )
     return chips, fans, power
@@ -130,8 +130,9 @@ def scan_hwmon(root: str = "/sys/class/hwmon") -> tuple[list[Chip], bool, bool]:
 class ThermalCollector:
     name = "thermal"
 
-    def __init__(self) -> None:
-        chips, self.has_fans, self.has_power = scan_hwmon()
+    def __init__(self, src: Sources) -> None:
+        self.fs = src.fs
+        chips, self.has_fans, self.has_power = scan_hwmon(self.fs)
         built = build_sensors(chips)
         self.sensors = [s for s, _ in built]
         self._paths = [
@@ -164,6 +165,9 @@ class ThermalCollector:
             )
         return out
 
+    def caps(self) -> Caps:
+        return {}
+
     def collect(self) -> dict:
         now = time.monotonic()
         slow = slow_due(self._slow_t, now)
@@ -171,5 +175,5 @@ class ThermalCollector:
             self._slow_t = now
         for sid, is_slow, paths in self._paths:
             if slow or not is_slow or self._last.get(sid) is None:
-                self._last[sid] = _first_reading(paths)
+                self._last[sid] = _first_reading(self.fs, paths)
         return {"temps": [TempSample(id=sid, c=self._last[sid]) for sid, _, _ in self._paths]}
