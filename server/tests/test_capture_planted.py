@@ -465,6 +465,13 @@ CASES = [
         because="hostname",
     ),
     Case(
+        "hostname after a carriage return that ends a cpuinfo Serial line",
+        "refused",
+        (HOST,),
+        plant=cpuinfo_lines(f"Serial\t\t: 0000\rHardware\t: {HOST} board\n"),
+        because="hostname",
+    ),
+    Case(
         "hostname in the CPU model after an empty cpuinfo Serial",
         "refused",
         (HOST,),
