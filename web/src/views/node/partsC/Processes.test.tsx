@@ -134,7 +134,7 @@ describe('Processes tab on a node that cannot tell its GPU processes', () => {
   it('says a GB10 whose GPU has sent no reading for 5 s cannot tell which processes use its GPU, and why', () => {
     show(gb10, { gpu: [], errors: { gpu: 'nvml: RuntimeError: NVML read failed' } }, 6);
     expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers · ptest cannot tell which processes use its GPU Not responding/);
-    expect(why()).toHaveAccessibleDescription('GPU 0 not responding (RuntimeError: NVML read failed).');
+    expect(why()).toHaveAccessibleDescription('GPU 0 not responding for 5\u00a0s (RuntimeError: NVML read failed).');
   });
 
   it('still counts none on the GPU on a GB10 that reports and runs none', () => {

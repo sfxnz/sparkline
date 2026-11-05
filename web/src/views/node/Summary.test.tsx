@@ -79,3 +79,19 @@ describe('Summary memory', () => {
     expect(screen.getByRole('region', { name: 'Unified memory' })).toHaveAttribute('aria-busy', 'true');
   });
 });
+
+describe('Summary GPU stats while a GPU sends nothing', () => {
+  it('says how long GPU 2 has sent no reading, as the GPU tab banner does', () => {
+    const ws = wsSample as unknown as Sample;
+    const node: NodeState = { node_id: NODE, url: 'http://x:9750', status: 'online', since: 0, last_sample_ts: TS, error: null, info: ws1(), next_retry_ts: null };
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: node } });
+    act(() => {
+      liveStore.pushSample({ ...ws, node_id: NODE, ts: TS - 40 });
+      for (let ago = 39; ago >= 0; ago--) liveStore.pushSample({ ...ws, node_id: NODE, gpu: ws.gpu.map((g) => (g.index === 2 ? { ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null } : g)), ts: TS - ago });
+      liveStore.flush();
+    });
+    render(<Summary nodeId={NODE} />);
+    const stat = screen.getByText('GPU power', { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+    expect(within(stat).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription('GPU 2 has sent no reading for 40\u00a0s, so a sum would understate.');
+  });
+});

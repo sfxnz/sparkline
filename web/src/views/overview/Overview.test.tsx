@@ -517,7 +517,7 @@ describe('GPU processes a node cannot tell, on the Overview', () => {
     show([[gb10Info as unknown as NodeInfo, { gpu: [], procs: idle, errors: { gpu: `nvml: ${NV_ERROR}` } }]], 6);
     expect(within(screen.getByRole('region', { name: 'Node spark1' })).queryByText('No GPU processes')).not.toBeInTheDocument();
     expect(subtitle('spark1')).toHaveTextContent(/^GPU processes Not responding/);
-    expect(within(subtitle('spark1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0 not responding (${NV_ERROR}).`);
+    expect(within(subtitle('spark1')).getByRole('button', { name: 'Why is this not reported?' })).toHaveAccessibleDescription(`GPU 0 not responding for 5\u00a0s (${NV_ERROR}).`);
     expect(workload()).toHaveTextContent(/^GPU workloads not reported$/);
   });
 
@@ -968,8 +968,8 @@ describe("GPU processes while some or all of a node's GPUs send nothing", () => 
 
   it('names every GPU of ws4 in why the active GPU processes are not known, once all four have sent nothing for 5 s', () => {
     show([[gb10, failing(reading(gb10), 'NVMLError_GpuIsLost: GPU is lost')], [ws4, failing(reading(ws4), UNKNOWN)]]);
-    const ws4Why = `GPUs 0, 1, 2 and 3 not responding (${UNKNOWN}).`;
-    expect(why(tile('Active GPU processes'))).toHaveAccessibleDescription(`spark1: GPU 0 not responding (NVMLError_GpuIsLost: GPU is lost).\nws4: ${ws4Why}`);
+    const ws4Why = `GPUs 0, 1, 2 and 3 not responding for 5\u00a0s (${UNKNOWN}).`;
+    expect(why(tile('Active GPU processes'))).toHaveAccessibleDescription(`spark1: GPU 0 not responding for 5\u00a0s (NVMLError_GpuIsLost: GPU is lost).\nws4: ${ws4Why}`);
     expect(why(workloadLine('ws4'))).toHaveAccessibleDescription(ws4Why);
   });
 
@@ -1069,5 +1069,33 @@ describe("the cluster's GPU energy today names each node it cannot count", () =>
   it('leaves the energy today of two healthy GB10s unmarked', async () => {
     showQuiet([[gb10('spark1'), gb10Reading, null], [gb10('spark2'), gb10Reading, null]]);
     expect(await within(tile('GPU power')).findByText(/Today/)).toHaveTextContent(/^Today [\d.]+ kWh · £[\d.]+$/);
+  });
+});
+
+describe('a GPU that has sent nothing for 40 s', () => {
+  it('says how long on the card and in the cluster totals, as the GPU tab banner does, as the silence goes on', () => {
+    const ws1 = wsInfo as unknown as NodeInfo;
+    const ws = wsSample as unknown as Sample;
+    const quiet: Sample = { ...ws, gpu: ws.gpu.map((g) => (g.index === 2 ? { ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null } : g)) };
+    const silentUntil = (from: number, to: number) => {
+      act(() => {
+        for (let t = from; t <= to; t++) liveStore.pushSample({ ...quiet, ts: now - 40 + t });
+        liveStore.flush();
+      });
+    };
+    useCluster.getState().setHello(cluster([node('ws1', { info: ws1 })]));
+    act(() => {
+      liveStore.removeNode('ws1');
+      liveStore.pushSample({ ...ws, ts: now - 40 });
+    });
+    silentUntil(1, 5);
+    render(<Overview />);
+    silentUntil(6, 40);
+    const why = (scope: HTMLElement) => within(scope).getByRole('button', { name: 'Why is this not reported?' });
+    const cardStat = within(screen.getByRole('region', { name: 'Node ws1' })).getByText('GPU power', { selector: '.ov-stat__label' }).parentElement as HTMLElement;
+    const totalsTile = within(screen.getByRole('region', { name: 'Cluster totals' })).getByText('GPU power', { selector: '.stat__label' }).closest('.stat') as HTMLElement;
+    for (const scope of [cardStat, totalsTile]) {
+      expect(why(scope)).toHaveAccessibleDescription('GPU 2 has sent no reading for 40\u00a0s, so a sum would understate.');
+    }
   });
 });
