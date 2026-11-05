@@ -625,6 +625,11 @@ FIXED_WORDS = {
         "devices",
         "zorbhost",
     ),
+    "hostname infiniband, a directory of the RDMA files and of the links beside them": (
+        "hostname",
+        "infiniband",
+        "zorbhost",
+    ),
 }
 
 
