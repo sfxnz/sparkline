@@ -8,6 +8,7 @@ import { Button } from '../../design/components/Button';
 import { Dialog } from '../../design/components/Dialog';
 import { shownNodeStatus } from '../../design/components/StatusPill';
 import { useNow } from '../../design/useNow';
+import { memoryLayout } from '../../lib/memoryLayout';
 import type { BenchSpec, NodeStatus } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -24,7 +25,6 @@ import {
   estimateOn,
   gpuMemoryHeld,
   gpuOptions,
-  gpuSharesMemory,
   gpuPick,
   type GpuIndex,
   paramText,
@@ -337,7 +337,7 @@ function recentTraffic(node: string, rails: readonly NetIfInfo[]): LinkTraffic[]
 function Review({ spec, nodes, gpuIndex, gpuOn, values, estimate, unknownOn, statusOf }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; gpuOn: boolean; values: ParamValues; estimate: number | null; unknownOn: readonly string[]; statusOf: (n: string) => NodeStatus | undefined }) {
   useNow(1000); // live: what it competes with is re-read every second
   const infos = useCluster((s) => s.nodes);
-  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => statusOf(n) ?? 'online', (n) => !gpuOn && !gpuSharesMemory(infos[n]?.info));
+  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => statusOf(n) ?? 'online', (n) => !gpuOn && !memoryLayout(infos[n]?.info).sharesRam);
   // Once a node has been shown busy it stays busy while its reading is live: the verdict must not flip while it is read.
   const [seenBusy, setSeenBusy] = useState<Record<string, Competition>>({});
   const fresh = live.filter((c) => c.busy && seenBusy[c.node]?.text !== c.text);

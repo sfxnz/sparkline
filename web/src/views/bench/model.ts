@@ -4,7 +4,7 @@
 import type { Status } from '../../design/components/StatusPill';
 import { formatBytes, formatDuration, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
 import { decodeThrottle } from '../../lib/throttle';
-import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, NodeInfo, NodeStatus, ProcSample, RunStatus, Sample } from '../../lib/types';
+import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, NodeStatus, ProcSample, RunStatus, Sample } from '../../lib/types';
 import { gpuProcesses, isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
 import { gpuAt } from '../../lib/gpu';
 
@@ -327,8 +327,6 @@ export const paramsSummary = (spec: BenchSpec | undefined, params: Record<string
 export type GpuIndex = Readonly<Record<string, number>>;
 
 export const gpuOptions = (spec: Pick<BenchSpec, 'gpu_options'>, node: string): readonly GpuOption[] => spec.gpu_options?.[node] ?? [];
-
-export const gpuSharesMemory = (info: Pick<NodeInfo, 'gpus'> | null | undefined): boolean => !info || info.gpus.some((g) => g.name === 'NVIDIA GB10');
 
 export const usesGpu = (spec: Pick<BenchSpec, 'id'>, values: Partial<ParamValues>): boolean => spec.id !== 'mem-bandwidth' || values.side !== 'cpu';
 
