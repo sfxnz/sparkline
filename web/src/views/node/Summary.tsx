@@ -34,7 +34,8 @@ export default function Summary({ nodeId }: NodeTabProps) {
   const utilKey = nodeGpuKey(info, 'util');
   const tempKey = nodeGpuKey(info, 'temp_c');
   const powerKey = nodeGpuKey(info, 'power_w');
-  const utilSeries = useMemo<SeriesSpec[]>(() => [{ key: utilKey, label: 'Utilisation' }], [utilKey]);
+  const utilFrom = useTotalFrom(nodeId, 'util');
+  const utilSeries = useMemo<SeriesSpec[]>(() => [{ key: utilKey, label: utilFrom ? `Utilisation (${utilFrom})` : 'Utilisation' }], [utilKey, utilFrom]);
   const powerSeries = useMemo<SeriesSpec[]>(() => [{ key: powerKey, label: 'GPU power' }], [powerKey]);
   const memTotal = info?.mem_total ?? null;
   const rails = useMemo(() => cx7Rails(info), [info]);
@@ -55,7 +56,6 @@ export default function Summary({ nodeId }: NodeTabProps) {
     [rails],
   );
   const utilGap = useNodeGpuGap(nodeId, 'util');
-  const utilFrom = useTotalFrom(nodeId, 'util');
   const tempGap = useNodeGpuGap(nodeId, 'temp_c');
   const powerGap = useNodeGpuGap(nodeId, 'power_w');
   const netGap = interconnectGap(info);
