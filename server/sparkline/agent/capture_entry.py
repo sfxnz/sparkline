@@ -7,6 +7,7 @@ import sys
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     import signal as _signal
+    from collections.abc import Callable
 else:
     import _signal  # signal.py imports enum first, which a Ctrl-C can land in; _signal is loaded at startup
 
@@ -15,6 +16,8 @@ FAILED = 4
 PR_SET_DUMPABLE = 4
 STOPPED_LINE = "sparkline-capture stopped. It keeps no partial recording."
 STOP_SIGNALS = (_signal.SIGINT, _signal.SIGHUP, _signal.SIGQUIT, _signal.SIGTERM)
+
+remove_on_stop: "Callable[[], object] | None" = None
 
 
 class Stopped(KeyboardInterrupt):
@@ -51,7 +54,15 @@ def print_no_traceback_from_python() -> None:
 def _stop(signum: int, _frame: object) -> None:
     for s in STOP_SIGNALS:
         _signal.signal(s, _signal.SIG_IGN)
+    if remove_on_stop is not None:
+        remove_on_stop()
     raise Stopped(signum)
+
+
+def ignore_stops() -> None:
+    for s in STOP_SIGNALS:
+        if _signal.getsignal(s) is _stop:
+            _signal.signal(s, _signal.SIG_IGN)
 
 
 def stop_like_ctrl_c_on_a_hangup_or_terminate() -> None:
