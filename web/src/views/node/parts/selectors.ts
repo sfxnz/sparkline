@@ -1,11 +1,11 @@
 // Stable selectors for useLatest (module scope, so subscriptions keep their identity across renders).
 import { gpuTotals, type GpuReading, type ReadingTotal } from '../../../lib/metrics';
 import type { NodeInfo, Sample } from '../../../lib/types';
-import { gpuAt, gpuIndexes } from '../../../lib/gpu';
+import { answeredGpu, gpuAt, gpuIndexes } from '../../../lib/gpu';
 
 type Select<T> = (s: Sample | null) => T;
 const readings = new Map<string, Select<number | null>>();
-const presence = new Map<number, Select<boolean | null>>();
+const answers = new Map<number, Select<boolean | null>>();
 const totals = new Map<ReadingTotal, Select<number | null>>();
 
 /** One reading of the GPU with this index (not array position), memoised per index and reading. */
@@ -16,10 +16,10 @@ export function gpuSelector(index: number, reading: GpuReading): Select<number |
   return sel;
 }
 
-/** Whether the latest sample has an entry for this GPU index; null before the first sample. */
-export function gpuPresent(index: number): Select<boolean | null> {
-  let sel = presence.get(index);
-  if (!sel) presence.set(index, (sel = (s) => (s ? gpuAt(s.gpu, index) !== undefined : null)));
+/** Whether the GPU with this index answered in the latest sample (answeredGpu); null before the first sample. */
+export function gpuAnswered(index: number): Select<boolean | null> {
+  let sel = answers.get(index);
+  if (!sel) answers.set(index, (sel = (s) => (s ? answeredGpu(s, index) !== undefined : null)));
   return sel;
 }
 

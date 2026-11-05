@@ -7,7 +7,7 @@ import { decodeThrottle, worstSeverity, type ThrottleReason } from '../../../lib
 import type { NodeInfo, Sample, Severity } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
-import { andList, gpuAt, gpuCollectorDown, gpuList, reportingGpus, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
+import { andList, answeredIndexes, gpuAt, gpuCollectorDown, gpuList, sentence, silentBackends, stillReport, type SilentBackend } from '../../../lib/gpu';
 
 // ------------------------------------------------------------------ collector errors
 
@@ -30,7 +30,8 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
   return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 };
 
-export const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
+/** The GPUs that answered in the latest sample, as a key ("0,2"). */
+export const selectReporting = (s: Sample | null) => (s ? answeredIndexes(s).join(',') : '');
 
 const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
   name === 'gpu' ? gpuCollectorDown(info) : notReported(info, COLLECTORS[name]?.metric ?? name) !== null;
@@ -44,7 +45,7 @@ export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?:
   const reportingKey = useLatest(nodeId, selectReporting);
   const entries = Object.entries(errors).filter(([k]) => (!only || only.includes(k)) && !collectorDown(info, k));
   if (!entries.length) return null;
-  const reporting = reportingKey ? reportingGpus(info, reportingKey.split(',').map(Number)) : [];
+  const reporting = reportingKey ? reportingKey.split(',').map(Number) : [];
   const silent = silentBackends(info, errors.gpu, reporting);
   return (
     <ul className="nnotes" aria-label="Metrics unavailable">
