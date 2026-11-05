@@ -5,6 +5,7 @@ import { prefersReducedMotion } from '../../../design/motion';
 import { byWhat, gpuConditions, sameGpuConditions, type GpuCondition } from '../../../lib/condition';
 import { gpuList } from '../../../lib/gpu';
 import type { NodeInfo, Sample } from '../../../lib/types';
+import { quietGpusOf } from '../../../store/attention';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
 import { SEVERITY_META } from './Notices';
@@ -37,7 +38,7 @@ function jumpTo(id: string) {
  *  live. */
 export function GpuAttention({ nodeId, info }: { nodeId: string; info: NodeInfo | null | undefined }) {
   const online = useCluster((s) => s.nodes[nodeId]?.status === 'online');
-  const conditions = useLatest(nodeId, useCallback((s: Sample | null) => gpuConditions(info, s), [info]), sameGpuConditions);
+  const conditions = useLatest(nodeId, useCallback((s: Sample | null) => gpuConditions(info, s, quietGpusOf(nodeId, info)), [nodeId, info]), sameGpuConditions);
   if (!online || !conditions.length) return null;
   return (
     <ul className="nnotes ngpu-attn" aria-label="GPU needs attention">

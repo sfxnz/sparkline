@@ -1,9 +1,10 @@
 // What a node's status pill says: console status, raised by open alerts AND by live conditions the screen is already
-// flagging (temperature at slowdown, hardware/thermal clock limits), so a pill is never green beside a red flag.
+// flagging (temperature at slowdown, hardware/thermal clock limits, a GPU not responding), so a pill is never green
+// beside a red flag.
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { nodeDisplayStatus, type Status } from '../design/components/StatusPill';
-import { nodeCondition, nodeConditions, sameCondition, sameNodeConditions, type LiveCondition, type NodeConditions } from '../lib/condition';
-import type { Sample } from '../lib/types';
+import { nodeCondition, nodeConditions, quietGpus, sameCondition, sameNodeConditions, type LiveCondition, type NodeConditions } from '../lib/condition';
+import type { NodeInfo, Sample } from '../lib/types';
 import { useCluster } from './cluster';
 import { useConnection } from './connection';
 import { openAlertLevel, useEvents } from './events';
@@ -14,11 +15,15 @@ type Level = 'warning' | 'critical' | null;
 /** The more severe of two levels. */
 export const worstLevel = (a: Level, b: Level): Level => (a === 'critical' || b === 'critical' ? 'critical' : (a ?? b));
 
+/** The GPUs node `id` lists that have sent no reading for as long as the console takes to call a node not reporting. */
+export const quietGpusOf = (id: string, info: NodeInfo | null | undefined) =>
+  quietGpus(info, useCluster.getState().cluster?.settings.stale_after_s, (index) => liveStore.gpuSilentFor(id, index));
+
 /** Live condition of one node's GPUs; null unless the node is online (stale values never raise a pill). */
 export function useLiveCondition(id: string): LiveCondition | null {
   const info = useCluster((s) => s.nodes[id]?.info);
   const online = useCluster((s) => s.nodes[id]?.status === 'online');
-  const select = useCallback((s: Sample | null) => nodeCondition(info, s), [info]);
+  const select = useCallback((s: Sample | null) => nodeCondition(info, s, quietGpusOf(id, info)), [id, info]);
   const c = useLatest(id, select, sameCondition);
   return online ? c : null;
 }
@@ -48,7 +53,7 @@ export function useLiveConditions(ids: readonly string[]): Record<string, NodeCo
     const value: Record<string, NodeConditions | null> = {};
     for (const id of ids) {
       const n = nodes[id];
-      value[id] = n?.status === 'online' ? nodeConditions(n.info, liveStore.latest(id)) : null;
+      value[id] = n?.status === 'online' ? nodeConditions(n.info, liveStore.latest(id), quietGpusOf(id, n.info)) : null;
     }
     const prev = cache.current.value;
     const same = cache.current.sig === idsKey && ids.every((id) => sameNodeConditions(prev[id] ?? null, value[id] ?? null));

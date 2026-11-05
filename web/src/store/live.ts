@@ -20,6 +20,9 @@ export class NodeBuffer {
   length = 0;
   latest: Sample | null = null;
   largestTick = 0;
+  /** Ts of the first live sample, and of the last live sample each GPU index was in (seeded history never counts). */
+  firstLive: number | null = null;
+  readonly gpuSeen = new Map<number, number>();
 
   constructor(readonly capacity: number) {
     this.ts = new Float64Array(capacity);
@@ -112,6 +115,8 @@ export class LiveStore {
     b.push(sample.ts, flat);
     // procs is null on ticks between process refreshes: keep the last known list.
     b.latest = sample.procs == null && b.latest?.procs ? { ...sample, procs: b.latest.procs } : sample;
+    b.firstLive ??= sample.ts;
+    for (const g of sample.gpu) b.gpuSeen.set(g.index, sample.ts);
     this.markDirty(sample.node_id, flat.keys());
   }
 
@@ -156,6 +161,15 @@ export class LiveStore {
 
   latest(node: string): Sample | null {
     return this.nodes.get(node)?.latest ?? null;
+  }
+
+  /** Seconds GPU `index` has been missing from the node's live samples, up to the latest one: since the last one it was
+   *  in, or since the first live sample when none had it. Null before any live sample. */
+  gpuSilentFor(node: string, index: number): number | null {
+    const b = this.nodes.get(node);
+    const first = b?.firstLive;
+    if (!b?.latest || first == null) return null;
+    return b.latest.ts - (b.gpuSeen.get(index) ?? first);
   }
 
   lastTs(node: string): number | null {

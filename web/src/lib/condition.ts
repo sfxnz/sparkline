@@ -95,16 +95,24 @@ function gpuCondition(index: number, gpu: ConditionInput, slowdownC: number | nu
 
 const NOT_RESPONDING = 'Not responding';
 
-const lostCondition = (index: number): GpuCondition => ({
+const silentCondition = (index: number): GpuCondition => ({
   index, level: 'warning', text: 'has a GPU not responding', what: NOT_RESPONDING, reading: NOT_RESPONDING, clause: { one: 'not responding', many: 'not responding' }, field: null,
 });
 
+/** The GPUs the node lists, not lost, that have sent no reading for as long as the console takes to call a whole node
+ *  not reporting: stale_after_s (5 s without the console's settings), never under two sample intervals and a second.
+ *  `silentFor` is how long a GPU has been missing from the live samples (null before any). */
+export function quietGpus(info: NodeInfo | null | undefined, staleAfterS: number | undefined, silentFor: (index: number) => number | null): number[] {
+  const afterS = Math.max(staleAfterS ?? 5, (2 * (info?.sample_interval_ms ?? 1000)) / 1000 + 1);
+  return (info?.gpus ?? []).filter((g) => !lostGpu(info, g.index) && (silentFor(g.index) ?? 0) >= afterS).map((g) => g.index);
+}
+
 /** Each GPU's live condition in the sample, in index order; GPUs with nothing on screen to flag are left out. A lost
- *  GPU is not responding. */
-export function gpuConditions(info: NodeInfo | null | undefined, s: Sample | null): GpuCondition[] {
-  const lost = (info?.gpus ?? []).filter((g) => lostGpu(info, g.index)).map((g) => lostCondition(g.index));
-  const live = (s?.gpu ?? []).flatMap((g) => (lost.some((c) => c.index === g.index) ? [] : (gpuCondition(g.index, g, gpuAt(info?.gpus, g.index)?.temp_slowdown_c) ?? [])));
-  return [...lost, ...live].toSorted((a, b) => a.index - b.index);
+ *  GPU, and one in `quiet` (quietGpus), is not responding. */
+export function gpuConditions(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[] = []): GpuCondition[] {
+  const silent = (info?.gpus ?? []).filter((g) => lostGpu(info, g.index) || quiet.includes(g.index)).map((g) => silentCondition(g.index));
+  const live = (s?.gpu ?? []).flatMap((g) => (silent.some((c) => c.index === g.index) ? [] : (gpuCondition(g.index, g, gpuAt(info?.gpus, g.index)?.temp_slowdown_c) ?? [])));
+  return [...silent, ...live].toSorted((a, b) => a.index - b.index);
 }
 
 export interface ConditionGroup {
@@ -133,8 +141,8 @@ export interface NodeConditions {
 }
 
 /** The node's flagged GPUs, or null when nothing on screen would be flagged. */
-export function nodeConditions(info: NodeInfo | null | undefined, s: Sample | null): NodeConditions | null {
-  const gpus = gpuConditions(info, s);
+export function nodeConditions(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[] = []): NodeConditions | null {
+  const gpus = gpuConditions(info, s, quiet);
   return gpus.length ? { gpus, oneGpu: (info?.gpus.length ?? 0) <= 1 && (s?.gpu.length ?? 0) <= 1 } : null;
 }
 
@@ -154,8 +162,8 @@ export function worstCondition(c: NodeConditions): LiveCondition | null {
 }
 
 /** The node's worst live condition, or null when nothing on screen would be flagged. */
-export function nodeCondition(info: NodeInfo | null | undefined, s: Sample | null): LiveCondition | null {
-  const c = nodeConditions(info, s);
+export function nodeCondition(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[] = []): LiveCondition | null {
+  const c = nodeConditions(info, s, quiet);
   return c && worstCondition(c);
 }
 
