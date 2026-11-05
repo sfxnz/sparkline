@@ -1,4 +1,4 @@
-import { counterDelta, counterIncrease, extendCounter, formatEnergyAuto, formatEnergyCost, historyEnergy, historyPlusLive, startOfDay } from './energy';
+import { counterDelta, counterIncrease, extendCounter, formatEnergyAuto, formatEnergyCost, historyEnergy, historyPlusLive, lastMove, startOfDay, stopsText } from './energy';
 
 describe('counterDelta', () => {
   it('is last minus first for a monotonic counter', () => {
@@ -105,5 +105,37 @@ describe('historyPlusLive', () => {
   it('is the history total when there are no live readings, and null without history', () => {
     expect(historyPlusLive(resp, 'e', () => [])).toBe(600);
     expect(historyPlusLive({ ...resp, series: { e: [null, null, null] } }, 'e', () => [5, 6])).toBeNull();
+  });
+});
+
+describe('lastMove', () => {
+  it("is the time of a silent GPU's last reading when it sends nothing after it", () => {
+    expect(lastMove([10, 11, 12, 13], [100, 150, null, null])).toBe(11);
+  });
+
+  it('is the time of the first reading of the value a silent GPU repeats', () => {
+    expect(lastMove([10, 11, 12, 13], [100, 150, 150, 150])).toBe(11);
+    expect(lastMove([10, 11, 12, 13], [100, 150, null, 150])).toBe(11);
+  });
+
+  it('is unknown when no reading shows the counter move', () => {
+    expect(lastMove([10, 11], [150, 150])).toBeNull();
+    expect(lastMove([10, 11], [null, 150])).toBeNull();
+    expect(lastMove([], [])).toBeNull();
+  });
+});
+
+describe('stopsText', () => {
+  const at = (h: number, m: number) => new Date(2026, 10, 5, h, m, 30).getTime() / 1000;
+
+  it('names each GPU with the minute its share stops, GPUs that stop in the same minute together', () => {
+    expect(stopsText([{ index: 2, at: at(16, 13) }])).toBe('GPU 2 until 16:13');
+    expect(stopsText([{ index: 1, at: at(16, 13) }, { index: 2, at: at(16, 13) }])).toBe('GPUs 1 and 2 until 16:13');
+    expect(stopsText([{ index: 1, at: at(9, 5) }, { index: 2, at: at(16, 13) }])).toBe('GPU 1 until 09:05 and GPU 2 until 16:13');
+  });
+
+  it('says "until its last reading" when the minute is unknown', () => {
+    expect(stopsText([{ index: 2, at: null }])).toBe('GPU 2 until its last reading');
+    expect(stopsText([{ index: 0, at: null }, { index: 3, at: null }])).toBe('GPUs 0 and 3 until their last readings');
   });
 });
