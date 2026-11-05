@@ -957,8 +957,14 @@ export function gpuMemoryHeld(node: string, procs: readonly ProcSample[] | null 
   return live ? `${node} is ${work.verb} ${work.what}, which holds ${mem} of GPU memory.` : `When ${node} last reported, it was ${work.verb} ${work.what}, which held ${mem} of GPU memory.`;
 }
 
-function cpuLoad(node: string, s: Sample): Competition {
+function notReporting(node: string, what: string, last: string | null): Competition {
+  const text = last ? `${node} is not reporting; ${last} when it last reported, so its current ${what} is unknown.` : `${node} is not reporting, so its current ${what} is unknown.`;
+  return { node, busy: false, stale: true, text };
+}
+
+function cpuLoad(node: string, s: Sample, online: boolean): Competition {
   const pct = `${Math.round(s.cpu.util)}%`;
+  if (!online) return notReporting(node, 'CPU load', `its CPUs were ${pct} busy`);
   const busy = s.cpu.util >= CPU_BUSY_PCT;
   return busy ? { node, busy, text: `${node} CPUs are ${pct} busy right now; ${consequence}.` } : { node, busy, text: `${node} CPUs are mostly idle (${pct}).` };
 }
@@ -998,7 +1004,8 @@ export function competition(
 ): Competition[] {
   return nodes.map((node) => {
     const s = latest(node);
-    if (!s) return { node, text: `${node} has not reported live data, so its current load is unknown.`, busy: false };
+    if (!s) return { node, text: `${node} has not reported live data, so its current load is unknown.`, busy: false, stale: true };
+    const online = status(node) === 'online';
     const chosen = gpuIndex[node];
     const gpu = gpuAt(s.gpu, chosen ?? 0);
     const util = gpu?.util ?? null;
@@ -1006,9 +1013,10 @@ export function competition(
     const pct = (v: number) => `${Math.round(v)}%`;
     switch (spec.category) {
       case 'cpu':
-        return cpuLoad(node, s);
+        return cpuLoad(node, s, online);
       case 'storage': {
         const disk = [...s.disk].sort((a, b) => b.busy_pct - a.busy_pct)[0];
+        if (!online) return notReporting(node, 'storage load', disk ? `${disk.name} was ${pct(disk.busy_pct)} busy` : null);
         const busy = (disk?.busy_pct ?? 0) >= DISK_BUSY_PCT;
         return busy && disk
           ? { node, busy, text: `${node} ${disk.name} is ${pct(disk.busy_pct)} busy right now; ${consequence}.` }
@@ -1018,6 +1026,7 @@ export function competition(
         const rails = interconnects(node);
         const traffic = (linkTraffic ? linkTraffic(node, rails) : latestTraffic(s, rails)).filter((t) => t.rx + t.tx >= LINK_BUSY_BPS);
         const moving = traffic.map((t) => `${t.label} ${gbps(t.rx)} in / ${gbps(t.tx)} out`).join(', ');
+        if (!online) return notReporting(node, 'ConnectX-7 traffic', traffic.length ? `its link carried ${moving}` : work ? `it was ${work.verb} ${work.what}` : 'its link was quiet');
         if (traffic.length) {
           const why = work ? ` (${work.verb} ${work.what})` : '';
           return { node, busy: true, text: `${node} ConnectX-7 traffic${why}: ${moving}; ${consequence}.` };
@@ -1026,11 +1035,12 @@ export function competition(
         return { node, busy: false, text: `${node} ConnectX-7 link is quiet.` };
       }
       default: {
-        if (byCpu(node)) return cpuLoad(node, s);
-        if (chosen !== undefined) return chosenGpu(node, chosen, util, s.procs, status(node) === 'online');
+        if (byCpu(node)) return cpuLoad(node, s, online);
+        if (chosen !== undefined) return chosenGpu(node, chosen, util, s.procs, online);
+        const at = util !== null ? ` at ${pct(util)} GPU` : '';
+        if (!online) return notReporting(node, 'GPU load', work ? `it was ${work.verb} ${work.what}${at}` : util !== null ? `its GPU was ${pct(util)} busy` : null);
         const busy = (util ?? 0) >= GPU_BUSY_PCT || work !== null;
         if (!busy) return { node, busy, text: `${node} GPU is idle${util !== null ? ` (${pct(util)})` : ''}.` };
-        const at = util !== null ? ` at ${pct(util)} GPU` : '';
         return work
           ? { node, busy, text: `${node} is currently ${work.verb} ${work.what}${at}; ${consequence}.` }
           : { node, busy, text: `${node} GPU is ${pct(util ?? 0)} busy; ${consequence}.` };
