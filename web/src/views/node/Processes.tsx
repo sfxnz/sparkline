@@ -1,12 +1,13 @@
 // Processes: the node's top consumers from the latest process refresh (every ~5 s). Between refreshes the
 // LiveStore keeps the last list, so the table never flashes; sort and filter persist for the browser session.
 import { ListX, Search, SearchX, X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button, IconButton } from '../../design/components/Button';
 import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
 import { formatBytes } from '../../lib/format';
-import type { ProcSample } from '../../lib/types';
+import { gpuProcessesGap } from '../../lib/gpu';
+import type { ProcSample, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { liveStore, useLatest } from '../../store/live';
 import { RowsSkeleton } from '../placeholders';
@@ -35,6 +36,7 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const procs = useLatest(nodeId, (s) => s?.procs ?? null);
   const hasSample = useLatest(nodeId, (s) => s !== null);
   const info = useCluster((s) => s.nodes[nodeId]?.info);
+  const cannotTell = useLatest(nodeId, useCallback((s: Sample | null) => gpuProcessesGap(info, s) !== null, [info]));
   const status = useCluster((s) => s.nodes[nodeId]?.status);
   const stale = useNodeStale(nodeId);
   const [view, setView] = useState<ProcView>(loadView);
@@ -43,11 +45,13 @@ export default function Processes({ nodeId }: { nodeId: string }) {
   const rows = useMemo(() => (procs ? sortProcs(filterProcs(procs, view.filter), view.sort) : []), [procs, view]);
   const summary = useMemo(() => {
     if (!procs) return null;
+    // The agent sends the biggest consumers (top by GPU memory, memory and CPU), not every process on the node.
+    const listed = `The ${procs.length} biggest ${procs.length === 1 ? 'consumer' : 'consumers'}`;
+    if (cannotTell) return listed;
     const onGpu = procs.filter((p) => p.gpu_mem != null);
     const gpuBytes = onGpu.reduce((a, p) => a + (p.gpu_mem ?? 0), 0);
-    // The agent sends the biggest consumers (top by GPU memory, memory and CPU), not every process on the node.
-    return `The ${procs.length} biggest ${procs.length === 1 ? 'consumer' : 'consumers'} · ${onGpu.length} on the GPU${onGpu.length ? ` using ${formatBytes(gpuBytes)}` : ''}`;
-  }, [procs]);
+    return `${listed} · ${onGpu.length} on the GPU${onGpu.length ? ` using ${formatBytes(gpuBytes)}` : ''}`;
+  }, [procs, cannotTell]);
   const ts = listTs(nodeId, procs);
   const waiting = !procs && !stale && (hasSample || status === 'connecting' || status === 'online' || !status);
 
