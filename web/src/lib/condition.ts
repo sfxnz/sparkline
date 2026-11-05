@@ -98,10 +98,10 @@ const lostCondition = (index: number): GpuCondition => ({
   index, level: 'warning', text: 'has a GPU not responding', what: NOT_RESPONDING, reading: NOT_RESPONDING, clause: { one: 'not responding', many: 'not responding' },
 });
 
-/** Each GPU's live condition in the sample, in index order; GPUs with nothing on screen to flag are left out. On a node
- *  with several GPUs, a lost one is not responding (a node with one says so in its own notice). */
+/** Each GPU's live condition in the sample, in index order; GPUs with nothing on screen to flag are left out. A lost
+ *  GPU is not responding. */
 export function gpuConditions(info: NodeInfo | null | undefined, s: Sample | null): GpuCondition[] {
-  const lost = (info?.gpus.length ?? 0) > 1 ? (info?.gpus ?? []).filter((g) => lostGpu(info, g.index)).map((g) => lostCondition(g.index)) : [];
+  const lost = (info?.gpus ?? []).filter((g) => lostGpu(info, g.index)).map((g) => lostCondition(g.index));
   const live = (s?.gpu ?? []).flatMap((g) => (lost.some((c) => c.index === g.index) ? [] : (gpuCondition(g.index, g, gpuAt(info?.gpus, g.index)?.temp_slowdown_c) ?? [])));
   return [...lost, ...live].toSorted((a, b) => a.index - b.index);
 }
