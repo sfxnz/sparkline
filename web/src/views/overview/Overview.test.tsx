@@ -381,7 +381,7 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     });
     render(<Overview />);
     expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 86% \(4 of 8 GPUs\) at 1069 W · excl\. ws2$/);
-    expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute86%Mean GPU utilisation \(4 of 8 GPUs\) · excl\. ws2 · All 2 nodes reporting$/);
+    expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute86%Mean GPU utilisation \(4 of 8 GPUs\) · excl\. ws2$/);
   });
 
   it('marks nothing on a calm ws1 beside a GB10', () => {
@@ -721,5 +721,15 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
     show([[gb10('spark1'), idle], [wsInfo as unknown as NodeInfo, busy]]);
     expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute80%/);
     expect(hero()).toHaveTextContent(/GPU 80% at /);
+  });
+
+  it('drops "All 2 nodes reporting" beside the node the cluster compute leaves out', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), noNvmlReading('n1')]]);
+    expect(tile('Cluster compute').querySelector('.stat__footer')).toHaveTextContent(/^Mean GPU utilisation · excl\. n1$/);
+  });
+
+  it('keeps how many nodes report beside the node the cluster compute leaves out while another is offline', () => {
+    show([[gb10('spark1'), gb10Reading('spark1')], [noNvml('n1'), noNvmlReading('n1')], [gb10('spark3'), null]], { spark3: 'offline' });
+    expect(tile('Cluster compute').querySelector('.stat__footer')).toHaveTextContent(/^Mean GPU utilisation · excl\. n1 · 2 of 3 nodes reporting$/);
   });
 });
