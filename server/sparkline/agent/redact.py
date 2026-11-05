@@ -91,8 +91,9 @@ RENAME = (
     "A name of this machine is also an ordinary word in what the agent reads, so replacing the name "
     "would change a reading and show the name. Give that name another value for the run, then capture "
     "again. For the hostname, run sudo hostname sparkline-capture and set it back after. For a Docker "
-    "container, run docker rename. For a user name, capture from another account. For the full name of an "
-    "account, run sudo chfn -f '' <account> and set it back after. Before you attach, "
+    "container, run docker rename. For a user name, capture from another account. For a word or number of "
+    "an account's comment field, such as its full name or phone, run sudo usermod -c '' <account> and set "
+    "it back after. Before you attach, "
     "search the recording for the old name, for example with grep -ri, and read the mount points in "
     "root/proc/self/mounts and the statvfs keys in host.json. Or open an issue and paste these lines."
 )
@@ -152,6 +153,7 @@ ELSEWHERE = "<elsewhere>"
 DISK = re.compile(r"/dev/(?:nvme\d+n\d+(?:p\d+)?|(?:sd|vd|xvd|hd)[a-z]+\d*|mmcblk\d+(?:p\d+)?|md\d+|dm-\d+)")
 LONG_NAME = 8
 NAME_PART = 4
+GECOS_NUMBER = 6
 
 _HEX = "[0-9A-Fa-f]"
 Form = Literal["hex", "name", "host", "anywhere", "ipv4", "ipv6", "path"]
@@ -770,7 +772,13 @@ def _full_name_spellings(user: User) -> list[str]:
     whole = [full_name] if len(full_name.split()) > 1 else []
     parts = [p for p in re.findall(r"[^\W_]+", gecos) if len(p) >= NAME_PART and re.search(r"[^\W\d_]", p)]
     names = [n for n in whole + parts if n.lower() != user.name.lower()]
-    return names + [a for n in names if (a := _ascii(n)) != n and len(a) >= NAME_PART]
+    numbers = [
+        spelled
+        for field in gecos.split(",")
+        if not re.search(r"[^\W\d_]", field) and len(digits := re.sub(r"\D", "", field)) >= GECOS_NUMBER
+        for spelled in dict.fromkeys((field.strip(), digits))
+    ]
+    return names + [a for n in names if (a := _ascii(n)) != n and len(a) >= NAME_PART] + numbers
 
 
 _NO_DECOMPOSITION = str.maketrans(
