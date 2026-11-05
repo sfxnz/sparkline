@@ -102,3 +102,37 @@ describe('Processes tab', () => {
     expect(screen.getByText('No processes reported')).toBeInTheDocument();
   });
 });
+
+describe('Processes tab on a node that cannot tell its GPU processes', () => {
+  const NO_NVML = 'Install nvidia-ml-py to read NVIDIA GPU metrics';
+  const idle = [proc(10, { name: 'dockerd' }), proc(11, { name: 'bash' })];
+  const gb10 = { gpus: [{ index: 0, name: 'NVIDIA GB10', vendor: 'nvidia', backend: 'nvml', memory: 'unified' }], mem_total: 128 * GiB, unsupported: [] } as unknown as NodeInfo;
+  const show = (info: NodeInfo, sample: Partial<Sample>) => {
+    sessionStorage.clear();
+    liveStore.removeNode(NODE);
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: { ...node, info } } });
+    ts += 1;
+    act(() => {
+      liveStore.pushSample({ ...base, node_id: NODE, ts, procs: idle, ...sample });
+      liveStore.flush();
+    });
+    return render(<Processes nodeId={NODE} />);
+  };
+  const subtitle = () => screen.getByText(/^The \d+ biggest/);
+
+  it('says only how many consumers it lists on a node without NVML', () => {
+    const noNvml = { gpus: [], mem_total: 128 * GiB, unsupported: [{ metric: 'gpu*', reason: NO_NVML, kind: 'dependency' }, { metric: 'mem.gpu', reason: NO_NVML, kind: 'dependency' }] } as unknown as NodeInfo;
+    show(noNvml, { gpu: [] });
+    expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers$/);
+  });
+
+  it('says only how many consumers it lists while the GPU sends no reading', () => {
+    show(gb10, { gpu: [], errors: { gpu: 'nvml: RuntimeError: NVML read failed' } });
+    expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers$/);
+  });
+
+  it('still counts none on the GPU on a GB10 that reports and runs none', () => {
+    show(gb10, {});
+    expect(subtitle()).toHaveTextContent(/^The 2 biggest consumers · 0 on the GPU$/);
+  });
+});
