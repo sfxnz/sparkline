@@ -12,6 +12,7 @@ import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
 import gb10Sample from '../../test/fixtures/platforms/gb10/sample.json';
 import wsInfo from '../../test/fixtures/platforms/workstation/info.json';
 import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
+import { preloadSummary } from '../node/tabs';
 import Overview from '../Overview';
 
 // uPlot needs a real canvas; the charts have their own tests.
@@ -50,6 +51,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
 });
+// A card's hover or focus starts importing the node page chunk. An import still in flight when the environment
+// tears down fails the run with an EnvironmentTeardownError, though every test passed.
+afterAll(() => preloadSummary());
 
 describe('Overview', () => {
   it('shows a layout skeleton before the console says hello', () => {
