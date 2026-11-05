@@ -1,11 +1,13 @@
 import { ChevronRight, Info, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Link } from 'wouter';
 import { paths, type NodeTab } from '../../../app/routes';
-import { notReported } from '../../../lib/capabilities';
+import { lostGpu, notReported } from '../../../lib/capabilities';
 import { decodeThrottle, worstSeverity, type ThrottleReason } from '../../../lib/throttle';
-import type { Sample, Severity } from '../../../lib/types';
+import type { NodeInfo, Sample, Severity } from '../../../lib/types';
 import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
+import { andList, gpuAt, reportingGpus, silentBackends, type SilentBackend } from '../../../lib/gpu';
 
 // ------------------------------------------------------------------ collector errors
 
@@ -28,33 +30,69 @@ const sameErrors = (a: Record<string, string>, b: Record<string, string>) => {
   return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 };
 
+const selectReporting = (s: Sample | null) => s?.gpu.map((g) => g.index).join(',') ?? '';
+
+/** A lost GPU 0 declares `gpu0` too, but the GPU collector still runs and reads the other GPUs. */
+const collectorDown = (info: NodeInfo | null | undefined, name: string) =>
+  notReported(info, COLLECTORS[name]?.metric ?? name) !== null && !(name === 'gpu' && lostGpu(info, 0));
+
+const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
+
 /** Collector failures from the latest sample, as calm inline notes. `only` limits them to some collectors. A collector
- *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. */
+ *  whose metrics the node declares not reported (it could not start) is left out: its panels already say why. While
+ *  some GPUs still report, a GPU failure is one note per backend that went silent, naming its GPUs. */
 export function CollectorErrors({ nodeId, only, link }: { nodeId: string; only?: readonly string[]; link?: boolean }) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const errors = useLatest(nodeId, selectErrors, sameErrors);
-  const entries = Object.entries(errors).filter(([k]) => (!only || only.includes(k)) && !notReported(info, COLLECTORS[k]?.metric ?? k));
+  const reportingKey = useLatest(nodeId, selectReporting);
+  const entries = Object.entries(errors).filter(([k]) => (!only || only.includes(k)) && !collectorDown(info, k));
   if (!entries.length) return null;
+  const reporting = reportingKey ? reportingGpus(info, reportingKey.split(',').map(Number)) : [];
+  const silent = reporting.length ? silentBackends(info, errors.gpu, reporting) : [];
   return (
     <ul className="nnotes" aria-label="Metrics unavailable">
-      {entries.map(([name, msg]) => {
+      {entries.flatMap(([name, msg]) => {
         const tab = COLLECTORS[name]?.tab;
-        return (
+        const details = link && tab ? (
+          <Link href={paths.node(nodeId, tab)} className="nnote__link">
+            Details<ChevronRight aria-hidden="true" />
+          </Link>
+        ) : null;
+        if (name === 'gpu' && silent.length) {
+          return silent.map((b) => <SilentNote key={`gpu/${b.backend}`} item={b} reporting={reporting} details={details} />);
+        }
+        return [
           <li key={name} className="nnote tone-warn">
             <TriangleAlert className="nnote__icon" aria-hidden="true" />
             <p className="nnote__text">
-              <strong>{collectorLabel(name)} unavailable:</strong> <span className="nnote__msg">{msg}</span>
+              <strong>{collectorLabel(name)} unavailable:</strong> <span className="nnote__msg">{sentence(msg)}</span>
               <span className="nnote__aside"> Other panels are unaffected.</span>
             </p>
-            {link && tab ? (
-              <Link href={paths.node(nodeId, tab)} className="nnote__link">
-                Details<ChevronRight aria-hidden="true" />
-              </Link>
-            ) : null}
-          </li>
-        );
+            {details}
+          </li>,
+        ];
       })}
     </ul>
+  );
+}
+
+function SilentNote({ item, reporting, details }: { item: SilentBackend; reporting: readonly number[]; details: ReactNode }) {
+  const indexes = item.gpus.map((g) => g.index);
+  const names = [...new Set(item.gpus.map((g) => g.name))].join(', ');
+  const others = reporting.filter((i) => !indexes.includes(i));
+  return (
+    <li className="nnote tone-warn">
+      <TriangleAlert className="nnote__icon" aria-hidden="true" />
+      <p className="nnote__text">
+        <strong>{indexes.length === 1 ? 'GPU' : 'GPUs'} {andList(indexes)} ({names}) not responding:</strong>{' '}
+        <span className="nnote__msg">{sentence(item.message ?? 'no reading this tick')}</span>
+        <span className="nnote__aside">
+          {' '}The <code>{item.backend}</code> backend sent no reading this tick. {others.length === 1 ? 'GPU' : 'GPUs'} {andList(others)} still{' '}
+          {others.length === 1 ? 'reports' : 'report'}.
+        </span>
+      </p>
+      {details}
+    </li>
   );
 }
 
@@ -66,7 +104,7 @@ export const SEVERITY_META: Record<Severity, { label: string; icon: LucideIcon; 
   critical: { label: 'Critical', icon: OctagonAlert, tone: 'tone-crit' },
 };
 
-export const selectThrottleMask = (s: Sample | null) => s?.gpu[0]?.throttle_mask ?? null;
+export const selectThrottleMask = (s: Sample | null) => gpuAt(s?.gpu, 0)?.throttle_mask ?? null;
 
 /** Reasons that actually limit clocks ("Idle" only means there is no work). */
 export const limiting = (reasons: readonly ThrottleReason[]) => reasons.filter((r) => r.code !== 'gpu_idle');
@@ -75,7 +113,7 @@ export const limiting = (reasons: readonly ThrottleReason[]) => reasons.filter((
  *  ('low'), or unknown (null). An idle GB10 reports mask 0x0 at about 7% of its maximum clock. */
 export type ClockLevel = 'full' | 'idle' | 'low' | null;
 export function clockLevel(s: Sample | null, maxMhz: number | null): ClockLevel {
-  const g = s?.gpu[0];
+  const g = gpuAt(s?.gpu, 0);
   if (g?.sm_mhz == null || !maxMhz) return null;
   if (g.sm_mhz >= 0.8 * maxMhz) return 'full';
   return g.util == null || g.util < 10 ? 'idle' : 'low';

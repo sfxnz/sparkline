@@ -6,13 +6,14 @@ import re
 import shutil
 import time
 import typing
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from platforms import GB10, gb10, gb10_without
 
 from sparkline.agent.collectors import VOCABULARY, covers, declares
-from sparkline.agent.collectors.gpu import VIOLATION_EVERY_S
+from sparkline.agent.collectors.gpu.nvml import VIOLATION_EVERY_S
 from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors, catch_all
 from sparkline.agent.sampler import Sampler
@@ -38,7 +39,7 @@ def vocabulary_keys(info: NodeInfo) -> list[str]:
 
 
 def reported(key: str, info: NodeInfo, sample: Sample, flat: dict[str, float]) -> bool | None:
-    if key.endswith(PROBED_ONLY):
+    if key.endswith(PROBED_ONLY) or key == "gpu.backend":
         return None
     if m := re.fullmatch(r"gpu(\d+)\.power_limit_w", key):
         return next(g.power_limit_w for g in info.gpus if g.index == int(m.group(1))) is not None
@@ -67,6 +68,12 @@ def assert_every_metric_is_reported_or_declared(info: NodeInfo, sample: Sample) 
         "a collector that started left part of its vocabulary to the catch-all"
     )
     assert {"fan", "system.power_w"} <= {u.metric for u in gaps}
+    by_metric = {u.metric: (u.reason, u.kind) for u in gaps}
+    if info.gpus:
+        assert "gpu*" not in by_metric, "a gpu* gap would hide the GPUs that opened"
+    else:
+        assert by_metric["gpu*"] == by_metric["mem.gpu"], "one reason for having no GPU"
+        assert by_metric.get("gpu.backend") in (None, by_metric["gpu*"])
 
 
 def warm(monkeypatch: pytest.MonkeyPatch, src: Sources) -> tuple[NodeInfo, Sample, Collectors]:
@@ -133,6 +140,7 @@ RECORDED = {
         tmp, "/proc/pressure", "/sys/class/net", "/proc/self/net/dev"
     ),
     "no nvidia-ml-py": lambda tmp: gb10(nvml=None),
+    "no NVIDIA driver": lambda tmp: replace(gb10_without(tmp, "/proc/driver/nvidia"), nvml=None),
     "no meminfo": lambda tmp: gb10_without(tmp, "/proc/meminfo"),
 }
 

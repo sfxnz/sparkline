@@ -12,9 +12,11 @@ import { LiveStat } from './parts/LiveStat';
 import { NowLabel } from './parts/NowLabel';
 import { TabLink } from './parts/TabLink';
 import { TempFooter } from './parts/TempFooter';
+import { useGpuGap } from './parts/useGpuGap';
 import { CollectorErrors, ThrottleNotice } from './parts/Notices';
 import { cpuUtil, cx7Rails, gpuPower, gpuTemp, gpuUtil, memAvailable, NO_LINK_REASON, railShort, rootUsedPct, sumNet } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
+import { gpuAt } from '../../lib/gpu';
 
 const pct = (n: number) => formatPercent(n);
 const CPU_SERIES: readonly SeriesSpec[] = [
@@ -30,7 +32,7 @@ const MEM_SERIES: readonly SeriesSpec[] = [
 
 export default function Summary({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
-  const gpu = info?.gpus[0];
+  const gpu = gpuAt(info?.gpus, 0);
   const memTotal = info?.mem_total ?? null;
   const rails = useMemo(() => cx7Rails(info), [info]);
   const railNames = useMemo(() => rails.map((r) => r.name), [rails]);
@@ -49,7 +51,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
     ]),
     [rails],
   );
-  const powerUnsupported = notReported(info, 'gpu0.power_w');
+  const gap = useGpuGap(nodeId);
   const netGap = interconnectGap(info);
 
   return (
@@ -57,18 +59,18 @@ export default function Summary({ nodeId }: NodeTabProps) {
       <Panel label="At a glance">
         <NowLabel />
         <div className="nstats nstats--8">
-          <LiveStat nodeId={nodeId} label="GPU utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} unsupported={notReported(info, 'gpu0.util')} href={paths.node(nodeId, 'gpu')} footer={() => 'Time the GPU was busy'} />
+          <LiveStat nodeId={nodeId} label="GPU utilisation" select={gpuUtil} metric="gpu0.util" format={percentParts} unsupported={gap('gpu0.util')} href={paths.node(nodeId, 'gpu')} footer={() => 'Time the GPU was busy'} />
           <LiveStat
             nodeId={nodeId}
             label="GPU temperature"
             select={gpuTemp}
             metric="gpu0.temp_c"
             format={tempParts}
-            unsupported={notReported(info, 'gpu0.temp_c')}
+            unsupported={gap('gpu0.temp_c')}
             href={paths.node(nodeId, 'gpu')}
             footer={(v) => <TempFooter temp={v} slowdown={gpu?.temp_slowdown_c ?? null} shutdown={gpu?.temp_shutdown_c ?? null} />}
           />
-          <LiveStat nodeId={nodeId} label="GPU power" select={gpuPower} metric="gpu0.power_w" format={wattsParts} unsupported={powerUnsupported} href={paths.node(nodeId, 'gpu')} footer={() => 'GPU rail only'} />
+          <LiveStat nodeId={nodeId} label="GPU power" select={gpuPower} metric="gpu0.power_w" format={wattsParts} unsupported={gap('gpu0.power_w')} href={paths.node(nodeId, 'gpu')} footer={() => 'GPU rail only'} />
           <LiveStat
             nodeId={nodeId}
             label="Memory available"

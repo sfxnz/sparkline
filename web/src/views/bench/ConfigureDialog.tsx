@@ -32,6 +32,7 @@ import {
 } from './model';
 import { ParamField, ParamForm } from './ParamForm';
 import { ImpactChips, ProblemTip } from './parts';
+import { gpuAt } from '../../lib/gpu';
 
 interface Props {
   spec: BenchSpec;
@@ -265,7 +266,7 @@ function PairPicker({ spec, known, statuses, nodes, onChange }: { spec: BenchSpe
 function NodeLoad({ node, hint }: { node: string; hint: string }) {
   useNow(2000);
   const s = liveStore.latest(node);
-  const util = s?.gpu[0]?.util;
+  const util = gpuAt(s?.gpu, 0)?.util;
   const top = topGpuProcess(s?.procs);
   const text = [hint, top ? `${isServing(top) ? 'serving' : 'running'} ${workloadName(top)}` : null, util != null ? `GPU ${Math.round(util)}%` : null].filter(Boolean).join(' · ');
   return <span className="bench-node__load num">{text || 'No live data'}</span>;

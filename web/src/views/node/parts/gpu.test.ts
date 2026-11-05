@@ -42,7 +42,7 @@ describe('throttleHeadline', () => {
     expect(throttleHeadline(decodeThrottle(0)).text).toBe('No clock limits active');
   });
   it('places the clock against its maximum (an idle GB10 reports mask 0 at 208 of 3000 MHz)', () => {
-    const at = (sm_mhz: number | null, util: number | null) => ({ gpu: [{ sm_mhz, util }] }) as unknown as Sample;
+    const at = (sm_mhz: number | null, util: number | null) => ({ gpu: [{ index: 0, sm_mhz, util }] }) as unknown as Sample;
     expect(clockLevel(at(208, 0), 3000)).toBe('idle');
     expect(clockLevel(at(1200, 85), 3000)).toBe('low');
     expect(clockLevel(at(2900, 85), 3000)).toBe('full');

@@ -1,6 +1,6 @@
-import { CircleSlash, Clock, RotateCw, ServerOff, Unplug } from 'lucide-react';
+import { ChevronDown, CircleSlash, Clock, RotateCw, ServerOff, Unplug } from 'lucide-react';
 import { m } from 'motion/react';
-import { Suspense } from 'react';
+import { Suspense, useId, useState } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
 import { isNodeTab, NODE_TABS, paths, type NodeTab } from '../app/routes';
 import { EmptyState } from '../design/components/EmptyState';
@@ -16,11 +16,13 @@ import { useNow } from '../design/useNow';
 import { api } from '../lib/api';
 import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
+import { gpuHeadline } from '../lib/platform';
 import type { NodeInfo, NodeState } from '../lib/types';
 import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { useNodeDisplayStatus } from '../store/attention';
 import { TAB_COMPONENTS } from './node/tabs';
+import { PlatformSheet } from './node/parts/PlatformSheet';
 import { SummarySkeleton } from './node/parts/SummarySkeleton';
 import { ChartPanelSkeleton, StatSkeleton } from './placeholders';
 import './node/parts/node.css';
@@ -112,7 +114,7 @@ function metaItems(node: NodeState, now: number): string[] {
   return [
     info.hostname !== node.node_id ? info.hostname : null,
     host,
-    info.gpus[0]?.name ?? null,
+    gpuHeadline(info),
     info.driver ? `Driver ${info.driver}` : null,
     info.cuda ? `CUDA ${info.cuda}` : null,
     `Agent ${info.agent_version}`,
@@ -126,6 +128,10 @@ function NodeHeader({ id }: { id: string }) {
   useNow(60_000); // uptime
   const status = useNodeDisplayStatus(id);
   const items = node ? metaItems(node, serverNow()) : [];
+  const info = node?.info;
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const open = openFor === id;
+  const sheetId = useId();
 
   return (
     // The frame morphs from the card; its children carry `layout` so Motion counter-scales them (text and pill keep
@@ -140,16 +146,33 @@ function NodeHeader({ id }: { id: string }) {
         </m.span>
       </div>
       {items.length ? (
-        <m.ul layout="position" transition={springs.layout} className="nhead__meta" aria-label={`${id} details`}>
-          {items.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </m.ul>
+        <m.div layout="position" transition={springs.layout} className="nhead__metarow">
+          <ul className="nhead__meta" aria-label={`${id} details`}>
+            {items.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
+          {info ? (
+            <button type="button" className="nhead__more" aria-expanded={open} aria-controls={sheetId} onClick={() => { setOpenFor(open ? null : id); }}>
+              Details
+              <ChevronDown aria-hidden="true" className="nhead__chevron" />
+            </button>
+          ) : null}
+        </m.div>
       ) : (
         <m.div layout="position" transition={springs.layout} className="nhead__meta" aria-hidden="true">
           <Skeleton width={360} height={12} />
         </m.div>
       )}
+      {info ? (
+        <div id={sheetId} hidden={!open}>
+          {open ? (
+            <m.div layout="position" transition={springs.layout} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <PlatformSheet info={info} />
+            </m.div>
+          ) : null}
+        </div>
+      ) : null}
     </m.header>
   );
 }

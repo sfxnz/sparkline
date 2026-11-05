@@ -59,8 +59,49 @@ describe('notReported', () => {
     expect(notReported(info, 'fan')).toEqual({ kind: 'agent', label: 'Not collected yet', detail: 'Fan speed is not collected yet (hwmon exposes 2 fan sensors)' });
   });
 
+  it('answers for gpu.backend with that exact entry, which never stands for a GPU, and is never covered by gpu*', () => {
+    const backend = { metric: 'gpu.backend', reason: 'nvml: NVML unavailable (NVML: Driver/library version mismatch)', kind: 'hardware' } as const;
+    expect(notReported(node(backend), 'gpu.backend')).toEqual({ kind: 'hardware', label: HARDWARE, detail: 'nvml: NVML unavailable (NVML: Driver/library version mismatch)' });
+    expect(notReported(node(backend), 'gpu0.util')).toBeNull();
+    expect(notReported(node(backend), 'gpu0')).toBeNull();
+    expect(notReported(node({ metric: 'gpu*', reason: 'nvml: Install nvidia-ml-py', kind: 'dependency' }), 'gpu.backend')).toBeNull();
+    const zero = node(
+      { metric: 'gpu*', reason: 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' },
+      { metric: 'gpu.backend', reason: 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' },
+    );
+    expect(notReported(zero, 'gpu.backend')).toEqual({ kind: 'dependency', label: 'Helper tool missing', detail: 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics' });
+  });
+
+  it('never lets a skipped backend entry stand for the node-wide gpu.backend answer or for a GPU metric', () => {
+    const skipped = node({ metric: 'gpu.backend.amdsmi', reason: 'Install amdsmi to read AMD GPU metrics', kind: 'dependency' });
+    expect(notReported(skipped, 'gpu.backend')).toBeNull();
+    expect(notReported(skipped, 'gpu0.util')).toBeNull();
+    expect(notReported(skipped, 'gpu0')).toBeNull();
+    expect(notReported(skipped, 'gpu.backend.amdsmi')).toEqual({ kind: 'dependency', label: 'Helper tool missing', detail: 'Install amdsmi to read AMD GPU metrics' });
+  });
+
   it('answers null without node info', () => {
     expect(notReported(null, 'gpu0.util')).toBeNull();
     expect(notReported(undefined, 'gpu0.util')).toBeNull();
+  });
+});
+
+describe('notReported for a lost GPU', () => {
+  const lost = 'NVML could not open GPU 1 (NVML: GPU is lost)';
+  const info = {
+    unsupported: [
+      { metric: 'gpu1', reason: lost, kind: 'hardware' },
+      { metric: 'gpu1.util', reason: lost, kind: 'hardware' },
+      { metric: 'gpu0.fan_pct', reason: 'No fan', kind: 'hardware' },
+    ],
+  } as unknown as NodeInfo;
+
+  it("says every one of its metrics is not responding, not that the hardware lacks it", () => {
+    expect(notReported(info, 'gpu1.util')).toEqual({ kind: 'hardware', label: 'Not responding', detail: lost });
+    expect(notReported(info, 'gpu1.temp_c')?.label).toBe('Not responding');
+  });
+  it('leaves the other GPUs alone', () => {
+    expect(notReported(info, 'gpu0.fan_pct')?.label).toBe('Not reported by this hardware');
+    expect(notReported(info, 'gpu0.util')).toBeNull();
   });
 });

@@ -29,6 +29,7 @@ import { liveStore } from '../store/live';
 import { StreamsGallery } from '../views/bench/streams/StreamsGallery';
 import { ToolEvalGallery } from '../views/bench/tooleval/ToolEvalGallery';
 import '../views/views.css';
+import { gpuAt } from '../lib/gpu';
 
 const GiB = 1024 ** 3;
 const cores: CoreInfo[] = Array.from({ length: 20 }, (_, id) => ({
@@ -74,9 +75,9 @@ function LatestStat() {
   useEffect(() => liveStore.subscribeSample('spark1', () => { setV(liveStore.latest('spark1')); }), []);
   return (
     <div className="ph-statrow">
-      <Stat label="GPU utilisation" value={v?.gpu[0]?.util} format={percentParts} />
-      <Stat label="GPU temperature" value={v?.gpu[0]?.temp_c} format={tempParts} />
-      <Stat label="GPU power" value={v?.gpu[0]?.power_w} format={wattsParts} />
+      <Stat label="GPU utilisation" value={gpuAt(v?.gpu, 0)?.util} format={percentParts} />
+      <Stat label="GPU temperature" value={gpuAt(v?.gpu, 0)?.temp_c} format={tempParts} />
+      <Stat label="GPU power" value={gpuAt(v?.gpu, 0)?.power_w} format={wattsParts} />
       <Stat label="Memory used" value={v?.mem.used} format={bytesParts} />
       <Stat label="CX7 rail A rx" value={v?.net[0]?.rx_bps} format={bitrateParts} stale updatedAt={staleSince} />
       <Stat label="Power limit" value={null} format={wattsParts} unsupported={notReportedByHardware('Not reported by GB10 (NVML: Not Supported).')} />

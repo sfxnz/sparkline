@@ -73,36 +73,41 @@ def main(argv: list[str] | None = None) -> int:
         log.warning("No token configured: API is unauthenticated (allowed only because bind is loopback)")
 
     collectors = Collectors(cfg, live())
-    info = collectors.node_info(cfg)
-    sampler = Sampler(
-        cfg.node_id,
-        collectors.ordered(),
-        cfg.interval_ms,
-        cfg.ring_seconds,
-        Store(cfg.data_dir),
-        cfg.retention_10s_days,
-        cfg.retention_60s_days,
-    )
-    bench = BenchRunner(
-        cfg.node_id,
-        lambda: info,
-        lambda: sampler.latest,
-        sampler.publish,
-        cfg.bench_image,
-        cfg.bench_dir,
-        payload_device=cfg.bench_payload_device,
-    )
-    app = create_app(sampler, lambda: info, cfg.token, bench=bench)
-    log.info(
-        "sparkline-agent %s node=%s listening on %s:%d, interval %d ms, data %s",
-        info.agent_version,
-        cfg.node_id,
-        host,
-        cfg.port,
-        cfg.interval_ms,
-        cfg.data_dir,
-    )
-    uvicorn.run(app, host=host, port=cfg.port, log_level=a.log_level, access_log=False, ws_ping_interval=None)
+    try:
+        info = collectors.node_info(cfg)
+        sampler = Sampler(
+            cfg.node_id,
+            collectors.ordered(),
+            cfg.interval_ms,
+            cfg.ring_seconds,
+            Store(cfg.data_dir),
+            cfg.retention_10s_days,
+            cfg.retention_60s_days,
+        )
+        bench = BenchRunner(
+            cfg.node_id,
+            lambda: info,
+            lambda: sampler.latest,
+            sampler.publish,
+            cfg.bench_image,
+            cfg.bench_dir,
+            payload_device=cfg.bench_payload_device,
+        )
+        app = create_app(sampler, lambda: info, cfg.token, bench=bench, close=collectors.close)
+        log.info(
+            "sparkline-agent %s node=%s listening on %s:%d, interval %d ms, data %s",
+            info.agent_version,
+            cfg.node_id,
+            host,
+            cfg.port,
+            cfg.interval_ms,
+            cfg.data_dir,
+        )
+        uvicorn.run(
+            app, host=host, port=cfg.port, log_level=a.log_level, access_log=False, ws_ping_interval=None
+        )
+    finally:
+        collectors.close()
     return 0
 
 

@@ -2,9 +2,10 @@ import { act, render } from '@testing-library/react';
 import sampleJson from '../test/fixtures/sample.json';
 import type { GpuSample, Sample } from '../lib/types';
 import { LiveStore, MAX_KEYS_PER_NODE, useLatest } from './live';
+import { gpuAt } from '../lib/gpu';
 
 const base = sampleJson as unknown as Sample;
-const gpu0 = base.gpu[0] as GpuSample;
+const gpu0 = gpuAt(base.gpu, 0) as GpuSample;
 const mk = (ts: number, gpuUtil: number | null = 50, node = 'spark1'): Sample => ({
   ...base,
   node_id: node,
@@ -202,7 +203,7 @@ describe('useLatest', () => {
     let renders = 0;
     function Temp() {
       renders++;
-      const temp = useLatest('spark1', (s) => s?.gpu[0]?.temp_c ?? null, Object.is, store);
+      const temp = useLatest('spark1', (s) => gpuAt(s?.gpu, 0)?.temp_c ?? null, Object.is, store);
       return <span data-testid="t">{temp ?? '—'}</span>;
     }
     const { getByTestId } = render(<Temp />);

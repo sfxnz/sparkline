@@ -65,6 +65,7 @@ def create_app(
     token: str,
     manage_sampler: bool = True,
     bench: BenchRunner | None = None,
+    close: Callable[[], None] = lambda: None,
 ) -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -73,10 +74,15 @@ def create_app(
         if bench is not None:
             await bench.sweep()  # containers / work dirs a killed agent left behind
         yield
-        if bench is not None:
-            await bench.shutdown()  # cancels a running job: kills its processes, removes containers/files
-        if manage_sampler:
-            await sampler.stop()
+        # Here, not after uvicorn.run returns: uvicorn re-raises SIGTERM once shutdown ends, and its default
+        # action ends the process before any code after run() executes.
+        try:
+            if bench is not None:
+                await bench.shutdown()  # cancels a running job: kills its processes, removes containers/files
+            if manage_sampler:
+                await sampler.stop()
+        finally:
+            close()
 
     app = FastAPI(title="sparkline-agent", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     failures: dict[str, deque[float]] = {}

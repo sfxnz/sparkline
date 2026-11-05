@@ -272,6 +272,7 @@
   "gpus": [
    {
     "arch": "Blackwell",
+    "backend": "nvml",
     "compute_capability": "12.1",
     "cuda_cores": 6144,
     "index": 0,
@@ -281,7 +282,8 @@
     "temp_max_c": 99.0,
     "temp_shutdown_c": 90.0,
     "temp_slowdown_c": 86.0,
-    "uuid": "GPU-00000000-0000-0000-0000-000000000000"
+    "uuid": "GPU-00000000-0000-0000-0000-000000000000",
+    "vendor": "nvidia"
    }
   ],
   "hostname": "spark-gb10",
@@ -390,6 +392,7 @@
   "node_id": "gb10",
   "nvml": "13.580.178.04",
   "os": "Ubuntu 24.04.5 LTS",
+  "platform": "linux",
   "sample_interval_ms": 1000,
   "schema_version": 1,
   "sensors": [
@@ -521,6 +524,11 @@
     "metric": "system.power_w",
     "reason": "Whole-system power is not exposed; only the GPU rail (NVML) is"
    }
-  ]
+  ],
+  "versions": {
+   "nvidia.CUDA": "13.0",
+   "nvidia.Driver": "580.178.04",
+   "nvidia.NVML": "13.580.178.04"
+  }
  }
 }

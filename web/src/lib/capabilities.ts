@@ -29,12 +29,24 @@ function moreSpecific(a: Unsupported, b: Unsupported): boolean {
   return aWild !== b.metric.includes('*') ? !aWild : a.metric.length > b.metric.length;
 }
 
+/** Why the agent cannot read GPU `index` at all, though its backend sees it (a lost GPU): its `gpu<i>` entry. */
+export function lostGpu(info: NodeInfo | null | undefined, index: number): NotReported | null {
+  const u = info?.unsupported.find((x) => x.metric === `gpu${String(index)}`);
+  return u ? { ...describeGap(u), label: 'Not responding' } : null;
+}
+
 export function notReported(info: NodeInfo | null | undefined, key: string): NotReported | null {
   let best: Unsupported | undefined;
   for (const u of info?.unsupported ?? []) if (covers(u.metric, key) && (!best || moreSpecific(u, best))) best = u;
   if (!best) return null;
-  const kind = isKind(best.kind) ? best.kind : 'hardware';
-  return { kind, label: LABEL[kind], detail: best.reason };
+  const gpuKey = /^gpu(\d+)(?:\.|$)/.exec(key);
+  const lost = gpuKey ? lostGpu(info, Number(gpuKey[1])) : null;
+  return lost?.detail === best.reason ? lost : describeGap(best);
+}
+
+export function describeGap(u: Unsupported): NotReported {
+  const kind = isKind(u.kind) ? u.kind : 'hardware';
+  return { kind, label: LABEL[kind], detail: u.reason };
 }
 
 /** The `net` gap as it bears on the ConnectX-7 interconnect. An `agent` gap says only that Sparkline skipped Wi-Fi or

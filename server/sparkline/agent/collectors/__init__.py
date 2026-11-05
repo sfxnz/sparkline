@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol, get_args
 
 from ...common.schema import Unsupported
 from ..sources import RootFs
 
 Caps = Mapping[str, Unsupported | None]
 
-_GPU = (
+GpuField = Literal[
     "util",
     "sm_mhz",
     "temp_c",
@@ -31,7 +31,7 @@ _GPU = (
     "fb_memory",
     "ecc",
     "pcie_bps",
-)
+]
 _MEM = (
     "used",
     "available",
@@ -48,8 +48,9 @@ _MEM = (
 _CPU = ("util", "perf_util", "eff_util", "load1", "load5", "load15", "psi_some", "core*.util", "core*.mhz")
 
 VOCABULARY: dict[str, str] = {
-    **{f"gpu*.{f}": "gpu" for f in _GPU},
+    **{f"gpu*.{f}": "gpu" for f in get_args(GpuField)},
     "mem.gpu": "gpu",
+    "gpu.backend": "gpu",
     **{f"mem.{f}": "memory" for f in _MEM},
     **{f"cpu.{f}": "cpu" for f in _CPU},
     "net": "net",
@@ -75,7 +76,8 @@ def covers(metric: str, key: str) -> bool:
 
 
 def declares(declared: str, vocab: str) -> bool:
-    return covers(vocab, declared) or covers(declared, vocab.replace("*", "0"))
+    indexes = re.findall(r"\d+", declared) or ["0"]
+    return covers(vocab, declared) or any(covers(declared, vocab.replace("*", i)) for i in indexes)
 
 
 class Collector(Protocol):

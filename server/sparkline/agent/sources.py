@@ -128,6 +128,9 @@ class NvmlReplay:
 
         return call
 
+    def nvmlShutdown(self) -> None:
+        pass
+
 
 def _replay(v: Any) -> Any:
     if isinstance(v, list):

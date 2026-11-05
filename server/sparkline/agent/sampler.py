@@ -80,10 +80,16 @@ class Sampler:
         errors: dict[str, str] = {}
         for c in self.collectors:
             try:
-                fields.update(c.collect())
+                got = c.collect()
+                reported = got.pop("errors", {})
+                if not isinstance(reported, dict):
+                    raise TypeError(f"errors must be a dict, not {type(reported).__name__}")
             except Exception as e:  # fault isolation: one collector never sinks the sample
                 errors[c.name] = f"{type(e).__name__}: {e}"
                 log.debug("collector %s failed", c.name, exc_info=True)
+                continue
+            errors |= reported
+            fields.update(got)
         for f in ("mem", "cpu"):  # required by the schema: reuse the last good reading, flagged in errors
             if f in fields:
                 self._last_good[f] = fields[f]

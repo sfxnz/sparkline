@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
-import type { ClusterState, NodeInfo, NodeState } from '../lib/types';
+import type { ClusterState, GpuInfo, NodeInfo, NodeState } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import Node, { NodeNotice } from './Node';
@@ -154,6 +154,159 @@ describe('Node page', () => {
     renderAt('/node/spark2/storage');
     expect(screen.getByText('Storage of spark2')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Storage not reported' })).not.toBeInTheDocument();
+  });
+
+  describe('node details', () => {
+    const gpu = (name: string, more: Partial<GpuInfo> = {}) => ({ index: 0, name, ...more }) as GpuInfo;
+    const header = (more: Partial<NodeInfo>) => ({
+      hostname: 'spark2', agent_version: '9.9.9', boot_time: 0, os: 'Test OS 99', kernel: '9.99.0-1-test-kernel-with-a-long-build-suffix',
+      driver: null, cuda: null, nvml: null, gpus: [], net: [], cores: [], disks: [], sensors: [], unsupported: [], ...more,
+    }) as unknown as NodeInfo;
+    const show = async (info: NodeInfo) => {
+      useCluster.getState().setHello(hello([{ ...base, url: 'http://agent.test:9750', info }]));
+      renderAt('/node/spark2');
+      const details = screen.getByRole('button', { name: 'Details' });
+      expect(details).toHaveAttribute('aria-expanded', 'false');
+      await userEvent.click(details);
+      expect(details).toHaveAttribute('aria-expanded', 'true');
+      const sheet = document.getElementById(details.getAttribute('aria-controls') ?? '');
+      expect(sheet).toBeVisible();
+      return sheet as HTMLElement;
+    };
+    const meta = () => screen.getByRole('list', { name: 'spark2 details' }).textContent;
+
+    it('shows a GB10 node on Linux through nvml with its NVIDIA versions, and keeps the meta row as it was', async () => {
+      const sheet = await show(header({
+        platform: 'linux', driver: '580.173.02', cuda: '13.0', nvml: '13.580.173.02',
+        versions: { 'nvidia.Driver': '580.173.02', 'nvidia.CUDA': '13.0', 'nvidia.NVML': '13.580.173.02' },
+        gpus: [gpu('NVIDIA GB10', { vendor: 'nvidia', backend: 'nvml' })],
+      }));
+      expect(meta()).toBe('agent.testNVIDIA GB10Driver 580.173.02CUDA 13.0Agent 9.9.9');
+      const s = within(sheet);
+      expect(s.getByRole('heading', { name: 'Platform' })).toBeInTheDocument();
+      expect(s.getByText('Linux')).toBeInTheDocument();
+      expect(s.getByText('Test OS 99')).toBeInTheDocument();
+      expect(s.getByText('9.99.0-1-test-kernel-with-a-long-build-suffix')).toBeInTheDocument();
+      expect(s.getByText('nvml')).toBeInTheDocument();
+      expect(s.getByText('1 GPU · NVIDIA GB10')).toBeInTheDocument();
+      expect(s.getByRole('heading', { name: 'NVIDIA' })).toBeInTheDocument();
+      expect(s.getByText('Driver').nextSibling).toHaveTextContent('580.173.02');
+      expect(s.getByText('CUDA').nextSibling).toHaveTextContent('13.0');
+      expect(s.getByText('NVML').nextSibling).toHaveTextContent('13.580.173.02');
+      expect(s.getByText('Sparkline agent').nextSibling).toHaveTextContent('9.9.9');
+      expect(s.queryByText('Skipped')).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Details' }));
+      expect(sheet).not.toBeVisible();
+    });
+
+    it('reads an older agent without platform, vendor, backend or versions as Linux, NVIDIA and nvml', async () => {
+      const s = within(await show(header({ gpus: [gpu('Test GPU'), gpu('Test GPU', { index: 1 })] })));
+      expect(s.getByText('Linux')).toBeInTheDocument();
+      expect(s.getByText('NVIDIA')).toBeInTheDocument();
+      expect(s.getByText('nvml')).toBeInTheDocument();
+      expect(s.getByText('2 GPUs · Test GPU')).toBeInTheDocument();
+      expect(s.getByText('No GPU versions reported')).toBeInTheDocument();
+    });
+
+    it('shows a platform and a GPU vendor from a newer agent as sent, without calling them Linux or NVIDIA', async () => {
+      const s = within(await show(header({
+        platform: 'freebsd', versions: { 'intel.Driver': '999.6' },
+        gpus: [gpu('Test Arc GPU', { vendor: 'intel', backend: 'level-zero' })],
+      })));
+      expect(s.getByText('freebsd')).toBeInTheDocument();
+      expect(s.getByText('level-zero')).toBeInTheDocument();
+      expect(s.getByText('1 GPU · Test Arc GPU')).toBeInTheDocument();
+      expect(s.getByRole('heading', { name: 'intel' })).toBeInTheDocument();
+      expect(s.queryByText('Linux')).not.toBeInTheDocument();
+      expect(s.queryByText('NVIDIA')).not.toBeInTheDocument();
+    });
+
+    it('lists both backends in use on a two-vendor node and why the other backend was skipped', async () => {
+      const s = within(await show(header({
+        versions: { 'amd.ROCm': '999.2', 'nvidia.Driver': '999.1' },
+        gpus: [gpu('Test NVIDIA GPU'), gpu('Test AMD GPU', { index: 1, vendor: 'amd', backend: 'amdgpu-sysfs' })],
+        unsupported: [{ metric: 'gpu.backend.amdsmi', reason: 'Install amdsmi to read AMD GPU metrics', kind: 'dependency' }],
+      })));
+      expect(s.getByText('1 GPU · Test NVIDIA GPU')).toBeInTheDocument();
+      expect(s.getByText('amdgpu-sysfs')).toBeInTheDocument();
+      expect(s.getByText('1 GPU · Test AMD GPU')).toBeInTheDocument();
+      expect(s.getByText('Skipped')).toBeInTheDocument();
+      expect(s.getByText('amdsmi').closest('li')).toHaveTextContent('amdsmiHelper tool missingInstall amdsmi to read AMD GPU metrics');
+      expect(s.getByText('amdsmi')).toBeInTheDocument();
+      expect(s.getByText('Install amdsmi to read AMD GPU metrics')).toBeInTheDocument();
+      expect(s.getAllByRole('heading').map((h) => h.textContent)).toEqual(['Platform', 'GPU backend', 'Versions', 'NVIDIA', 'AMD']);
+    });
+
+    it('says no GPU backend opened in the meta row and gives each backend its own row and kind', async () => {
+      const why = 'nvml: Install nvidia-ml-py to read NVIDIA GPU metrics; amdgpu-sysfs: Needs the render group for /dev/kfd';
+      const sheet = await show(header({
+        unsupported: [
+          { metric: 'gpu*', reason: why, kind: 'access' },
+          { metric: 'mem.gpu', reason: why, kind: 'access' },
+          { metric: 'gpu.backend', reason: why, kind: 'access' },
+          { metric: 'gpu.backend.nvml', reason: 'Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' },
+          { metric: 'gpu.backend.amdgpu-sysfs', reason: 'Needs the render group for /dev/kfd', kind: 'access' },
+        ],
+      }));
+      expect(meta()).toContain('No GPU backend');
+      const s = within(sheet);
+      expect(s.getByText('No GPU backend opened')).toBeInTheDocument();
+      expect(s.getAllByRole('listitem').filter((li) => li.classList.contains('nsheet__skip')).map((li) => li.textContent)).toEqual([
+        'nvmlHelper tool missingInstall nvidia-ml-py to read NVIDIA GPU metrics',
+        'amdgpu-sysfsNo accessNeeds the render group for /dev/kfd',
+      ]);
+      expect(s.getByText('No GPU versions reported')).toBeInTheDocument();
+    });
+
+    it('on a Mac without macmon and not root, names the helper to install and the root need on their own rows', async () => {
+      const s = within(await show(header({
+        platform: 'darwin',
+        gpus: [gpu('Test Apple GPU', { vendor: 'apple', backend: 'ioreg' })],
+        unsupported: [
+          { metric: 'gpu.backend.apple', reason: 'Install macmon (0.9.0 or later)', kind: 'dependency' },
+          { metric: 'gpu.backend.powermetrics', reason: 'Needs root', kind: 'access' },
+        ],
+      })));
+      expect(s.getByText('apple').closest('li')).toHaveTextContent('appleHelper tool missingInstall macmon (0.9.0 or later)');
+      expect(s.getByText('powermetrics').closest('li')).toHaveTextContent('powermetricsNo accessNeeds root');
+    });
+
+    it('says No GPU in the meta row when every backend found its vendor absent', async () => {
+      const sheet = await show(header({
+        unsupported: [
+          { metric: 'gpu*', reason: 'nvml: No NVIDIA driver is loaded (/proc/driver/nvidia is missing)', kind: 'hardware' },
+          { metric: 'mem.gpu', reason: 'nvml: No NVIDIA driver is loaded (/proc/driver/nvidia is missing)', kind: 'hardware' },
+          { metric: 'gpu.backend.nvml', reason: 'No NVIDIA driver is loaded (/proc/driver/nvidia is missing)', kind: 'hardware' },
+        ],
+      }));
+      expect(meta()).toBe('agent.testNo GPUAgent 9.9.9');
+      expect(within(sheet).getByText('No GPU found')).toBeInTheDocument();
+    });
+
+    it('gives an older agent with no GPU the reason from its gpu* entry', async () => {
+      const s = within(await show(header({
+        unsupported: [{ metric: 'gpu*', reason: 'Install nvidia-ml-py to read NVIDIA GPU metrics', kind: 'dependency' }],
+      })));
+      expect(s.queryByText('No GPUs reported')).not.toBeInTheDocument();
+      expect(s.getByText('Install nvidia-ml-py to read NVIDIA GPU metrics').closest('li')).toHaveTextContent('Helper tool missingInstall nvidia-ml-py');
+    });
+
+    it('closes the details when moving to another node', async () => {
+      const info = header({ gpus: [gpu('Test GPU')] });
+      useCluster.getState().setHello(hello([{ ...base, info }, { ...base, node_id: 'spark1', info: { ...info, hostname: 'spark1' } }]));
+      const loc = renderAt('/node/spark2');
+      await userEvent.click(screen.getByRole('button', { name: 'Details' }));
+      expect(screen.getByRole('button', { name: 'Details' })).toHaveAttribute('aria-expanded', 'true');
+      act(() => { loc.navigate('/node/spark1'); });
+      expect(screen.getByRole('heading', { name: 'spark1' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Details' })).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('offers no details while the node has not reported its info', () => {
+      renderAt('/node/spark2');
+      expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument();
+    });
   });
 
   it('selects the tab from the URL, defaults to Summary, and moves with the arrow keys', async () => {

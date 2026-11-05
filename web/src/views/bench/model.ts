@@ -6,6 +6,7 @@ import { formatBytes, formatDuration, formatFreq, formatPercent, formatTemp, for
 import { decodeThrottle } from '../../lib/throttle';
 import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, NetIfInfo, ProcSample, RunStatus, Sample } from '../../lib/types';
 import { isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
+import { gpuAt } from '../../lib/gpu';
 
 // ------------------------------------------------------------------------------------------------ catalog
 
@@ -860,7 +861,7 @@ export function competition(
   return nodes.map((node) => {
     const s = latest(node);
     if (!s) return { node, text: `${node} has not reported live data, so its current load is unknown.`, busy: false };
-    const gpu = s.gpu[0];
+    const gpu = gpuAt(s.gpu, 0);
     const util = gpu?.util ?? null;
     const work = gpuWorkload(s.procs);
     const pct = (v: number) => `${Math.round(v)}%`;

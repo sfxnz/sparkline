@@ -18,6 +18,7 @@ import { powerStats } from './energy';
 import { useRangeHistory, type Loadable } from '../../shared/live';
 import { useLiveDerived, useSpanEnergy } from './hooks';
 import { RANGE_SHORT } from './SensorGroup';
+import { gpuAt } from '../../../lib/gpu';
 
 const POWER = 'gpu0.power_w';
 const ENERGY = 'gpu0.energy_j';
@@ -54,7 +55,7 @@ export function PowerPanel({ nodeId, info, range, stale, updatedAt, store = live
   );
   const stats = live ? liveStats : histStats;
   const span = RANGE_SHORT[range];
-  const limit = info?.gpus[0]?.power_limit_w ?? null;
+  const limit = gpuAt(info?.gpus, 0)?.power_limit_w ?? null;
   const powerReason = notReported(info, POWER);
 
   return (

@@ -433,6 +433,10 @@ describe('competition', () => {
     expect(competition(MATMUL, ['spark1'], () => idle)[0]).toMatchObject({ busy: false, text: 'spark1 GPU is idle (0%).' });
     expect(competition(MATMUL, ['spark9'], () => null)[0]?.text).toMatch(/has not reported/);
   });
+  it("reads GPU 0's load by index, not another vendor's GPU that came first", () => {
+    const amdOnly = sample({ gpu: [{ index: 1, util: 96 }] as Sample['gpu'], procs: [] });
+    expect(competition(MATMUL, ['spark1'], () => amdOnly)[0]?.text).toBe('spark1 GPU is idle.');
+  });
   it('looks at the CX7 link for interconnect benches', () => {
     const rails = () => [{ name: 'enp1s0f1np1' }] as never;
     expect(competition(RDMA, ['spark1'], () => sample(), rails)[0]?.text).toBe(

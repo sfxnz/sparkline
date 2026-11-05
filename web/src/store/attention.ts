@@ -8,6 +8,7 @@ import { useCluster } from './cluster';
 import { useConnection } from './connection';
 import { openAlertLevel, useEvents } from './events';
 import { liveStore, useLatest } from './live';
+import { gpuAt } from '../lib/gpu';
 
 type Level = 'warning' | 'critical' | null;
 
@@ -16,9 +17,9 @@ export const worstLevel = (a: Level, b: Level): Level => (a === 'critical' || b 
 
 /** Live condition of one node's GPU; null unless the node is online (stale values never raise a pill). */
 export function useLiveCondition(id: string): LiveCondition | null {
-  const slowdown = useCluster((s) => s.nodes[id]?.info?.gpus[0]?.temp_slowdown_c ?? null);
+  const slowdown = useCluster((s) => gpuAt(s.nodes[id]?.info?.gpus, 0)?.temp_slowdown_c ?? null);
   const online = useCluster((s) => s.nodes[id]?.status === 'online');
-  const select = useCallback((s: Sample | null) => liveCondition(s?.gpu[0], slowdown), [slowdown]);
+  const select = useCallback((s: Sample | null) => liveCondition(gpuAt(s?.gpu, 0), slowdown), [slowdown]);
   const c = useLatest(id, select, sameCondition);
   return online ? c : null;
 }
@@ -48,7 +49,7 @@ export function useLiveConditions(ids: readonly string[]): Record<string, LiveCo
     const value: Record<string, LiveCondition | null> = {};
     for (const id of ids) {
       const n = nodes[id];
-      value[id] = n?.status === 'online' ? liveCondition(liveStore.latest(id)?.gpu[0], n.info?.gpus[0]?.temp_slowdown_c) : null;
+      value[id] = n?.status === 'online' ? liveCondition(gpuAt(liveStore.latest(id)?.gpu, 0), gpuAt(n.info?.gpus, 0)?.temp_slowdown_c) : null;
     }
     const prev = cache.current.value;
     const same = cache.current.sig === idsKey && ids.every((id) => sameCondition(prev[id] ?? null, value[id] ?? null));
