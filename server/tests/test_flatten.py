@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from sparkline.common.metrics import flatten, mount_key
+from sparkline.common.metrics import GPU_TOTALS, flatten, mount_key
 from sparkline.common.schema import (
     CpuSample,
     DiskSample,
@@ -16,7 +16,8 @@ from sparkline.common.schema import (
 )
 
 WEB_FIXTURES = Path(__file__).parents[2] / "web" / "src" / "test" / "fixtures"
-TOTAL_CASES = json.loads((WEB_FIXTURES / "flatten.expected.json").read_text())["gpu_totals"]
+EXPECTED = json.loads((WEB_FIXTURES / "flatten.expected.json").read_text())
+TOTAL_CASES = EXPECTED["gpu_totals"]
 
 
 def make_sample() -> Sample:
@@ -108,3 +109,13 @@ def test_node_gpu_totals_add_in_sample_order_without_compensation_as_the_web_fla
     f = flatten(make_sample().model_copy(update={"gpu": gpus}))
     assert f["gpu.power_w"] == 0.1 + 0.2 + 0.3 == 0.6000000000000001
     assert f["gpu.util"] == (0.1 + 0.2 + 0.3) / 3
+
+
+def test_the_node_gpu_totals_follow_the_rules_the_web_flatten_is_tested_against():
+    reduced = {"sum": 9.0, "mean": 3.0, "max": 6.0}  # of [1, 2, 6]
+    got = {
+        name: {"reduce": t.reduce([1.0, 2.0, 6.0]), "parts": list(t.parts), "every": t.needs_every_gpu}
+        for name, t in GPU_TOTALS.items()
+    }
+    rules = EXPECTED["gpu_total_rules"]
+    assert got == {name: {**rule, "reduce": reduced[rule["reduce"]]} for name, rule in rules.items()}

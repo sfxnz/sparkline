@@ -1,4 +1,8 @@
 {
+ "added": {
+  "gpu.mem_used": 609206272.0,
+  "gpu0.shared_used": 609206272.0
+ },
  "flat": {
   "cpu.core0.mhz": 2764.125,
   "cpu.core0.util": 0.0,
@@ -501,7 +505,7 @@
    },
    {
     "kind": "hardware",
-    "metric": "gpu0.fb_memory",
+    "metric": "gpu0.vram_used",
     "reason": "Dedicated GPU memory (FB) not reported by NVIDIA GB10 (NVML: Not Supported) \u2014 unified memory is reported under Memory instead"
    },
    {

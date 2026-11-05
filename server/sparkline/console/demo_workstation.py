@@ -54,6 +54,8 @@ FS_DATA = 3_936_502_300_672
 
 GPUS = 4
 GPU_NAME = "NVIDIA RTX 6000 Ada Generation"
+VRAM_TOTAL = 48 * GIB
+VRAM_RESERVED = 512 << 20  # the driver's own share, which NVML's v1 used counts and no process list shows
 POWER_LIMIT_W = 300.0
 SM_MAX_MHZ = 3105.0
 MAX_OPERATING_C, SLOWDOWN_C, SHUTDOWN_C = 89.0, 93.0, 96.0
@@ -69,6 +71,7 @@ CCD_HEAT_C = (0.0, 1.5, -1.0, 2.0)
 WORKER_CPUS = (2, 10, 18, 26)
 ENGINE_CPU, API_CPU = 5, 1
 MODEL_ID = "nvidia/Llama-3.3-70B-Instruct-FP8"
+VRAM_ONLY = "NVML does not report the system memory this GPU uses; its memory is dedicated VRAM"
 
 
 def _ccd(cpu: int) -> int:
@@ -184,6 +187,9 @@ class WorkstationModel:
             cum.append(cum[-1] + self.power_at(i, origin + (n + 0.5) * step) * step)
         return cum[k] + self.power_at(i, origin + (k + 0.5) * step) * (t - origin - k * step)
 
+    def worker_gpu_mem(self, i: int, t: float) -> int:
+        return int(43.4e9 + 0.05e9 * self.slow(t + 400 * i))
+
     def _gpu(self, i: int, t: float) -> GpuSample:
         j = lambda key: _h(self.node_id, key, i, int(t))  # noqa: E731
         util = self.util(i, t)
@@ -225,6 +231,7 @@ class WorkstationModel:
             throttle_mask=mask,
             power_capped_pct=round(capped if at_cap else 0.0, 1),
             thermal_capped_pct=thermal_pct,
+            vram_used=self.worker_gpu_mem(i, t) + VRAM_RESERVED,
         )
 
     def cpu_busy(self, c: int, b: float, active: float) -> float:
@@ -405,7 +412,7 @@ class WorkstationModel:
                 user="root",
                 cpu_pct=round(2 + 93 * active + 2 * j(f"w{g.index}"), 1),
                 rss=int(6.1 * GIB + 0.05 * GIB * g.index),
-                gpu_mem=int(43.4e9 + 0.05e9 * self.slow(t + 400 * g.index)),
+                gpu_mem=self.worker_gpu_mem(g.index, t),
                 gpu_util=g.util,
                 container="vllm-llama70b",
             )
@@ -499,6 +506,8 @@ class WorkstationModel:
                     power_limit_w=POWER_LIMIT_W,
                     vendor="nvidia",
                     backend="nvml",
+                    memory="dedicated",
+                    vram_total=VRAM_TOTAL,
                 )
                 for i in range(GPUS)
             ],
@@ -511,6 +520,8 @@ class WorkstationModel:
             ],
             sensors=sensors,
             unsupported=[
+                *(Unsupported(metric=f"gpu{i}.shared_used", reason=VRAM_ONLY) for i in range(GPUS)),
+                Unsupported(metric="mem.gpu", reason=VRAM_ONLY),
                 *(
                     Unsupported(metric=m, reason="This CPU has no performance/efficiency core split")
                     for m in ("cpu.perf_util", "cpu.eff_util")
@@ -519,10 +530,6 @@ class WorkstationModel:
                 Unsupported(
                     metric="system.power_w",
                     reason="Whole-system power is not exposed; only GPU board power (NVML) is",
-                ),
-                Unsupported(
-                    metric="mem.gpu",
-                    reason="These GPUs use dedicated memory (VRAM), not system memory",
                 ),
             ],
             tools={

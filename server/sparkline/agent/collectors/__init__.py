@@ -29,7 +29,8 @@ GpuField = Literal[
     "power_limit_w",
     "mem_mhz",
     "fan_pct",
-    "fb_memory",
+    "vram_used",
+    "shared_used",
     "ecc",
     "pcie_bps",
 ]

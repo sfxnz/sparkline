@@ -388,7 +388,7 @@
       "kind": "hardware"
     },
     {
-      "metric": "gpu0.fb_memory",
+      "metric": "gpu0.vram_used",
       "reason": "Dedicated GPU memory (FB) not reported by NVIDIA GB10 (NVML: Not Supported) — unified memory is reported under Memory instead",
       "kind": "hardware"
     },

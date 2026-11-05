@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from typing import Any, ClassVar, NamedTuple
 
-from ....common.schema import GpuInfo, GpuSample
+from ....common.schema import GpuInfo, GpuSample, MemoryModel
 from ...sources import Sources
 from .. import GpuField, counter_delta
 from .backend import CannotOpen, Gap, NoDevice
@@ -96,7 +96,7 @@ def _probes(nv: Any, h: Any) -> list[_Probe]:
         _Probe("power_limit_w", "Power limit", False, lambda: nv.nvmlDeviceGetPowerManagementLimit(h)),
         _Probe("mem_mhz", "Memory clock", False, lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_MEM)),
         _Probe("fan_pct", "Fan speed", False, lambda: nv.nvmlDeviceGetFanSpeed(h)),
-        _Probe("fb_memory", "Dedicated GPU memory (FB)", False, lambda: nv.nvmlDeviceGetMemoryInfo(h)),
+        _Probe("vram_used", "Dedicated GPU memory (FB)", False, lambda: nv.nvmlDeviceGetMemoryInfo(h)),
         _Probe("ecc", "ECC", False, lambda: nv.nvmlDeviceGetEccMode(h)),
         _Probe(
             "pcie_bps",
@@ -115,10 +115,14 @@ def _gap(nv: Any, e: Exception, what: str, retried: bool, note: str = "") -> Gap
     return Gap(f"{what} ({_reason(e)}){note}")
 
 
+VRAM_ONLY = Gap("NVML does not report the system memory this GPU uses; its memory is dedicated VRAM")
+
+
 class _Gpu:
     def __init__(self, index: int, handle: Any) -> None:  # an NVML device handle
         self.index = index
         self.h = handle
+        self.memory: MemoryModel = "unified"
         self.disabled: set[str] = set()
         self.prev_viol: dict[int, int] = {}
         self.viol_t: float | None = None
@@ -144,6 +148,7 @@ class Nvml:
         self._caps: dict[int, dict[GpuField, Gap | None] | Gap] = {}
         self._versions: dict[str, str] = {}
         self._lost: list[int] = []
+        self._procs: dict[int, dict[int, int]] = {}
         self._inited = False
 
     def _driver_loaded(self) -> bool:
@@ -239,14 +244,24 @@ class Nvml:
                 v = call()
                 if key == "power_limit_w":
                     info.power_limit_w = v / 1000
+                if key == "vram_used":
+                    info.memory, info.vram_total = "dedicated", v.total
             except Exception as e:
-                note = " — unified memory is reported under Memory instead" if key == "fb_memory" else ""
+                # The documented iGPU answer is Not Supported (GB10); MIG, only on discrete cards, refuses the
+                # whole-device reading without privilege. Any other error keeps the default, so a transient
+                # one at startup never turns a GB10 dedicated.
+                if key == "vram_used" and _no_permission(nv, e):
+                    info.memory = "dedicated"
+                unified = key == "vram_used" and isinstance(e, nv.NVMLError_NotSupported)
+                note = " — unified memory is reported under Memory instead" if unified else ""
                 gap = _gap(nv, e, f"{label} not reported by {info.name}", retried, note)
                 caps[key] = gap
                 if gap:
                     g.disabled.add(key)
             else:
                 caps[key] = None
+        g.memory = info.memory
+        caps["shared_used"] = VRAM_ONLY if g.memory == "dedicated" else caps["proc_mem"]
         return info
 
     def _read(self, g: _Gpu, field: str, fn: Callable[..., Any], *args: Any) -> Any:
@@ -263,8 +278,11 @@ class Nvml:
     def sample(self) -> list[GpuSample]:
         nv = self.nv
         out = []
+        self._procs = {}
         for g in self.gpus:
             now = time.monotonic()
+            procs = self._process_memory(g)
+            vram = self._read(g, "vram_used", nv.nvmlDeviceGetMemoryInfo)
             util = self._read(g, "util", nv.nvmlDeviceGetUtilizationRates)
             power = self._read(g, "power_w", nv.nvmlDeviceGetPowerUsage)
             power_w = power / 1000 if power is not None else None
@@ -299,22 +317,25 @@ class Nvml:
                     throttle_mask=mask,
                     power_capped_pct=g.caps.get(nv.NVML_PERF_POLICY_POWER),
                     thermal_capped_pct=g.caps.get(nv.NVML_PERF_POLICY_THERMAL),
+                    vram_used=vram.used if vram is not None else None,
+                    shared_used=sum(procs.values()) if procs is not None and g.memory == "unified" else None,
                 )
             )
         out += [GpuSample(index=i) for i in self._lost]
         return sorted(out, key=lambda s: s.index)
 
+    def _process_memory(self, g: _Gpu) -> dict[int, int] | None:
+        procs = self._read(g, "proc_mem", self.nv.nvmlDeviceGetComputeRunningProcesses)
+        if procs is None:
+            return None
+        mem = self._procs[g.index] = {}
+        for pr in procs:
+            if isinstance(pr.usedGpuMemory, int):
+                mem[pr.pid] = mem.get(pr.pid, 0) + pr.usedGpuMemory
+        return mem
+
     def proc_mem(self) -> dict[int, dict[int, int]]:
-        out: dict[int, dict[int, int]] = {}
-        for g in self.gpus:
-            procs = self._read(g, "proc_mem", self.nv.nvmlDeviceGetComputeRunningProcesses)
-            if procs is None:
-                continue
-            mem = out[g.index] = {}
-            for pr in procs:
-                if isinstance(pr.usedGpuMemory, int):
-                    mem[pr.pid] = mem.get(pr.pid, 0) + pr.usedGpuMemory
-        return out
+        return self._procs
 
     def _update_energy(self, g: _Gpu, now: float, power_w: float | None) -> None:
         if now - g.energy_t >= ENERGY_EVERY_S:

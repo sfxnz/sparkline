@@ -17,7 +17,7 @@
       "throttle_mask": 0,
       "power_capped_pct": 0.0,
       "thermal_capped_pct": 0.0,
-      "vram_used": null,
+      "vram_used": 43932335874,
       "shared_used": null
     },
     {
@@ -33,7 +33,7 @@
       "throttle_mask": 0,
       "power_capped_pct": 0.0,
       "thermal_capped_pct": 0.0,
-      "vram_used": null,
+      "vram_used": 43986870912,
       "shared_used": null
     },
     {
@@ -49,7 +49,7 @@
       "throttle_mask": 0,
       "power_capped_pct": 0.0,
       "thermal_capped_pct": 0.0,
-      "vram_used": null,
+      "vram_used": 43979181533,
       "shared_used": null
     },
     {
@@ -65,7 +65,7 @@
       "throttle_mask": 0,
       "power_capped_pct": 0.0,
       "thermal_capped_pct": 0.0,
-      "vram_used": null,
+      "vram_used": 43905294539,
       "shared_used": null
     }
   ],

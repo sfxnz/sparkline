@@ -46,7 +46,10 @@ def test_recorded_gb10_gives_todays_node_info_and_flattened_sample(offline, tmp_
 
     golden = json.loads((GB10 / "golden.json").read_text())
     assert info.model_dump(mode="json") == {**golden["node_info"], "agent_version": AGENT_VERSION}
-    assert flat == golden["flat"]
+    assert flat == {**golden["flat"], **golden["added"]}, (
+        "today's keys keep their values; only keys are added"
+    )
+    assert flat["gpu.mem_used"] == flat["gpu0.shared_used"] == flat["mem.gpu"]
     assert src.nvml.misses == []
     inside = (str(recording) + "/", str(GB10.resolve()) + "/")
     assert [p for p in seen if not p.startswith(inside)] == []
@@ -82,6 +85,7 @@ def test_a_recording_missing_an_ethtool_stat_loses_only_those_counters(offline, 
 
 
 GOLDEN = json.loads((GB10 / "golden.json").read_text())
+FLAT = {**GOLDEN["flat"], **GOLDEN["added"]}
 PSI = ("cpu.psi_some", "mem.psi_some", "mem.psi_full")
 
 
@@ -121,7 +125,7 @@ def test_a_degraded_box_without_pressure_or_network_files_serves_everything_else
         }
     ]
     assert info["net"] == []
-    want = {k: v for k, v in GOLDEN["flat"].items() if not k.startswith("net.") and k not in PSI}
+    want = {k: v for k, v in FLAT.items() if not k.startswith("net.") and k not in PSI}
     assert flatten(snap) == want
     assert snap.errors == {}
 
@@ -136,7 +140,7 @@ def test_a_memory_collector_that_cannot_start_writes_no_mem_keys(tmp_path):
     )
     flat = flatten(sample)
     assert not [k for k in flat if k.startswith("mem.")]
-    assert {k: v for k, v in GOLDEN["flat"].items() if not k.startswith("mem.")} == flat
+    assert {k: v for k, v in FLAT.items() if not k.startswith("mem.")} == flat
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads files regardless of their mode")

@@ -35,12 +35,14 @@ def _mean(values: list[float]) -> float:
 class GpuTotal(NamedTuple):
     reduce: Callable[[list[float]], float]
     needs_every_gpu: bool
+    parts: tuple[str, ...]  # a GPU's value is the sum of the parts it reports; none reported, no value
 
 
 GPU_TOTALS: dict[str, GpuTotal] = {
-    "util": GpuTotal(_mean, needs_every_gpu=False),
-    "temp_c": GpuTotal(max, needs_every_gpu=False),
-    "power_w": GpuTotal(_total, needs_every_gpu=True),
+    "util": GpuTotal(_mean, needs_every_gpu=False, parts=("util",)),
+    "temp_c": GpuTotal(max, needs_every_gpu=False, parts=("temp_c",)),
+    "power_w": GpuTotal(_total, needs_every_gpu=True, parts=("power_w",)),
+    "mem_used": GpuTotal(_total, needs_every_gpu=True, parts=("vram_used", "shared_used")),
 }
 
 
@@ -67,11 +69,16 @@ def flatten(s: Sample) -> dict[str, float]:
         put(p + "throttle_mask", g.throttle_mask)
         put(p + "power_capped_pct", g.power_capped_pct)
         put(p + "thermal_capped_pct", g.thermal_capped_pct)
+        put(p + "vram_used", g.vram_used)
+        put(p + "shared_used", g.shared_used)
     all_gpus = "gpu" not in s.errors  # a GPU backend that fails a tick drops its GPUs from the sample
-    for field, total in GPU_TOTALS.items():
-        values = [v for g in s.gpu if (v := getattr(g, field)) is not None]
+    for name, total in GPU_TOTALS.items():
+        values = []
+        for g in s.gpu:
+            if parts := [v for f in total.parts if (v := getattr(g, f)) is not None]:
+                values.append(_total(parts))
         if values and (not total.needs_every_gpu or (all_gpus and len(values) == len(s.gpu))):
-            put(f"gpu.{field}", total.reduce(values))
+            put(f"gpu.{name}", total.reduce(values))
 
     m = s.mem
     if m.total:  # 0 only in the agent's placeholder for a memory collector with no reading yet

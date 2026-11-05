@@ -18,7 +18,7 @@
       "power_capped_pct": 0.0,
       "thermal_capped_pct": 0.0,
       "vram_used": null,
-      "shared_used": null
+      "shared_used": 85978526474
     }
   ],
   "mem": {

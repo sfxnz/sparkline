@@ -81,7 +81,7 @@ UNSUPPORTED = [
         ("power_limit_w", "Power limit", ""),
         ("mem_mhz", "Memory clock", ""),
         ("fan_pct", "Fan speed", ""),
-        ("fb_memory", "Dedicated GPU memory (FB)", " — unified memory is reported under Memory instead"),
+        ("vram_used", "Dedicated GPU memory (FB)", " — unified memory is reported under Memory instead"),
         ("ecc", "ECC", ""),
         ("pcie_bps", "PCIe throughput", ""),
     ]
@@ -305,6 +305,10 @@ class DemoModel:
             mask |= 0x40
             sm *= 0.72
             thermal_pct = 100.0
+        if self.workload == "tp2":
+            gpu_mem = int(86.0e9 + 0.12e9 * self.slow(t))
+        else:
+            gpu_mem = int(61.0e9 + 0.1e9 * self.slow(t))
         gpu = GpuSample(
             index=0,
             util=round(util, 1),
@@ -318,13 +322,10 @@ class DemoModel:
             throttle_mask=mask,
             power_capped_pct=round(capped if capped > 5 else 0.0, 1),
             thermal_capped_pct=thermal_pct,
+            shared_used=gpu_mem,
         )
 
         # unified memory
-        if self.workload == "tp2":
-            gpu_mem = int(86.0e9 + 0.12e9 * self.slow(t))
-        else:
-            gpu_mem = int(61.0e9 + 0.1e9 * self.slow(t))
         anon = int(5.0 * GIB + 0.25 * GIB * self.slow(t + 900))
         shmem, kernel, other = int(1.4 * GIB), int(3.6 * GIB + 0.1 * GIB * self.slow(t + 300)), int(1.8 * GIB)
         disk_x = self.disk_burst(t)

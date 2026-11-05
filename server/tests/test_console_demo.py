@@ -48,7 +48,7 @@ def test_demo_hardware_mirrors_discovery():
     assert info.gpus[0].name == "NVIDIA GB10" and info.gpus[0].power_limit_w is None
     assert {s.id for s in info.sensors} >= {"acpitz.6", "nvme.composite", "nvme.sensor_2", "mlx5.3"}
     # same keys the real agent reports on GB10 (checked live on spark1/spark2)
-    gpu = {f"gpu0.{k}" for k in ("power_limit_w", "mem_mhz", "fan_pct", "fb_memory", "ecc", "pcie_bps")}
+    gpu = {f"gpu0.{k}" for k in ("power_limit_w", "mem_mhz", "fan_pct", "vram_used", "ecc", "pcie_bps")}
     assert {u.metric for u in info.unsupported} == gpu | {"cpu.temp", "fan", "system.power_w"}
     hidden = {n.name for n in info.net if n.role in ("virtual", "wireless")}
     assert hidden == {"docker0", "tailscale0", "wlP9s9"}
@@ -350,6 +350,7 @@ def test_workstation_flattens_to_four_gpus_and_declares_no_rdma():
         "fan",
         "system.power_w",
         "mem.gpu",
+        *(f"gpu{i}.shared_used" for i in range(4)),
     }
     assert len(m.info.cores) == 64 and {c.cluster for c in m.info.cores} == {0, 1, 2, 3}
     assert {"temp.k10temp.tctl", "temp.nvme.composite", "temp.nvme1.composite"} <= set(keys)

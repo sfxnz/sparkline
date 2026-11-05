@@ -13,7 +13,7 @@ from test_capabilities import NOT_SUPPORTED, assert_every_metric_is_reported_or_
 from sparkline.agent.collectors import GpuField, gpu
 from sparkline.agent.collectors.gpu import CHAINS, GpuCollector
 from sparkline.agent.collectors.gpu.backend import CannotOpen, Chain, Gap, NoDevice
-from sparkline.agent.collectors.gpu.nvml import Nvml
+from sparkline.agent.collectors.gpu.nvml import VRAM_ONLY, Nvml
 from sparkline.agent.sources import NvmlReplay, Sources
 from sparkline.common.metrics import flatten
 from sparkline.common.schema import GpuInfo, GpuSample, NodeInfo, Unsupported
@@ -51,6 +51,8 @@ class Opens:
                 throttle_mask=0,
                 power_capped_pct=0.0,
                 thermal_capped_pct=0.0,
+                vram_used=2**30,
+                shared_used=sum(self.mem.get(i, {}).values()),
             )
             for i in range(len(self.gpus))
         ]
@@ -315,7 +317,15 @@ def test_a_gpu_collector_that_cannot_start_declares_the_node_gpu_totals_with_its
     info, sample, _ = warm(monkeypatch, gb10())
 
     gaps = {u.metric: u.reason for u in info.unsupported if u.metric.startswith(("gpu", "mem.gpu"))}
-    assert set(gaps) == {"gpu*", "gpu.backend", "mem.gpu", "gpu.util", "gpu.temp_c", "gpu.power_w"}
+    assert set(gaps) == {
+        "gpu*",
+        "gpu.backend",
+        "mem.gpu",
+        "gpu.util",
+        "gpu.temp_c",
+        "gpu.power_w",
+        "gpu.mem_used",
+    }
     (reason,) = set(gaps.values())
     assert reason.startswith("The gpu collector could not start: AttributeError")
     assert_every_metric_is_reported_or_declared(info, sample)
@@ -605,3 +615,57 @@ def test_a_path_in_an_open_error_is_named_as_on_the_machine_not_under_the_record
         next(u.reason for u in info.unsupported if u.metric == "gpu.backend.amd-x")
         == "Needs access to /dev/kfd"
     )
+
+
+GIB = 1 << 30
+FB = "Dedicated GPU memory (FB) not reported by NVIDIA GB10"
+PROCS = 609206272  # the recording's one process
+MEMORY_KEYS = ("gpu0.vram_used", "gpu0.shared_used", "gpu.mem_used", "mem.gpu")
+VRAM = (VRAM_ONLY.reason, "hardware")
+DENIED = ("Permission denied to the agent's user (NVML: Insufficient Permissions)", "access")
+
+
+@pytest.mark.parametrize(
+    ("answer", "model", "flat", "gaps"),
+    [
+        (
+            {"__fields__": {"total": 48 * GIB, "free": 7 * GIB, "used": 41 * GIB}},
+            ("dedicated", 48 * GIB),
+            {"gpu0.vram_used": 41 * GIB, "gpu.mem_used": 41 * GIB},
+            {"gpu0.shared_used": VRAM, "mem.gpu": VRAM},
+        ),
+        (
+            NOT_SUPPORTED,
+            ("unified", None),
+            {"gpu0.shared_used": PROCS, "gpu.mem_used": PROCS, "mem.gpu": PROCS},
+            {
+                "gpu0.vram_used": (
+                    f"{FB} (NVML: Not Supported) — unified memory is reported under Memory instead",
+                    "hardware",
+                )
+            },
+        ),
+        (
+            {"__error__": 4, "str": "Insufficient Permissions"},
+            ("dedicated", None),
+            {},
+            {"gpu0.vram_used": DENIED, "gpu0.shared_used": VRAM, "mem.gpu": VRAM, "gpu.mem_used": DENIED},
+        ),
+        (
+            {"__error__": 999, "str": "Unknown Error"},
+            ("unified", None),
+            {"gpu0.shared_used": PROCS, "gpu.mem_used": PROCS, "mem.gpu": PROCS},
+            {"gpu0.vram_used": (f"{FB} (NVML: Unknown Error)", "hardware")},
+        ),
+    ],
+    ids=["VRAM read", "no framebuffer (iGPU)", "no permission (MIG)", "unknown error at startup"],
+)
+def test_the_memory_reading_at_startup_decides_where_a_gpus_memory_lives_and_what_it_reports(
+    answer, model, flat, gaps, monkeypatch
+):
+    info, sample, _ = warm(monkeypatch, gb10_nvml(nvmlDeviceGetMemoryInfo=answer))
+
+    assert (info.gpus[0].memory, info.gpus[0].vram_total) == model
+    assert {k: v for k, v in flatten(sample).items() if k in MEMORY_KEYS} == flat
+    assert {u.metric: (u.reason, u.kind) for u in info.unsupported if u.metric in MEMORY_KEYS} == gaps
+    assert_every_metric_is_reported_or_declared(info, sample)
