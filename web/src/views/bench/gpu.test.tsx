@@ -92,7 +92,7 @@ describe('choosing the GPU on a multi-GPU node', () => {
     expect(picker).toHaveAccessibleDescription('ws1 is serving vllm-llama70b, which holds 161.7\u00a0GiB of GPU memory. Sparkline cannot see which GPUs hold it.');
     expect(within(picker).getByRole('option', { selected: true })).toHaveTextContent(`GPU 2 · 3% busy · ${RTX}`);
     act(() => { useConnection.setState({ status: 'reconnecting' }); });
-    expect(picker).toHaveAccessibleDescription('ws1 was serving vllm-llama70b, which held 161.7\u00a0GiB of GPU memory, when it last reported. Sparkline cannot see which GPUs hold it.');
+    expect(picker).toHaveAccessibleDescription('When ws1 last reported, it was serving vllm-llama70b, which held 161.7\u00a0GiB of GPU memory. Sparkline cannot see which GPUs hold it.');
   });
 
   it('names no GPU memory when no GPU process on the node holds any', () => {

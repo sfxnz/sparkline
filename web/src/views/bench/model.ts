@@ -955,7 +955,7 @@ export function gpuMemoryHeld(node: string, procs: readonly ProcSample[] | null 
   const work = gpuWorkload(procs);
   if (!work?.mem) return null;
   const mem = formatBytes(work.mem);
-  return live ? `${node} is ${work.verb} ${work.what}, which holds ${mem} of GPU memory.` : `${node} was ${work.verb} ${work.what}, which held ${mem} of GPU memory, when it last reported.`;
+  return live ? `${node} is ${work.verb} ${work.what}, which holds ${mem} of GPU memory.` : `When ${node} last reported, it was ${work.verb} ${work.what}, which held ${mem} of GPU memory.`;
 }
 
 function cpuLoad(node: string, s: Sample): Competition {
