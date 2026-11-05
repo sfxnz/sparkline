@@ -969,7 +969,7 @@ describe("GPU processes while some or all of a node's GPUs send nothing", () => 
   it('names every GPU of ws4 in why the active GPU processes are not known, once all four have sent nothing for 5 s', () => {
     show([[gb10, failing(reading(gb10), 'NVMLError_GpuIsLost: GPU is lost')], [ws4, failing(reading(ws4), UNKNOWN)]]);
     const ws4Why = `GPUs 0, 1, 2 and 3 not responding (${UNKNOWN}).`;
-    expect(why(tile('Active GPU processes'))).toHaveAccessibleDescription(`spark1: NVMLError_GpuIsLost: GPU is lost\nws4: ${ws4Why}`);
+    expect(why(tile('Active GPU processes'))).toHaveAccessibleDescription(`spark1: GPU 0 not responding (NVMLError_GpuIsLost: GPU is lost).\nws4: ${ws4Why}`);
     expect(why(workloadLine('ws4'))).toHaveAccessibleDescription(ws4Why);
   });
 
