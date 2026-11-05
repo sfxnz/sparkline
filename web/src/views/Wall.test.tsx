@@ -38,3 +38,19 @@ it("names a four-GPU node beside the wall's GPU power while its GPU 0 is lost, a
   expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/ W GPU power · excl\. ws1$/);
   expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/^GPU \d+% across 2 live nodes \(4 of 5 GPUs\)·/);
 });
+
+it("counts the GPUs under the wall's utilisation while every GPU of the second workstation is silent", () => {
+  const ws = wsInfo as unknown as NodeInfo;
+  const reading = wsSample as unknown as Sample;
+  useConnection.setState({ status: 'live', everLive: true });
+  useEvents.setState({ events: [] });
+  useCluster.setState({ clockOffset: 0, order: ['ws1', 'ws2'], nodes: { ws1: state(ws), ws2: state({ ...ws, node_id: 'ws2' }) } });
+  act(() => {
+    for (const id of ['ws1', 'ws2']) liveStore.removeNode(id);
+    liveStore.pushSample({ ...reading, ts: now });
+    liveStore.pushSample({ ...reading, node_id: 'ws2', ts: now, gpu: reading.gpu.map((g) => ({ index: g.index })) } as Sample);
+    liveStore.flush();
+  });
+  render(<Wall />);
+  expect(document.querySelector('.wall-hero__line')).toHaveTextContent(/^GPU 86% across 2 live nodes \(4 of 8 GPUs\)·1069 W GPU power · excl\. ws2$/);
+});

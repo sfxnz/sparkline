@@ -355,6 +355,34 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
     expect(stat(card, 'GPU temp')).toHaveTextContent(/^GPU temp77°C3 of 4 GPUs$/);
   });
 
+  const ws2Lost = {
+    ...ws1,
+    node_id: 'ws2',
+    unsupported: [
+      ...[0, 1, 2, 3].map((i) => ({ metric: `gpu${String(i)}`, reason: LOST, kind: 'hardware' })),
+      ...['util', 'temp_c', 'power_w'].map((f) => ({ metric: `gpu.${f}`, reason: `GPU 0: ${LOST}`, kind: 'hardware' })),
+    ],
+  } as NodeInfo;
+  const silent = { ...reading, gpu: reading.gpu.map((g) => ({ index: g.index })) } as Sample;
+  const failed: Sample = { ...reading, gpu: [], errors: { ...reading.errors, gpu: 'nvml: Unknown Error' } };
+  it.each([
+    ['sends no reading from any of its GPUs', silent, { ...ws1, node_id: 'ws2' }],
+    ['has every GPU lost', silent, ws2Lost],
+    ['has its GPU backend fail the tick', failed, { ...ws1, node_id: 'ws2' }],
+  ])('counts the GPUs under the hero and the cluster compute total while ws2 %s', (_, b, info) => {
+    useCluster.getState().setHello(cluster([node('ws1', { info: ws1 }), node('ws2', { info })]));
+    act(() => {
+      for (const s of [{ ...reading, ts: now }, { ...b, node_id: 'ws2', ts: now }]) {
+        liveStore.removeNode(s.node_id);
+        liveStore.pushSample(s);
+      }
+      liveStore.flush();
+    });
+    render(<Overview />);
+    expect(document.querySelector('.ov-hero__numbers')).toHaveTextContent(/GPU 86% \(4 of 8 GPUs\) at 1069 W · excl\. ws2$/);
+    expect(tile('Cluster compute')).toHaveTextContent(/^Cluster compute86%Mean GPU utilisation \(4 of 8 GPUs\) · excl\. ws2 · All 2 nodes reporting$/);
+  });
+
   it('marks nothing on a calm ws1 beside a GB10', () => {
     withSpark1(reading);
     expect(document.querySelector('.ov-hero__numbers')).not.toHaveTextContent('GPUs');
