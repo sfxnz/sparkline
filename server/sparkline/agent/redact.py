@@ -705,7 +705,7 @@ class _Harvest:
         if category == "hostname" and len(value) >= LONG_NAME:
             self._pairs("anywhere", [value], [placeholder], category)
         if not value.isascii():
-            forms = _idna_forms(value)
+            forms = [*_idna_forms(value), *_normal_forms(value)]
             self._pairs(form, forms, [placeholder] * len(forms), category)
         if category == "hostname" and "-" in value:
             self._pairs(form, [value.replace("-", "--")], [placeholder.replace("-", "--")], category)
@@ -719,6 +719,10 @@ def _domain_names(domain: str) -> list[str]:
     labels = domain.split(".")
     parents = [".".join(labels[i:]) for i in range(max(len(labels) - 1, 1))]
     return parents + labels[-2:-1] + [label for label in labels if len(label) >= NAME_PART]
+
+
+def _normal_forms(value: str) -> list[str]:
+    return [f for f in dict.fromkeys(unicodedata.normalize(n, value) for n in ("NFC", "NFD")) if f != value]
 
 
 def _idna_forms(value: str) -> list[str]:
@@ -738,11 +742,10 @@ def _idna_forms(value: str) -> list[str]:
 
 
 def _full_name_spellings(user: User) -> list[str]:
-    full_name = user.gecos.split(",")[0].strip()
+    gecos = unicodedata.normalize("NFC", user.gecos)
+    full_name = gecos.split(",")[0].strip()
     whole = [full_name] if len(full_name.split()) > 1 else []
-    parts = [
-        p for p in re.findall(r"[^\W_]+", user.gecos) if len(p) >= NAME_PART and re.search(r"[^\W\d_]", p)
-    ]
+    parts = [p for p in re.findall(r"[^\W_]+", gecos) if len(p) >= NAME_PART and re.search(r"[^\W\d_]", p)]
     names = [n for n in whole + parts if n.lower() != user.name.lower()]
     return names + [a for n in names if (a := _ascii(n)) != n and len(a) >= NAME_PART]
 
