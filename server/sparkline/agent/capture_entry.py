@@ -1,6 +1,5 @@
-"""The sparkline-capture command. Before it imports anything, so that a Ctrl-C cannot land in an import first,
-it quiets Python's error output and makes SIGHUP, SIGQUIT and SIGTERM stop the capture as Ctrl-C does. Then it
-turns off core dumps and imports the capture."""
+"""Python raises a Ctrl-C as KeyboardInterrupt inside whatever code is running, an import included, so main()
+sets the stop handlers and error hooks before it imports anything that runs Python code."""
 
 import sys
 
@@ -9,7 +8,7 @@ if TYPE_CHECKING:
     import signal as _signal
     from collections.abc import Callable
 else:
-    import _signal  # signal.py imports enum first, which a Ctrl-C can land in; _signal is loaded at startup
+    import _signal  # signal.py also imports enum, which a Ctrl-C can land in; _signal is loaded at startup
 
 STOPPED = 130
 FAILED = 4
