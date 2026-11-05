@@ -40,11 +40,14 @@ Each pull request that changes what a user sees adds one line under `## [Unrelea
    `## [Unreleased]` above it. At the bottom, point `[Unreleased]` at `vX.Y.Z...HEAD`, and add an `[X.Y.Z]`
    link to the release.
 3. Run the checks in [DEV.md](../DEV.md#checks), open a pull request, and merge it.
-4. Tag the merge commit on `main` and push the tag.
+4. Tag the commit that the release pull request made on `main`, by its SHA, and push the tag. Another pull
+   request can merge after the release, so the tip of `main` may not be the release. In the first command,
+   `<number>` is the release pull request's number.
 
    ```sh
-   git switch main && git pull --ff-only
-   git tag -a vX.Y.Z -m "Sparkline X.Y.Z"
+   sha=$(gh pr view <number> --json mergeCommit --jq .mergeCommit.oid)
+   git fetch origin
+   git tag -a vX.Y.Z -m "Sparkline X.Y.Z" "$sha"
    git push origin vX.Y.Z
    ```
 
@@ -60,6 +63,13 @@ Each pull request that changes what a user sees adds one line under `## [Unrelea
 
 For 0.1.0, the version and its section already exist. Replace `unreleased` on the `## [0.1.0]` line with the
 release date before you merge the release pull request, then do steps 4 and 5.
+
+## The `latest` image follows `main`, not the release
+
+`.github/workflows/image.yml` also runs on every push to `main`, the release merge included. Each of those
+runs publishes `ghcr.io/<owner>/sparkline:latest` and `:sha-<short commit SHA>`. So the README's
+`docker run … ghcr.io/sfxnz/sparkline --demo`, which names no tag, runs the newest `main`. To run a release,
+name its version tag, such as `ghcr.io/sfxnz/sparkline:0.1.0`.
 
 ## Upgrade the console before the agents
 
