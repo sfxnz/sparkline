@@ -591,6 +591,22 @@ CASES = [
         because="domain name",
     ),
     Case(
+        "three-letter organization under a two-label public suffix",
+        "refused",
+        ("zrb",),
+        "zrb vpn",
+        hostname=f"{HOST}.zrb.co.uk",
+        because="domain name",
+    ),
+    Case(
+        "three-letter organization under a Japanese public suffix",
+        "refused",
+        ("zrb",),
+        "zrb vpn",
+        hostname=f"{HOST}.zrb.co.jp",
+        because="domain name",
+    ),
+    Case(
         "tailnet name of a Tailscale hostname",
         "refused",
         ("tail7f3a9c",),
@@ -792,6 +808,17 @@ def test_a_domain_label_shorter_than_four_characters_is_not_taken_for_the_name(t
     with_free_text(copy, "lab bench")
     capture_of(copy, tmp_path / "out")
     assert "lab bench" in (tmp_path / "out/root/proc/cpuinfo").read_text()
+
+
+@pytest.mark.parametrize(
+    "domain", ["zorbcorp.co.uk", "zorbcorp.com.au", "zorbcorp.co.jp", j(".", "tail7f3a9c", "ts", "net")]
+)
+def test_the_labels_of_a_public_suffix_are_not_taken_for_the_name(domain, tmp_path):
+    registry = domain.split(".")[1]
+    copy = base_copy(tmp_path, f"{HOST}.{domain}")
+    with_free_text(copy, f"{registry} port")
+    capture_of(copy, tmp_path / "out")
+    assert f"{registry} port" in (tmp_path / "out/root/proc/cpuinfo").read_text()
 
 
 def test_a_hostname_shorter_than_eight_letters_is_not_found_inside_a_longer_word(tmp_path):
