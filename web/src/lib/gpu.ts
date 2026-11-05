@@ -209,7 +209,8 @@ export function stillReport(indexes: readonly number[]): string {
 
 export const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 
-/** Why the node cannot tell which processes use its GPUs, or null when it can. `quiet` is quietGpus. */
+/** Why the node cannot tell which processes use its GPUs, or null when it can. `quiet` is quietGpus. On a node with
+ *  several GPUs, the reason names each one. */
 export function gpuProcessesGap(info: NodeInfo | null | undefined, s: Sample | null, quiet: readonly number[]): NotReported | null {
   const declared = notReported(info, 'procs') ?? gpuSetGap(info, 'proc_mem', 'any');
   if (declared || !info?.gpus.length) return declared;
@@ -220,5 +221,6 @@ export function gpuProcessesGap(info: NodeInfo | null | undefined, s: Sample | n
   });
   const [first] = gaps;
   if (!first || gaps.length < indexes.length) return null;
-  return gaps.length > 1 ? { ...first.gap, detail: `GPU ${first.index}: ${first.gap.detail}` } : first.gap;
+  if (gaps.length === 1) return first.gap;
+  return everyGpuSilent(info, s) ?? { ...first.gap, detail: sentence(gaps.map((g) => `GPU ${String(g.index)}: ${g.gap.detail}`).join('; ')) };
 }
