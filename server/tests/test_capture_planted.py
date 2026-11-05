@@ -556,6 +556,30 @@ CASES = [
         hostname="zorbhst",
         because="hostname",
     ),
+    Case(
+        "organization under a two-label public suffix",
+        "refused",
+        ("zorbcorp",),
+        "zorbcorp vpn",
+        hostname=f"{HOST}.zorbcorp.co.uk",
+        because="domain name",
+    ),
+    Case(
+        "tailnet name of a Tailscale hostname",
+        "refused",
+        ("tail7f3a9c",),
+        "tail7f3a9c peer",
+        hostname=f"{HOST}.tail7f3a9c.ts.net",
+        because="domain name",
+    ),
+    Case(
+        "site label below the organization",
+        "refused",
+        ("quuxlab",),
+        "quuxlab rack",
+        hostname=f"{HOST}.quuxlab.zorbcorp.example",
+        because="domain name",
+    ),
 ]
 
 
@@ -623,6 +647,13 @@ def test_a_part_of_a_full_name_shorter_than_four_letters_is_not_taken_for_the_na
     with_free_text(copy, "li board")
     capture_of(copy, tmp_path / "out")
     assert "li board" in (tmp_path / "out/root/proc/cpuinfo").read_text()
+
+
+def test_a_domain_label_shorter_than_four_characters_is_not_taken_for_the_name(tmp_path):
+    copy = base_copy(tmp_path, f"{HOST}.lab.zorbcorp.example")
+    with_free_text(copy, "lab bench")
+    capture_of(copy, tmp_path / "out")
+    assert "lab bench" in (tmp_path / "out/root/proc/cpuinfo").read_text()
 
 
 def test_a_hostname_shorter_than_eight_letters_is_not_found_inside_a_longer_word(tmp_path):
