@@ -31,7 +31,6 @@ import posixpath
 import pwd
 import re
 import shutil
-import signal
 import socket
 import stat
 import sys
@@ -39,8 +38,7 @@ import tarfile
 import time
 import traceback
 from collections import Counter
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, NoReturn, TypeVar
@@ -49,7 +47,8 @@ import psutil
 
 from ..common.metrics import flatten
 from ..common.schema import NodeInfo, Sample
-from .capture_entry import STOP_SIGNALS, print_no_traceback_from_python, stopped
+from . import capture_entry
+from .capture_entry import print_no_traceback_from_python, stopped
 from .collectors.gpu import GpuCollector
 from .config import AgentConfig
 from .info import AGENT_VERSION, Collectors
@@ -638,16 +637,6 @@ class Report:
     printable: Callable[[str], str | None] = field(repr=False)
 
 
-@contextmanager
-def _stop_signals_held() -> Iterator[None]:
-    previous = {s: signal.signal(s, signal.SIG_IGN) for s in STOP_SIGNALS}
-    try:
-        yield
-    finally:
-        for s, handler in previous.items():
-            signal.signal(s, handler)
-
-
 def _remove(out: Path, created: bool) -> None:
     if created:
         shutil.rmtree(out, ignore_errors=True)
@@ -687,6 +676,7 @@ def capture(src: Sources, out: Path, facts: Facts) -> Report:
     if found:
         raise CaptureRefused(found)
     created = not out.exists()
+    capture_entry.remove_on_stop = lambda: _remove(out, created)
     try:
         out.mkdir(exist_ok=True)
         write(red.recording, out)
@@ -694,10 +684,12 @@ def capture(src: Sources, out: Path, facts: Facts) -> Report:
         if collided:
             raise CaptureRefused(collided, RENAME)
         archive = write_archive(out)
+        capture_entry.ignore_stops()
     except BaseException:
-        with _stop_signals_held():
-            _remove(out, created)
+        _remove(out, created)
         raise
+    finally:
+        capture_entry.remove_on_stop = None
     return Report(
         out,
         archive,
@@ -782,8 +774,7 @@ def _run(argv: list[str] | None) -> int:
     try:
         src = live()
         report = capture(src, Path(os.path.expanduser(args.out)), _session_facts(facts_of(src)))
-        with _stop_signals_held():
-            print(_summary(report, default if args.out == default else None))
+        print(_summary(report, default if args.out == default else None))
     except OutputUnusable as e:
         parser.print_usage(sys.stderr)
         print(e, file=sys.stderr)
