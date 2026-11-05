@@ -5,8 +5,7 @@ export interface NotReported {
   kind: UnsupportedKind;
   label: string;
   detail: string;
-  /** The node can report this but went quiet (a lost GPU, a GPU that sent no reading, a backend that failed), as
-   *  opposed to a gap the node declares. */
+  /** It can report this but went quiet, as opposed to a gap the node declares. */
   silent?: true;
 }
 
@@ -64,10 +63,9 @@ export function interconnectGap(info: NodeInfo | null | undefined): NotReported 
   return gap && (gap.kind !== 'agent' || (info?.net ?? []).some((n) => n.role === 'interconnect')) ? gap : null;
 }
 
-/** One gap that holds for every node in `gaps` (display order). Nodes that declare the same kind and reason keep it.
- *  Otherwise, and for nodes that went quiet, the tooltip names each node's reason, one line per node. The label is the
- *  one the nodes share; else "Not responding" when every node went quiet, "Not reported on any node" when every node
- *  declares the gap, and "No total" for a mix, which claims neither. */
+/** One gap that holds for every node in `gaps` (display order). Quiet nodes are named one per line even when they
+ *  share a reason, so the tooltip says which went quiet. A mix of quiet and declared reads "No total", which claims
+ *  neither. */
 export function gapAcross(gaps: readonly (readonly [string, NotReported])[]): NotReported | null {
   const first = gaps[0]?.[1];
   if (!first) return null;

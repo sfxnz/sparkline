@@ -24,7 +24,6 @@ export const quietGpusOf = (id: string, info: NodeInfo | null | undefined) =>
 export const gpuSilentForOf = (id: string, info: NodeInfo | null | undefined, index: number) =>
   liveStore.gpuSilentFor(id, index, quietAfterS(info, staleAfterS()), Infinity);
 
-/** How long each of node `id`'s GPUs has sent nothing (gpuSilentForOf), for the gaps that say so. */
 export const silentForOf = (id: string, info: NodeInfo | null | undefined): SilentFor => (index) => gpuSilentForOf(id, info, index);
 
 /** Live condition of one node's GPUs; null unless the node is online (stale values never raise a pill). */

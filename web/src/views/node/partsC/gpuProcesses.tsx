@@ -8,8 +8,6 @@ import { useCluster } from '../../../store/cluster';
 import { useLatest } from '../../../store/live';
 import { sameGap } from '../../shared/totalGap';
 
-/** Whether the node can tell which processes use its GPUs. `gap` while it can tell none of them, else `from`
- *  ("3 of 4 GPUs") while it can tell only some, '' while it can tell all. */
 export function useGpuProcessesGap(nodeId: string): { gap: NotReported | null; from: string } {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const gap = useLatest(nodeId, useCallback((s: Sample | null) => gpuProcessesGap(info, s, quietGpusOf(nodeId, info), silentForOf(nodeId, info)), [nodeId, info]), sameGap);

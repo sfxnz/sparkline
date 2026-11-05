@@ -75,7 +75,6 @@ export function gpuSetGap(info: NodeInfo | null | undefined, field: GpuField, mo
 
 const READING: Record<NodeTotal, string> = { util: 'utilisation', temp_c: 'temperature', power_w: 'power', mem_used: 'memory' };
 
-/** Seconds GPU `index` has sent nothing, or null when that is not known. */
 export type SilentFor = (index: number) => number | null;
 
 function silentClause(indexes: readonly number[], message: string | null, silentFor?: SilentFor): string {

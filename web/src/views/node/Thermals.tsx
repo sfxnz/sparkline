@@ -146,7 +146,6 @@ function EnergyToday({ nodeId, silent }: { nodeId: string; silent: NotReported |
       label="GPU energy today"
       value={j == null ? null : joulesToKwh(j)}
       format={kwhParts}
-      // The energy counted until the GPUs went quiet still stands, so silence hides only a missing figure.
       unsupported={declared ?? (j == null ? silent : null)}
       reporting={today.state === 'ready'}
       footer={today.state === 'error' ? 'History unavailable' : [cost, counted].filter(Boolean).join(' · ') || undefined}
