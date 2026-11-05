@@ -3,7 +3,7 @@
 // driven by a CSS custom property (useBreath), never by React renders.
 import { ArrowLeft, ArrowRight, Clock, OctagonAlert, RotateCw, TriangleAlert, Unplug } from 'lucide-react';
 import { m } from 'motion/react';
-import { createContext, useCallback, useContext, useRef, type MouseEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, type MouseEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { paths } from '../../app/routes';
 import { AnimatedNumber } from '../../design/components/AnimatedNumber';
@@ -31,8 +31,8 @@ import { preloadSummary } from '../node/tabs';
 import { shallowEqual, useAcross, useBreath, useFreshness, useLiveValue, type Freshness } from './hooks';
 import { memSplit, topGpuProcess, workloadName } from './model';
 import { spanPhrase } from '../shared/live';
-import { useTotalFrom, useTotalGap } from '../shared/totalGap';
-import { everyGpuLost, nodeGpuKey } from '../../lib/gpu';
+import { sameGap, useTotalFrom, useTotalGap } from '../shared/totalGap';
+import { everyGpuLost, gpuProcessesGap, nodeGpuKey } from '../../lib/gpu';
 import { gpuKey } from '../../lib/metrics';
 
 interface CardCtx {
@@ -176,17 +176,24 @@ function CardTitle({ id }: { id: string }) {
   );
 }
 
-const workloadSelector = (s: Sample | null): string | null | undefined => {
+/** The node's top GPU workload, null for none, undefined before its first process list, or why it cannot tell. */
+type WorkloadSeen = NotReported | string | null | undefined;
+
+const workloadSelector = (info: NodeInfo | null) => (s: Sample | null): WorkloadSeen => {
+  const gap = gpuProcessesGap(info, s);
+  if (gap) return gap;
   if (!s?.procs) return undefined; // not reported yet
   const top = topGpuProcess(s.procs);
   if (!top) return null;
   const name = workloadName(top);
   return top.container && top.container !== name ? `${name} · ${top.container}` : name;
 };
+const sameWorkload = (a: WorkloadSeen, b: WorkloadSeen) => a === b || (typeof a === 'object' && typeof b === 'object' && sameGap(a, b));
 
 function Workload() {
-  const { id, freshness } = useContext(Ctx);
-  const w = useLatest(id, workloadSelector);
+  const { id, freshness, info } = useContext(Ctx);
+  const w = useLatest(id, useMemo(() => workloadSelector(info), [info]), sameWorkload);
+  if (w && typeof w === 'object') return <>GPU processes <Unsupported gap={w} /></>;
   // Processes refresh every few seconds: while live, wait for them; when not live, say we don't know.
   if (w === undefined) return freshness === 'waiting' || freshness === 'live' ? <Skeleton width={180} height={12} style={{ marginTop: 3 }} /> : <span className="ov-card__workload ov-dim">Workload unknown</span>;
   return <span className="ov-card__workload" title={w ?? undefined}>{w ?? 'No GPU processes'}</span>;
