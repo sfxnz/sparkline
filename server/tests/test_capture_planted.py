@@ -742,6 +742,14 @@ CASES = [
         because="full name",
     ),
     Case(
+        "surname with an accent that has no composed form, written without it",
+        "refused",
+        ("Quuxeley",),
+        "Quuxeley lab",
+        full_name("Zorbina Quux\u1eb9\u0300ley"),
+        because="full name",
+    ),
+    Case(
         "dotted MAC after an accented letter",
         "replaced",
         (j(".", "4caa", "bbcc", "ddee"),),
