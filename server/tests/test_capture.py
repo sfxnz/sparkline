@@ -1248,7 +1248,7 @@ def test_a_link_target_that_passes_through_an_unread_name_records_it_without_tha
     assert [name for name, data in surfaces(out) if b"zorb" in data] == []
 
 
-@pytest.mark.parametrize(
+STARTS = pytest.mark.parametrize(
     "start",
     [
         "from sparkline.agent.capture_entry import main\nsys.exit(main())\n",
@@ -1256,6 +1256,42 @@ def test_a_link_target_that_passes_through_an_unread_name_records_it_without_tha
     ],
     ids=["sparkline-capture", "python -m sparkline.agent.capture"],
 )
+
+
+@STARTS
+def test_ctrl_c_at_the_first_import_after_the_command_starts_prints_no_traceback(start):
+    ctrl_c_on_import = (
+        "import importlib.abc, os, signal, sys\n"
+        "class CtrlC(importlib.abc.MetaPathFinder):\n"
+        "    def find_spec(self, name, path, target=None):\n"
+        "        if 'sparkline.agent.capture_entry' in sys.modules:\n"
+        "            sys.meta_path.remove(self)\n"
+        "            os.kill(os.getpid(), signal.SIGINT)\n"
+        "sys.meta_path.insert(0, CtrlC())\n"
+        f"{start}"
+    )
+    run = subprocess.run([sys.executable, "-c", ctrl_c_on_import], capture_output=True, text=True, check=False)
+    assert run.returncode == 130
+    assert run.stderr == "sparkline-capture stopped. It keeps no partial recording.\n"
+
+
+@STARTS
+def test_a_capture_that_fails_to_load_exits_4_with_only_the_kind_of_error(start):
+    fails_on_import = (
+        "import importlib.abc, sys\n"
+        "class Fails(importlib.abc.MetaPathFinder):\n"
+        "    def find_spec(self, name, path, target=None):\n"
+        "        if name == 'sparkline.agent.redact':\n"
+        f"            raise ImportError({HOME!r})\n"
+        "sys.meta_path.insert(0, Fails())\n"
+        f"{start}"
+    )
+    run = subprocess.run([sys.executable, "-c", fails_on_import], capture_output=True, text=True, check=False)
+    assert run.returncode == 4
+    assert run.stderr == "sparkline-capture failed with ImportError (message not shown).\n"
+
+
+@STARTS
 def test_ctrl_c_while_python_loads_the_capture_prints_no_traceback(start):
     stop_on_import = (
         "import importlib.abc, sys\n"
