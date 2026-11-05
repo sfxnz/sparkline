@@ -825,3 +825,32 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
     expect(tile('Active GPU processes').querySelector('.stat__footer')?.textContent).toBe('No containers · excl.\u00a0spark2');
   });
 });
+
+describe('a GB10 whose GPU stays in the sample with every fresh reading empty, as NVML sends it when its reads fail', () => {
+  const gb10 = gb10Info as unknown as NodeInfo;
+  const reading = gb10Sample as unknown as Sample;
+  const idle = reading.procs?.filter((p) => !p.gpu_mem) ?? [];
+  const empty = (s: Sample): Sample => ({
+    ...s,
+    procs: idle,
+    gpu: s.gpu.map((g) => ({ ...g, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null })),
+  });
+  const failingFor = (seconds: number) => [{ ...reading, procs: idle }, ...Array.from({ length: seconds }, () => empty(reading))];
+  const show = (samples: Sample[]) => {
+    useCluster.getState().setHello(cluster([node('spark1', { info: gb10 })]));
+    act(() => {
+      liveStore.removeNode('spark1');
+      samples.forEach((s, i) => { liveStore.pushSample({ ...s, node_id: 'spark1', ts: now - samples.length + 1 + i }); });
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+  const card = () => screen.getByRole('region', { name: 'Node spark1' });
+  const stat = (label: string) => within(card()).getByText(label, { selector: '.ov-stat__label' }).parentElement as HTMLElement;
+
+  it('reads Not responding in the ring and the stats from the first such sample', () => {
+    show(failingFor(1));
+    expect(within(card()).getByRole('img', { name: /^GPU utilisation/ })).toHaveAccessibleName('GPU utilisation not responding');
+    for (const label of ['GPU temp', 'GPU power']) expect(stat(label)).toHaveTextContent('Not responding');
+  });
+});

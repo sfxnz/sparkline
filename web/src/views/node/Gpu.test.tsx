@@ -510,3 +510,15 @@ describe('GPU needs attention while NVML fails on a node with two vendors', () =
     expect(attention()).toBeNull();
   });
 });
+
+describe('GPU tab while one GPU stays in the sample with every fresh reading empty', () => {
+  it('shows that GPU as not responding from the first sample, and says the others still report', () => {
+    const empty = withGpu(workstation.sample, 2, { util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, pstate: null, throttle_mask: null, vram_used: null, shared_used: null });
+    show(workstation, { sample: empty });
+
+    expect(within(section(2)).getByText('GPU 2 not responding')).toBeInTheDocument();
+    expect(section(2)).toHaveTextContent('GPUs 0, 1 and 3 still report.');
+    expect(within(section(2)).queryByText('Utilisation')).not.toBeInTheDocument();
+    expect(within(section(1)).queryByText(/not responding/i)).not.toBeInTheDocument();
+  });
+});

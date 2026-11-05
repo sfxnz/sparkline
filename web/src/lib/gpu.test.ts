@@ -3,7 +3,7 @@ import gb10Sample from '../test/fixtures/platforms/gb10/sample.json';
 import wsInfo from '../test/fixtures/platforms/workstation/info.json';
 import wsSample from '../test/fixtures/platforms/workstation/sample.json';
 import { notReported } from './capabilities';
-import { gpuSetGap, nodeGpuKey, nodeTotalGap, totalFrom, totalGap } from './gpu';
+import { gpuProcessesGap, gpuSetGap, nodeGpuGap, nodeGpuKey, nodeTotalGap, totalFrom, totalGap } from './gpu';
 import type { GpuSample, NodeInfo, Sample, Unsupported } from './types';
 
 const gb10 = gb10Info as unknown as NodeInfo;
@@ -156,5 +156,36 @@ describe('the gap of a node figure that reads less than every GPU the node lists
     for (const field of ['util', 'temp_c', 'power_w'] as const) {
       expect(nodeTotalGap(info, s, field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: `${[0, 1, 2, 3].map((i) => `GPU ${String(i)}: ${lostReason(i)}`).join('; ')}.` });
     }
+  });
+});
+
+describe('a GPU that stays in the sample with every fresh reading empty, as NVML sends it when its reads fail', () => {
+  const gb10Reading = gb10Sample as unknown as Sample;
+  const empty = (g: GpuSample): GpuSample => ({
+    index: g.index, util: null, sm_mhz: null, gr_mhz: null, video_mhz: null, temp_c: null, power_w: null, energy_j: g.energy_j, pstate: null,
+    throttle_mask: null, power_capped_pct: g.power_capped_pct, thermal_capped_pct: g.thermal_capped_pct, vram_used: null, shared_used: null,
+  });
+  const emptied = (s: Sample, indexes: readonly number[]): Sample => ({ ...s, gpu: s.gpu.map((g) => (indexes.includes(g.index) ? empty(g) : g)) });
+
+  it('says a GB10 whose GPU sends only its energy counter and capped shares is not responding, as if it were missing', () => {
+    for (const field of ['util', 'temp_c', 'power_w'] as const) {
+      expect(nodeGpuGap(gb10, emptied(gb10Reading, [0]), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: 'GPU 0 sent no reading this tick.' });
+      expect(nodeGpuGap(gb10, gb10Reading, field)).toBeNull();
+    }
+  });
+
+  it('says ws1 is not responding while all four GPUs send only those readings', () => {
+    for (const field of ['util', 'temp_c', 'power_w'] as const) {
+      expect(nodeTotalGap(ws1, emptied(sample, [0, 1, 2, 3]), field)).toEqual({ kind: 'hardware', label: 'Not responding', detail: 'GPUs 0, 1, 2 and 3 sent no reading this tick.' });
+    }
+  });
+
+  it('names an empty GPU beside answering ones as sending no reading at all, not as missing its power', () => {
+    expect(totalGap(ws1, emptied(sample, [2]), 'power_w')?.detail).toBe('GPU 2 sent no reading this tick, so a sum would understate.');
+  });
+
+  it('cannot tell the processes of such a GPU once it is quiet', () => {
+    expect(gpuProcessesGap(gb10, emptied(gb10Reading, [0]), [0])?.label).toBe('Not responding');
+    expect(gpuProcessesGap(gb10, emptied(gb10Reading, [0]), [])).toBeNull();
   });
 });
