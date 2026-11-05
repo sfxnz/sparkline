@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import posixpath
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterable
 from contextlib import suppress
@@ -123,7 +124,7 @@ OS_RELEASE_KEYS = {"PRETTY_NAME"}
 SYSTEM_BIN = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin", "/snap/bin"}
 ELSEWHERE = "<elsewhere>"
 DISK = re.compile(r"/dev/(?:nvme\d+n\d+(?:p\d+)?|(?:sd|vd|xvd|hd)[a-z]+\d*|mmcblk\d+(?:p\d+)?|md\d+|dm-\d+)")
-SERIAL_ANYWHERE = 8
+LONG_NAME = 8
 FULL_NAME_PART = 4
 
 _HEX = "[0-9A-Fa-f]"
@@ -673,7 +674,8 @@ class _Harvest:
         value = value.strip().rstrip(".") if category == "hostname" else value.strip()
         if category == "hostname" and "." in value:
             value, _, domain = value.partition(".")
-            self.name("domain name", domain)
+            for name in _domain_names(domain):
+                self.name("domain name", name)
         if not value or value.lower() in GENERIC_NAMES:
             return
         if category == "serial number" and (len(value) < 3 or len(set(value)) == 1):
@@ -682,17 +684,41 @@ class _Harvest:
         form: Form = "name"
         if category == "hostname":
             form = "host"
-        elif category == "serial number" and len(value) >= SERIAL_ANYWHERE:
+        elif category == "serial number" and len(value) >= LONG_NAME:
             form = "anywhere"
         self._pairs(form, [value], [placeholder], category)
+        if category == "hostname" and len(value) >= LONG_NAME:
+            self._pairs("anywhere", [value], [placeholder], category)
         if not value.isascii():
-            with suppress(UnicodeError):
-                self._pairs(form, [value.encode("idna").decode()], [placeholder], category)
+            forms = _idna_forms(value)
+            self._pairs(form, forms, [placeholder] * len(forms), category)
         if category == "hostname" and "-" in value:
             self._pairs(form, [value.replace("-", "--")], [placeholder.replace("-", "--")], category)
+            self._pairs(form, [value.replace("-", "_")], [placeholder], category)
 
     def hexes(self, category: str, values: list[str], placeholders: list[str]) -> None:
         self._pairs("hex", values, placeholders, category)
+
+
+def _domain_names(domain: str) -> list[str]:
+    labels = domain.split(".")
+    return [".".join(labels[i:]) for i in range(max(len(labels) - 1, 1))] + labels[-2:-1]
+
+
+def _idna_forms(value: str) -> list[str]:
+    forms = []
+    with suppress(UnicodeError):
+        forms.append(value.encode("idna").decode())
+    with suppress(UnicodeError):
+        forms.append(
+            ".".join(
+                label
+                if label.isascii()
+                else "xn--" + unicodedata.normalize("NFC", label.lower()).encode("punycode").decode()
+                for label in value.split(".")
+            )
+        )
+    return forms
 
 
 def _full_name_spellings(user: User) -> list[str]:
