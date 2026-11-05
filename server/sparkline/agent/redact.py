@@ -227,11 +227,15 @@ def _within(m: re.Match[str], spans: Spans) -> bool:
     return any(start <= m.start() and m.end() <= end for start, end in spans)
 
 
+def _ignorecase_key(text: str) -> str:
+    return "".join(c.lower() if len(c.lower()) == 1 else c for c in text)
+
+
 class Spellings:
     def __init__(self, spellings: Iterable[Spelling]) -> None:
         unique: dict[tuple[str, str], Spelling] = {}
         for s in spellings:
-            key = s.original.lower() if s.form in _WORDS else s.original
+            key = _ignorecase_key(s.original) if s.form in _WORDS else s.original
             if s.original != s.placeholder:
                 unique.setdefault((s.form, key), s)
         self._items = sorted(unique.values(), key=lambda s: -len(s.original))
