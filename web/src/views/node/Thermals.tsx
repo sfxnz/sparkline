@@ -7,15 +7,18 @@ import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { Stat } from '../../design/components/Stat';
 import { notReported, type NotReported } from '../../lib/capabilities';
-import { gpuSetGap, nodeGpuKey } from '../../lib/gpu';
+import { gpuIndexes, gpuSetGap, nodeGpuKey, notResponding } from '../../lib/gpu';
 import { tempParts, wattsParts, type Formatter } from '../../lib/format';
+import type { NodeInfo, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
-import type { LiveStore } from '../../store/live';
+import { useLatest, type LiveStore } from '../../store/live';
 import { usePrefs } from '../../store/prefs';
 import { ChartPanelSkeleton, StatSkeleton } from '../placeholders';
 import { energyKeys, formatEnergyCost, formatKwh, joulesToKwh } from '../shared/energy';
 import { useRangeHistory } from '../shared/live';
+import { sameGap } from '../shared/totalGap';
 import { useLiveDerived, useSpanEnergy, useStaleSince } from './partsC/hooks';
+import { CollectorErrors } from './parts/Notices';
 import { NowLabel } from './parts/NowLabel';
 import { NodeTempFooter } from './parts/TempFooter';
 import { useNodeGpuGap } from './parts/useGpuGap';
@@ -49,6 +52,7 @@ export default function Thermals({ nodeId }: { nodeId: string }) {
 
   return (
     <div className="view tp">
+      <CollectorErrors nodeId={nodeId} only={['gpu', 'thermal']} />
       <ThermalHeader nodeId={nodeId} groups={groups} stale={stale} updatedAt={updatedAt} sensorGap={sensorGap} />
       <div className="tp-groups">
         {groups.map((g) => (
@@ -82,6 +86,7 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
   const anySensor = groups.some((g) => g.sensors.some((s) => !notReported(info, s.key)));
   const tempGap = useNodeGpuGap(nodeId, 'temp_c');
   const powerGap = useNodeGpuGap(nodeId, 'power_w');
+  const energyGap = useLatest(nodeId, useCallback((s: Sample | null) => gpuEnergyGap(info, s), [info]), sameGap);
 
   return (
     <Panel label={`${nodeId} thermals and power summary`} className="tp-head">
@@ -99,11 +104,24 @@ function ThermalHeader({ nodeId, groups, stale, updatedAt, sensorGap }: { nodeId
           footer={gpuTemp == null ? undefined : <NodeTempFooter nodeId={nodeId} oneGpuTemp={gpuTemp} />}
         />
         <Stat label="GPU power" value={gpuPower} format={wattsParts} stale={stale} updatedAt={updatedAt} unsupported={powerGap} reporting={!stale} footer="GPU rail only" />
-        <EnergyToday nodeId={nodeId} gap={gpuSetGap(info, 'energy_j', 'every')} />
+        <EnergyToday nodeId={nodeId} gap={energyGap} />
         <Stat label="Fans" value={null} format={wattsParts} unsupported={notReported(info, 'fan')} reporting />
       </div>
     </Panel>
   );
+}
+
+/** Why the node's GPU energy has no figure, as the GPU tab says it: declared for any GPU (a partial sum would
+ *  understate), else the first GPU the node lists that is not responding now. */
+function gpuEnergyGap(info: NodeInfo | null | undefined, s: Sample | null): NotReported | null {
+  const declared = gpuSetGap(info, 'energy_j', 'every');
+  if (declared) return declared;
+  const indexes = gpuIndexes(info);
+  for (const i of indexes) {
+    const gap = notResponding(info, s, i);
+    if (gap) return indexes.length > 1 ? { ...gap, detail: `GPU ${i}: ${gap.detail}` } : gap;
+  }
+  return null;
 }
 
 /** kWh in, always shown in kWh (3 significant figures), like the Overview's "Today": one unit for a figure that
