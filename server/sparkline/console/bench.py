@@ -166,7 +166,7 @@ def uses_gpu(bench_id: str, params: dict[str, Any]) -> bool:
         return True
     try:
         return bench.uses_gpu(bench.validate(params))
-    except ValidationError:  # an agent of another release: its params are not this console's
+    except ValidationError:
         return bench.gpu
 
 

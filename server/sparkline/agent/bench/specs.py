@@ -422,9 +422,8 @@ class Estimate:
 
     @property
     def timeout_s(self) -> float:
-        guard = self.seconds * 3 + 120
-        # A GB10 estimate may be short on slower hardware, but a hung run must not hold the node for hours.
-        return guard if self.grounded else guard + min(guard, 3600)
+        gb10_timeout = self.seconds * 3 + 120
+        return gb10_timeout if self.grounded else gb10_timeout + min(gb10_timeout, 3600)
 
 
 # --------------------------------------------------------------------------------------------------------
