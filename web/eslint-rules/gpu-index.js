@@ -3,6 +3,7 @@ const WRAPPERS = new Set(['ChainExpression', 'TSNonNullExpression', 'TSAsExpress
 const COPIES = new Set(['filter', 'map', 'flatMap', 'slice', 'concat', 'toReversed', 'toSpliced', 'with', 'reverse', 'values']);
 const POSITIONAL = new Set(['at', 'pop', 'shift', 'next', 'splice', 'toSpliced', 'with', 'entries', 'keys']);
 const FUNCTIONS = new Set(['ArrowFunctionExpression', 'FunctionExpression']);
+const COLLECTIONS = new Set(['Map', 'Set']);
 const INDEX_PARAM = new Map([
   ...['find', 'findIndex', 'findLast', 'findLastIndex', 'filter', 'some', 'every', 'map', 'flatMap', 'forEach'].map((m) => [m, 1]),
   ['reduce', 2],
@@ -18,6 +19,27 @@ const takesOrGivesPositions = (call) => POSITIONAL.has(method(call)) || (method(
 const isCall = (call, object, name) => method(call) === name && call.callee.object.type === 'Identifier' && call.callee.object.name === object;
 
 const hasPositionKey = (pattern) => pattern.properties.some((p) => p.type === 'Property' && (p.computed || (p.key.type === 'Literal' && typeof p.key.value === 'number')));
+
+const unwrap = (node) => {
+  while (WRAPPERS.has(node?.type)) node = node.expression;
+  return node;
+};
+
+const nameOf = (node) => {
+  node = unwrap(node);
+  return node?.type === 'Identifier' ? node.name : node?.type === 'MemberExpression' ? staticKey(node.property, node.computed) : '';
+};
+
+// `errors.gpu` is the GPU collector's error string, not a GPU list.
+const listKey = (key, owner) => GPU.test(key) && nameOf(owner) !== 'errors';
+
+const destructured = ({ parent }) => (parent.type === 'VariableDeclarator' ? parent.init : parent.type === 'AssignmentExpression' ? parent.right : null);
+
+const keyedByIndex = (variable) =>
+  variable?.defs.some((d) => {
+    const init = unwrap(d.node.init);
+    return init?.type === 'NewExpression' && COLLECTIONS.has(init.callee.name);
+  });
 
 export default {
   meta: {
@@ -38,12 +60,14 @@ export default {
       return null;
     };
     function derivesFromGpuList(node) {
-      while (WRAPPERS.has(node?.type)) node = node.expression;
+      node = unwrap(node);
       switch (node?.type) {
-        case 'Identifier':
-          return GPU.test(node.name) || copies.has(variableOf(node));
+        case 'Identifier': {
+          const variable = variableOf(node);
+          return (GPU.test(node.name) && !keyedByIndex(variable)) || copies.has(variable);
+        }
         case 'MemberExpression':
-          return GPU.test(staticKey(node.property, node.computed));
+          return listKey(staticKey(node.property, node.computed), node.object);
         case 'LogicalExpression':
           return derivesFromGpuList(node.left) || derivesFromGpuList(node.right);
         case 'ConditionalExpression':
@@ -79,7 +103,7 @@ export default {
       },
       'ObjectPattern > Property'(node) {
         const value = node.value.type === 'AssignmentPattern' ? node.value.left : node.value;
-        if (!GPU.test(staticKey(node.key, node.computed))) return;
+        if (!listKey(staticKey(node.key, node.computed), destructured(node.parent))) return;
         if (value.type === 'ArrayPattern') report(node);
         if (value.type === 'Identifier') copies.add(variableOf(value));
       },
