@@ -604,6 +604,20 @@ def an_interface(name: str) -> Callable[[Path], None]:
     return plant
 
 
+def a_platform_device_with_hwmon(name: str) -> Callable[[Path], None]:
+    def plant(copy: Path) -> None:
+        platform = copy / "root/sys/devices/platform"
+        (platform / "PNP0C0B:00").rename(platform / name)
+        device = platform / name / "hwmon/hwmon0/device"
+        device.unlink()
+        device.symlink_to(f"../../../{name}")
+        listed = copy / "root/sys/class/hwmon/hwmon0"
+        listed.unlink()
+        listed.symlink_to(f"../../devices/platform/{name}/hwmon/hwmon0")
+
+    return plant
+
+
 def in_free_text(text: str) -> Callable[[Path], None]:
     def plant(copy: Path) -> None:
         with_free_text(copy, text)
@@ -676,6 +690,10 @@ STILL_A_WORD = {
     "container pytorch, also its process name": [in_a_container("pytorch", "pytorch", b"pytorch\0")],
     "hostname platform, a directory where the reviewed paths take any device name": [
         named("hostname", "platform")
+    ],
+    "hostname block, a platform device that holds an hwmon directory": [
+        named("hostname", "block"),
+        a_platform_device_with_hwmon("block"),
     ],
 }
 
@@ -837,6 +855,14 @@ def test_a_reviewed_text_file_that_is_not_utf8_is_refused(tmp_path):
 @pytest.mark.parametrize("disk", ["sda", "vda", "xvda", "hda", "mmcblk0"])
 def test_the_read_set_takes_the_size_of_any_disk_the_storage_collector_reads(disk):
     assert ("/sys/devices/**/block/*/size", "text") in matching(f"/sys/devices/platform/x/block/{disk}/size")
+
+
+@pytest.mark.parametrize(
+    ("disk", "partition"),
+    [("sda", "sda1"), ("vda", "vda2"), ("xvda", "xvda1"), ("hda", "hda1"), ("mmcblk0", "mmcblk0p1")],
+)
+def test_the_read_set_takes_a_partition_of_any_disk_the_storage_collector_reads(disk, partition):
+    assert [holds for _, holds in matching(f"/sys/devices/platform/x/block/{disk}/{partition}")] == ["entry"]
 
 
 def gb10_readings() -> Recording:
