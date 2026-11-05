@@ -130,6 +130,17 @@ describe('Memory tab by memory model', () => {
     expect(bar(3)).toHaveTextContent('NVIDIA RTX A4000');
   });
 
+  it("reads the recorded workstation's own VRAM readings, one bar per card", () => {
+    open({ ...(wsInfo as unknown as NodeInfo), node_id: NODE }, wsSample);
+    expect(screen.getByText('System memory', { selector: '.t-eyebrow' })).toBeInTheDocument();
+    expect(vram().map((li) => li.querySelector('.visually-hidden')?.textContent.replaceAll('\u00a0', ' '))).toEqual([
+      'GPU 0: 40.9 GiB of 48.0 GiB in use (85%).',
+      'GPU 1: 41.0 GiB of 48.0 GiB in use (85%).',
+      'GPU 2: 41.0 GiB of 48.0 GiB in use (85%).',
+      'GPU 3: 40.9 GiB of 48.0 GiB in use (85%).',
+    ]);
+  });
+
   it('ranks top consumers by resident memory alone, with no total that adds VRAM', () => {
     open(ws1(), ws1Sample());
     const table = screen.getByRole('table', { name: `Top memory consumers on ${NODE}` });

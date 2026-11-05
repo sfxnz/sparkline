@@ -27,11 +27,7 @@ vi.mock('uplot', () => {
 
 const NODE = 'stest';
 const TS = 1_800_000_000;
-const GiB = 1024 ** 3;
-const ws1 = (): NodeInfo => {
-  const info = wsInfo as unknown as NodeInfo;
-  return { ...info, node_id: NODE, gpus: info.gpus.map((g) => ({ ...g, memory: 'dedicated', vram_total: 48 * GiB })) };
-};
+const ws1 = (): NodeInfo => ({ ...(wsInfo as unknown as NodeInfo), node_id: NODE });
 const gb10 = (): NodeInfo => ({ ...(gb10Info as unknown as NodeInfo), node_id: NODE });
 
 const open = (info: NodeInfo, s: Sample) => {

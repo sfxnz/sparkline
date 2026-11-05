@@ -437,36 +437,33 @@ describe('a four-GPU workstation on the Overview (ws1, slowdown 93 °C)', () => 
   });
 
   describe('memory, once the GPUs say they keep their own', () => {
-    const GiB = 1024 ** 3;
-    const dedicated = { ...ws1, gpus: ws1.gpus.map((g) => ({ ...g, memory: 'dedicated', vram_total: 48 * GiB })) } as NodeInfo;
-    const vram = (over: Record<number, Partial<Sample['gpu'][number]>> = {}) =>
-      withGpus(Object.fromEntries([0, 1, 2, 3].map((i) => [i, { vram_used: (40 + i) * GiB, ...over[i] }])));
+    const olderAgent = { ...ws1, gpus: ws1.gpus.map((g) => Object.fromEntries(Object.entries(g).filter(([k]) => k !== 'memory' && k !== 'vram_total'))) } as unknown as NodeInfo;
     const memRow = (card: HTMLElement, label: string) => within(card).getByText(label, { selector: '.ov-label' }).closest('.ov-mem') as HTMLElement;
 
     it('shows system memory with no GPU segment, and a GPU memory row of the summed VRAM', () => {
-      const card = show(vram(), dedicated);
+      const card = show(reading);
       expect(within(memRow(card, 'System memory')).getByRole('img')).toHaveAccessibleName(/^System memory: .* in use \(\d+%\), .* available$/);
       expect(memRow(card, 'System memory')).not.toHaveTextContent('GPU');
-      expect(within(memRow(card, 'GPU memory')).getByRole('img')).toHaveAccessibleName(/^GPU memory: 166\.0\sGiB of 192\.0\sGiB in use \(86%\)$/);
+      expect(within(memRow(card, 'GPU memory')).getByRole('img')).toHaveAccessibleName(/^GPU memory: 163\.8\sGiB of 192\.0\sGiB in use \(85%\)$/);
       expect(tile('System memory in use')).toBeInTheDocument();
     });
 
     it('says why there is no GPU memory total while GPU 2 sends no VRAM reading', () => {
-      const card = show(vram({ 2: { vram_used: null } }), dedicated);
+      const card = show(withGpus({ 2: { vram_used: null } }));
       expect(memRow(card, 'GPU memory')).toHaveTextContent('No total');
       expect(why(memRow(card, 'GPU memory'))).toHaveAccessibleDescription('GPU 2 sent no memory reading this tick, so a sum would understate.');
     });
 
     it('keeps a GB10 beside it as unified memory, and calls the cluster total system memory', () => {
-      withSpark1(vram(), dedicated);
+      withSpark1(reading);
       const spark1 = screen.getByRole('region', { name: 'Node spark1' });
       expect(within(memRow(spark1, 'Unified memory')).getByRole('img')).toHaveAccessibleName(/^Unified memory: .*, .* GPU-allocated, .* available$/);
       expect(within(spark1).queryByText('GPU memory', { selector: '.ov-label' })).not.toBeInTheDocument();
       expect(tile('System memory in use')).toBeInTheDocument();
     });
 
-    it('calls the cluster total unified memory while every node is unified', () => {
-      withSpark1(reading);
+    it('calls the cluster total unified memory while every node is unified, as with an older ws1 agent', () => {
+      withSpark1(reading, olderAgent);
       expect(tile('Unified memory in use')).toBeInTheDocument();
       expect(within(screen.getByRole('region', { name: 'Node ws1' })).queryByText('GPU memory', { selector: '.ov-label' })).not.toBeInTheDocument();
     });
