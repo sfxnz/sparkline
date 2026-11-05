@@ -607,6 +607,22 @@ CASES = [
         because="domain name",
     ),
     Case(
+        "domain label with - written with _",
+        "refused",
+        ("zorb_corp",),
+        "zorb_corp vpn",
+        hostname=f"{HOST}.zorb-corp.example",
+        because="domain name",
+    ),
+    Case(
+        "domain label of eight letters inside a longer word",
+        "refused",
+        ("zorbcorp",),
+        "vpn zorbcorpgw",
+        hostname=f"{HOST}.zorbcorp.example",
+        because="domain name",
+    ),
+    Case(
         "tailnet name of a Tailscale hostname",
         "refused",
         ("tail7f3a9c",),
@@ -826,6 +842,13 @@ def test_a_hostname_shorter_than_eight_letters_is_not_found_inside_a_longer_word
     with_free_text(copy, "vm zorbq2")
     capture_of(copy, tmp_path / "out")
     assert "vm zorbq2" in (tmp_path / "out/root/proc/cpuinfo").read_text()
+
+
+def test_a_domain_label_shorter_than_eight_letters_is_not_found_inside_a_longer_word(tmp_path):
+    copy = base_copy(tmp_path, f"{HOST}.quuxlab.example")
+    with_free_text(copy, "rack quuxlabs")
+    capture_of(copy, tmp_path / "out")
+    assert "rack quuxlabs" in (tmp_path / "out/root/proc/cpuinfo").read_text()
 
 
 def test_a_mac_in_an_interface_name_is_replaced_in_the_path_and_the_link_target():
