@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BenchCompare, BenchParam, BenchSpec, Sample } from '../../lib/types';
+import type { BenchCompare, BenchParam, BenchSpec, NodeStatus, Sample } from '../../lib/types';
 import { boundRuns, mergeRun } from '../../store/bench';
 import { CATALOG, LLM, MATMUL, RDMA, SOAK, WS_MATMUL, result, run, wsGpuOptions } from './fixtures';
 import { LIVE_4, llmRun, nodeState } from './streams/fixtures';
@@ -491,6 +491,15 @@ describe('competition', () => {
     const amdOnly = sample({ gpu: [{ index: 1, util: 96 }] as Sample['gpu'], procs: [] });
     expect(competition(MATMUL, ['spark1'], () => amdOnly)[0]?.text).toBe('spark1 GPU is idle.');
   });
+  it('keeps the GB10 sentences word for word, also while the node is not reporting', () => {
+    const on = (s: Sample, status: NodeStatus) => competition(MATMUL, ['spark1'], () => s, undefined, undefined, undefined, () => status)[0];
+    for (const status of ['online', 'stale'] as const) {
+      expect(on(sample(), status)).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 is currently serving DeepSeek-V4.1-Flash-EXL3 at 96% GPU; results will be lower and the workload will slow down.' });
+      expect(on(sample({ gpu: [] }), status)).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 is currently serving DeepSeek-V4.1-Flash-EXL3; results will be lower and the workload will slow down.' });
+      expect(on(sample({ procs: [] }), status)).toStrictEqual({ node: 'spark1', busy: true, text: 'spark1 GPU is 96% busy; results will be lower and the workload will slow down.' });
+      expect(on(sample({ gpu: [{ index: 0, util: 3 }] as Sample['gpu'], procs: [] }), status)).toStrictEqual({ node: 'spark1', busy: false, text: 'spark1 GPU is idle (3%).' });
+    }
+  });
   it('looks at the CX7 link for interconnect benches', () => {
     const rails = () => [{ name: 'enp1s0f1np1' }] as never;
     expect(competition(RDMA, ['spark1'], () => sample(), rails)[0]?.text).toBe(
@@ -666,17 +675,39 @@ describe('run estimate', () => {
 describe('competition on a node with a choice of GPU', () => {
   const ws = (utils: Record<number, number>, procs: Sample['procs'] = []) =>
     ({ node_id: 'ws1', gpu: Object.entries(utils).map(([i, util]) => ({ index: Number(i), util })), cpu: { util: 5 }, disk: [], net: [], procs }) as unknown as Sample;
-  const vllm = [{ pid: 1, name: 'VLLM::Worker_TP', cmdline: 'VLLM::Worker_TP0', gpu_mem: 4e10, gpu_util: 86, model: 'nvidia/Llama-3.3-70B-Instruct-FP8', container: 'vllm-llama70b' }] as unknown as Sample['procs'];
+  const serve = { pid: 1, name: 'vllm', cmdline: 'vllm serve nvidia/Llama-3.3-70B-Instruct-FP8', gpu_mem: null, gpu_util: null, model: 'nvidia/Llama-3.3-70B-Instruct-FP8', container: 'vllm-llama70b' };
+  const workers = [0, 1, 2, 3].map((g) => ({ pid: 10 + g, name: 'VLLM::Worker_TP', cmdline: `VLLM::Worker_TP${g}`, gpu_mem: 43.4e9, gpu_util: 86, model: null, container: 'vllm-llama70b' }));
+  const vllm = [serve, ...workers] as unknown as Sample['procs'];
+  const on = (s: Sample, gpu: number, status: NodeStatus = 'online') => competition(WS_MATMUL, ['ws1'], () => s, undefined, undefined, { ws1: gpu }, () => status)[0];
 
-  it("reads the chosen GPU and names it: another GPU's workload does not make it busy", () => {
-    const s = ws({ 0: 86, 1: 87, 2: 3, 3: 86 }, vllm);
-    expect(competition(WS_MATMUL, ['ws1'], () => s, undefined, undefined, { ws1: 2 })[0]).toEqual({ node: 'ws1', busy: false, text: 'ws1 GPU 2 is idle (3%).' });
-    expect(competition(WS_MATMUL, ['ws1'], () => s, undefined, undefined, { ws1: 0 })[0]).toEqual({
+  it('is not idle at 0% while the node serves a model, whose GPUs Sparkline cannot tell', () => {
+    expect(on(ws({ 0: 86, 1: 87, 2: 0, 3: 86 }, vllm), 2)).toStrictEqual({
       node: 'ws1',
       busy: true,
-      text: 'ws1 GPU 0 is 86% busy while ws1 is serving nvidia/Llama-3.3-70B-Instruct-FP8; results will be lower and the workload will slow down.',
+      text: 'ws1 GPU 2 is 0% busy, but ws1 is serving vllm-llama70b, which holds 161.7\u00a0GiB of GPU memory; if it shares GPU 2, the run may run out of GPU memory.',
     });
-    expect(competition(WS_MATMUL, ['ws1'], () => ws({ 0: 1, 3: 40 }), undefined, undefined, { ws1: 3 })[0]?.text).toBe('ws1 GPU 3 is 40% busy; results will be lower and the workload will slow down.');
+  });
+  it('names the load of a busy GPU, and the workload on the node with its GPU memory', () => {
+    expect(on(ws({ 0: 86, 2: 0 }, vllm), 0)).toStrictEqual({
+      node: 'ws1',
+      busy: true,
+      text: 'ws1 GPU 0 is 86% busy while ws1 is serving vllm-llama70b, which holds 161.7\u00a0GiB of GPU memory; results will be lower, the workload will slow down and the run may run out of GPU memory.',
+    });
+    expect(on(ws({ 0: 1, 3: 40 }), 3)?.text).toBe('ws1 GPU 3 is 40% busy; results will be lower and the workload will slow down.');
+  });
+  it('is idle only with a low load and no GPU process on the node', () => {
+    expect(on(ws({ 0: 86, 2: 3 }), 2)).toStrictEqual({ node: 'ws1', busy: false, text: 'ws1 GPU 2 is idle (3%).' });
+  });
+  it('marks a reading from a node that is not reporting as stale, never idle or busy', () => {
+    for (const procs of [[], vllm]) {
+      expect(on(ws({ 2: 3 }, procs), 2, 'stale')).toStrictEqual({
+        node: 'ws1',
+        busy: false,
+        stale: true,
+        text: 'ws1 is not reporting; GPU 2 was 3% busy when it last reported, so its current load is unknown.',
+      });
+    }
+    expect(on(ws({ 0: 86 }), 2, 'error')).toStrictEqual({ node: 'ws1', busy: false, stale: true, text: 'ws1 is not reporting, so the current load of GPU 2 is unknown.' });
   });
   it('keeps the GB10 sentence for a node without a choice in the same run', () => {
     const spark = { ...ws({ 0: 0 }), node_id: 'spark1' };

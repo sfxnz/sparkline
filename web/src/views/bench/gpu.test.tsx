@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
 import gb10Sample from '../../test/fixtures/platforms/gb10/sample.json';
 import wsSample from '../../test/fixtures/platforms/workstation/sample.json';
-import type { BenchCreate, BenchRun, NodeInfo, Sample } from '../../lib/types';
+import type { BenchCreate, BenchRun, NodeInfo, NodeStatus, Sample } from '../../lib/types';
 import { useBench } from '../../store/bench';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
@@ -38,11 +38,11 @@ function wsWith(utils: Record<number, number>): Sample {
   return { ...s, gpu: s.gpu.map((g) => (g.index in utils ? { ...g, util: utils[g.index] ?? null } : g)) };
 }
 
-function cluster(nodes: { info: NodeInfo; sample?: Sample }[]) {
+function cluster(nodes: { info: NodeInfo; sample?: Sample; status?: NodeStatus }[]) {
   useCluster.setState({
     clockOffset: 0,
     order: nodes.map((n) => n.info.node_id),
-    nodes: Object.fromEntries(nodes.map(({ info }) => [info.node_id, { node_id: info.node_id, url: '', status: 'online' as const, since: 0, last_sample_ts: null, error: null, info, next_retry_ts: null }])),
+    nodes: Object.fromEntries(nodes.map(({ info, status = 'online' }) => [info.node_id, { node_id: info.node_id, url: '', status, since: 0, last_sample_ts: null, error: null, info, next_retry_ts: null }])),
   });
   act(() => {
     for (const { info, sample } of nodes) {
@@ -79,10 +79,27 @@ describe('choosing the GPU on a multi-GPU node', () => {
     expect(screen.getByText('serving vllm-llama70b · GPU 2 3%')).toBeInTheDocument();
     review();
     expect(screen.getByText('Runs GPU matmul on ws1 GPU 2.')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Nothing to compete with' })).toBeInTheDocument();
-    expect(screen.getByText('ws1 GPU 2 is idle (3%).')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
     expect(onRun).toHaveBeenCalledWith(['ws1'], MATMUL_DEFAULTS, { ws1: 2 });
+  });
+
+  it('warns about a quiet GPU on a node serving a model, since Sparkline cannot tell which GPUs hold its memory', () => {
+    cluster([{ info: WS1, sample: wsWith({ 2: 0 }) }]);
+    render(<ConfigureDialog spec={WS_MATMUL} open onClose={noop} onRun={noop} initialNodes={['ws1']} initialGpuIndex={{ ws1: 2 }} />);
+    review();
+    expect(screen.getByRole('heading', { name: 'It will compete with running work' })).toBeInTheDocument();
+    expect(screen.getByText('ws1 GPU 2 is 0% busy, but ws1 is serving vllm-llama70b, which holds 161.7 GiB of GPU memory; if it shares GPU 2, the run may run out of GPU memory.')).toBeInTheDocument();
+    expect(screen.queryByText(/idle/)).toBeNull();
+  });
+
+  it('marks the load of a node that is not reporting as out of date, in the picker and the review', () => {
+    cluster([{ info: WS1, sample: wsWith({ 2: 3 }), status: 'stale' }]);
+    render(<ConfigureDialog spec={WS_MATMUL} open onClose={noop} onRun={noop} initialNodes={['ws1']} initialGpuIndex={{ ws1: 2 }} />);
+    expect(within(screen.getByRole('combobox', { name: 'GPU on ws1' })).getByRole('option', { selected: true })).toHaveTextContent(`GPU 2 · was 3% busy · ${RTX}`);
+    review();
+    expect(screen.getByRole('heading', { name: 'Current load unknown' })).toBeInTheDocument();
+    expect(screen.getByText('ws1 is not reporting; GPU 2 was 3% busy when it last reported, so its current load is unknown.')).toBeInTheDocument();
+    expect(screen.queryByText(/idle/)).toBeNull();
   });
 
   it('warns when the chosen GPU is busy, naming what runs on the node', () => {
@@ -90,7 +107,7 @@ describe('choosing the GPU on a multi-GPU node', () => {
     render(<ConfigureDialog spec={WS_MATMUL} open onClose={noop} onRun={noop} initialNodes={['ws1']} />);
     review();
     expect(screen.getByRole('heading', { name: 'It will compete with running work' })).toBeInTheDocument();
-    expect(screen.getByText('ws1 GPU 0 is 86% busy while ws1 is serving vllm-llama70b; results will be lower and the workload will slow down.')).toBeInTheDocument();
+    expect(screen.getByText('ws1 GPU 0 is 86% busy while ws1 is serving vllm-llama70b, which holds 161.7 GiB of GPU memory; results will be lower, the workload will slow down and the run may run out of GPU memory.')).toBeInTheDocument();
   });
 
   it('lists a GPU that cannot run it as disabled, with why, and starts on the next one', () => {
