@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ClusterState, NodeInfo, NodeState, Sample } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
@@ -614,5 +614,34 @@ describe('the pill and the cluster sentence while GPUs send nothing', () => {
     show(ws1, failingFor(5, wsReading));
     expect(screen.getByRole('heading', { name: 'ws1 has GPUs 0, 1, 2 and 3 not responding' })).toBeInTheDocument();
     expect(cardPill('ws1')).toHaveAttribute('data-status', 'warning');
+  });
+
+  const pushAt = (info: NodeInfo, samples: [number, Sample][]) => {
+    useCluster.getState().setHello(cluster([node(info.node_id, { info })]));
+    act(() => {
+      liveStore.removeNode(info.node_id);
+      for (const [ago, s] of samples) liveStore.pushSample({ ...s, node_id: info.node_id, ts: now - ago });
+      liveStore.flush();
+    });
+    render(<Overview />);
+  };
+
+  it('keeps a GB10 healthy on its first sample back after 11 s without samples, though its GPU last reported before the gap', () => {
+    pushAt(gb10, [[11, gb10Reading], [0, nvmlFails(gb10Reading)]]);
+    expect(screen.getByRole('heading', { name: 'spark1 is healthy' })).toBeInTheDocument();
+    expect(cardPill('spark1')).toHaveAttribute('data-status', 'healthy');
+  });
+
+  it("says a GB10's GPU processes are not known only once its NVML has failed as long as the pill waits", () => {
+    const idle = gb10Reading.procs?.filter((p) => !p.gpu_mem) ?? [];
+    const card = () => screen.getByRole('region', { name: 'Node spark1' });
+    show(gb10, failingFor(1, { ...gb10Reading, procs: idle }));
+    expect(within(card()).getByText('No GPU processes')).toBeInTheDocument();
+    expect(document.querySelector('.ov-hero__workload')).toHaveTextContent(/^No GPU workloads$/);
+    cleanup();
+    show(gb10, failingFor(5, { ...gb10Reading, procs: idle }));
+    expect(within(card()).queryByText('No GPU processes')).not.toBeInTheDocument();
+    expect(within(card()).getByText(/^GPU processes/)).toHaveTextContent(/^GPU processes Not responding/);
+    expect(document.querySelector('.ov-hero__workload')).toHaveTextContent(/^GPU workloads not reported$/);
   });
 });
