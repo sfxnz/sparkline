@@ -68,7 +68,7 @@ is how Linux holds an internationalized hostname, is also found in Unicode.
 | Hostname, with any domain after it, also written with `_` for `-` or, from 8 characters, inside a longer word | `host1` |
 | Domain of the hostname, each parent domain down to the organization's, the organization, and each label of 4 or more characters outside a public suffix, on their own, also written with `_` for `-` or, from 8 characters, inside a longer word | `domain1` |
 | User name, the home directory, and a disk mounted under `/media/<user>` | `user1`, `/home/<user1>`, `/media/<user1>` |
-| Full name of an account in `/etc/passwd`, each word in that account's comment field that has a letter and 4 or more characters, also without accents, and each number there of 6 or more digits, such as a phone number, as written and as its digits alone | `person1` |
+| Full name of an account in `/etc/passwd`, each word in that account's comment field that has a letter and 4 or more characters, also with every accent and other mark removed, in any script, when 4 or more characters are left, and each number there of 6 or more digits, such as a phone number, as written and as its digits alone | `person1` |
 | IPv4 address, private ranges included | `198.51.100.1`, then `203.0.113.x` and `192.0.2.x` |
 | IPv6 address | `2001:db8::1` |
 | Link-local IPv6 address, which holds the MAC | `fe80::ff:fe00:1`, or `fe80::200:0:0:1` |

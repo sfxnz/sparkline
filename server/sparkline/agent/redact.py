@@ -828,7 +828,9 @@ def _full_name_spellings(user: User) -> list[str]:
         if len(digits := re.sub(r"\D", "", m[0])) >= GECOS_NUMBER
         for spelled in dict.fromkeys((m[0], digits))
     ]
-    return names + [a for n in names if (a := _ascii(n)) != n and len(a) >= NAME_PART] + numbers
+    lowered = {n.lower() for n in names}
+    plainer = {p.lower(): p for n in names for p in (_unmarked(n), n.casefold(), _ascii(n))}
+    return names + [p for low, p in plainer.items() if low not in lowered and len(p) >= NAME_PART] + numbers
 
 
 _NO_DECOMPOSITION = str.maketrans(
@@ -853,6 +855,11 @@ _NO_DECOMPOSITION = str.maketrans(
 
 def _ascii(text: str) -> str:
     return unicodedata.normalize("NFKD", text.translate(_NO_DECOMPOSITION)).encode("ascii", "ignore").decode()
+
+
+def _unmarked(text: str) -> str:
+    kept = (c for c in unicodedata.normalize("NFD", text) if not unicodedata.category(c).startswith("M"))
+    return unicodedata.normalize("NFC", "".join(kept))
 
 
 def _harvest(rec: Recording, facts: Facts, ph: Placeholders) -> list[Spelling]:
