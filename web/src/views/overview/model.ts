@@ -81,13 +81,16 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   const error = by('error');
   const stale = by('stale');
   const connecting = nodes.filter((n) => n.status === 'connecting' || n.status === undefined).map((n) => n.id);
-  const flagged = nodes.filter((n) => n.status === 'online' && n.condition && !alertCovers(n.alert, n.condition.level));
+  const flagged = nodes.flatMap((n) => {
+    const c = n.status === 'online' && n.condition ? (alertCovers(n.alert, n.condition.level) ? n.condition.unwatched : n.condition) : null;
+    return c ? [{ id: n.id, condition: c }] : [];
+  });
 
   const parts: string[] = [];
   if (offline.length) parts.push(`${listNodes(offline)} ${isAre(offline)} offline`);
   if (error.length) parts.push(`${listNodes(error)} ${error.length === 1 ? 'has' : 'have'} a connection error`);
   if (stale.length) parts.push(`${listNodes(stale)} ${isAre(stale)} not reporting`);
-  for (const n of flagged) parts.push(`${n.id} ${n.condition?.text ?? ''}`);
+  for (const n of flagged) parts.push(`${n.id} ${n.condition.text}`);
   if (connecting.length) parts.push(`Waiting for ${listNodes(connecting)}…`);
   const problems = parts.length > 0;
 
@@ -101,7 +104,7 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   }
   const sentence = [...parts, ...alertParts].join(' · ');
 
-  const flaggedCritical = flagged.some((n) => n.condition?.level === 'critical');
+  const flaggedCritical = flagged.some((n) => n.condition.level === 'critical');
   let status: Status;
   if (connecting.length === nodes.length) status = 'connecting';
   else if (alerts.critical || alerts.explained === 'critical' || flaggedCritical) status = 'critical';

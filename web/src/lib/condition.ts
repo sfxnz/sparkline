@@ -11,6 +11,8 @@ export interface LiveCondition {
   level: 'warning' | 'critical';
   /** Clause after the node name: "spark1 is at its GPU slowdown temperature". */
   text: string;
+  /** What it says of the GPUs no alert rule watches (not responding), on its own: an open alert never says it. */
+  unwatched?: LiveCondition | null;
 }
 
 const HEADROOM_WARN_C = 6;
@@ -91,8 +93,10 @@ function gpuCondition(index: number, gpu: ConditionInput, slowdownC: number | nu
   return null;
 }
 
+const NOT_RESPONDING = 'Not responding';
+
 const lostCondition = (index: number): GpuCondition => ({
-  index, level: 'warning', text: 'has a GPU not responding', what: 'Not responding', reading: 'Not responding', clause: { one: 'not responding', many: 'not responding' },
+  index, level: 'warning', text: 'has a GPU not responding', what: NOT_RESPONDING, reading: NOT_RESPONDING, clause: { one: 'not responding', many: 'not responding' },
 });
 
 /** Each GPU's live condition in the sample, in index order; GPUs with nothing on screen to flag are left out. On a node
@@ -120,11 +124,7 @@ export function byWhat(conditions: readonly GpuCondition[]): ConditionGroup[] {
   return groups;
 }
 
-/** The node's worst live condition, or null when nothing on screen would be flagged. A node with one GPU says it of
- *  the node ("is at its GPU slowdown temperature"); a node with several names the GPUs at that level ("has GPU 3 at
- *  its slowdown temperature"). */
-export function nodeCondition(info: NodeInfo | null | undefined, s: Sample | null): LiveCondition | null {
-  const all = gpuConditions(info, s);
+function worstOf(info: NodeInfo | null | undefined, s: Sample | null, all: readonly GpuCondition[]): LiveCondition | null {
   const level = all.some((c) => c.level === 'critical') ? 'critical' : 'warning';
   const worst = all.filter((c) => c.level === level);
   const groups = byWhat(worst);
@@ -136,5 +136,16 @@ export function nodeCondition(info: NodeInfo | null | undefined, s: Sample | nul
   return { level, text: `has ${said.join(' and ')}` };
 }
 
+/** The node's worst live condition, or null when nothing on screen would be flagged. A node with one GPU says it of
+ *  the node ("is at its GPU slowdown temperature"); a node with several names the GPUs at that level ("has GPU 3 at
+ *  its slowdown temperature"). */
+export function nodeCondition(info: NodeInfo | null | undefined, s: Sample | null): LiveCondition | null {
+  const all = gpuConditions(info, s);
+  const worst = worstOf(info, s, all);
+  const unwatched = worstOf(info, s, all.filter((c) => c.what === NOT_RESPONDING));
+  return worst && unwatched ? { ...worst, unwatched } : worst;
+}
+
 /** Stable identity for equality checks (useLatest re-renders only when this changes). */
-export const sameCondition = (a: LiveCondition | null, b: LiveCondition | null) => a === b || (!!a && !!b && a.level === b.level && a.text === b.text);
+export const sameCondition = (a: LiveCondition | null, b: LiveCondition | null) =>
+  a === b || (!!a && !!b && a.level === b.level && a.text === b.text && a.unwatched?.text === b.unwatched?.text);
