@@ -5,8 +5,10 @@ support for discrete NVIDIA cards, AMD GPUs and other boards depends on recordin
 them. `sparkline-capture` records what the Sparkline agent reads on your machine into a directory and an
 archive that you can attach to a public GitHub issue. It records Linux machines today.
 
-The command only reads. It needs no root, puts no load on the GPU, sends nothing anywhere, and writes only
-inside the directory it creates. It records only the files, NVIDIA driver answers and host readings on a list
+The command only reads. It needs no root, puts no load on the GPU, sends nothing anywhere, and writes files only
+inside the directory it creates. The one exception is the NVIDIA driver library, which does what it does in any
+program that reads the GPU: it opens its device files under `/dev`, may try to create a missing one there, and
+names its own thread. The command records only the files, NVIDIA driver answers and host readings on a list
 that the maintainer reviewed for privacy. Before it writes anything, it replaces the values that identify you
 or your network with placeholders. If it meets something that it cannot make safe, it writes nothing and says
 where.
@@ -57,9 +59,10 @@ file, so the recording still reads as one machine.
 
 | Value | Placeholder |
 | --- | --- |
-| Hostname, with any domain after it | `host1` |
-| Domain of the hostname, on its own | `domain1` |
+| Hostname, with any domain after it, also written with `_` for `-`, in its `xn--` form or, from 8 characters, inside a longer word | `host1` |
+| Domain of the hostname, each parent domain, and the label before the top-level domain, on their own | `domain1` |
 | User name, the home directory, and a disk mounted under `/media/<user>` | `user1`, `/home/<user1>`, `/media/<user1>` |
+| Full name of an account in `/etc/passwd`, and each part of it of 4 or more letters | `person1` |
 | IPv4 address, private ranges included | `198.51.100.1`, then `203.0.113.x` and `192.0.2.x` |
 | IPv6 address | `2001:db8::1` |
 | Link-local IPv6 address, which holds the MAC | `fe80::ff:fe00:1`, or `fe80::200:0:0:1` |
@@ -99,8 +102,9 @@ the recording that can hold such a name, so read each one:
 - The OS name, `PRETTY_NAME` in `root/usr/lib/os-release` or `root/etc/os-release`. A company's own image can
   carry its name.
 - The names that firmware or a driver sets: the sensor names and labels in the `name` and `temp*_label` files
-  and the disk names in the `model` files under `root/sys/devices/`, and the CPU description in
-  `root/proc/cpuinfo`. A custom board or a virtual disk can carry a name that its maker chose.
+  and the disk names in the `model` files under `root/sys/devices/`, the CPU description in
+  `root/proc/cpuinfo`, and the GPU name, under `nvmlDeviceGetName` in `nvml.json` and as `device` in
+  `platform.json`. A custom board, a virtual disk or a virtual GPU can carry a name that its maker chose.
 - The CUDA directory names, under `root/usr/local/` and as the links in `root/etc/alternatives/`.
 
 The command checks its own work, but you are the last check. If you see something you don't want to share,
@@ -125,9 +129,14 @@ name into every entry of an archive. `recording.tgz` holds no user names and no 
 | 0 | The recording is ready. | Attach `recording.tgz`. |
 | 1 | The recording is ready, but the agent reads it differently from your machine. | Attach `recording.tgz` and paste the lines it printed. |
 | 2 | It met something that it cannot make safe, and wrote nothing. | Read the lines it printed. If they say that a name is also a word in what the agent reads, see the next section. Otherwise open an issue and paste the lines. They name the place and the kind of value, never the value. |
-| 3 | The output directory already holds files, or the command got more than one argument. | Give it one new or empty directory. |
+| 3 | The output path is a file, its parent directory doesn't exist or can't be written, the directory already holds files, or the command got more than one argument. | Give it one new or empty directory that you can write to. |
 | 4 | It failed unexpectedly. It keeps no partial recording. | Open an issue and paste the lines it printed. They hold no message text, only where it failed. |
+| 129 | The terminal closed (SIGHUP). | Run it again. It keeps no partial recording. |
 | 130 | You stopped it with Ctrl-C. | Nothing to do. It keeps no partial recording. |
+| 143 | Something stopped it with SIGTERM, such as `kill` or `timeout`. | Run it again. It keeps no partial recording. |
+
+`kill -9` can't be caught, so it can leave a partial directory behind. Delete that directory before you run the
+command again.
 
 Exit code 2 has these causes:
 
@@ -135,22 +144,30 @@ Exit code 2 has these causes:
 - A file is not text, and no reviewed entry allows binary data there.
 - A value looks like an identifier that the command cannot replace. An example is a bare 12-digit hex value
   that could be another machine's MAC address.
-- Your hostname, its domain, your user name, a Docker container name or a serial number is also an ordinary word
-  in what the agent reads.
+- Your hostname, its domain, your user name or full name, a Docker container name or a serial number is also an
+  ordinary word in what the agent reads.
 - The agent could not read the recording back, which is a bug in Sparkline.
 
 ### If a name is also a word in what the agent reads
 
-Your hostname may appear only in the hostname file, your user name only in a home directory, and a Docker
-container name only in Docker's list of containers. If one of them appears anywhere else as a word, the command
-cannot tell your name from an ordinary word, and replacing it would show your name by its place. A hostname
-`GB10` would turn the GPU name into `NVIDIA host1`, a user name `max` would rename `cpuinfo_max_freq`, and a
-container named `vllm` would turn the program name `vllm` into `container1`. So the command writes nothing.
-Give that name another value for the run, and capture again:
+Your hostname may appear only in the hostname file, your user name or full name only in a home directory, and a
+Docker container name only in Docker's list of containers. A name may also be a fixed word that the command
+writes the same on every machine: a part of a file path on the reviewed list, such as the `dev` of
+`/proc/self/net/dev` or the `max` of `cpuinfo_max_freq`, the `/dev/` of a disk, or the `nvcr.io/nvidia/pytorch:`
+of an image name. There the word says nothing about you, so the command leaves it as it is. A hostname `dev` or a
+container named `pytorch` therefore records fine.
+
+If a name appears anywhere else as a word, the command cannot tell your name from an ordinary word, and
+replacing it would show your name by its place. A hostname `GB10` would turn the GPU name into `NVIDIA host1`,
+a hostname `cpu` would rename the `CPU part` lines of `cpuinfo`, and a container named `vllm` would turn the
+program name `vllm` into `container1`. So the command writes nothing. On a DGX Spark, other hostnames that
+refuse this way include `gpu`, `docker`, `cuda`, `net` and a CPU feature such as `atomics`. Give that name another value for the
+run, and capture again:
 
 - For the hostname, run `sudo hostname sparkline-capture` before the capture, and set your hostname back after.
 - For a Docker container, run `docker rename <old name> <new name>`.
 - For a user name, run the capture from another account.
+- For the full name of an account, run `sudo chfn -f '' <account>` before the capture, and set it back after.
 
 The command no longer knows the old name. Before you attach, search the recording for it, for example with
 `grep -ri <old name> <recording directory>`. It can still appear as the ordinary word, but also read the mount
