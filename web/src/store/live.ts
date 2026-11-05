@@ -4,7 +4,8 @@
 // Memory is strictly bounded: capacity x (1 + keys) x 8 bytes per node.
 // Subscribers are notified at most once per animation frame, however many samples arrived.
 import { useCallback, useRef, useSyncExternalStore } from 'react';
-import { flatten } from '../lib/metrics';
+import { answeredIndexes, HELD_READINGS } from '../lib/gpu';
+import { flatten, gpuKey } from '../lib/metrics';
 import type { HistoryResponse, Sample } from '../lib/types';
 
 export const DEFAULT_CAPACITY = 3600;
@@ -20,7 +21,8 @@ export class NodeBuffer {
   length = 0;
   latest: Sample | null = null;
   largestTick = 0;
-  /** Ts of the last live sample each GPU index was in, readings or not. */
+  /** Ts of the last live sample each GPU index answered in (answeredIndexes). Its rings alone cannot tell: some
+   *  readings that answer (pstate, the graphics and video clocks) have no ring. */
   readonly gpuSeen = new Map<number, number>();
 
   constructor(readonly capacity: number) {
@@ -114,7 +116,7 @@ export class LiveStore {
     b.push(sample.ts, flat);
     // procs is null on ticks between process refreshes: keep the last known list.
     b.latest = sample.procs == null && b.latest?.procs ? { ...sample, procs: b.latest.procs } : sample;
-    for (const g of sample.gpu) b.gpuSeen.set(g.index, sample.ts);
+    for (const i of answeredIndexes(sample)) b.gpuSeen.set(i, sample.ts);
     this.markDirty(sample.node_id, flat.keys());
   }
 
@@ -161,14 +163,15 @@ export class LiveStore {
     return this.nodes.get(node)?.latest ?? null;
   }
 
-  /** Seconds GPU `index` has sent nothing, up to the latest live sample: since its last reading (live or seeded) or the
-   *  last live sample it was in. A gap of `gapS` or more between ticks starts the count again. Null before any live
-   *  sample. */
+  /** Seconds GPU `index` has sent nothing, up to the latest live sample: since its last fresh reading (live or seeded;
+   *  HELD_READINGS do not count) or the last live sample it answered in. A gap of `gapS` or more between ticks starts
+   *  the count again. Null before any live sample. */
   gpuSilentFor(node: string, index: number, gapS = Infinity): number | null {
     const b = this.nodes.get(node);
     if (!b?.latest) return null;
     const prefix = `gpu${String(index)}.`;
-    const rings = [...b.values].filter(([k]) => k.startsWith(prefix)).map(([, ring]) => ring);
+    const held = HELD_READINGS.map((f) => gpuKey(index, f));
+    const rings = [...b.values].filter(([k]) => k.startsWith(prefix) && !held.includes(k)).map(([, ring]) => ring);
     const seen = b.gpuSeen.get(index) ?? -Infinity;
     const end = b.latest.ts;
     for (let n = b.length - 1; n >= 0; n--) {
