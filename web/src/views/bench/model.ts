@@ -958,6 +958,12 @@ export function gpuMemoryHeld(node: string, procs: readonly ProcSample[] | null 
   return live ? `${node} is ${work.verb} ${work.what}, which holds ${mem} of GPU memory.` : `${node} was ${work.verb} ${work.what}, which held ${mem} of GPU memory, when it last reported.`;
 }
 
+function cpuLoad(node: string, s: Sample): Competition {
+  const pct = `${Math.round(s.cpu.util)}%`;
+  const busy = s.cpu.util >= CPU_BUSY_PCT;
+  return busy ? { node, busy, text: `${node} CPUs are ${pct} busy right now; ${consequence}.` } : { node, busy, text: `${node} CPUs are mostly idle (${pct}).` };
+}
+
 function chosenGpu(node: string, index: number, util: number | null, procs: readonly ProcSample[] | null | undefined, online: boolean): Competition {
   const pct = (v: number) => `${Math.round(v)}%`;
   if (!online) {
@@ -989,6 +995,7 @@ export function competition(
   linkTraffic?: (node: string, rails: readonly NetIfInfo[]) => LinkTraffic[],
   gpuIndex: GpuIndex = {},
   status: (node: string) => NodeStatus = () => 'online',
+  gpuOn = true,
 ): Competition[] {
   return nodes.map((node) => {
     const s = latest(node);
@@ -999,12 +1006,8 @@ export function competition(
     const work = gpuWorkload(s.procs);
     const pct = (v: number) => `${Math.round(v)}%`;
     switch (spec.category) {
-      case 'cpu': {
-        const busy = s.cpu.util >= CPU_BUSY_PCT;
-        return busy
-          ? { node, busy, text: `${node} CPUs are ${pct(s.cpu.util)} busy right now; ${consequence}.` }
-          : { node, busy, text: `${node} CPUs are mostly idle (${pct(s.cpu.util)}).` };
-      }
+      case 'cpu':
+        return cpuLoad(node, s);
       case 'storage': {
         const disk = [...s.disk].sort((a, b) => b.busy_pct - a.busy_pct)[0];
         const busy = (disk?.busy_pct ?? 0) >= DISK_BUSY_PCT;
@@ -1025,6 +1028,9 @@ export function competition(
       }
       default: {
         if (chosen !== undefined) return chosenGpu(node, chosen, util, s.procs, status(node) === 'online');
+        // A run on none of several GPUs has no one GPU to judge, so its CPUs are judged. A node with one GPU keeps
+        // the GB10 verdict: on a GB10 that GPU shares the memory the CPU side measures.
+        if (!gpuOn && s.gpu.length > 1) return cpuLoad(node, s);
         const busy = (util ?? 0) >= GPU_BUSY_PCT || work !== null;
         if (!busy) return { node, busy, text: `${node} GPU is idle${util !== null ? ` (${pct(util)})` : ''}.` };
         const at = util !== null ? ` at ${pct(util)} GPU` : '';

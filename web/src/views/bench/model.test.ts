@@ -729,7 +729,7 @@ describe('competition on a node with a choice of GPU', () => {
       { node: 'spark1', busy: false, text: 'spark1 GPU is idle (0%).' },
       { node: 'ws1', busy: false, text: 'ws1 CPUs are mostly idle (5%).' },
     ]);
-    expect(cpuSide({ ...ws({ 0: 86 }), cpu: { util: 60 } } as Sample)[1]).toStrictEqual({ node: 'ws1', busy: true, text: 'ws1 CPUs are 60% busy right now; results will be lower and the workload will slow down.' });
+    expect(cpuSide({ ...ws({ 0: 86, 2: 3 }), cpu: { util: 60 } } as Sample)[1]).toStrictEqual({ node: 'ws1', busy: true, text: 'ws1 CPUs are 60% busy right now; results will be lower and the workload will slow down.' });
   });
   it('keeps the GB10 sentence for a node without a choice in the same run', () => {
     const spark = { ...ws({ 0: 0 }), node_id: 'spark1' };

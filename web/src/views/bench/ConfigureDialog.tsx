@@ -211,7 +211,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
           ) : null}
         </div>
       ) : (
-        <Review spec={spec} nodes={nodes} gpuIndex={gpuIndex} values={values ?? {}} estimate={estimate} unknownOn={unknownOn} statusOf={statusOf} />
+        <Review spec={spec} nodes={nodes} gpuIndex={gpuIndex} gpuOn={gpuOn} values={values ?? {}} estimate={estimate} unknownOn={unknownOn} statusOf={statusOf} />
       )}
     </Dialog>
   );
@@ -336,10 +336,10 @@ function recentTraffic(node: string, rails: readonly NetIfInfo[]): LinkTraffic[]
   return rails.map((r, i) => ({ name: r.name, label: railLabel(r), rx: peak(2 * i), tx: peak(2 * i + 1) }));
 }
 
-function Review({ spec, nodes, gpuIndex, values, estimate, unknownOn, statusOf }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; values: ParamValues; estimate: number | null; unknownOn: readonly string[]; statusOf: (n: string) => NodeStatus | undefined }) {
+function Review({ spec, nodes, gpuIndex, gpuOn, values, estimate, unknownOn, statusOf }: { spec: BenchSpec; nodes: string[]; gpuIndex: GpuIndex; gpuOn: boolean; values: ParamValues; estimate: number | null; unknownOn: readonly string[]; statusOf: (n: string) => NodeStatus | undefined }) {
   useNow(1000); // live: what it competes with is re-read every second
   const infos = useCluster((s) => s.nodes);
-  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => statusOf(n) ?? 'online');
+  const live = competition(spec, nodes, (n) => liveStore.latest(n), (n) => (infos[n]?.info?.net ?? []).filter((x) => x.role === 'interconnect'), recentTraffic, gpuIndex, (n) => statusOf(n) ?? 'online', gpuOn);
   // Once a node has been shown busy it stays busy while the review is open: the verdict must not flip while it is read.
   // A stale reading still replaces it, since a busy verdict from before is no longer live.
   const [seenBusy, setSeenBusy] = useState<Record<string, Competition>>({});
