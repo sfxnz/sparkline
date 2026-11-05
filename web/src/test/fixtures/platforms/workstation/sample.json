@@ -16,7 +16,9 @@
       "pstate": 0,
       "throttle_mask": 0,
       "power_capped_pct": 0.0,
-      "thermal_capped_pct": 0.0
+      "thermal_capped_pct": 0.0,
+      "vram_used": null,
+      "shared_used": null
     },
     {
       "index": 1,
@@ -30,7 +32,9 @@
       "pstate": 0,
       "throttle_mask": 0,
       "power_capped_pct": 0.0,
-      "thermal_capped_pct": 0.0
+      "thermal_capped_pct": 0.0,
+      "vram_used": null,
+      "shared_used": null
     },
     {
       "index": 2,
@@ -44,7 +48,9 @@
       "pstate": 0,
       "throttle_mask": 0,
       "power_capped_pct": 0.0,
-      "thermal_capped_pct": 0.0
+      "thermal_capped_pct": 0.0,
+      "vram_used": null,
+      "shared_used": null
     },
     {
       "index": 3,
@@ -58,7 +64,9 @@
       "pstate": 0,
       "throttle_mask": 0,
       "power_capped_pct": 0.0,
-      "thermal_capped_pct": 0.0
+      "thermal_capped_pct": 0.0,
+      "vram_used": null,
+      "shared_used": null
     }
   ],
   "mem": {

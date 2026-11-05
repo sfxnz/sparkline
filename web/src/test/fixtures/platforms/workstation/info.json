@@ -481,7 +481,9 @@
       "temp_max_c": 89.0,
       "power_limit_w": 300.0,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "unified",
+      "vram_total": null
     },
     {
       "index": 1,
@@ -496,7 +498,9 @@
       "temp_max_c": 89.0,
       "power_limit_w": 300.0,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "unified",
+      "vram_total": null
     },
     {
       "index": 2,
@@ -511,7 +515,9 @@
       "temp_max_c": 89.0,
       "power_limit_w": 300.0,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "unified",
+      "vram_total": null
     },
     {
       "index": 3,
@@ -526,7 +532,9 @@
       "temp_max_c": 89.0,
       "power_limit_w": 300.0,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "unified",
+      "vram_total": null
     }
   ],
   "net": [

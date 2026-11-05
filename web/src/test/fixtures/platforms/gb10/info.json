@@ -173,7 +173,9 @@
       "temp_max_c": 99.0,
       "power_limit_w": null,
       "vendor": "nvidia",
-      "backend": "nvml"
+      "backend": "nvml",
+      "memory": "unified",
+      "vram_total": null
     }
   ],
   "net": [

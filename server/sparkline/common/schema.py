@@ -25,6 +25,7 @@ SCHEMA_VERSION = 1
 UnsupportedKind = Literal["hardware", "access", "dependency", "agent"]
 Platform = Literal["linux", "darwin"]
 Vendor = Literal["nvidia", "amd", "apple"]
+MemoryModel = Literal["unified", "dedicated", "carveout"]
 
 LEGACY_VERSION_KEYS = {"driver": "nvidia.Driver", "cuda": "nvidia.CUDA", "nvml": "nvidia.NVML"}
 
@@ -63,6 +64,14 @@ class GpuInfo(BaseModel):
     power_limit_w: float | None = None  # None on GB10
     vendor: Vendor | str = "nvidia"
     backend: str = "nvml"
+    memory: MemoryModel = "unified"
+    vram_total: int | None = None  # bytes of dedicated memory (VRAM, or a carve-out); None on unified
+
+    @field_validator("memory", mode="before")
+    @classmethod
+    def _unknown_memory_reads_as_unified(cls, v: object) -> object:
+        # A newer agent may send a model this console predates; rejecting it would drop the whole hello.
+        return v if v in get_args(MemoryModel) else "unified"
 
 
 class NetIfInfo(BaseModel):
@@ -143,6 +152,8 @@ class GpuSample(BaseModel):
     throttle_mask: int | None = None  # NVML clocks-event-reasons bitmask (see throttle.py)
     power_capped_pct: float | None = None  # % of last interval spent power capped
     thermal_capped_pct: float | None = None
+    vram_used: int | None = None  # bytes of dedicated memory in use
+    shared_used: int | None = None  # bytes of system RAM the GPU holds (GB10: its NVML per-process sum)
 
 
 class MemSample(BaseModel):
@@ -150,7 +161,7 @@ class MemSample(BaseModel):
     available: int
     used: int  # total - available
     free: int
-    gpu: int | None = None  # sum of NVML per-process usedGpuMemory
+    gpu: int | None = None  # sum of the GPUs' shared_used
     anon: int  # AnonPages (minus nothing)
     cache: int  # Cached - Shmem
     shmem: int

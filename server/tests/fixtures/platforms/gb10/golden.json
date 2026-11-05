@@ -279,6 +279,7 @@
     "compute_capability": "12.1",
     "cuda_cores": 6144,
     "index": 0,
+    "memory": "unified",
     "name": "NVIDIA GB10",
     "power_limit_w": null,
     "sm_mhz_max": 3003.0,
@@ -286,7 +287,8 @@
     "temp_shutdown_c": 90.0,
     "temp_slowdown_c": 86.0,
     "uuid": "GPU-00000000-0000-0000-0000-000000000000",
-    "vendor": "nvidia"
+    "vendor": "nvidia",
+    "vram_total": null
    }
   ],
   "hostname": "spark-gb10",
