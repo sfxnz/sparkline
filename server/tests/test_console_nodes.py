@@ -21,7 +21,7 @@ from sparkline.console.nodes import (
 )
 from sparkline.console.store import Store
 
-URL = "http://10.20.20.195:9750"
+URL = "http://198.51.100.195:9750"
 
 
 def test_problem_mapping():
@@ -29,7 +29,7 @@ def test_problem_mapping():
     assert (st, p.message, p.cause) == (
         "offline",
         "Agent unreachable on spark2",
-        "Connection refused at 10.20.20.195:9750",
+        "Connection refused at 198.51.100.195:9750",
     )
     assert p.fix == "Check `systemctl status sparkline-agent` on spark2"
 

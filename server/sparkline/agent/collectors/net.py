@@ -1,4 +1,4 @@
-"""Network: interface roles/labels, ConnectX-7 counters, LAN via netdev counters.
+"""Network: interface roles, labels and NIC models, interconnect counters, LAN via netdev counters.
 
 RDMA traffic bypasses the kernel netdev counters (/proc/net/dev), so for an interface backed by an RDMA
 device the throughput is netdev bytes (IP traffic) + RDMA port data (``counters/port_{rcv,xmit}_data``,
@@ -79,25 +79,65 @@ def classify(name: str, rdma_ifs: set[str], default_if: str | None) -> NetRole:
     return "other"
 
 
+def rail_letters(ifaces: Sequence[tuple[str, str, bool, str]]) -> dict[str, str]:
+    up = sorted((key, name) for name, role, is_up, key in ifaces if role == "interconnect" and is_up)
+    return {name: chr(ord("A") + n) for n, (_, name) in enumerate(up)}
+
+
 def assign_labels(ifaces: Sequence[tuple[str, str, bool, str]]) -> dict[str, str]:
-    """ifaces: (name, role, up, sort_key). Up interconnects sorted by sort_key (PCI path) -> rail A, B..."""
-    labels = {}
-    rails = sorted((key, name) for name, role, up, key in ifaces if role == "interconnect" and up)
-    for n, (_, name) in enumerate(rails):
-        labels[name] = f"ConnectX-7 rail {chr(ord('A') + n)}"
-    for name, role, _up, _ in ifaces:
-        if name in labels:
-            continue
-        labels[name] = {"interconnect": "ConnectX-7 port (no cable)", "lan": "LAN"}.get(role, name)
-    return labels
+    letters = rail_letters(ifaces)
+    return {
+        name: f"Interconnect {letters[name]}"
+        if name in letters
+        else {"interconnect": "Interconnect port (no cable)", "lan": "LAN"}.get(role, name)
+        for name, role, _up, _ in ifaces
+    }
 
 
 ROLE_ORDER = {"interconnect": 0, "lan": 1, "other": 2, "virtual": 3, "wireless": 4}
 
 
-def display_order(role: str, label: str, name: str) -> tuple:
-    """Rails A, B... first, then spare CX7 ports, LAN, other, virtual, wireless (NodeInfo.net order)."""
-    return (ROLE_ORDER.get(role, 2), not label.startswith("ConnectX-7 rail"), label, name)
+def display_order(role: str, letter: str | None, name: str) -> tuple:
+    return (ROLE_ORDER.get(role, 2), letter is None, letter or "", name)
+
+
+# Names from the PCI ID Repository (pci-ids.ucw.cz), used under its BSD-3-Clause licence option.
+NIC_MODELS: dict[tuple[int, int], str] = {
+    (0x15B3, 0x1013): "ConnectX-4",
+    (0x15B3, 0x1015): "ConnectX-4 Lx",
+    (0x15B3, 0x1017): "ConnectX-5",
+    (0x15B3, 0x1019): "ConnectX-5 Ex",
+    (0x15B3, 0x101B): "ConnectX-6",
+    (0x15B3, 0x101D): "ConnectX-6 Dx",
+    (0x15B3, 0x101F): "ConnectX-6 Lx",
+    (0x15B3, 0x1021): "ConnectX-7",
+    (0x15B3, 0x1023): "ConnectX-8",
+    (0x15B3, 0x1025): "ConnectX-9",
+    (0x8086, 0x1591): "Intel E810-C",
+    (0x8086, 0x1592): "Intel E810-C",
+    (0x8086, 0x1593): "Intel E810-C",
+    (0x8086, 0x159B): "Intel E810-XXV",
+    (0x8086, 0x12D1): "Intel E830-CC",
+    (0x8086, 0x12D2): "Intel E830-CC",
+    (0x8086, 0x12D3): "Intel E830-CC",
+    (0x14E4, 0x1750): "Broadcom BCM57508",
+    (0x14E4, 0x1751): "Broadcom BCM57504",
+    (0x14E4, 0x1752): "Broadcom BCM57502",
+    (0x14E4, 0x1760): "Broadcom BCM57608",
+}
+
+
+def nic_model(vendor: str, device: str) -> str | None:
+    try:
+        return NIC_MODELS.get((int(vendor, 16), int(device, 16)))
+    except ValueError:
+        return None
+
+
+def read_nic_model(name: str) -> str | None:
+    vendor = read_once(f"/sys/class/net/{name}/device/vendor")
+    device = read_once(f"/sys/class/net/{name}/device/device")
+    return nic_model(vendor, device) if vendor and device else None
 
 
 def find_peer(addrs: list[tuple[str, str]], peers: dict[str, str | list[str]]) -> str | None:
@@ -184,10 +224,11 @@ class NetCollector:
             )
             raw.append((n, role, up, key))
         labels = assign_labels(raw)
+        letters = rail_letters(raw)
         self.ifaces: list[_If] = []
         self.info: list[NetIfInfo] = []
         owners = phy_owners([(key, phy_port(n), n) for n, role, _up, key in raw if role == "interconnect"])
-        for n, role, _up, _ in sorted(raw, key=lambda r: display_order(r[1], labels[r[0]], r[0])):
+        for n, role, _up, _ in sorted(raw, key=lambda r: display_order(r[1], letters.get(r[0]), r[0])):
             v4 = [(a.address, a.netmask) for a in addrs.get(n, []) if a.family == socket.AF_INET]
             mac = next((a.address for a in addrs.get(n, []) if a.family == psutil.AF_LINK), None)
             info = NetIfInfo(
@@ -199,6 +240,8 @@ class NetCollector:
                 speed_mbps=self._speed(n),
                 rdma_device=rmap.get(n),
                 peer=find_peer(v4, peers) if v4 else None,
+                nic_model=read_nic_model(n),
+                rail=letters.get(n),
             )
             i = _If(info)
             if role == "interconnect":

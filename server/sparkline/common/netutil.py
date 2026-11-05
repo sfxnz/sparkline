@@ -1,6 +1,6 @@
-"""Bind-address safety shared by sparkline-agent and sparkline.
+"""Network helpers shared by sparkline-agent and sparkline: bind-address safety and the rail letter rule.
 
-Public API: ``resolve_bind(bind, allow_public) -> str`` and ``is_private(ip)``.
+Public API: ``resolve_bind(bind, allow_public) -> str``, ``is_private(ip)`` and ``rails(info)``.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ import socket
 import time
 
 import psutil
+
+from .schema import NetIfInfo, NodeInfo
 
 _PRIVATE_NETS = [
     ipaddress.ip_network(n)
@@ -30,6 +32,10 @@ _PRIVATE_NETS = [
 def is_private(ip: str) -> bool:
     addr = ipaddress.ip_address(ip)
     return any(addr.version == n.version and addr in n for n in _PRIVATE_NETS)
+
+
+def rails(info: NodeInfo) -> dict[str, NetIfInfo]:
+    return {n.rail: n for n in info.net if n.role == "interconnect" and n.rail}
 
 
 def default_route_iface(route_text: str | None = None) -> str | None:

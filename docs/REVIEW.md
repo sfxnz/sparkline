@@ -175,10 +175,10 @@ review. Every gate in the brief's "Quality gates before you call it done", plus 
 
 ### Real cluster, end to end
 
-- **Setup.** `sparkline-agent` on spark1 (10.20.20.48:9750) and the real console (127.0.0.1:9700, token auth)
+- **Setup.** `sparkline-agent` on spark1 (198.51.100.48:9750) and the real console (127.0.0.1:9700, token auth)
   serving the production build, with spark1 and spark2 configured. **spark2's agent could not be redeployed or
   started in this pass** (writing to spark2 was not permitted in the gate's session), so spark2 appears as a
-  genuinely unreachable node: "Agent unreachable on spark2 · Connection refused at 10.20.20.195:9750".
+  genuinely unreachable node: "Agent unreachable on spark2 · Connection refused at 198.51.100.195:9750".
 - **Every screen walked in Playwright**, signing in through the login form, in dark and light: overview, all 8
   tabs for both nodes, alerts, benchmarks, settings, wall. No page errors. The only failed request is
   `/api/v1/history` for spark2's energy total (503 while it is offline), which the overview handles ("excl.
@@ -299,7 +299,7 @@ fixed. Highest severity first.
 - **spark2 verified after the gate (2026-10-07).** The lead redeployed the final code to spark2 and ran both agents
   with the real console: both nodes online, GPU util/temp/power/SM clock identical to `nvidia-smi` on each node,
   both CX7 rails active, the served model detected on both, no browser console errors. Killing the spark2 agent
-  showed "Agent unreachable on spark2 · Connection refused at 10.20.20.195:9750 · Check `systemctl status
+  showed "Agent unreachable on spark2 · Connection refused at 198.51.100.195:9750 · Check `systemctl status
   sparkline-agent` on spark2"; restarting it brought the node back online without intervention.
 - **No whole-system power.** GB10 exposes only the NVML GPU rail; the UI labels power "GPU rail only" and energy
   totals and cost cover the GPU only. The GPU power limit is not reported either.

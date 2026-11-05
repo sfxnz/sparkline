@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import struct
 from pathlib import Path
 
@@ -28,9 +29,11 @@ from sparkline.agent.collectors.net import (
     classify,
     display_order,
     find_peer,
+    nic_model,
     parse_net_dev,
     parse_rdma_state,
     phy_owners,
+    rail_letters,
 )
 from sparkline.agent.collectors.procs import (
     container_id,
@@ -43,8 +46,8 @@ from sparkline.agent.collectors.procs import (
 from sparkline.agent.collectors.storage import disk_rates, parse_diskstats, parse_mounts
 from sparkline.agent.collectors.thermal import Chip, build_sensors
 from sparkline.agent.ethtool import parse_gstrings
-from sparkline.common.netutil import default_route_iface
-from sparkline.common.schema import NetIfInfo
+from sparkline.common.netutil import default_route_iface, rails
+from sparkline.common.schema import NetIfInfo, NodeInfo
 
 FIX = Path(__file__).parent / "fixtures" / "agent"
 
@@ -167,41 +170,82 @@ def test_net_dev():
     assert d["docker0"]["tx_drop"] == 146
 
 
-def test_roles_and_labels_from_sysfs_fixture():
+def _sysfs_raw() -> list[tuple[str, str, bool, str]]:
     snap = json.loads(fx("net_sysfs.json"))
     default_if = default_route_iface(snap["default_route"])
     assert default_if == "enP7s7"
     rdma = {i["name"] for i in snap["ifaces"] if i["rdma"]}
-    raw = [
+    return [
         (i["name"], classify(i["name"], rdma, default_if), i["operstate"] == "up", i["device"] or i["name"])
         for i in snap["ifaces"]
         if i["name"] != "lo"
     ]
+
+
+def test_roles_and_labels_from_sysfs_fixture():
+    raw = _sysfs_raw()
     roles = {n: r for n, r, _, _ in raw}
     assert roles["enP7s7"] == "lan" and roles["tailscale0"] == "virtual" and roles["docker0"] == "virtual"
     assert roles["wlP9s9"] == "wireless" and roles["enp1s0f0np0"] == "interconnect"
     labels = assign_labels(raw)
-    assert labels["enp1s0f1np1"] == "ConnectX-7 rail A"  # PCI domain 0000 sorts before 0002
-    assert labels["enP2p1s0f1np1"] == "ConnectX-7 rail B"
-    assert labels["enp1s0f0np0"] == labels["enP2p1s0f0np0"] == "ConnectX-7 port (no cable)"
-    assert labels["enP7s7"] == "LAN"
-    ordered = [n for n, r, _, _ in sorted(raw, key=lambda x: display_order(x[1], labels[x[0]], x[0]))]
+    assert labels["enp1s0f1np1"] == "Interconnect A"
+    assert labels["enP2p1s0f1np1"] == "Interconnect B"
+    assert labels["enp1s0f0np0"] == labels["enP2p1s0f0np0"] == "Interconnect port (no cable)"
+    assert labels["enP7s7"] == "LAN" and labels["docker0"] == "docker0"
+    ordered = [n.name for n in _net_as_agent_lists_it(raw)]
     assert ordered[:2] == ["enp1s0f1np1", "enP2p1s0f1np1"]  # rail A then B, though "enP2" sorts first by name
     assert ordered.index("enP7s7") < ordered.index("docker0") < ordered.index("wlP9s9")
 
 
+def _net_as_agent_lists_it(raw: list[tuple[str, str, bool, str]]) -> list[NetIfInfo]:
+    labels, letters = assign_labels(raw), rail_letters(raw)
+    ordered = sorted(raw, key=lambda r: display_order(r[1], letters.get(r[0]), r[0]))
+    return [NetIfInfo(name=n, role=role, label=labels[n], rail=letters.get(n)) for n, role, _up, _ in ordered]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(_sysfs_raw(), id="gb10-pci-first-port-uncabled"),
+        pytest.param(
+            [
+                ("ens2f0", "interconnect", False, "/sys/devices/pci0000:00/0000:02:00.0"),
+                ("ens2f1", "interconnect", True, "/sys/devices/pci0000:00/0000:02:00.1"),
+                ("ens1f0", "interconnect", True, "/sys/devices/pci0000:00/0000:03:00.0"),
+                ("eno1", "lan", True, "/sys/devices/pci0000:00/0000:04:00.0"),
+            ],
+            id="name-order-differs-from-pci-order",
+        ),
+    ],
+)
+def test_rails_read_back_are_the_ports_the_agent_lettered(raw):
+    net = _net_as_agent_lists_it(raw)
+    by_letter = {letter: n.name for letter, n in rails(NodeInfo.model_construct(net=net)).items()}
+    lettered = {m[1]: n.name for n in net if (m := re.fullmatch(r"Interconnect ([A-Z])", n.label))}
+    assert lettered and by_letter == lettered
+    assert [n.name for n in net if n.role == "interconnect"][: len(lettered)] == list(lettered.values())
+
+
+def test_nic_model_from_pci_ids():
+    assert nic_model("0x15b3", "0x1021") == "ConnectX-7"
+    assert nic_model("0x8086", "0x1592") == "Intel E810-C"
+    assert nic_model("0x10ec", "0x8127") is None
+    assert nic_model("0x15b3", "garbage") is None
+
+
 def test_peer_and_rdma_state():
-    peers = {"spark2": "10.100.8.2"}
-    assert find_peer([("10.100.8.1", "255.255.255.0")], peers) == "spark2"
-    assert find_peer([("10.100.9.1", "255.255.255.0")], peers) is None
-    both = {"spark2": ["10.100.8.2", "10.100.9.2"]}
-    assert find_peer([("10.100.9.1", "255.255.255.0")], both) == "spark2"
+    peers = {"spark2": "203.0.113.2"}
+    assert find_peer([("203.0.113.1", "255.255.255.0")], peers) == "spark2"
+    assert find_peer([("192.0.2.1", "255.255.255.0")], peers) is None
+    both = {"spark2": ["203.0.113.2", "192.0.2.2"]}
+    assert find_peer([("192.0.2.1", "255.255.255.0")], both) == "spark2"
     assert parse_rdma_state("4: ACTIVE\n") == "ACTIVE" and parse_rdma_state("1: DOWN") == "DOWN"
 
 
 def test_phy_counters_owned_by_first_function_of_each_port():
     # GB10: rails A/B are two PCI functions of physical port p1; the no-cable functions share p0
-    sw = "72817e000347bb4c"
+    guid = "0200:0000:0000:00c1"
+    sw = bytes.fromhex(guid.replace(":", ""))[::-1].hex()  # sysfs and NCCL print it little-endian
     funcs = [
         ("/sys/devices/pci0002:00/0002:00:00.0/0002:01:00.1", f"{sw}/p1", "enP2p1s0f1np1"),
         ("/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.1", f"{sw}/p1", "enp1s0f1np1"),

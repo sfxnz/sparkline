@@ -276,7 +276,7 @@ def test_device_queried_sensors_are_read_every_slow_interval_and_carried_between
     for n, h in enumerate(chip_functions):
         ib = tmp_path / f"pci{n}" / "infiniband" / f"mlx5_{n}"
         ib.mkdir(parents=True)
-        (ib / "sys_image_guid").write_text("4cbb:4703:007e:8172\n")
+        (ib / "sys_image_guid").write_text("0200:0000:0000:0001\n")
         os.symlink(tmp_path / f"pci{n}", f"{h}/device")
     real_scan = thermal_mod.scan_hwmon
     monkeypatch.setattr(thermal_mod, "scan_hwmon", lambda: real_scan(str(root)))

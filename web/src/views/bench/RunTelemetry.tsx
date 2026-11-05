@@ -1,11 +1,12 @@
 // Telemetry overlaid on a run, one series per node, chosen for the subsystem under test: GPU utilisation,
 // temperature, power and SM clock for GPU benchmarks; CPU utilisation and clock for the CPU benchmark; disk
-// throughput and busy time for storage; ConnectX-7 receive/transmit for the interconnect. While the run is active the
+// throughput and busy time for storage; interconnect receive/transmit for the interconnect. While the run is active the
 // data comes from the LiveStore (refreshed at most once a second) and the x axis reaches to the expected finish;
 // afterwards from the GPU telemetry the console saved with the run, else from the history API.
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { formatBitrate, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
+import { nicHeading, nicModel } from '../../lib/interconnect';
 import type { BenchRun, BenchSpec, NodeInfo } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
@@ -17,7 +18,7 @@ const LEAD_S = 30;
 
 export interface TelemetryChart {
   id: string;
-  title: string;
+  title: string | ((nic: string) => string);
   format: (n: number) => string;
   /** Flat metric keys on a node (summed, averaged or maxed into one line per node). */
   keys: (info: NodeInfo | undefined) => string[];
@@ -48,8 +49,8 @@ const STORAGE: readonly TelemetryChart[] = [
 ];
 const rails = (i: NodeInfo | undefined) => (i?.net ?? []).filter((n) => n.role === 'interconnect').map((n) => n.name);
 const LINK: readonly TelemetryChart[] = [
-  { id: 'net.rx', title: 'ConnectX-7 receive (all rails)', keys: (i) => rails(i).map((n) => `net.${n}.rx_bps`), agg: 'sum', format: formatBitrate, yMin: 0 },
-  { id: 'net.tx', title: 'ConnectX-7 transmit (all rails)', keys: (i) => rails(i).map((n) => `net.${n}.tx_bps`), agg: 'sum', format: formatBitrate, yMin: 0 },
+  { id: 'net.rx', title: (nic) => `${nic} receive (all rails)`, keys: (i) => rails(i).map((n) => `net.${n}.rx_bps`), agg: 'sum', format: formatBitrate, yMin: 0 },
+  { id: 'net.tx', title: (nic) => `${nic} transmit (all rails)`, keys: (i) => rails(i).map((n) => `net.${n}.tx_bps`), agg: 'sum', format: formatBitrate, yMin: 0 },
 ];
 
 /** The overlay for a benchmark's category (GPU charts for GPU-bound benchmarks and when the category is unknown). */
@@ -154,6 +155,7 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
   const start = run.started_ts ?? run.created_ts;
   const charts = telemetryCharts(category);
   const nodeInfos = useCluster((s) => s.nodes);
+  const nic = nicHeading(nicModel(run.nodes.flatMap((n) => nodeInfos[n]?.info?.net ?? [])));
   const infos: Infos = (n) => nodeInfos[n]?.info ?? undefined;
   const tick = useLiveTick(run.nodes, active);
   const saved = useMemo(() => (active ? null : fromSaved(run, charts)), [active, run, charts]);
@@ -196,7 +198,7 @@ export function RunTelemetry({ run, category, expected }: { run: BenchRun; categ
       {charts.map((t) => (
         <RunChart
           key={t.id}
-          title={t.title}
+          title={typeof t.title === 'string' ? t.title : t.title(nic)}
           ts={data?.ts ?? []}
           series={run.nodes.map((n, i) => ({ label: n, values: data?.byKey[t.id]?.[i] ?? [] }))}
           format={t.format}

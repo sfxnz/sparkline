@@ -11,7 +11,8 @@ import socket
 from dataclasses import dataclass, field
 from typing import Any
 
-from ...common.schema import NetIfInfo, NodeInfo, Problem
+from ...common.netutil import rails
+from ...common.schema import NodeInfo, Problem
 
 DOCKER_SOCK = "/var/run/docker.sock"
 IB_SYSFS = "/sys/class/infiniband"
@@ -64,15 +65,6 @@ def roce_v2_ipv4_gid(dev: str, root: str = IB_SYSFS) -> int | None:
         if kind == "RoCE v2" and gid.startswith("0000:0000:0000:0000:0000:ffff:"):
             return i
     return None
-
-
-def rails(info: NodeInfo) -> dict[str, NetIfInfo]:
-    """'A'/'B' -> interconnect interface with an RDMA device (labels come from the net collector)."""
-    out = {}
-    for n in info.net:
-        if n.role == "interconnect" and n.rdma_device and n.label.startswith("ConnectX-7 rail "):
-            out[n.label.rsplit(" ", 1)[1]] = n
-    return out
 
 
 def port_listening(port: int, proc_root: str = "/proc") -> bool:
@@ -150,20 +142,21 @@ def probe(info: NodeInfo, image: str, work_dir: str, sock_path: str = DOCKER_SOC
             cause="ib_write_bw / ib_write_lat were not found on PATH",
             fix=f"sudo apt install perftest on {node}",
         )
-    r = rails(info)
+    r = {k: n for k, n in rails(info).items() if n.rdma_device}
     env.gids = {k: roce_v2_ipv4_gid(n.rdma_device or "") for k, n in r.items()}
     if not r:
         env.rdma = Problem(
-            message=f"No active ConnectX-7 rail with RDMA on {node}",
-            cause="No interconnect interface with link up and an RDMA device was found",
-            fix=f"Check the ConnectX-7 cabling and `ibv_devinfo` on {node}",
+            message=f"No interconnect with RDMA on {node}",
+            cause="No interconnect with its link up and an RDMA device was found when the agent started",
+            fix=f"Check the interconnect cabling and `ibv_devinfo` on {node}, then restart sparkline-agent",
         )
     elif not any(g is not None for g in env.gids.values()):
         devs = ", ".join(n.rdma_device or "" for n in r.values())
         env.rdma = Problem(
             message=f"No RoCE v2 IPv4 GID on {node}",
             cause=f"{devs}: no GID of type 'RoCE v2' with an IPv4 address",
-            fix=f"Assign an IPv4 address to the ConnectX-7 interfaces on {node}",
+            fix=f"Check the interconnect cabling on {node} and assign IPv4 addresses to its interconnect "
+            "interfaces",
         )
     env.fio = shutil.which("fio")
     env.all_reduce_perf = shutil.which("all_reduce_perf")

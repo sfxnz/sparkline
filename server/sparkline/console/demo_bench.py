@@ -52,6 +52,7 @@ from .bench import (
     BenchError,
     StateCallback,
     apply_baseline,
+    has_rail_ip,
     new_run_id,
     params_key,
     rail_ip,
@@ -92,7 +93,7 @@ SERVED_MODEL = {
 
 def _env(node: str, info: NodeInfo | None) -> probes.Env:
     env = probes.Env()
-    if rail_ip(info, "A") is None:
+    if not has_rail_ip(info):
         env.rdma = Problem(
             message=f"{node} has no ConnectX-7 peer",
             cause="Its ConnectX-7 ports have no cable or address, so it cannot reach another Spark",
@@ -2115,7 +2116,7 @@ def seed_history(
                 cause=f"Lost connection to agent on {nodes[1]}: Connection closed (no reason given)",
                 fix=f"Check `systemctl status sparkline-agent` on {nodes[1]}",
             )
-            run.log_tail = [f"[{nodes[0]}] Connecting to 10.100.9.2", f"[{nodes[0]}] ib_write_bw · 64 KiB"]
+            run.log_tail = [f"[{nodes[0]}] Connecting to 192.0.2.2", f"[{nodes[0]}] ib_write_bw · 64 KiB"]
         elif outcome == "cancelled":
             run.log_tail = ["[console] Cancelled by user"]
         base_id = store.baseline_id(bench, run.params_key)

@@ -289,8 +289,8 @@ def test_suite_sizes_match_the_installed_tool_eval_bench():
 
 def test_tool_eval_params_are_the_llm_endpoints():
     b, llm = specs.REGISTRY["tool-eval"], specs.REGISTRY["llm-inference"]
-    p = b.validate({"base_url": "http://10.20.20.48:8000/v1/", "model": "Qwen/Qwen3-8B"})
-    assert (p.base_url, p.suite, p.thinking) == ("http://10.20.20.48:8000", "standard", True)
+    p = b.validate({"base_url": "http://10.0.0.48:8000/v1/", "model": "Qwen/Qwen3-8B"})
+    assert (p.base_url, p.suite, p.thinking) == ("http://10.0.0.48:8000", "standard", True)
     ours = {x.name: x for x in specs.bench_params(b.params)}
     theirs = {x.name: x for x in specs.bench_params(llm.params)}
     assert ours["base_url"] == theirs["base_url"] and ours["model"] == theirs["model"]

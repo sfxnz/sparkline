@@ -49,20 +49,20 @@ DISK_SIZE = 4_000_787_030_016
 PERF = [5, 6, 7, 8, 9, 15, 16, 17, 18, 19]  # Cortex-X925
 EFF = [0, 1, 2, 3, 4, 10, 11, 12, 13, 14]  # Cortex-A725
 ACPI_BASE = [63, 65, 67, 72, 68, 64, 70]
-MODEL_PATH = "/root/.cache/huggingface/hub/models--sfxnz--DeepSeek-V4.1-Flash-EXL3/snapshots/3f2a9c1e"
+MODEL_PATH = "/root/.cache/huggingface/hub/models--turboderp--DeepSeek-V4.1-Flash-EXL3/snapshots/3f2a9c1e"
 
 NODES = {  # node_id -> (LAN ip, rail A ip, rail B ip, peer, root used fraction, workload)
-    "spark1": ("10.20.20.48", "10.100.8.1", "10.100.9.1", "spark2", 0.82, "tp2"),
-    "spark2": ("10.20.20.195", "10.100.8.2", "10.100.9.2", "spark1", 0.84, "tp2"),
-    "spark3": ("10.20.20.61", None, None, None, 0.61, "vllm"),
+    "spark1": ("198.51.100.48", "203.0.113.1", "192.0.2.1", "spark2", 0.82, "tp2"),
+    "spark2": ("198.51.100.195", "203.0.113.2", "192.0.2.2", "spark1", 0.84, "tp2"),
+    "spark3": ("198.51.100.61", None, None, None, 0.61, "vllm"),
 }
 RAILS = [
-    ("enp1s0f1np1", "rocep1s0f1", "ConnectX-7 rail A"),
-    ("enP2p1s0f1np1", "roceP2p1s0f1", "ConnectX-7 rail B"),
+    ("enp1s0f1np1", "rocep1s0f1", "Interconnect A"),
+    ("enP2p1s0f1np1", "roceP2p1s0f1", "Interconnect B"),
 ]
 SPARE_PORTS = [
-    ("enp1s0f0np0", "rocep1s0f0", "ConnectX-7 port (no cable)"),
-    ("enP2p1s0f0np0", "roceP2p1s0f0", "ConnectX-7 port (no cable)"),
+    ("enp1s0f0np0", "rocep1s0f0", "Interconnect port (no cable)"),
+    ("enP2p1s0f0np0", "roceP2p1s0f0", "Interconnect port (no cable)"),
 ]
 LAN = "enP7s7"
 # Listed in NodeInfo as the real agent lists them (labelled by name); not sampled unless include_virtual.
@@ -553,7 +553,7 @@ class DemoModel:
 
         def mac(i: int) -> str:
             a, b = int(_h(self.node_id) * 127) & 0xFF, int(_h(self.node_id, i) * 127) & 0xFF
-            return f"4c:bb:47:{a:02x}:{i:02x}:{b:02x}"
+            return f"02:00:00:{a:02x}:{i:02x}:{b:02x}"
 
         net = []
         for i, (name, rdma, label) in enumerate(RAILS):
@@ -568,6 +568,8 @@ class DemoModel:
                     rdma_device=rdma,
                     counter_source="netdev_rdma",
                     peer=self.peer,
+                    nic_model="ConnectX-7",
+                    rail=chr(ord("A") + i),
                 )
             )
         for i, (name, rdma, label) in enumerate(SPARE_PORTS, start=2):
@@ -579,6 +581,7 @@ class DemoModel:
                     mac=mac(i),
                     rdma_device=rdma,
                     counter_source="netdev_rdma",
+                    nic_model="ConnectX-7",
                 )
             )
         net.append(

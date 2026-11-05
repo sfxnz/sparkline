@@ -5,6 +5,7 @@ import { TimeSeriesChart, type SeriesSpec } from '../../charts/TimeSeriesChart';
 import { Panel } from '../../design/components/Panel';
 import { bitrateParts, bytesParts, formatBitrate, formatBytes, formatPercent, formatWatts, percentParts, tempParts, wattsParts } from '../../lib/format';
 import type { Sample } from '../../lib/types';
+import { nicHeading, nicModel, nicNoun, noLinkReason, railName } from '../../lib/interconnect';
 import { unsupportedReason } from '../../lib/unsupported';
 import { useCluster } from '../../store/cluster';
 import { LiveStat } from './parts/LiveStat';
@@ -12,7 +13,7 @@ import { NowLabel } from './parts/NowLabel';
 import { TabLink } from './parts/TabLink';
 import { TempFooter } from './parts/TempFooter';
 import { CollectorErrors, ThrottleNotice } from './parts/Notices';
-import { cpuUtil, cx7Rails, gpuPower, gpuTemp, gpuUtil, memAvailable, NO_LINK_REASON, railShort, rootUsedPct, sumNet } from './parts/selectors';
+import { cabledRails, cpuUtil, gpuPower, gpuTemp, gpuUtil, memAvailable, rootUsedPct, sumNet } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
 
 const pct = (n: number) => formatPercent(n);
@@ -31,8 +32,10 @@ export default function Summary({ nodeId }: NodeTabProps) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const gpu = info?.gpus[0];
   const memTotal = info?.mem_total ?? null;
-  const rails = useMemo(() => cx7Rails(info), [info]);
+  const rails = useMemo(() => cabledRails(info), [info]);
   const railNames = useMemo(() => rails.map((r) => r.name), [rails]);
+  const model = nicModel(info?.net);
+  const nic = nicHeading(model);
   const railId = railNames.join(',');
   // Stable per rail set, so the subscriptions only change when the interfaces do.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -43,8 +46,8 @@ export default function Summary({ nodeId }: NodeTabProps) {
   const txKeys = useMemo(() => railNames.map((n) => `net.${n}.tx_bps`), [railNames]);
   const cx7Series = useMemo<SeriesSpec[]>(
     () => rails.flatMap((r) => [
-      { key: `net.${r.name}.rx_bps`, label: `${railShort(r.label)} in` },
-      { key: `net.${r.name}.tx_bps`, label: `${railShort(r.label)} out` },
+      { key: `net.${r.name}.rx_bps`, label: `${railName(r)} in` },
+      { key: `net.${r.name}.tx_bps`, label: `${railName(r)} out` },
     ]),
     [rails],
   );
@@ -80,12 +83,12 @@ export default function Summary({ nodeId }: NodeTabProps) {
             <LiveStat
               key={dir}
               nodeId={nodeId}
-              label={`ConnectX-7 ${dir}`}
+              label={`${nic} ${dir}`}
               select={dir === 'in' ? cx7Rx : cx7Tx}
               metric={dir === 'in' ? rxKeys : txKeys}
               format={bitrateParts}
               href={paths.node(nodeId, 'network')}
-              unsupported={info && !rails.length ? NO_LINK_REASON : null}
+              unsupported={info && !rails.length ? noLinkReason(model) : null}
               unsupportedLabel="No direct link"
               footer={() => (rails.length ? `${rails.length} cabled ${rails.length === 1 ? 'rail' : 'rails'}` : null)}
             />
@@ -110,11 +113,11 @@ export default function Summary({ nodeId }: NodeTabProps) {
         <Panel title="CPU utilisation" subtitle="By core type" actions={<TabLink nodeId={nodeId} tab="cpu">CPU</TabLink>}>
           <TimeSeriesChart node={nodeId} title="CPU utilisation by core type" series={CPU_SERIES} format={pct} yMin={0} yMax={100} height={168} />
         </Panel>
-        <Panel title="ConnectX-7 throughput" subtitle="Inter-node traffic, both directions" className="nsum__wide" actions={<TabLink nodeId={nodeId} tab="network">Network</TabLink>}>
+        <Panel title={`${nic} throughput`} subtitle="Inter-node traffic, both directions" className="nsum__wide" actions={<TabLink nodeId={nodeId} tab="network">Network</TabLink>}>
           {cx7Series.length ? (
-            <TimeSeriesChart node={nodeId} title="ConnectX-7 throughput" series={cx7Series} format={formatBitrate} yMin={0} height={168} />
+            <TimeSeriesChart node={nodeId} title={`${nic} throughput`} series={cx7Series} format={formatBitrate} yMin={0} height={168} />
           ) : (
-            <p className="nmuted">No ConnectX-7 link is cabled on {nodeId}.</p>
+            <p className="nmuted">No {nicNoun(model)} link is cabled on {nodeId}.</p>
           )}
         </Panel>
       </div>

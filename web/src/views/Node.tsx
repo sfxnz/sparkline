@@ -43,21 +43,21 @@ export default function Node() {
       <NodeNotice id={id} />
       <Tabs label={`${id} sections`} items={NODE_TABS} value={tab} onChange={(t) => { navigate(paths.node(id, t)); }}>
         {exists ? (
-          <Suspense fallback={<TabSkeleton label={tabLabel} tab={tab} />}>
+          <Suspense fallback={<TabSkeleton id={id} label={tabLabel} tab={tab} />}>
             <ErrorBoundary what={`The ${tabLabel} tab`} resetKey={`${id}/${tab}`}>
               <TabComponent nodeId={id} />
             </ErrorBoundary>
           </Suspense>
         ) : (
-          <TabSkeleton label={tabLabel} tab={tab} />
+          <TabSkeleton id={id} label={tabLabel} tab={tab} />
         )}
       </Tabs>
     </div>
   );
 }
 
-function TabSkeleton({ label, tab }: { label: string; tab: NodeTab }) {
-  if (tab === 'summary') return <SummarySkeleton />;
+function TabSkeleton({ id, label, tab }: { id: string; label: string; tab: NodeTab }) {
+  if (tab === 'summary') return <SummarySkeleton nodeId={id} />;
   return (
     <div className="view" aria-busy="true">
       <Panel label={`${label} summary`} busy>

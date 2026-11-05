@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BenchCompare, BenchParam, BenchSpec, Sample } from '../../lib/types';
+import type { BenchCompare, BenchParam, BenchSpec, NetIfInfo, Sample } from '../../lib/types';
 import { boundRuns, mergeRun } from '../../store/bench';
 import { CATALOG, LLM, MATMUL, RDMA, SOAK, result, run } from './fixtures';
 import {
@@ -42,7 +42,7 @@ import {
 
 describe('review fixes', () => {
   it('accepts only LAN or loopback LLM endpoints, like the agent', () => {
-    for (const h of ['localhost', '127.0.0.1', '10.20.20.48', '172.16.0.1', '192.168.1.5', '[::1]', '[fd00::5]']) expect(isLanHost(h)).toBe(true);
+    for (const h of ['localhost', '127.0.0.1', '10.0.0.48', '172.16.0.1', '192.168.1.5', '[::1]', '[fd00::5]']) expect(isLanHost(h)).toBe(true);
     for (const h of ['api.openai.com', '8.8.8.8', '169.254.169.254', '100.100.100.100', '100.100.1.2', '[fe80::1]', '172.32.0.1', '[fc::1]']) expect(isLanHost(h)).toBe(false);
     expect(validateParams(LLM, { ...toForm(LLM), base_url: 'https://api.openai.com' }).errors.base_url).toMatch(/LAN or loopback/);
     expect(validateParams(LLM, { ...toForm(LLM), base_url: 'http://169.254.169.254' }).errors.base_url).toMatch(/LAN or loopback/);
@@ -149,7 +149,7 @@ describe('params form', () => {
   it('only accepts http(s) endpoints and safe model names', () => {
     expect(validateParams(LLM, { ...toForm(LLM), base_url: 'file:///etc/passwd' }).errors.base_url).toMatch(/http/);
     expect(validateParams(LLM, { ...toForm(LLM), base_url: 'not a url' }).errors.base_url).toMatch(/http/);
-    expect(validateParams(LLM, { ...toForm(LLM), base_url: 'http://10.20.20.48:8000/v1' }).errors).toEqual({});
+    expect(validateParams(LLM, { ...toForm(LLM), base_url: 'http://10.0.0.48:8000/v1' }).errors).toEqual({});
     expect(validateParams(LLM, { ...toForm(LLM), model: 'x; rm -rf /' }).errors.model).toBeDefined();
     expect(validateParams(LLM, { ...toForm(LLM), model: 'deepseek-ai/DeepSeek-V4.1:flash' }).errors).toEqual({});
     expect(validateParams(LLM, { ...toForm(LLM), model: '' }).errors).toEqual({}); // the agent picks the first served model
@@ -433,17 +433,22 @@ describe('competition', () => {
     expect(competition(MATMUL, ['spark1'], () => idle)[0]).toMatchObject({ busy: false, text: 'spark1 GPU is idle (0%).' });
     expect(competition(MATMUL, ['spark9'], () => null)[0]?.text).toMatch(/has not reported/);
   });
-  it('looks at the CX7 link for interconnect benches', () => {
-    const rails = () => [{ name: 'enp1s0f1np1' }] as never;
-    expect(competition(RDMA, ['spark1'], () => sample(), rails)[0]?.text).toBe(
-      'spark1 ConnectX-7 traffic (serving DeepSeek-V4.1-Flash-EXL3): enp1s0f1np1 16.0 Gb/s in / 8.0 Gb/s out; results will be lower and the workload will slow down.',
+  const rail = (name: string, letter: string | null, label: string, nic_model?: string | null) => ({ name, role: 'interconnect', label, nic_model, rail: letter }) as NetIfInfo;
+  const gb10 = () => [rail('enp1s0f1np1', 'A', 'Interconnect A', 'ConnectX-7'), rail('enP2p1s0f1np1', 'B', 'Interconnect B', 'ConnectX-7')];
+  const oldAgent = () => [rail('enp1s0f1np1', 'A', 'ConnectX-7 rail A'), rail('enP2p1s0f1np1', 'B', 'ConnectX-7 rail B')];
+
+  it('looks at the interconnect link for interconnect benches, naming rails by their letter', () => {
+    expect(competition(RDMA, ['spark1'], () => sample(), gb10)[0]?.text).toBe(
+      'spark1 ConnectX-7 traffic (serving DeepSeek-V4.1-Flash-EXL3): rail A 16.0 Gb/s in / 8.0 Gb/s out; results will be lower and the workload will slow down.',
+    );
+    expect(competition(RDMA, ['spark1'], () => sample(), oldAgent)[0]?.text).toBe(
+      'spark1 interconnect traffic (serving DeepSeek-V4.1-Flash-EXL3): rail A 16.0 Gb/s in / 8.0 Gb/s out; results will be lower and the workload will slow down.',
     );
   });
   it('stays busy for a GPU workload on a quiet link, and reports each rail from the recent window', () => {
-    const railsInfo = () => [{ name: 'enp1s0f1np1', label: 'ConnectX-7 rail A' }, { name: 'enP2p1s0f1np1', label: 'ConnectX-7 rail B' }] as never;
     const quiet = sample({ net: [{ name: 'enp1s0f1np1', rx_bps: 0, tx_bps: 0 }] as Sample['net'] });
     // Between bursts of a TP=2 model: the instantaneous sample is quiet, the workload is still there.
-    const between = competition(RDMA, ['spark1'], () => quiet, railsInfo)[0];
+    const between = competition(RDMA, ['spark1'], () => quiet, gb10)[0];
     expect(between?.busy).toBe(true);
     expect(between?.text).toMatch(/serving DeepSeek.*ConnectX-7 link/);
     const window = () => [
@@ -451,10 +456,24 @@ describe('competition', () => {
       { name: 'enP2p1s0f1np1', label: 'rail B', rx: 0, tx: 0 },
     ];
     const idleGpu = sample({ procs: [], net: [] as Sample['net'] });
-    expect(competition(RDMA, ['spark1'], () => idleGpu, railsInfo, window)[0]?.text).toBe(
+    expect(competition(RDMA, ['spark1'], () => idleGpu, gb10, window)[0]?.text).toBe(
       'spark1 ConnectX-7 traffic: rail A 76.8 Gb/s in / 76.0 Gb/s out; results will be lower and the workload will slow down.',
     );
-    expect(competition(RDMA, ['spark1'], () => idleGpu, railsInfo)[0]).toMatchObject({ busy: false, text: 'spark1 ConnectX-7 link is quiet.' });
+    expect(competition(RDMA, ['spark1'], () => idleGpu, gb10)[0]).toMatchObject({ busy: false, text: 'spark1 ConnectX-7 link is quiet.' });
+  });
+  it('names a spare port carrying traffic by its interface, not a rail letter', () => {
+    const spare = () => [...gb10(), rail('enp1s0f0np0', null, 'Interconnect port (no cable)', 'ConnectX-7')];
+    const busy = sample({ procs: [], net: [{ name: 'enp1s0f0np0', rx_bps: 1e9, tx_bps: 0 }] as Sample['net'] });
+    expect(competition(RDMA, ['spark1'], () => busy, spare)[0]?.text).toBe(
+      'spark1 ConnectX-7 traffic: enp1s0f0np0 8.0 Gb/s in / 0.0 Gb/s out; results will be lower and the workload will slow down.',
+    );
+  });
+  it('names a non-ConnectX link by its own model, and an unknown one generically', () => {
+    const idleGpu = sample({ procs: [], net: [] as Sample['net'] });
+    const e810 = () => [rail('ens1f0', 'A', 'Interconnect A', 'Intel E810-C')];
+    const unknown = () => [rail('ens1f0', 'A', 'Interconnect A', null)];
+    expect(competition(RDMA, ['spark1'], () => idleGpu, e810)[0]?.text).toBe('spark1 Intel E810-C link is quiet.');
+    expect(competition(RDMA, ['spark1'], () => idleGpu, unknown)[0]?.text).toBe('spark1 interconnect link is quiet.');
   });
 });
 
