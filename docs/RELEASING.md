@@ -51,14 +51,18 @@ Each pull request that changes what a user sees adds one line under `## [Unrelea
    git push origin vX.Y.Z
    ```
 
-   The tag starts `.github/workflows/image.yml`, which publishes the console image as
-   `ghcr.io/<owner>/sparkline:X.Y.Z` and `:X.Y`.
+   The tag starts `.github/workflows/image.yml`. It publishes the console image as
+   `ghcr.io/<owner>/sparkline:X.Y.Z` and `:X.Y`, and then it creates the GitHub release `vX.Y.Z`, titled
+   "Sparkline X.Y.Z". The release notes are the version's `CHANGELOG.md` section, which
+   `deploy/release-notes.sh X.Y.Z` prints. The release appears only once the image is published. The
+   workflow refuses a version whose heading still says `unreleased`.
 
-5. Create the GitHub release from the changelog section.
+5. Check that the release is on the repository's **Releases** page. If the release job failed, fix the cause
+   and rerun the failed job, or create the release by hand:
 
    ```sh
-   awk -v v=X.Y.Z '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[|^\[[^]]*\]: / {f=0} f' CHANGELOG.md \
-   	| gh release create vX.Y.Z --verify-tag --title "Sparkline X.Y.Z" --notes-file -
+   deploy/release-notes.sh X.Y.Z > notes.md \
+   	&& gh release create vX.Y.Z --verify-tag --title "Sparkline X.Y.Z" --notes-file notes.md
    ```
 
 For 0.1.0, the version and its section already exist. Replace `unreleased` on the `## [0.1.0]` line with the

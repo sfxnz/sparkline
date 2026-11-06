@@ -45,3 +45,53 @@ def test_demo_agents_report_the_installed_version(tmp_path: Path) -> None:
     run = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
     reported = run.stdout.split()
     assert set(reported) == {"9.9.9"}, f"demo agents report {reported}, not 9.9.9"
+
+
+NOTES = ROOT / "deploy/release-notes.sh"
+CHANGELOG = """# Changelog
+
+## [Unreleased]
+
+## [0.2.0] - unreleased
+
+- Not out yet.
+
+## [0.1.1] - 2026-11-06
+
+### Fixed
+
+- A 100% fix (#90).
+
+## [0.1.0] - 2026-11-01
+
+- The first release.
+
+[Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.1
+"""
+
+
+def release_notes(version: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(CHANGELOG)
+    return subprocess.run(["bash", str(NOTES), version, str(changelog)], capture_output=True, text=True)
+
+
+def test_release_notes_are_the_versions_changelog_section(tmp_path: Path) -> None:
+    run = release_notes("0.1.1", tmp_path)
+    assert (run.returncode, run.stdout) == (0, "### Fixed\n\n- A 100% fix (#90).\n"), run.stderr
+
+
+def test_release_notes_stop_before_the_link_references(tmp_path: Path) -> None:
+    run = release_notes("0.1.0", tmp_path)
+    assert (run.returncode, run.stdout) == (0, "- The first release.\n"), run.stderr
+
+
+def test_release_notes_refuse_a_version_still_dated_unreleased(tmp_path: Path) -> None:
+    run = release_notes("0.2.0", tmp_path)
+    assert run.returncode != 0 and run.stdout == "" and "unreleased" in run.stderr
+
+
+def test_release_notes_refuse_a_version_the_changelog_lacks(tmp_path: Path) -> None:
+    run = release_notes("0.3.0", tmp_path)
+    assert run.returncode != 0 and run.stdout == "" and "0.3.0" in run.stderr
