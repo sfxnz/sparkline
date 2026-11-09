@@ -119,6 +119,13 @@ def an_nvme_serial(copy: Path, _: pytest.MonkeyPatch) -> None:
     (nvme / "serial").write_text(SERIAL + "\n")
 
 
+def a_nic_pci_id(name: str, data: str) -> Plant:
+    def plant(copy: Path, _: pytest.MonkeyPatch) -> None:
+        (copy / "root/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.1" / name).write_text(data)
+
+    return plant
+
+
 def a_gpu_process(cmdline: bytes) -> Plant:
     def plant(copy: Path, _: pytest.MonkeyPatch) -> None:
         with_gpu_process(copy, cmdline)
@@ -466,6 +473,20 @@ CASES = [
     ),
     Case("NVMe EUI after eui.", "refused", (WWID,), f"eui.{WWID}", because="InfiniBand GUID"),
     Case("Docker id, 64 hex", "replaced", ("c0ffee" + "ab" * 29,), "c0ffee" + "ab" * 29),
+    Case(
+        "hostname in a NIC's PCI vendor file",
+        "refused",
+        (HOST,),
+        plant=a_nic_pci_id("vendor", f"{HOST}\n"),
+        because="hostname",
+    ),
+    Case(
+        "hostname in a NIC's PCI device file",
+        "refused",
+        (HOST,),
+        plant=a_nic_pci_id("device", f"{HOST}\n"),
+        because="hostname",
+    ),
     Case("hostname GB10, a word of the GPU name", "refused", ("GB10",), hostname="GB10", because="hostname"),
     Case("hostname acpitz, a sensor name", "refused", ("acpitz",), hostname="acpitz", because="hostname"),
     Case("hostname cpu, a word of reviewed paths", "refused", (), hostname="cpu", because="hostname"),

@@ -7,6 +7,9 @@ from typing import Literal
 
 Holds = Literal["text", "entry", "binary"]
 
+_HEX = "[0-9a-f]"
+_PCI_FUNCTION = f"{_HEX * 4}:{_HEX * 2}:[01]{_HEX}.[0-7]"
+
 # The capture writes only what this list allows, so adding an entry is the privacy review when collectors
 # grow the read set (#21 to #28). No file an entry matches may hold an identifier that the redaction misses.
 PATHS: dict[str, Holds] = {
@@ -60,6 +63,8 @@ PATHS: dict[str, Holds] = {
     "/sys/devices/**/net/*/phys_port_name": "text",
     "/sys/devices/**/net/*/phys_switch_id": "text",
     "/sys/devices/**/net/*/speed": "text",
+    f"/sys/devices/**/{_PCI_FUNCTION}/vendor": "text",
+    f"/sys/devices/**/{_PCI_FUNCTION}/device": "text",
     "/sys/class/infiniband/*": "entry",
     "/sys/devices/**/infiniband/*/sys_image_guid": "text",
     "/sys/devices/**/infiniband/*/ports/1/rate": "text",
