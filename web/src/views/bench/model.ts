@@ -3,6 +3,7 @@
 // the "what will this compete with" sentences. No React, no stores: every rule here is unit-tested in model.test.ts.
 import type { Status } from '../../design/components/StatusPill';
 import { formatBytes, formatDuration, formatFreq, formatPercent, formatTemp, formatWatts } from '../../lib/format';
+import { nicModel, nicNoun } from '../../lib/interconnect';
 import { decodeThrottle } from '../../lib/throttle';
 import type { BenchCompare, BenchParam, BenchResult, BenchRun, BenchSpec, GpuOption, NetIfInfo, NodeStatus, ProcSample, RunStatus, Sample } from '../../lib/types';
 import { gpuProcesses, isServing, listNodes, topGpuProcess, workloadName } from '../overview/model';
@@ -914,21 +915,17 @@ const consequence = 'results will be lower and the workload will slow down';
 const GPU_BUSY_PCT = 10;
 const CPU_BUSY_PCT = 25;
 const DISK_BUSY_PCT = 20;
-const LINK_BUSY_BPS = 100e6; // 0.8 Gb/s over a CX7 rail
+const LINK_BUSY_BPS = 100e6; // 0.8 Gb/s over a rail
 
 /** Peak receive/transmit bytes/s of one interconnect interface over a recent window. */
 export interface LinkTraffic {
   name: string;
-  /** "rail A" (from the interface label), else the interface name. */
   label: string;
   rx: number;
   tx: number;
 }
 
-export function railLabel(n: Pick<NetIfInfo, 'name' | 'label'>): string {
-  const m = /rail\s+(\w+)/i.exec(n.label);
-  return m ? `rail ${m[1] ?? ''}` : n.name;
-}
+export const railLabel = (n: Pick<NetIfInfo, 'name' | 'rail'>) => (n.rail ? `rail ${n.rail}` : n.name);
 
 /** Per-rail traffic from the latest sample only (callers with a live window pass `linkTraffic` instead). */
 function latestTraffic(s: Sample, rails: readonly NetIfInfo[]): LinkTraffic[] {
@@ -986,7 +983,7 @@ function chosenGpu(node: string, index: number, util: number | null, procs: read
 
 /**
  * What a benchmark will compete with on each node, from the latest live samples. GPU-bound benches look at GPU
- * load and GPU processes; CPU, storage and interconnect benches at CPU, NVMe and CX7 load respectively. For the
+ * load and GPU processes; CPU, storage and interconnect benches at CPU, NVMe and interconnect load respectively. For the
  * interconnect, a GPU workload counts as busy on its own (a TP=2 model across the nodes uses the link in bursts), and
  * `linkTraffic` gives each rail's peak over a recent window rather than one instantaneous sample.
  */
@@ -1022,15 +1019,16 @@ export function competition(
       }
       case 'interconnect': {
         const rails = interconnects(node);
+        const nic = nicNoun(nicModel(rails));
         const traffic = (linkTraffic ? linkTraffic(node, rails) : latestTraffic(s, rails)).filter((t) => t.rx + t.tx >= LINK_BUSY_BPS);
         const moving = traffic.map((t) => `${t.label} ${gbps(t.rx)} in / ${gbps(t.tx)} out`).join(', ');
-        if (!online) return notReporting(node, 'ConnectX-7 traffic', traffic.length ? `its link carried ${moving}` : work ? `it was ${work.verb} ${work.what}` : 'its link was quiet');
+        if (!online) return notReporting(node, `${nic} traffic`, traffic.length ? `its link carried ${moving}` : work ? `it was ${work.verb} ${work.what}` : 'its link was quiet');
         if (traffic.length) {
           const why = work ? ` (${work.verb} ${work.what})` : '';
-          return { node, busy: true, text: `${node} ConnectX-7 traffic${why}: ${moving}; ${consequence}.` };
+          return { node, busy: true, text: `${node} ${nic} traffic${why}: ${moving}; ${consequence}.` };
         }
-        if (work) return { node, busy: true, text: `${node} is ${work.verb} ${work.what}; a model spread over both nodes uses the ConnectX-7 link, so ${consequence}.` };
-        return { node, busy: false, text: `${node} ConnectX-7 link is quiet.` };
+        if (work) return { node, busy: true, text: `${node} is ${work.verb} ${work.what}; a model spread over both nodes uses the ${nic} link, so ${consequence}.` };
+        return { node, busy: false, text: `${node} ${nic} link is quiet.` };
       }
       default: {
         if (byCpu(node)) return cpuLoad(node, s, online);

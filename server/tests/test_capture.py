@@ -655,6 +655,7 @@ FIXED_WORDS = {
         "infiniband",
         "zorbhost",
     ),
+    "hostname vendor, a word of the NIC PCI ID files": ("hostname", "vendor", "zorbhost"),
 }
 
 
@@ -888,6 +889,29 @@ def test_the_read_set_takes_the_size_of_any_disk_the_storage_collector_reads(dis
 )
 def test_the_read_set_takes_a_partition_of_any_disk_the_storage_collector_reads(disk, partition):
     assert [holds for _, holds in matching(f"/sys/devices/platform/x/block/{disk}/{partition}")] == ["entry"]
+
+
+@pytest.mark.parametrize("pci_id", ["vendor", "device"])
+def test_the_read_set_takes_the_pci_ids_behind_a_network_interface(pci_id):
+    nic = "/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.1"
+    assert [holds for _, holds in matching(f"{nic}/{pci_id}")] == ["text"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/sys/devices/platform/zorbboard/vendor",
+        "/sys/devices/platform/zorbboard/device",
+        "/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.1/net/enp1s0f1np1/device",
+    ],
+)
+def test_the_read_set_takes_pci_ids_only_from_a_pci_function(path):
+    assert matching(path) == ()
+
+
+def test_a_hwmon_device_link_stays_an_entry():
+    hwmon = "/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.0/hwmon/hwmon4"
+    assert [holds for _, holds in matching(f"{hwmon}/device")] == ["entry"]
 
 
 def gb10_readings() -> Recording:

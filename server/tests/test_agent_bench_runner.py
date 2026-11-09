@@ -73,16 +73,18 @@ def node_info() -> NodeInfo:
             NetIfInfo(
                 name="enp1s0f1np1",
                 role="interconnect",
-                label="ConnectX-7 rail A",
+                label="Interconnect A",
                 ipv4=["10.0.8.1"],
                 rdma_device="rocep1s0f1",
+                rail="A",
             ),
             NetIfInfo(
                 name="enP2p1s0f1np1",
                 role="interconnect",
-                label="ConnectX-7 rail B",
+                label="Interconnect B",
                 ipv4=["10.0.9.1"],
                 rdma_device="roceP2p1s0f1",
+                rail="B",
             ),
             NetIfInfo(name="enP7s7", role="lan", label="LAN", ipv4=["10.0.0.48"]),
         ],
@@ -938,7 +940,55 @@ async def test_rdma_rail_without_gid_fails(tmp_path):
     job.env = probes.Env(gids={"A": None})
     with pytest.raises(jobs.BenchError) as e:
         await jobs.rdma_bw_lat(job, job.params)
-    assert "rail A is not usable" in e.value.problem.message
+    assert e.value.problem.message == "Rail A is not usable on n1"
+
+
+async def test_rdma_and_nccl_pick_rails_when_relabelled(tmp_path):
+    srv = make_job(tmp_path, "rdma-bw-lat", {"rail": "A", "duration_s": 3}, role="server")
+    srv.info.net[0].label, srv.info.net[1].label = "Interconnect B", "fast link"
+    calls = capture(srv)
+    await jobs.rdma_bw_lat(srv, srv.params)
+    assert calls[0]["argv"][:5] == ["ib_write_bw", "-d", "rocep1s0f1", "-x", "3"]
+    rank = make_job(tmp_path, "nccl-allreduce", {"rails": "both"}, role="rank", rank=0, world_size=2)
+    for n in rank.info.net:
+        n.label = n.name
+    calls = capture(rank)
+    await jobs.nccl_allreduce(rank, rank.params)
+    argv = calls[0]["argv"]
+    assert (
+        "NCCL_SOCKET_IFNAME=enp1s0f1np1,enP2p1s0f1np1" in argv
+        and "NCCL_IB_HCA=rocep1s0f1,roceP2p1s0f1" in argv
+    )
+    assert argv[argv.index("--master") + 1] == "10.0.8.1"
+
+
+def _spare(name: str, rdma: str) -> NetIfInfo:
+    return NetIfInfo(name=name, role="interconnect", label="Interconnect port (no cable)", rdma_device=rdma)
+
+
+def test_probe_keys_gids_by_rail_when_relabelled(tmp_path, monkeypatch):
+    info = node_info()
+    info.net[2:2] = [_spare("enP2p1s0f0np0", "roceP2p1s0f0"), _spare("enp1s0f0np0", "rocep1s0f0")]
+    for n in info.net:
+        n.label = n.name
+    gids = {"rocep1s0f1": 3, "roceP2p1s0f1": 5}
+    monkeypatch.setattr(probes, "roce_v2_ipv4_gid", lambda dev: gids.get(dev))
+    env = probes.probe(info, "img:tag", str(tmp_path / "work"), str(tmp_path / "no-docker.sock"))
+    assert env.gids == {"A": 3, "B": 5} and env.rdma is None
+
+
+def test_probe_rdma_problems_name_no_vendor(tmp_path, monkeypatch):
+    info = node_info()
+    monkeypatch.setattr(probes, "roce_v2_ipv4_gid", lambda dev: None)
+    env = probes.probe(info, "img:tag", str(tmp_path / "work"), str(tmp_path / "no-docker.sock"))
+    no_gid = env.rdma
+    assert no_gid is not None and no_gid.message == "No RoCE v2 IPv4 GID on n1"
+    assert "cabling" in no_gid.fix and "IPv4 addresses" in no_gid.fix
+    info.net[:2] = [_spare("enp1s0f0np0", "rocep1s0f0"), _spare("enP2p1s0f0np0", "roceP2p1s0f0")]
+    env = probes.probe(info, "img:tag", str(tmp_path / "work"), str(tmp_path / "no-docker.sock"))
+    no_rdma = env.rdma
+    assert no_rdma is not None and no_rdma.message == "No interconnect with RDMA on n1"
+    assert all("ConnectX" not in p.message + p.cause + p.fix for p in (no_gid, no_rdma))
 
 
 async def test_storage_uses_fio_when_installed(tmp_path):

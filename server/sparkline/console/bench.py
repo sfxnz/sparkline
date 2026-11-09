@@ -15,7 +15,6 @@ import csv
 import io
 import json
 import logging
-import re
 import secrets
 import time
 from collections.abc import Callable, Coroutine, Mapping
@@ -27,6 +26,7 @@ import httpx
 from pydantic import ValidationError
 
 from ..agent.bench.specs import REGISTRY as AGENT_REGISTRY
+from ..common.netutil import rails
 from ..common.schema import (
     BenchCreate,
     BenchResult,
@@ -228,17 +228,12 @@ def validate_gpu_index(
 
 
 def rail_ip(info: NodeInfo | None, rail: str) -> str | None:
-    """IPv4 of this node's ConnectX-7 rail ``rail`` ("A", "B"): by label ("... rail A"), else by position
-    among addressed interconnect interfaces (NodeInfo.net lists rails A, B first)."""
-    if info is None:
-        return None
-    ifaces = [n for n in info.net if n.role == "interconnect" and n.ipv4]
-    for n in ifaces:
-        m = re.search(r"rail ([A-Z])$", n.label)
-        if m and m.group(1) == rail:
-            return n.ipv4[0]
-    idx = ord(rail[:1] or "A") - ord("A")
-    return ifaces[idx].ipv4[0] if 0 <= idx < len(ifaces) else None
+    n = rails(info).get(rail) if info else None
+    return n.ipv4[0] if n and n.ipv4 else None
+
+
+def has_rail_ip(info: NodeInfo | None) -> bool:
+    return info is not None and any(n.ipv4 for n in rails(info).values())
 
 
 def unsupported(r: BenchResult) -> bool:
@@ -631,7 +626,7 @@ class BenchManager:
                 fix=f"Upgrade sparkline-agent on {node} to the console's release",
             )
         p = _own(mine.availability, node)
-        if p is None and spec.min_nodes >= 2 and rail_ip(self.cluster.sources[node].state.info, "A") is None:
+        if p is None and spec.min_nodes >= 2 and not has_rail_ip(self.cluster.sources[node].state.info):
             p = Problem(
                 message=f"{node} has no ConnectX-7 peer",
                 cause="None of its ConnectX-7 interfaces has an IPv4 address: it cannot reach another Spark",
@@ -751,9 +746,10 @@ class BenchManager:
         return BenchError(
             400,
             Problem(
-                message=f"{node} has no address on ConnectX-7 rail {rail}",
-                cause=f"No interconnect interface labelled rail {rail} with an IPv4 address in its NodeInfo",
-                fix=f"Check the CX7 link on {node} (`ip -br addr`), or pick the other rail",
+                message=f"{node} has no address on rail {rail}",
+                cause=f"Its NodeInfo has no interconnect interface with an IPv4 address for rail {rail}",
+                fix=f"Check the interconnect link on {node} (`ip -br addr`) and restart its agent "
+                "after fixing it, or pick the other rail",
             ),
         )
 
@@ -774,9 +770,11 @@ class BenchManager:
             return
         if run.bench_id == "nccl-allreduce":
             r0, r1 = run.nodes
-            ip = rail_ip(self._info(r0), "A")
-            if ip is None:
-                raise self._no_rail(r0, "A")
+            wanted = ["A", "B"] if run.params.get("rails", "both") == "both" else [str(run.params["rails"])]
+            ips = [rail_ip(self._info(r0), r) for r in wanted]
+            if None in ips:
+                raise self._no_rail(r0, wanted[ips.index(None)])
+            ip = ips[0]
             act.requests = {
                 n: BenchStartRequest(
                     **base,

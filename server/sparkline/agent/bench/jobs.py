@@ -13,9 +13,10 @@ from urllib.parse import urlsplit
 
 import psutil
 
+from ...common.netutil import rails
 from ...common.schema import Problem, Sample
 from ...common.throttle import LIMITING_MASK, POWER_CAP_BIT, REASONS
-from . import metadata, probes
+from . import metadata
 from .parsers import parse_fio_json, parse_perftest_bw, parse_perftest_lat
 from .runner import BenchError, Job, JobFn
 from .specs import (
@@ -96,15 +97,15 @@ async def cpu_throughput(job: Job, p: CpuThroughputParams) -> None:
 
 
 def _rail(job: Job, rail: str) -> tuple[Any, int]:
-    netif = probes.rails(job.info).get(rail)
+    netif = rails(job.info).get(rail)
     gid = job.env.gids.get(rail)
     if netif is None or gid is None:
         raise BenchError(
             Problem(
-                message=f"ConnectX-7 rail {rail} is not usable on {job.node_id}",
-                cause="No RDMA device with a RoCE v2 IPv4 GID on that rail"
+                message=f"Rail {rail} is not usable on {job.node_id}",
+                cause=f"{netif.name} has no RDMA device with a RoCE v2 IPv4 GID"
                 if netif
-                else "The rail is down or has no RDMA device",
+                else f"No interconnect interface for rail {rail}",
                 fix=f"Pick another rail or check `ibv_devinfo` and the cabling on {job.node_id}",
             )
         )
@@ -113,11 +114,11 @@ def _rail(job: Job, rail: str) -> tuple[Any, int]:
 
 async def nccl_allreduce(job: Job, p: NcclAllreduceParams) -> None:
     req = job.req
-    rails = ["A", "B"] if p.rails == "both" else [p.rails]
-    candidates = [(r, probes.rails(job.info).get(r)) for r in rails]
+    wanted = ["A", "B"] if p.rails == "both" else [p.rails]
+    candidates = [(r, rails(job.info).get(r)) for r in wanted]
     usable = [(r, n) for r, n in candidates if n is not None and job.env.gids.get(r) is not None]
     if not usable:
-        _rail(job, rails[0])  # raises with a specific problem
+        _rail(job, wanted[0])
     master = req.peer_ip or (usable[0][1].ipv4[0] if usable[0][1].ipv4 else None)
     if master is None:
         raise BenchError(

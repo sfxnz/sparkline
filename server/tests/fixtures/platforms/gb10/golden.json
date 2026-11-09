@@ -304,48 +304,56 @@
     "ipv4": [
      "203.0.113.1"
     ],
-    "label": "ConnectX-7 rail A",
+    "label": "Interconnect A",
     "mac": "02:00:00:00:00:06",
     "name": "enp1s0f1np1",
     "peer": null,
     "rdma_device": "rocep1s0f1",
     "role": "interconnect",
-    "speed_mbps": 200000
+    "speed_mbps": 200000,
+    "nic_model": "ConnectX-7",
+    "rail": "A"
    },
    {
     "counter_source": "netdev_rdma",
     "ipv4": [
      "192.0.2.1"
     ],
-    "label": "ConnectX-7 rail B",
+    "label": "Interconnect B",
     "mac": "02:00:00:00:00:03",
     "name": "enP2p1s0f1np1",
     "peer": null,
     "rdma_device": "roceP2p1s0f1",
     "role": "interconnect",
-    "speed_mbps": 200000
+    "speed_mbps": 200000,
+    "nic_model": "ConnectX-7",
+    "rail": "B"
    },
    {
     "counter_source": "netdev_rdma",
     "ipv4": [],
-    "label": "ConnectX-7 port (no cable)",
+    "label": "Interconnect port (no cable)",
     "mac": "02:00:00:00:00:02",
     "name": "enP2p1s0f0np0",
     "peer": null,
     "rdma_device": "roceP2p1s0f0",
     "role": "interconnect",
-    "speed_mbps": null
+    "speed_mbps": null,
+    "nic_model": "ConnectX-7",
+    "rail": null
    },
    {
     "counter_source": "netdev_rdma",
     "ipv4": [],
-    "label": "ConnectX-7 port (no cable)",
+    "label": "Interconnect port (no cable)",
     "mac": "02:00:00:00:00:05",
     "name": "enp1s0f0np0",
     "peer": null,
     "rdma_device": "rocep1s0f0",
     "role": "interconnect",
-    "speed_mbps": null
+    "speed_mbps": null,
+    "nic_model": "ConnectX-7",
+    "rail": null
    },
    {
     "counter_source": "netdev",
@@ -358,7 +366,9 @@
     "peer": null,
     "rdma_device": null,
     "role": "lan",
-    "speed_mbps": 10000
+    "speed_mbps": 10000,
+    "nic_model": null,
+    "rail": null
    },
    {
     "counter_source": "netdev",
@@ -371,7 +381,9 @@
     "peer": null,
     "rdma_device": null,
     "role": "virtual",
-    "speed_mbps": null
+    "speed_mbps": null,
+    "nic_model": null,
+    "rail": null
    },
    {
     "counter_source": "netdev",
@@ -384,7 +396,9 @@
     "peer": null,
     "rdma_device": null,
     "role": "virtual",
-    "speed_mbps": null
+    "speed_mbps": null,
+    "nic_model": null,
+    "rail": null
    },
    {
     "counter_source": "netdev",
@@ -395,7 +409,9 @@
     "peer": null,
     "rdma_device": null,
     "role": "wireless",
-    "speed_mbps": null
+    "speed_mbps": null,
+    "nic_model": null,
+    "rail": null
    }
   ],
   "node_id": "gb10",

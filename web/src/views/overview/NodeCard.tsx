@@ -1,4 +1,4 @@
-// A living node card: what the node runs, GPU load, heat, power, memory, CX7 traffic and recent trend.
+// A living node card: what the node runs, GPU load, heat, power, memory, interconnect traffic and recent trend.
 // Every number is its own subscriber, so a tick re-renders only the leaves whose value changed. The ambient glow is
 // driven by a CSS custom property (useBreath), never by React renders.
 import { ArrowLeft, ArrowRight, Clock, OctagonAlert, RotateCw, TriangleAlert, Unplug } from 'lucide-react';
@@ -20,6 +20,7 @@ import { useNow } from '../../design/useNow';
 import { api } from '../../lib/api';
 import { bitrateParts, DASH, formatAgo, formatBytes, formatPercent, formatWatts, text, wattsParts } from '../../lib/format';
 import { headroomGpu, tempRoom } from '../../lib/condition';
+import { nicAbbr, nicHeading, nicModel } from '../../lib/interconnect';
 import { memoryLayout } from '../../lib/memoryLayout';
 import type { GpuInfo, NodeInfo, Sample } from '../../lib/types';
 import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
@@ -461,11 +462,14 @@ function Interconnect() {
   );
   const peers = [...new Set(rails.map((r) => r.peer))];
   const gap = interconnectGap(info);
+  const model = nicModel(info?.net);
+  const nic = nicHeading(model);
+  const abbr = nicAbbr(model);
   if (!rails.length) {
     return (
       <div className="ov-row ov-cx">
         <span className="ov-label">
-          {gap ? <><span className="ov-cx__long">ConnectX-7</span><abbr className="ov-cx__short" title="ConnectX-7">CX7</abbr></> : 'ConnectX-7'}
+          {gap && abbr ? <><span className="ov-cx__long">{nic}</span><abbr className="ov-cx__short" title={nic}>{abbr}</abbr></> : nic}
         </span>
         <span className="ov-cx__none">{gap ? <Unsupported gap={gap} /> : freshness === 'waiting' && !info ? <Skeleton width={150} height={12} /> : 'No direct link'}</span>
       </div>
@@ -474,8 +478,13 @@ function Interconnect() {
   return (
     <div className="ov-row ov-cx">
       <span className="ov-label">
-        <span className="ov-cx__long">ConnectX-7</span>
-        <abbr className="ov-cx__short" title="ConnectX-7">CX7</abbr> <span className="ov-dim">↔ {peers.join(', ')}</span>
+        {abbr ? (
+          <>
+            <span className="ov-cx__long">{nic}</span>
+            <abbr className="ov-cx__short" title={nic}>{abbr}</abbr>
+          </>
+        ) : nic}{' '}
+        <span className="ov-dim">↔ {peers.join(', ')}</span>
       </span>
       <span className="ov-cx__rates num">
         {/* Arrows point the way the data travels, as in the Interconnect panel: → out to the peer, ← in from it. */}

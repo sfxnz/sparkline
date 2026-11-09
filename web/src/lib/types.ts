@@ -61,6 +61,10 @@ export interface NetIfInfo {
   rdma_device: string | null;
   counter_source: 'netdev_rdma' | 'ethtool_phy' | 'netdev';
   peer: string | null;
+  /** From the PCI IDs ("ConnectX-7", "Intel E810-C"); absent from older agents, null when the NIC is not known. */
+  nic_model?: string | null;
+  /** "A", "B": interconnects up at agent start; null for spare ports. */
+  rail?: string | null;
 }
 
 export interface DiskInfo {

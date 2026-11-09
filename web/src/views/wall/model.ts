@@ -1,4 +1,4 @@
-// Wall-mode logic: tile grid shape, ConnectX-7 throughput per node, the alert ticker. Pure, unit-tested.
+// Wall-mode logic: tile grid shape, interconnect throughput per node, the alert ticker. Pure, unit-tested.
 import { bitrateParts, type Formatter } from '../../lib/format';
 import type { Event, NetIfInfo } from '../../lib/types';
 import { openAlerts } from '../alerts/model';
@@ -10,7 +10,7 @@ export function wallColumns(n: number): number {
   return n <= 9 ? 3 : 4;
 }
 
-/** CX7 rails cabled to another node (as on the overview); spare ports, LAN, virtual and wireless are not part of
+/** Interconnect rails cabled to another node (as on the overview); spare ports, LAN, virtual and wireless are not part of
  *  the wall story. Empty: the node has no direct link. */
 export function interconnectNames(net: readonly NetIfInfo[] | null | undefined): string[] {
   return (net ?? []).filter((n) => n.role === 'interconnect' && n.peer).map((n) => n.name);

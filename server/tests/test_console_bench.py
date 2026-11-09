@@ -3,6 +3,7 @@ telemetry bounding, store."""
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
@@ -14,11 +15,14 @@ from fastapi.testclient import TestClient
 
 from sparkline.agent.bench.specs import REGISTRY as AGENT_REGISTRY
 from sparkline.common.schema import (
+    BenchCreate,
     BenchParam,
     BenchResult,
     BenchRun,
     BenchSpec,
+    BenchStartRequest,
     ConsoleSettings,
+    NetIfInfo,
     NodeBenchState,
     NodeInfo,
     Sample,
@@ -26,6 +30,7 @@ from sparkline.common.schema import (
 from sparkline.console import bench as bench_mod
 from sparkline.console.app import create_app
 from sparkline.console.bench import (
+    BenchError,
     BenchManager,
     _Active,
     apply_baseline,
@@ -189,17 +194,149 @@ def test_run_ids_are_short_and_sortable():
     assert len({new_run_id(1_791_280_000.0 + i / 1000) for i in range(200)}) == 200  # distinct ms
 
 
-def test_rail_ip_by_label_and_position():
+def test_rail_ip_follows_the_rail_not_the_label():
     assert rail_ip(INFO, "A") == "203.0.113.1" and rail_ip(INFO, "B") == "192.0.2.1"
-    unlabelled = INFO.model_copy(deep=True)
-    for n in unlabelled.net:
-        n.label = n.name
-    assert rail_ip(unlabelled, "B") == "192.0.2.1"
+    relabelled = INFO.model_copy(deep=True)
+    for n, label in zip(relabelled.net, ["Interconnect B", "fast link", "Interconnect A"], strict=False):
+        n.label = label
+    assert rail_ip(relabelled, "A") == "203.0.113.1" and rail_ip(relabelled, "B") == "192.0.2.1"
+    assert rail_ip(INFO, "C") is None
     no_rails = INFO.model_copy(deep=True)
     for n in no_rails.net:
         if n.role == "interconnect":
             n.ipv4 = []
     assert rail_ip(no_rails, "A") is None and rail_ip(None, "A") is None
+
+
+class _RailBackend:
+    def __init__(self):
+        self.starts: dict[str, BenchStartRequest] = {}
+
+    def bind(self, on_state):
+        pass
+
+    async def catalog(self, node):
+        return [AGENT_REGISTRY[b].spec({}) for b in ("rdma-bw-lat", "nccl-allreduce")]
+
+    async def start(self, node, req):
+        self.starts[node] = req
+        ready = req.role == "server"
+        return NodeBenchState(
+            run_id=req.run_id, bench_id=req.bench_id, node_id=node, status="running", ready=ready
+        )
+
+    async def get(self, node, run_id):
+        return None
+
+    async def cancel(self, node, run_id):
+        pass
+
+    async def close(self):
+        pass
+
+
+def _rails_info(node: str, a: str | None, b: str | None) -> NodeInfo:
+    net = [
+        NetIfInfo(
+            name="enp1s0f1np1", role="interconnect", label="Interconnect A", rail="A", ipv4=[a] if a else []
+        ),
+        NetIfInfo(
+            name="enP2p1s0f1np1", role="interconnect", label="Interconnect B", rail="B", ipv4=[b] if b else []
+        ),
+    ]
+    return INFO.model_copy(update={"node_id": node, "net": net})
+
+
+RAIL_A_UNADDRESSED = {
+    "spark1": _rails_info("spark1", "203.0.113.1", "192.0.2.1"),
+    "spark2": _rails_info("spark2", None, "192.0.2.2"),
+    "spark3": _rails_info("spark3", None, None),
+}
+
+
+def _rail_manager(tmp_path) -> tuple[BenchManager, _RailBackend]:
+    store = Store(tmp_path / "c.sqlite")
+    cluster = Cluster(store, Hub(), ConsoleSettings(regression_pct=5.0))
+    for node, info in RAIL_A_UNADDRESSED.items():
+        cluster.add_source(_Src(node, "http://127.0.0.1:1", cluster))
+        cluster.sources[node].got_hello(info)
+    backend = _RailBackend()
+    return BenchManager(cluster, BenchStore(store.db), backend), backend
+
+
+def _start(
+    tmp_path, bench_id: str, nodes: list[str], params: dict
+) -> dict[str, BenchStartRequest] | BenchError:
+    async def go():
+        mgr, backend = _rail_manager(tmp_path)
+        try:
+            await mgr.create(BenchCreate(bench_id=bench_id, nodes=nodes, params=params, confirm=True))
+        except BenchError as e:
+            return e
+        for _ in range(200):
+            if len(backend.starts) == len(nodes):
+                break
+            await asyncio.sleep(0.01)
+        await mgr.stop()
+        return backend.starts
+
+    return asyncio.run(go())
+
+
+def test_two_node_benchmarks_stay_available_while_rail_a_has_no_address(tmp_path):
+    async def go():
+        mgr, _ = _rail_manager(tmp_path)
+        return {s.id: s.availability for s in await mgr.catalog()}
+
+    av = asyncio.run(go())
+    for bench_id in ("rdma-bw-lat", "nccl-allreduce"):
+        assert av[bench_id]["spark1"] is None and av[bench_id]["spark2"] is None
+        assert av[bench_id]["spark3"].message == "spark3 has no ConnectX-7 peer"
+
+
+def test_rdma_client_dials_the_servers_address_on_the_requested_rail(tmp_path):
+    starts = _start(tmp_path, "rdma-bw-lat", ["spark1", "spark2"], {"rail": "B"})
+    assert not isinstance(starts, BenchError)
+    assert (starts["spark2"].role, starts["spark1"].role, starts["spark1"].peer_ip) == (
+        "server",
+        "client",
+        "192.0.2.2",
+    )
+
+
+def test_rdma_refuses_a_rail_the_server_has_no_address_on(tmp_path):
+    refused = _start(tmp_path, "rdma-bw-lat", ["spark1", "spark2"], {"rail": "A"})
+    assert isinstance(refused, BenchError) and refused.status == 400
+    assert refused.problem.message == "spark2 has no address on rail A"
+    assert refused.problem.fix == (
+        "Check the interconnect link on spark2 (`ip -br addr`) and restart its agent after fixing it, "
+        "or pick the other rail"
+    )
+
+
+@pytest.mark.parametrize(
+    ("nodes", "rails", "peer_ip"),
+    [
+        (["spark2", "spark1"], "B", "192.0.2.2"),
+        (["spark1", "spark2"], "B", "192.0.2.1"),
+        (["spark1", "spark2"], "both", "203.0.113.1"),
+    ],
+)
+def test_nccl_ranks_meet_at_rank_0s_address_on_the_requested_rails(tmp_path, nodes, rails, peer_ip):
+    starts = _start(tmp_path, "nccl-allreduce", nodes, {"rails": rails})
+    assert not isinstance(starts, BenchError)
+    assert {n: r.peer_ip for n, r in starts.items()} == {n: peer_ip for n in nodes}
+
+
+@pytest.mark.parametrize("rails", ["A", "both"])
+def test_nccl_refuses_a_requested_rail_rank_0_has_no_address_on(tmp_path, rails):
+    refused = _start(tmp_path, "nccl-allreduce", ["spark2", "spark1"], {"rails": rails})
+    assert isinstance(refused, BenchError) and refused.status == 400
+    assert refused.problem.message == "spark2 has no address on rail A"
+
+
+def test_old_agent_node_info_parses_without_nic_model():
+    assert INFO.net[0].label == "CX7 rail A" and all(n.nic_model is None for n in INFO.net)
 
 
 def test_csv_export_one_row_per_result():

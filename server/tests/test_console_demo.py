@@ -58,6 +58,15 @@ def test_demo_hardware_mirrors_discovery():
     assert hidden == {"docker0", "tailscale0", "wlP9s9"}
 
 
+def test_demo_interconnects_carry_generic_labels_and_connectx7_model():
+    net = DemoModel("spark1", T0).info.net
+    ics = [n for n in net if n.role == "interconnect"]
+    spare = "Interconnect port (no cable)"
+    assert [n.label for n in ics] == ["Interconnect A", "Interconnect B", spare, spare]
+    assert {n.nic_model for n in ics} == {"ConnectX-7"}
+    assert all(n.nic_model is None for n in net if n.role != "interconnect")
+
+
 def test_demo_dynamics_and_scripted_episodes():
     m1, m2 = DemoModel("spark1", T0), DemoModel("spark2", T0)
     # all-reduce: spark1 tx on rail A ~= spark2 rx on rail A

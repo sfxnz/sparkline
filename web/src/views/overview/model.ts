@@ -3,6 +3,7 @@
 import type { Status } from '../../design/components/StatusPill';
 import { worstCondition, type GpuCondition, type NodeConditions } from '../../lib/condition';
 import { gpuCountText, type GpuCount } from '../../lib/gpu';
+import { railName } from '../../lib/interconnect';
 import { gpuKey } from '../../lib/metrics';
 import type { Event, NetIfInfo, NodeInfo, NodeStatus, ProcSample } from '../../lib/types';
 import { linkRecoveries } from '../alerts/model';
@@ -330,13 +331,6 @@ export interface Link {
 const peerRails = (info: NodeInfo | null | undefined, peer: string): NetIfInfo[] =>
   (info?.net ?? []).filter((n) => n.role === 'interconnect' && n.peer === peer);
 
-/** "ConnectX-7 rail A" -> "Rail A". */
-export function railLabel(label: string, index: number): string {
-  const short = label.replace(/^connectx-?7\s*/i, '').trim();
-  if (!short) return `Rail ${String.fromCharCode(65 + index)}`;
-  return short.charAt(0).toUpperCase() + short.slice(1);
-}
-
 /** Direct links between nodes, one per node pair, from the interconnect interfaces that name a peer. */
 export function interconnectLinks(order: readonly string[], infos: Readonly<Record<string, NodeInfo | null | undefined>>): Link[] {
   const links: Link[] = [];
@@ -354,7 +348,7 @@ export function interconnectLinks(order: readonly string[], infos: Readonly<Reco
         rails: peerRails(infos[a], b).map((n, i) => ({
           name: n.name,
           peerName: theirs[i]?.name ?? null,
-          label: railLabel(n.label, i),
+          label: railName(n),
           speedMbps: n.speed_mbps,
         })),
       });

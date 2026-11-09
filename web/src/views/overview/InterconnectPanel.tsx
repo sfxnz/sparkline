@@ -1,4 +1,4 @@
-// ConnectX-7 links between nodes: per rail, link state and rate, live throughput in both directions with a
+// Direct interconnect links between nodes: per rail, link state and rate, live throughput in both directions with a
 // restrained flow animation (speed bucket set at most once per sample; CSS animates transform only), and
 // errors/drops over the recent window when there are any.
 import { ArrowLeft, ArrowRight, CircleCheck, CircleSlash, TriangleAlert } from 'lucide-react';
@@ -6,6 +6,7 @@ import { Panel } from '../../design/components/Panel';
 import { Skeleton } from '../../design/components/Skeleton';
 import { useNow } from '../../design/useNow';
 import { bitrateParts, DASH, formatAgo, text } from '../../lib/format';
+import { nicModel } from '../../lib/interconnect';
 import type { NodeStatus } from '../../lib/types';
 import { spanPhrase } from '../shared/live';
 import { serverNow, useCluster } from '../../store/cluster';
@@ -33,8 +34,9 @@ export function railSource(link: Link, rail: Rail, statusA: NodeStatus | undefin
 export function InterconnectPanel({ links }: { links: readonly Link[] }) {
   const anyLive = useCluster((s) => links.some((l) => s.nodes[l.a]?.status === 'online' || s.nodes[l.b]?.status === 'online'));
   const consoleLive = useConnection((s) => s.status === 'live');
+  const model = useCluster((s) => nicModel(links.flatMap((l) => [...(s.nodes[l.a]?.info?.net ?? []), ...(s.nodes[l.b]?.info?.net ?? [])])));
   return (
-    <Panel title="Interconnect" subtitle={`ConnectX-7 direct links${anyLive && consoleLive ? ' · live' : ''}`} className="ov-ic">
+    <Panel title="Interconnect" subtitle={`${model ? `${model} direct links` : 'Direct links'}${anyLive && consoleLive ? ' · live' : ''}`} className="ov-ic">
       <div className="ov-ic__links">
         {links.map((l) => (
           <LinkView key={`${l.a}-${l.b}`} link={l} />
@@ -249,7 +251,7 @@ function Lane({ from, to, value, level, dir }: { from: string; to: string; value
 
 export function InterconnectSkeleton() {
   return (
-    <Panel title="Interconnect" subtitle="ConnectX-7 direct links · live" className="ov-ic" busy>
+    <Panel title="Interconnect" subtitle="Direct links · live" className="ov-ic" busy>
       <div className="ov-ic__links">
         <div className="ov-ic__link">
           <span className="ov-ic__corner" />
