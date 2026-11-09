@@ -22,8 +22,8 @@ import {
   ruleIdInError,
   toDraft,
   toggleBit,
-  UNIT_SUFFIX,
   unitFor,
+  UNITS,
   validateDraft,
   type RuleDraft,
   type RuleErrors,
@@ -198,7 +198,7 @@ function RuleRow({ d, errors, changed, rejected, onChange }: RowProps) {
   const name = rule.name.trim() || rule.id;
   const showErrors = changed;
   const meta = metricMeta(rule.metric);
-  const unit = unitFor(rule.metric);
+  const { suffix } = UNITS[unitFor(rule.metric)];
   const knownMetric = RULE_METRICS.some((m) => m.key === rule.metric);
   const reasonsId = `rule-${rule.id}-reasons`;
 
@@ -238,8 +238,8 @@ function RuleRow({ d, errors, changed, rejected, onChange }: RowProps) {
               <option value="<">below</option>
             </Select>
             <NumberField
-              label={`${name}: threshold${UNIT_SUFFIX[unit] ? ` in ${UNIT_SUFFIX[unit]}` : ''}`}
-              unit={UNIT_SUFFIX[unit]}
+              label={`${name}: threshold${suffix ? ` in ${suffix}` : ''}`}
+              unit={suffix}
               value={d.thresholdText}
               onChange={(thresholdText) => { onChange({ thresholdText }); }}
               error={showErrors ? errors.threshold : undefined}
