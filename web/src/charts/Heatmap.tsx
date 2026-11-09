@@ -1,7 +1,7 @@
 // Per-core CPU utilisation over time. Rows are grouped performance first, then efficiency, with a separator.
 // Colour is the sequential --heat ramp: one hue, lightness ordered by value, legible on the panel in both themes
 // (status colours are reserved for status). Redraws once per sample.
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { CoreInfo } from '../lib/types';
 import { serverNow } from '../store/cluster';
 import { liveStore, type LiveStore } from '../store/live';
@@ -19,6 +19,7 @@ interface Props {
   /** Where a point sits in its cell: 'end' for live samples (each covers the interval before it), 'center' for
    *  history buckets (stamped at their middle). */
   cellAlign?: 'end' | 'center';
+  note?: ReactNode;
 }
 
 const LABEL_W = 92;
@@ -46,7 +47,7 @@ export function cellEdges(ts: ArrayLike<number>, step: number, align: 'end' | 'c
   return out;
 }
 
-export function Heatmap({ node, cores, cpuModel, windowS = 180, rowHeight: baseRowHeight = 13, store = liveStore, cellAlign = 'end' }: Props) {
+export function Heatmap({ node, cores, cpuModel, windowS = 180, rowHeight: baseRowHeight = 13, store = liveStore, cellAlign = 'end', note }: Props) {
   // Rows and the label column grow with the user's font size so the canvas labels stay legible and unclipped.
   const scale = fontScale();
   const rowHeight = Math.round(baseRowHeight * scale);
@@ -216,8 +217,11 @@ export function Heatmap({ node, cores, cpuModel, windowS = 180, rowHeight: baseR
       </div>
       <div className="heatmap__foot">
         <span aria-live="polite" className="num">{readout}</span>
-        <span className="heatmap__scale" aria-hidden="true">
-          0% <span className="heatmap__ramp" /> 100%
+        <span className="heatmap__foot-end">
+          {note}
+          <span className="heatmap__scale" aria-hidden="true">
+            0% <span className="heatmap__ramp" /> 100%
+          </span>
         </span>
       </div>
     </div>

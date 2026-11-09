@@ -27,6 +27,9 @@
 .tschart__threshold .tschart__legend-label { color: var(--tone-text); }
 .tschart__actions { flex: none; display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 .tschart__stale { font-size: var(--fs-footnote); color: var(--stale-text); }
+.refresh-failed { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; cursor: default; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); white-space: nowrap; }
+.refresh-failed svg { width: 12px; height: 12px; color: var(--warn); }
+.heatmap__foot-end { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-1) var(--space-3); min-width: 0; }
 .tschart__plot-wrap { position: relative; }
 .tschart__plot { position: absolute; inset: 0; transition: opacity var(--dur-base) var(--ease-out), filter var(--dur-base) var(--ease-out); }
 .tschart__plot--empty { position: relative; display: flex; }
