@@ -52,7 +52,16 @@ def container_hint(port: int, env: os._Environ[str] | dict[str, str]) -> str | N
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(prog="sparkline", description="Sparkline aggregator and web API")
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["update"]:
+        from ..update import main as update
+
+        sys.exit(update(argv[1:]))
+    p = argparse.ArgumentParser(
+        prog="sparkline",
+        description="Sparkline aggregator and web API",
+        epilog="sparkline update: update this host to the latest release (sparkline update --help)",
+    )
     p.add_argument(
         "--config", type=Path, help="TOML config (default $SPARKLINE_CONFIG or /etc/sparkline/console.toml)"
     )
