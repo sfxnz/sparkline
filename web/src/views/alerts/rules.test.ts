@@ -1,4 +1,5 @@
 import type { AlertRule } from '../../lib/types';
+import expected from '../../test/fixtures/flatten.expected.json';
 import { draftChanged, fromDisplay, fromDraft, GIB, maskReasons, metricMeta, ruleIdInError, toDisplay, toDraft, toggleBit, unitFor, validateDraft } from './rules';
 
 const rule = (patch: Partial<AlertRule> = {}): AlertRule => ({
@@ -18,8 +19,16 @@ describe('units', () => {
     for (const key of ['gpu0.vram_used', 'gpu*.vram_used', 'gpu1.shared_used', 'gpu.mem_used']) expect(unitFor(key)).toBe('gib');
   });
   it('names the default GPU temperature rule, which watches every GPU, and keeps the GPU 0 entry', () => {
-    expect(metricMeta('gpu*.temp_c')).toEqual({ key: 'gpu*.temp_c', label: 'Any GPU temperature', unit: 'celsius' });
+    expect(metricMeta('gpu*.temp_c')).toEqual({ key: 'gpu*.temp_c', label: 'Any GPU temperature' });
+    expect(unitFor('gpu*.temp_c')).toBe('celsius');
     expect(metricMeta('gpu0.temp_c').label).toBe('GPU temperature');
+  });
+  it.each(Object.entries(expected.unit_for))('%s is edited in %s, the unit its alerts show', (key, unit) => {
+    expect(unitFor(key)).toBe(unit);
+  });
+  it('edits network rates in Mb/s and disk rates in MB/s', () => {
+    expect(toDraft(rule({ metric: 'net.*.rx_bps', threshold: 1_250_000 })).thresholdText).toBe('10');
+    expect(toDraft(rule({ metric: 'disk.*.write_bps', threshold: 412e6 })).thresholdText).toBe('412');
   });
   it('edits bytes in GiB and round-trips', () => {
     expect(toDisplay(8 * GIB, 'gib')).toBe('8');
@@ -54,6 +63,11 @@ describe('fromDraft / draftChanged', () => {
   it('converts display text back to wire values', () => {
     const d = toDraft(rule({ metric: 'mem.available', op: '<', threshold: 8 * GIB }));
     expect(fromDraft({ ...d, thresholdText: '12', forText: '45' })).toMatchObject({ threshold: 12 * GIB, for_s: 45 });
+  });
+  it('saves an untouched rule with its stored threshold, not the rounded display value', () => {
+    for (const saved of [rule({ metric: 'mem.available', op: '<', threshold: 5e9 }), rule({ metric: 'net.*.rx_bps', threshold: 1_234_567 })]) {
+      expect(fromDraft(toDraft(saved)).threshold).toBe(saved.threshold);
+    }
   });
   it('treats equal numbers as unchanged and edits as changed', () => {
     const saved = rule();

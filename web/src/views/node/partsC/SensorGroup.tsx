@@ -9,11 +9,11 @@ import { Unsupported } from '../../../design/components/Unsupported';
 import { tempRoom, type TempRoom } from '../../../lib/condition';
 import { DASH, formatTemp } from '../../../lib/format';
 import type { TimeRange } from '../../../lib/prefs';
+import { dataOf, type Loadable } from '../../../lib/loadable';
 import type { HistoryResponse, NodeInfo } from '../../../lib/types';
 import { notReported, type NotReported } from '../../../lib/capabilities';
 import { serverNow } from '../../../store/cluster';
 import { liveStore, type LiveStore } from '../../../store/live';
-import type { Loadable } from '../../shared/live';
 import { useLiveDerived } from './hooks';
 import { chartSensors, minMax, shortLabels, type Sensor, type SensorGroup } from './thermal';
 
@@ -122,7 +122,7 @@ function SensorRow({ nodeId, sensor, range, history, reason, store, showRoom }: 
     eqNullable,
     store,
   );
-  const hist = history.state === 'ready' ? history.data : null;
+  const hist = dataOf(history);
   const histRange = useMemo(() => {
     if (!hist) return { min: null, max: null };
     const lo = minMax(hist.min[sensor.key] ?? hist.series[sensor.key] ?? []).min;

@@ -1,9 +1,11 @@
 # Build context is the repo root; BuildKit reads this file because it sits next to deploy/Dockerfile.
-# Only server/ and web/ sources are needed.
+# Only server/ and web/ sources are needed, plus the two console fixtures web/src/views/node/Memory.test.tsx reads.
 *
 !server/pyproject.toml
 !server/requirements.lock
 !server/sparkline/**
+!server/tests/fixtures/console/node_info.json
+!server/tests/fixtures/console/sample.json
 !web/**
 **/__pycache__
 **/*.pyc

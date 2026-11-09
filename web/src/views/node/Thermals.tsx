@@ -9,6 +9,7 @@ import { Stat } from '../../design/components/Stat';
 import { notReported, type NotReported } from '../../lib/capabilities';
 import { everyGpuSilent, gpuIndexes, gpuSetGap, nodeGpuKey, notResponding, type SilentFor } from '../../lib/gpu';
 import { tempParts, wattsParts, type Formatter } from '../../lib/format';
+import { dataOf } from '../../lib/loadable';
 import type { NodeInfo, Sample } from '../../lib/types';
 import { silentForOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
@@ -129,7 +130,7 @@ function EnergyToday({ nodeId, silent }: { nodeId: string; silent: NotReported |
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const today = useSpanEnergy(nodeId, energyKeys(info), 'today');
   const stops = useGpuStops(nodeId, info);
-  const j = today.state === 'ready' ? today.data : null;
+  const j = dataOf(today);
   const cost = j == null || !settings ? undefined : `${formatEnergyCost(j, settings.energy_rate_per_kwh, settings.currency)} so far`;
   const counted = stops.length ? stopsText(stops) : undefined;
   const declared = gpuSetGap(info, 'energy_j', 'every');
@@ -147,7 +148,7 @@ function EnergyToday({ nodeId, silent }: { nodeId: string; silent: NotReported |
       value={j == null ? null : joulesToKwh(j)}
       format={kwhParts}
       unsupported={declared ?? (j == null ? silent : null)}
-      reporting={today.state === 'ready'}
+      reporting={'data' in today}
       footer={today.state === 'error' ? 'History unavailable' : [cost, counted].filter(Boolean).join(' · ') || undefined}
     />
   );
