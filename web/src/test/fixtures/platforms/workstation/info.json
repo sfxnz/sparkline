@@ -549,7 +549,9 @@
       "speed_mbps": 10000,
       "rdma_device": null,
       "counter_source": "netdev",
-      "peer": null
+      "peer": null,
+      "nic_model": null,
+      "rail": null
     },
     {
       "name": "enp68s0f1",
@@ -560,7 +562,9 @@
       "speed_mbps": null,
       "rdma_device": null,
       "counter_source": "netdev",
-      "peer": null
+      "peer": null,
+      "nic_model": null,
+      "rail": null
     },
     {
       "name": "docker0",
@@ -571,7 +575,9 @@
       "speed_mbps": null,
       "rdma_device": null,
       "counter_source": "netdev",
-      "peer": null
+      "peer": null,
+      "nic_model": null,
+      "rail": null
     }
   ],
   "disks": [

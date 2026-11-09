@@ -182,7 +182,7 @@
     {
       "name": "enp1s0f1np1",
       "role": "interconnect",
-      "label": "ConnectX-7 rail A",
+      "label": "Interconnect A",
       "mac": "02:00:00:de:00:fd",
       "ipv4": [
         "203.0.113.1"
@@ -190,12 +190,14 @@
       "speed_mbps": 200000,
       "rdma_device": "rocep1s0f1",
       "counter_source": "netdev_rdma",
-      "peer": "spark2"
+      "peer": "spark2",
+      "nic_model": "ConnectX-7",
+      "rail": "A"
     },
     {
       "name": "enP2p1s0f1np1",
       "role": "interconnect",
-      "label": "ConnectX-7 rail B",
+      "label": "Interconnect B",
       "mac": "02:00:00:de:01:67",
       "ipv4": [
         "192.0.2.1"
@@ -203,29 +205,35 @@
       "speed_mbps": 200000,
       "rdma_device": "roceP2p1s0f1",
       "counter_source": "netdev_rdma",
-      "peer": "spark2"
+      "peer": "spark2",
+      "nic_model": "ConnectX-7",
+      "rail": "B"
     },
     {
       "name": "enp1s0f0np0",
       "role": "interconnect",
-      "label": "ConnectX-7 port (no cable)",
+      "label": "Interconnect port (no cable)",
       "mac": "02:00:00:de:02:e8",
       "ipv4": [],
       "speed_mbps": null,
       "rdma_device": "rocep1s0f0",
       "counter_source": "netdev_rdma",
-      "peer": null
+      "peer": null,
+      "nic_model": "ConnectX-7",
+      "rail": null
     },
     {
       "name": "enP2p1s0f0np0",
       "role": "interconnect",
-      "label": "ConnectX-7 port (no cable)",
+      "label": "Interconnect port (no cable)",
       "mac": "02:00:00:de:03:70",
       "ipv4": [],
       "speed_mbps": null,
       "rdma_device": "roceP2p1s0f0",
       "counter_source": "netdev_rdma",
-      "peer": null
+      "peer": null,
+      "nic_model": "ConnectX-7",
+      "rail": null
     },
     {
       "name": "enP7s7",
@@ -238,7 +246,9 @@
       "speed_mbps": 10000,
       "rdma_device": null,
       "counter_source": "netdev",
-      "peer": null
+      "peer": null,
+      "nic_model": null,
+      "rail": null
     },
     {
       "name": "docker0",
@@ -249,7 +259,9 @@
       "speed_mbps": null,
       "rdma_device": null,
       "counter_source": "netdev",
-      "peer": null
+      "peer": null,
+      "nic_model": null,
+      "rail": null
     },
     {
       "name": "tailscale0",
@@ -260,7 +272,9 @@
       "speed_mbps": null,
       "rdma_device": null,
       "counter_source": "netdev",
-      "peer": null
+      "peer": null,
+      "nic_model": null,
+      "rail": null
     },
     {
       "name": "wlP9s9",
@@ -271,7 +285,9 @@
       "speed_mbps": null,
       "rdma_device": null,
       "counter_source": "netdev",
-      "peer": null
+      "peer": null,
+      "nic_model": null,
+      "rail": null
     }
   ],
   "disks": [
