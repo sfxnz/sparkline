@@ -26,6 +26,7 @@ export const UNITS: Record<RuleUnit, UnitSpec> = {
 const UNIT_PATTERNS: readonly (readonly [string, RuleUnit])[] = [
   ['*temp_c', 'celsius'],
   ['temp.*', 'celsius'],
+  ['cpu.temp', 'celsius'],
   ['*.psi*', 'percent'],
   ['*_pct', 'percent'],
   ['*.util', 'percent'],

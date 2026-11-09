@@ -99,6 +99,7 @@ Unit = Literal["celsius", "gib", "percent", "watts", "mhz", "mbit_s", "mbyte_s",
 UNIT_PATTERNS: tuple[tuple[str, Unit], ...] = (
     ("*temp_c", "celsius"),
     ("temp.*", "celsius"),
+    ("cpu.temp", "celsius"),
     ("*.psi*", "percent"),
     ("*_pct", "percent"),
     ("*.util", "percent"),

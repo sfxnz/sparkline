@@ -760,6 +760,7 @@
   "cpu.load5": "plain",
   "cpu.perf_util": "percent",
   "cpu.psi_some": "percent",
+  "cpu.temp": "celsius",
   "cpu.util": "percent",
   "disk.nvme0n1.busy_pct": "percent",
   "disk.nvme0n1.read_bps": "mbyte_s",
