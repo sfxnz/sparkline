@@ -11,9 +11,10 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 - `sudo sparkline update` updates the console and the agent on a host to the latest release. It keeps the
   config, the data and the benchmark setting. `sparkline update --check` compares the host with the latest
-  release.
-- The installer links `sparkline`, `sparkline-agent` and `sparkline-capture` in `/usr/local/bin`.
-- Each GitHub release carries `sparkline-X.Y.Z.tar.gz`, the source with the built web app, and `SHA256SUMS`.
+  release (#86).
+- The installer links `sparkline`, `sparkline-agent` and `sparkline-capture` in `/usr/local/bin` (#86).
+- Each GitHub release carries `sparkline-X.Y.Z.tar.gz`, the source with the built web app, and
+  `SHA256SUMS` (#86).
 
 ## [0.1.0] - 2026-11-09
 
