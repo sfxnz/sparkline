@@ -115,6 +115,23 @@ Before the first `npm run e2e`, install its browser once: `(cd web && npx playwr
 and a `vite preview` of the build proxying to it (port `E2E_PORT`, default 5180). Flow tests and axe checks run against
 that demo; a few chrome tests stub `/api` per test instead.
 
+### Add a recorded platform from a tester's recording
+
+A tester attaches the `recording.tgz` that `sparkline-capture` writes
+([docs/record-your-machine.md](docs/record-your-machine.md)). It unpacks into the layout that
+`sparkline.agent.sources.recorded()` loads:
+
+```sh
+mkdir server/tests/fixtures/platforms/rtx4090
+tar -xzf recording.tgz -C server/tests/fixtures/platforms/rtx4090
+```
+
+Read every file before you commit it. The privacy guard (`server/tests/test_no_private_identifiers.py`) also
+scans it. Add the platform to `RECORDED` in `server/tests/test_capabilities.py` so that the invariant suite
+runs on it. `platform.json` lists the files whose live read failed. The capture records them empty, so a test
+that needs the permission error makes the file unreadable itself, as
+`test_a_collector_without_read_permission_is_declared_unsupported_for_access` does.
+
 ### Deployment files
 
 None of these need root, and none of them touch the system:
