@@ -7,7 +7,7 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-11-09
 
 The first tagged release. It includes all earlier work on `main`, which had no version tags. The lists
 below name the changes merged last before the release.
