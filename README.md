@@ -259,6 +259,7 @@ console's Origin check passes. Tailnet traffic is already encrypted by WireGuard
 sparkline update --check          # compare this host with the latest release; changes nothing
 sudo sparkline update             # update the console and the agent on this host to the latest release
 sudo sparkline update --dry-run   # download and verify the release, then print what its installer would do
+sudo sparkline update --reinstall # run the installer again even where the version is current, after a failure
 ```
 
 `sparkline update` downloads the latest GitHub release, checks it against the release's `SHA256SUMS`, and runs

@@ -91,11 +91,18 @@ def detect(root: Path) -> list[Component]:
 
 
 def installed_version(prefix: Path) -> Version | None:
-    for info in sorted(prefix.glob("venv/lib/python3*/site-packages/sparkline-*.dist-info")):
-        version = parse_version(info.name.removeprefix("sparkline-").removesuffix(".dist-info"))
-        if version:
-            return version
-    return None
+    infos = prefix.glob("venv/lib/python3*/site-packages/sparkline-*.dist-info")
+    versions = [parse_version(i.name.removeprefix("sparkline-").removesuffix(".dist-info")) for i in infos]
+    return max((v for v in versions if v), default=None)
+
+
+def trusted_asset(url: str, api: str) -> bool:
+    """On GitHub over https, or on the fake API's own origin when SPARKLINE_RELEASES_API points at one."""
+    u = httpx.URL(url)
+    if u.scheme == "https" and (u.host == "github.com" or u.host.endswith(".githubusercontent.com")):
+        return True
+    a = httpx.URL(api)
+    return api != RELEASES_API and (u.scheme, u.host, u.port) == (a.scheme, a.host, a.port)
 
 
 def latest_release(client: httpx.Client, api: str) -> Release:
@@ -120,14 +127,22 @@ def latest_release(client: httpx.Client, api: str) -> Release:
             f"release {tag} has no {tarball} and SHA256SUMS yet. The release job may still be running: "
             "try again in a few minutes"
         )
+    for name in (tarball, "SHA256SUMS"):
+        if not trusted_asset(assets[name], api):
+            raise UpdateError(
+                f"release {tag} has {name} at {assets[name]}, not an https URL on github.com: nothing was "
+                "changed"
+            )
     return Release(version, assets[tarball], assets["SHA256SUMS"])
 
 
-def plan(installed: list[Component], release: Release, root: Path, dry_run: bool) -> list[list[str]]:
-    """install.sh arguments for each component older than the release, console first."""
+def plan(
+    installed: list[Component], release: Release, root: Path, dry_run: bool, reinstall: bool
+) -> list[list[str]]:
+    """install.sh arguments for each component to update, console first."""
     steps = []
     for c in installed:
-        if c.version is not None and c.version >= release.version:
+        if not reinstall and c.version is not None and c.version >= release.version:
             continue
         args = [c.mode, "--yes", "--prefix", str(c.prefix)]
         if c.benchmarks:  # without it, install.sh agent removes the benchmarks drop-in
@@ -189,15 +204,20 @@ def run_installers(tree: Path, steps: list[list[str]]) -> None:
             left = ", ".join(s[0] for s in steps[i + 1 :]) or "nothing"
             raise UpdateError(
                 f"install.sh {args[0]} failed with exit {code} (its output is above). Updated: {done}. "
-                f"Not attempted: {left}. Fix the cause and run sparkline update again: install.sh is safe "
-                "to re-run."
+                f"Not attempted: {left}. Fix the cause and run: sudo sparkline update --reinstall"
             )
 
 
-def ensure_root(argv: list[str]) -> None:
+def ensure_root(argv: list[str], api: str) -> None:
     if os.geteuid() == 0:
         return
+    if api != RELEASES_API:
+        raise UpdateError(
+            "updating needs root, and sudo drops SPARKLINE_RELEASES_API: run sparkline update as root with "
+            "SPARKLINE_RELEASES_API set"
+        )
     if sys.stdin.isatty():
+        sys.stdout.flush()
         print("sparkline update needs root: running it again with sudo", file=sys.stderr, flush=True)
         # The venv's own script, not `python -m`, which would import from the working directory as root.
         script = Path(sys.executable).with_name("sparkline")
@@ -217,7 +237,7 @@ def update(args: argparse.Namespace, argv: list[str], root: Path, api: str, clie
     if not installed:
         raise UpdateError(NOT_INSTALLED)
     release = latest_release(client, api)
-    steps = plan(installed, release, root, args.dry_run)
+    steps = plan(installed, release, root, args.dry_run, args.reinstall)
     for c in installed:
         print(f"Installed: {describe(c)}")
     if not steps:
@@ -228,7 +248,8 @@ def update(args: argparse.Namespace, argv: list[str], root: Path, api: str, clie
         print("Run: sudo sparkline update")
         return 0
     if not args.dry_run:
-        ensure_root(argv)
+        if root == Path("/"):  # a staged root goes to install.sh --destdir, which needs no root
+            ensure_root(argv, api)
         if not args.yes:
             parts = " and the ".join(s[0] for s in steps)
             confirm(f"Update the {parts} to {show(release.version)} and restart them?")
@@ -259,14 +280,20 @@ def main(argv: list[str], env: Mapping[str, str] = os.environ, client: httpx.Cli
     p.add_argument(
         "--dry-run", action="store_true", help="download and verify, then run the installers with --dry-run"
     )
+    p.add_argument(
+        "--reinstall",
+        action="store_true",
+        help="run the latest release's installer for every component, even one already at that version",
+    )
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
     args = p.parse_args(argv)
     # Test seams: a staged root (passed to install.sh as --destdir) and a local fake of the GitHub API.
-    root = Path(env.get("SPARKLINE_UPDATE_ROOT", "/"))
-    api = env.get("SPARKLINE_RELEASES_API", RELEASES_API).rstrip("/")
+    root = Path(env.get("SPARKLINE_UPDATE_ROOT") or "/")
+    api = (env.get("SPARKLINE_RELEASES_API") or RELEASES_API).rstrip("/")
     try:
         with client or httpx.Client(follow_redirects=True, timeout=30) as c:
             return update(args, argv, root, api, c)
     except UpdateError as e:
+        sys.stdout.flush()
         print(f"sparkline update: {e}", file=sys.stderr)
         return 1
