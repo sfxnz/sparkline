@@ -109,6 +109,8 @@ CONSOLE_DATA=/var/lib/sparkline
 VENV=$PREFIX/venv
 DROPIN_DIR=$UNIT_DIR/sparkline-agent.service.d
 DROPIN=$DROPIN_DIR/10-benchmarks.conf
+BIN_DIR=/usr/local/bin
+COMMANDS=(sparkline sparkline-agent sparkline-capture)
 PY=${PYTHON:-python3}
 
 # Real system changes (users, ownership, systemd) only as root and without --destdir. --dry-run shows
@@ -358,6 +360,22 @@ install_code() {
 	fi
 }
 
+# Put the commands on PATH, so `sudo sparkline update` works from any directory.
+link_commands() {
+	local bin name link
+	bin=$(p "$BIN_DIR")
+	say "Commands in $bin"
+	run mkdir -p "$bin"
+	for name in "${COMMANDS[@]}"; do
+		link=$bin/$name
+		if [[ -e $link && ! -L $link ]]; then
+			warn "$link exists and is not a link: left alone"
+			continue
+		fi
+		run ln -sfn "$VENV/bin/$name" "$link"
+	done
+}
+
 # --- config -------------------------------------------------------------------------------------------
 config_dir() {
 	local dir
@@ -581,6 +599,7 @@ install_agent() {
 	check_platform
 	ensure_user
 	install_code
+	link_commands
 	config_dir
 	write_agent_config
 	data_dir "$AGENT_DATA"
@@ -613,6 +632,7 @@ install_console() {
 	build_web
 	ensure_user
 	install_code
+	link_commands
 	config_dir
 	GENERATED_AGENT_TOKEN=0
 	write_console_config
@@ -653,6 +673,13 @@ uninstall() {
 	done
 	run rm -rf "$(p "$DROPIN_DIR")"
 	[[ $SYSTEM == 1 ]] && run systemctl daemon-reload
+	local name link
+	for name in "${COMMANDS[@]}"; do
+		link=$(p "$BIN_DIR/$name")
+		if [[ -L $link && $(readlink "$link") == "$PREFIX"/* ]]; then
+			run rm -f "$link"
+		fi
+	done
 	run rm -rf "$(p "$PREFIX")"
 	if [[ $PURGE == 0 ]]; then
 		info "kept $ETC, $AGENT_DATA, $CONSOLE_DATA and the $SVC_USER user (use --purge to delete them)"
