@@ -55,3 +55,8 @@ jobs:
           persist-credentials: false
       - run: shellcheck install.sh deploy/*.sh
       - run: ./deploy/install.sh agent --dry-run
+      - name: Release tarball builds and verifies
+        run: |
+          mkdir -p web/dist && echo '<!doctype html>' > web/dist/index.html
+          deploy/release-tarball.sh 0.0.0 "$RUNNER_TEMP/assets" HEAD
+          cd "$RUNNER_TEMP/assets" && sha256sum -c SHA256SUMS && tar -tzf sparkline-0.0.0.tar.gz sparkline-0.0.0/deploy/install.sh sparkline-0.0.0/web/dist/index.html

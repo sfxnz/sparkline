@@ -1,7 +1,8 @@
 name: Image
 
 # Builds the console image for linux/amd64 and linux/arm64 and publishes it as ghcr.io/<owner>/sparkline.
-# For a vX.Y.Z tag, it then creates the GitHub release vX.Y.Z from that version's CHANGELOG.md section.
+# For a vX.Y.Z tag, it then creates the GitHub release vX.Y.Z from that version's CHANGELOG.md section, with
+# the sparkline-X.Y.Z.tar.gz and SHA256SUMS assets that `sparkline update` installs.
 on:
   push:
     branches: [main]
@@ -57,10 +58,17 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+      - run: npm ci && npm run build
+        working-directory: web
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
           deploy/release-notes.sh "${TAG#v}" > "$RUNNER_TEMP/notes.md"
-          gh release create "$TAG" --verify-tag --title "Sparkline ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"
+          deploy/release-tarball.sh "${TAG#v}" "$RUNNER_TEMP/assets" HEAD
+          gh release create "$TAG" --verify-tag --title "Sparkline ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md" \
+            "$RUNNER_TEMP/assets/sparkline-${TAG#v}.tar.gz" "$RUNNER_TEMP/assets/SHA256SUMS"
