@@ -1,29 +1,12 @@
-// CPU core layout, derived from NodeInfo.cores at runtime (never hard-coded): performance first, then efficiency.
+import type { SeriesSpec } from '../../../charts/TimeSeriesChart';
 import { DASH, type Formatter } from '../../../lib/format';
-import type { CoreInfo } from '../../../lib/types';
+import { ALL_CORES, type CoreGroup, type CoreLayout } from '../../../lib/cores';
 
-export interface CoreGroup {
-  kind: CoreInfo['kind'];
-  name: string;
-  /** The model shared by the group's cores ("Cortex-X925"); null when unknown or mixed. */
-  model: string | null;
-  /** Highest max frequency in the group, MHz. */
-  maxMhz: number | null;
-  cores: CoreInfo[];
-}
+const UTIL_KEY = { performance: 'cpu.perf_util', efficiency: 'cpu.eff_util' } as const;
 
-const ORDER: readonly CoreInfo['kind'][] = ['performance', 'efficiency', 'unknown'];
-const NAME: Record<CoreInfo['kind'], string> = { performance: 'Performance', efficiency: 'Efficiency', unknown: 'Other' };
-
-export function groupCores(cores: readonly CoreInfo[]): CoreGroup[] {
-  return ORDER.flatMap((kind) => {
-    const list = cores.filter((c) => c.kind === kind).sort((a, b) => a.id - b.id);
-    if (!list.length) return [];
-    const models = new Set(list.map((c) => c.model));
-    const first = list[0]?.model ?? null;
-    const mhz = list.map((c) => c.max_mhz).filter((m): m is number => m != null);
-    return [{ kind, name: NAME[kind], model: models.size === 1 ? first : null, maxMhz: mhz.length ? Math.max(...mhz) : null, cores: list }];
-  });
+export function utilSeries(layout: CoreLayout, { designs = false } = {}): SeriesSpec[] {
+  if (!layout.split) return [{ key: 'cpu.util', label: ALL_CORES }];
+  return layout.groups.flatMap((g) => (g.kind === 'unknown' ? [] : [{ key: UTIL_KEY[g.kind], label: designs && g.design ? `${g.name} (${g.design})` : g.name }]));
 }
 
 /** Mean of the values present (missing ones ignored); null when none have data. */
@@ -44,9 +27,14 @@ export function loadFormatter(cores: number): Formatter {
   return (v) => (Number.isFinite(v) ? { value: v.toFixed(v < 10 ? 2 : 1), unit } : { value: DASH, unit: '' });
 }
 
-/** Group label line: "10 × Cortex-X925 · up to 3.90 GHz". */
-export function groupDetail(g: CoreGroup): string {
-  const parts = [`${g.cores.length} × ${g.model ?? 'mixed cores'}`];
+export function groupSize(g: CoreGroup): string {
+  const n = g.cores.length;
+  if (g.design) return `${n} × ${g.design}`;
+  return g.cores.some((c) => c.model) ? `${n} × mixed cores` : `${n} ${n === 1 ? 'core' : 'cores'}`;
+}
+
+export function groupDetail(layout: CoreLayout, g: CoreGroup): string {
+  const parts = [!layout.split && layout.product ? layout.product : groupSize(g)];
   if (g.maxMhz != null) parts.push(`up to ${(g.maxMhz / 1000).toFixed(2)} GHz`);
   return parts.join(' · ');
 }

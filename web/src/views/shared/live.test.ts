@@ -1,10 +1,12 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { api } from '../../lib/api';
-import { historyCache } from '../../store/history';
+import { historyCache, historyRefreshMs } from '../../store/history';
 import { LiveStore } from '../../store/live';
+import { usePrefs } from '../../store/prefs';
+import { useRangeData } from '../node/parts/hooks';
 import { useSpanHistory } from '../node/partsC/hooks';
 import { useEnergyToday } from '../overview/hooks';
-import { lastKnown, lastKnownValue, notLive, spanPhrase } from './live';
+import { lastKnown, lastKnownValue, notLive, spanPhrase, useRangeHistory } from './live';
 
 describe('notLive', () => {
   it('is true for stale/offline/error nodes and whenever the console is lost', () => {
@@ -72,5 +74,63 @@ describe('energy since midnight', () => {
     const thermals = renderHook(() => useSpanHistory('spark2', 'gpu0.energy_j', 'today'));
     await waitFor(() => { expect(thermals.result.current.state).toBe('ready'); });
     expect(thermals.result.current).toEqual({ state: 'ready', data: after });
+  });
+});
+
+describe('range figures whose refresh fails', () => {
+  const resp = (node: string, v: number) => ({ node_id: node, resolution_s: 60, ts: [1, 2], series: { 'gpu0.energy_j': [v, v + 10] }, min: {}, max: {} });
+  const refresh = async () => {
+    historyCache.clear(); // the cached response has expired by the next refresh
+    await act(async () => { await vi.advanceTimersByTimeAsync(historyRefreshMs('24h')); });
+  };
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    historyCache.clear();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    usePrefs.setState({ timeRange: 'live' });
+  });
+
+  it('keep the last good history, marked as not refreshed, until a refresh succeeds', async () => {
+    vi.spyOn(api, 'history').mockResolvedValueOnce(resp('r1', 5)).mockRejectedValueOnce(new Error('timed out')).mockResolvedValueOnce(resp('r1', 7));
+    const hist = renderHook(() => useRangeHistory('r1', ['gpu0.energy_j'], '24h'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(hist.result.current).toEqual({ state: 'ready', data: resp('r1', 5) });
+    await refresh();
+    expect(hist.result.current).toMatchObject({ state: 'refresh-failed', data: resp('r1', 5) });
+    await refresh();
+    expect(hist.result.current).toEqual({ state: 'ready', data: resp('r1', 7) });
+  });
+
+  it('keep the GPU tab range total instead of "unavailable", until a refresh succeeds', async () => {
+    usePrefs.setState({ timeRange: '24h' });
+    vi.spyOn(api, 'history').mockResolvedValueOnce(resp('r2', 5)).mockRejectedValueOnce(new Error('timed out')).mockResolvedValueOnce(resp('r2', 7));
+    const range = renderHook(() => useRangeData('r2', ['gpu0.energy_j']));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(range.result.current.data?.series['gpu0.energy_j']).toEqual([5, 15]);
+    await refresh();
+    expect(range.result.current.error).toBe(false);
+    expect(range.result.current.data?.series['gpu0.energy_j']).toEqual([5, 15]);
+    await refresh();
+    expect(range.result.current.data?.series['gpu0.energy_j']).toEqual([7, 17]);
+  });
+
+  it('start over when the range changes and comes back before the other range loaded', async () => {
+    usePrefs.setState({ timeRange: '24h' });
+    vi.spyOn(api, 'history')
+      .mockResolvedValueOnce(resp('r3', 5))
+      .mockReturnValueOnce(new Promise(() => undefined))
+      .mockRejectedValueOnce(new Error('timed out'));
+    const range = renderHook(() => useRangeData('r3', ['gpu0.energy_j']));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(range.result.current.data?.series['gpu0.energy_j']).toEqual([5, 15]);
+    act(() => { usePrefs.setState({ timeRange: '1h' }); });
+    historyCache.clear();
+    act(() => { usePrefs.setState({ timeRange: '24h' }); });
+    expect(range.result.current).toEqual({ range: '24h', data: null, error: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(range.result.current).toEqual({ range: '24h', data: null, error: true });
   });
 });

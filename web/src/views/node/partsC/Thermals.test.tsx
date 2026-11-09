@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import sampleJson from '../../../test/fixtures/sample.json';
+import { api } from '../../../lib/api';
 import wsInfo from '../../../test/fixtures/platforms/workstation/info.json';
 import wsSample from '../../../test/fixtures/platforms/workstation/sample.json';
 import type { GpuInfo, NodeInfo, NodeState, Sample } from '../../../lib/types';
@@ -99,6 +100,30 @@ describe('Thermals tab', () => {
     expect(screen.queryByText('Not reported by this hardware')).not.toBeInTheDocument();
   });
 
+  it('counts a reconnect gap fill in the live peak and average before the next sample', () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({ matches: q.includes('reduce'), media: q, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false }));
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: state('online') } });
+    const T = 1_800_000_000;
+    const sample = sampleJson as unknown as Sample;
+    const at = (ts: number): Sample => ({ ...sample, node_id: NODE, ts, gpu: [{ ...(gpuAt(sample.gpu, 0) as Sample['gpu'][number]), power_w: 50 }] });
+    act(() => {
+      liveStore.pushSample(at(T));
+      liveStore.pushSample(at(T + 10));
+      liveStore.flush();
+    });
+    render(<Thermals nodeId={NODE} />);
+    const power = within(screen.getByRole('region', { name: 'GPU power' }));
+    expect(power.getByText(/^Peak/).closest('.stat')).toHaveTextContent(/min\s*50\.0\s*W$/);
+
+    act(() => {
+      liveStore.seed({ node_id: NODE, resolution_s: 1, ts: [T + 5], series: { 'gpu0.power_w': [250] }, min: {}, max: {} });
+      liveStore.flush();
+    });
+    expect(liveStore.lastTs(NODE)).toBe(T + 10);
+    expect(power.getByText(/^Peak/).closest('.stat')).toHaveTextContent(/min\s*250(\.0)?\s*W$/);
+    expect(power.getByText(/^Average/).closest('.stat')).toHaveTextContent(/min\s*117(\.0)?\s*W$/);
+  });
+
   it('keeps last known values when the node is offline, from history seeded into the buffer', () => {
     useCluster.setState({ clockOffset: 0, nodes: { [NODE]: state('offline') } });
     act(() => {
@@ -151,6 +176,38 @@ describe('Thermals tab', () => {
     const hot = screen.getByText('Hottest sensor').closest('.stat');
     expect(hot).toHaveTextContent('Not reported by this hardware');
     expect(within(hot as HTMLElement).getByRole('button', { name: 'Why is this not reported?' })).toBeInTheDocument();
+  });
+
+  it('never shows an earlier visit’s range figures after a detour through Live, when the return fetch fails', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    historyCache.clear();
+    let failing = false;
+    vi.spyOn(api, 'history').mockImplementation((node, keys) =>
+      failing
+        ? Promise.reject(new Error('timed out'))
+        : Promise.resolve({ node_id: node, resolution_s: 60, ts: [1_799_999_880, 1_799_999_940], series: Object.fromEntries(keys.map((k) => [k, [40, 60]])), min: {}, max: {} }),
+    );
+    useCluster.setState({ clockOffset: 0, nodes: { [NODE]: state('online') } });
+    act(() => {
+      liveStore.pushSample({ ...(sampleJson as unknown as Sample), node_id: NODE, ts: 1_800_000_000 });
+      liveStore.flush();
+    });
+    usePrefs.setState({ timeRange: '24h' });
+    render(<Thermals nodeId={NODE} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const average = () => screen.getByText('Average · 24 h').closest('.stat');
+    expect(average()).toHaveTextContent('50');
+
+    act(() => { usePrefs.setState({ timeRange: 'live' }); });
+    historyCache.clear();
+    failing = true;
+    act(() => { usePrefs.setState({ timeRange: '24h' }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+    expect(average()).not.toHaveTextContent('50');
+    expect(average()).toHaveTextContent('History unavailable');
+    expect(screen.getByText('Peak · 24 h').closest('.stat')).toHaveTextContent('History unavailable');
+    vi.useRealTimers();
   });
 });
 

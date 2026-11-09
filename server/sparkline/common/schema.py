@@ -26,6 +26,7 @@ UnsupportedKind = Literal["hardware", "access", "dependency", "agent"]
 Platform = Literal["linux", "darwin"]
 Vendor = Literal["nvidia", "amd", "apple"]
 MemoryModel = Literal["unified", "dedicated", "carveout"]
+CoreKind = Literal["performance", "efficiency", "unknown"]
 
 LEGACY_VERSION_KEYS = {"driver": "nvidia.Driver", "cuda": "nvidia.CUDA", "nvml": "nvidia.NVML"}
 
@@ -44,7 +45,7 @@ class Unsupported(BaseModel):
 
 class CoreInfo(BaseModel):
     id: int
-    kind: Literal["performance", "efficiency", "unknown"]
+    kind: CoreKind
     model: str | None = None  # "Cortex-X925"
     max_mhz: float | None = None
     cluster: int | None = None
@@ -245,6 +246,9 @@ class Sample(BaseModel):
     disk: list[DiskSample]
     fs: list[FsSample]
     temps: list[TempSample]
+    # Highest coretemp or k10temp reading, °C. k10temp's Tctl counts when the chip has no Tdie, and Tctl is a
+    # fan-control value on an arbitrary scale, not a measured die temperature.
+    cpu_temp_c: float | None = None
     procs: list[ProcSample] | None = None  # only on ticks where processes were refreshed
     procs_ts: float | None = None  # when the process list was last refreshed (on every tick)
     errors: dict[str, str] = Field(default_factory=dict)  # collector name -> error; others still report
@@ -363,6 +367,15 @@ class BenchImpact(BaseModel):
     note: str
 
 
+class GpuOption(BaseModel):
+    """A GPU a GPU benchmark can run on, offered on nodes with two or more NVIDIA GPUs."""
+
+    index: int  # GpuInfo.index: the GPU number the UI shows
+    name: str
+    uuid: str | None = None  # GpuInfo.uuid: Docker pins the container to it (--gpus device=<uuid>)
+    problem: Problem | None = None  # why the benchmark cannot run on this GPU, e.g. it is not responding
+
+
 class BenchSpec(BaseModel):
     id: str
     name: str
@@ -375,6 +388,9 @@ class BenchSpec(BaseModel):
     max_nodes: int | None = 1
     requires: list[str] = Field(default_factory=list)  # NodeInfo.tools keys
     availability: dict[str, Problem | None] = Field(default_factory=dict)  # node_id -> None if runnable
+    gpu_options: dict[str, list[GpuOption]] = Field(default_factory=dict)  # node_id -> GPUs to choose from
+    # Nodes whose agent gives no duration estimate: its rates are GB10 figures and the node is not a GB10.
+    no_estimate: list[str] = Field(default_factory=list)
 
 
 RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
@@ -412,6 +428,7 @@ class BenchRun(BaseModel):
     params_key: str = ""  # canonical params JSON; baselines compare equal bench_id+params_key
     baseline_run_id: str | None = None  # the baseline this run's results were compared against
     node_states: dict[str, NodeBenchState] = Field(default_factory=dict)  # per-node progress from agents
+    gpu_index: dict[str, int] = Field(default_factory=dict)  # node_id -> its GPU, on nodes with a choice
 
 
 class BenchCreate(BaseModel):
@@ -421,6 +438,7 @@ class BenchCreate(BaseModel):
     nodes: list[str]
     params: dict[str, Any] = Field(default_factory=dict)
     confirm: bool  # must be true; the UI only sets it from the confirmation dialog
+    gpu_index: dict[str, int] = Field(default_factory=dict)  # node_id -> chosen GPU (BenchSpec.gpu_options)
 
 
 class BenchStartRequest(BaseModel):
@@ -435,6 +453,7 @@ class BenchStartRequest(BaseModel):
     peer_node: str | None = None
     peer_ip: str | None = None  # rdma server IP (client role) or rendezvous/master IP (rank role)
     peer_port: int | None = None
+    gpu_index: int | None = None  # the GPU to run a GPU benchmark on; None: the node's first usable GPU
 
 
 class NodeBenchState(BaseModel):

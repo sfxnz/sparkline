@@ -14,7 +14,7 @@ import { ConfigureDialog } from './ConfigureDialog';
 import { Catalog } from './Catalog';
 import { History } from './History';
 import { runPath, startRun, useCatalog, useRunList } from './hooks';
-import { aboutDuration, eta, isActive, nodesText, type ParamValues } from './model';
+import { aboutDuration, eta, isActive, nodesText, runEstimate, type GpuIndex, type ParamValues } from './model';
 import { RunStatusPill } from './parts';
 
 export function Home() {
@@ -45,8 +45,8 @@ export function Home() {
   const active = runs.filter((r) => isActive(r.status));
 
   const open = (spec: BenchSpec) => { setPicked({ spec, key: Date.now() }); };
-  const run = (spec: BenchSpec, nodes: string[], params: ParamValues) => {
-    const pendingId = startRun(spec, nodes, params, (pid, created) => {
+  const run = (spec: BenchSpec, nodes: string[], params: ParamValues, gpuIndex: GpuIndex) => {
+    const pendingId = startRun(spec, nodes, params, gpuIndex, (pid, created) => {
       // Still looking at the placeholder: move to the real run without a history entry.
       if (window.location.pathname === runPath(pid)) navigate(runPath(created.id), { replace: true });
     });
@@ -92,10 +92,11 @@ export function Home() {
           open
           initialParams={'from' in dialog && dialog.from?.bench_id === dialog.spec.id ? dialog.from.params : undefined}
           initialNodes={'from' in dialog ? dialog.from?.nodes : undefined}
+          initialGpuIndex={'from' in dialog ? dialog.from?.gpu_index : undefined}
           onClose={closeDialog}
-          onRun={(nodes, params) => {
+          onRun={(nodes, params, gpuIndex) => {
             setPicked(null);
-            run(dialog.spec, nodes, params); // navigating to the run also drops any ?configure= query
+            run(dialog.spec, nodes, params, gpuIndex); // navigating to the run also drops any ?configure= query
           }}
         />
       ) : null}
@@ -109,7 +110,7 @@ function ActiveRuns({ runs, specs }: { runs: BenchRun[]; specs: readonly BenchSp
     <ul className="bench-active" aria-label="Runs in progress">
       {runs.map((r) => {
         const spec = specs.find((s) => s.id === r.bench_id);
-        const left = eta(r, serverNow(), spec?.est_duration_s ?? 60);
+        const left = runEstimate(r, spec) === null ? null : eta(r, serverNow(), spec?.est_duration_s ?? 60);
         return (
           <li key={r.id}>
             <Link href={runPath(r.id)} className="bench-active__item material-regular">

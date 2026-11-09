@@ -1,5 +1,6 @@
 import type { CoreInfo, NetIfInfo } from '../../../lib/types';
-import { groupCores, groupDetail, loadFormatter, meanUtil } from './cores';
+import { coreLayout } from '../../../lib/cores';
+import { groupDetail, loadFormatter, meanUtil } from './cores';
 import { classifyInterfaces, counterTotal, errorSummary, lineRateUtil, rdmaRateLabel, rdmaStateLabel, speedLabel } from './net';
 import type { AlertRule } from '../../../lib/types';
 import { bytesRateParts, capacityLevel, capacityPolicy, capacityRules, formatIops, fsFigures, fsUsedPct, iopsParts } from './storage';
@@ -10,25 +11,27 @@ const gb10 = Array.from({ length: 20 }, (_, id) =>
   id % 10 < 5 ? core(id, 'efficiency', 'Cortex-A725', 2808) : core(id, 'performance', 'Cortex-X925', 3900),
 );
 
-describe('groupCores', () => {
+describe('coreLayout', () => {
   it('puts performance above efficiency, cores in id order, with model and max clock', () => {
-    const g = groupCores([...gb10].reverse());
+    const layout = coreLayout([...gb10].reverse(), '10× Cortex-X925 + 10× Cortex-A725');
+    const g = layout.groups;
     expect(g.map((x) => x.kind)).toEqual(['performance', 'efficiency']);
     expect(g[0]?.cores.map((c) => c.id)).toEqual([5, 6, 7, 8, 9, 15, 16, 17, 18, 19]);
     expect(g[1]?.cores.map((c) => c.id)).toEqual([0, 1, 2, 3, 4, 10, 11, 12, 13, 14]);
-    expect(g[0]?.model).toBe('Cortex-X925');
+    expect(g[0]?.design).toBe('Cortex-X925');
     expect(g[0]?.maxMhz).toBe(3900);
-    expect(g.map(groupDetail)).toEqual(['10 × Cortex-X925 · up to 3.90 GHz', '10 × Cortex-A725 · up to 2.81 GHz']);
+    expect(g.map((x) => groupDetail(layout, x))).toEqual(['10 × Cortex-X925 · up to 3.90 GHz', '10 × Cortex-A725 · up to 2.81 GHz']);
   });
 
   it('handles a homogeneous CPU, unknown kinds and mixed models', () => {
-    const g = groupCores([core(0, 'unknown', 'A', 2000), core(1, 'unknown', 'B', null)]);
+    const layout = coreLayout([core(0, 'unknown', 'A', 2000), core(1, 'unknown', 'B', null)], '1× A + 1× B');
+    const g = layout.groups;
     expect(g).toHaveLength(1);
-    expect(g[0]?.name).toBe('Other');
-    expect(g[0]?.model).toBeNull();
+    expect(g[0]?.name).toBe('All cores');
+    expect(g[0]?.design).toBeNull();
     expect(g[0]?.maxMhz).toBe(2000);
-    expect(g.map(groupDetail)).toEqual(['2 × mixed cores · up to 2.00 GHz']);
-    expect(groupCores([])).toEqual([]);
+    expect(g.map((x) => groupDetail(layout, x))).toEqual(['2 × mixed cores · up to 2.00 GHz']);
+    expect(coreLayout([], 'unknown CPU').groups).toEqual([]);
   });
 
   it('averages utilisation, ignoring missing cores', () => {

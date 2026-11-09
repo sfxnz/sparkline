@@ -1,0 +1,575 @@
+processor	: 0
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 1
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 2
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 3
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 4
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 5
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 6
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 7
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 8
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 9
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 10
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 11
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 12
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 13
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 14
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 15
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 16
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 17
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 18
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 19
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 20
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 21
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 22
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 23
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 24
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 25
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 26
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 27
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 28
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 29
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 30
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 31
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 32
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 33
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 34
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 35
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 36
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 37
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 38
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 39
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 40
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 41
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 42
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 43
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 44
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 45
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 46
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 47
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 48
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 49
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 50
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 51
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 52
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 53
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 54
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 55
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 56
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 57
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 58
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 59
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 60
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 61
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 62
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32
+
+processor	: 63
+vendor_id	: AuthenticAMD
+cpu family	: 25
+model	: 24
+model name	: AMD Ryzen Threadripper PRO 7975WX 32-Cores
+physical id	: 0
+siblings	: 64
+cpu cores	: 32

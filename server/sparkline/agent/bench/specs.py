@@ -19,7 +19,7 @@ import annotated_types
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ...common.netutil import is_private
-from ...common.schema import BenchImpact, BenchParam, BenchSpec, NodeInfo
+from ...common.schema import BenchImpact, BenchParam, BenchSpec, GpuOption, NodeInfo
 
 
 def _param(default: Any, label: str, help: str, unit: str | None = None, **bounds: Any) -> Any:
@@ -34,6 +34,10 @@ def _unique(v: list) -> list:
     return v
 
 
+def is_gb10(info: NodeInfo | None) -> bool:
+    return info is None or any(g.name == "NVIDIA GB10" for g in info.gpus)
+
+
 def mem_growth_label(info: NodeInfo | None) -> str:
     """Unified memory when every GPU that answers shares system RAM (GB10), else system memory."""
     lost = {u.metric for u in info.unsupported} if info else set()
@@ -44,6 +48,9 @@ def mem_growth_label(info: NodeInfo | None) -> str:
 
 class Params(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    def needs_gpu(self) -> bool:
+        return True
 
 
 # --------------------------------------------------------------------------------------------------------
@@ -88,6 +95,9 @@ class MemBandwidthParams(Params):
     iterations: int = _param(
         20, "Iterations", "Repetitions; the best one is reported (STREAM style).", ge=5, le=200
     )
+
+    def needs_gpu(self) -> bool:
+        return self.side != "cpu"
 
 
 class CpuThroughputParams(Params):
@@ -405,6 +415,17 @@ def est_soak(p: ThermalSoakParams) -> float:
     return CONTAINER_START_S + p.minutes * 60
 
 
+@dataclass(frozen=True)
+class Estimate:
+    seconds: float
+    grounded: bool
+
+    @property
+    def timeout_s(self) -> float:
+        gb10_timeout = self.seconds * 3 + 120
+        return gb10_timeout if self.grounded else gb10_timeout + min(gb10_timeout, 3600)
+
+
 # --------------------------------------------------------------------------------------------------------
 # Registry
 # --------------------------------------------------------------------------------------------------------
@@ -423,14 +444,28 @@ class Bench:
     min_nodes: int = 1
     max_nodes: int | None = 1
     roles: tuple[str, ...] = ("single",)
+    gpu: bool = False
+    gb10_rates: bool = False
 
     def validate(self, raw: dict[str, Any]) -> Params:
         return self.params.model_validate(raw)
 
-    def timeout_s(self, p: Params) -> float:
-        return self.estimate(p) * 3 + 120
+    def uses_gpu(self, p: Params) -> bool:
+        return self.gpu and p.needs_gpu()
 
-    def spec(self, availability: dict, note: str = "") -> BenchSpec:
+    def grounded_on(self, info: NodeInfo | None) -> bool:
+        return not self.gb10_rates or is_gb10(info)
+
+    def estimate_on(self, p: Params, info: NodeInfo | None) -> Estimate:
+        return Estimate(self.estimate(p), grounded=self.grounded_on(info))
+
+    def spec(
+        self,
+        availability: dict,
+        note: str = "",
+        gpu_options: dict[str, list[GpuOption]] | None = None,
+        no_estimate: list[str] | None = None,
+    ) -> BenchSpec:
         return BenchSpec(
             id=self.id,
             name=self.name,
@@ -443,6 +478,8 @@ class Bench:
             max_nodes=self.max_nodes,
             requires=list(self.requires),
             availability=availability,
+            gpu_options={n: o for n, o in (gpu_options or {}).items() if o and self.gpu},
+            no_estimate=no_estimate or [],
         )
 
 
@@ -499,6 +536,8 @@ REGISTRY: dict[str, Bench] = {
             GpuMatmulParams,
             est_gpu_matmul,
             GPU_TOOLS,
+            gpu=True,
+            gb10_rates=True,
         ),
         Bench(
             "mem-bandwidth",
@@ -517,6 +556,8 @@ REGISTRY: dict[str, Bench] = {
             MemBandwidthParams,
             est_mem_bandwidth,
             GPU_TOOLS,
+            gpu=True,
+            gb10_rates=True,
         ),
         Bench(
             "cpu-throughput",
@@ -550,6 +591,8 @@ REGISTRY: dict[str, Bench] = {
             2,
             2,
             ("rank",),
+            gpu=True,
+            gb10_rates=True,
         ),
         Bench(
             "rdma-bw-lat",
@@ -583,6 +626,7 @@ REGISTRY: dict[str, Bench] = {
             _impact("low", "low", False, "Heavy disk I/O; model loading or checkpointing will be slower."),
             StorageParams,
             est_storage,
+            gb10_rates=True,
         ),
         Bench(
             "llm-inference",
@@ -605,6 +649,7 @@ REGISTRY: dict[str, Bench] = {
             ),
             LlmInferenceParams,
             est_llm,
+            gb10_rates=True,
         ),
         Bench(
             "llm-showcase",
@@ -625,6 +670,7 @@ REGISTRY: dict[str, Bench] = {
             ),
             LlmShowcaseParams,
             est_showcase,
+            gb10_rates=True,
         ),
         Bench(
             "tool-eval",
@@ -644,6 +690,7 @@ REGISTRY: dict[str, Bench] = {
             ),
             ToolEvalParams,
             est_tool_eval,
+            gb10_rates=True,
         ),
         Bench(
             "thermal-soak",
@@ -663,6 +710,7 @@ REGISTRY: dict[str, Bench] = {
             ThermalSoakParams,
             est_soak,
             GPU_TOOLS,
+            gpu=True,
         ),
     ]
 }

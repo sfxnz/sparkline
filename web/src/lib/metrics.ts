@@ -114,6 +114,7 @@ export function flatten(s: Sample): Map<string, number> {
   put('cpu.load5', c.load5);
   put('cpu.load15', c.load15);
   put('cpu.psi_some', c.psi_some);
+  put('cpu.temp', s.cpu_temp_c);
   c.per_core.forEach((u, i) => { put(`cpu.core${i}.util`, u); });
   c.freq_mhz.forEach((f, i) => { put(`cpu.core${i}.mhz`, f); });
 

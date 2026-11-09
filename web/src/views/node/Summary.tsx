@@ -19,12 +19,10 @@ import { useTotalFrom } from '../shared/totalGap';
 import { CollectorErrors, ThrottleNotice } from './parts/Notices';
 import { cpuUtil, cx7Rails, memAvailable, NO_LINK_REASON, nodeGpuSelector, railShort, rootUsedPct, sumNet } from './parts/selectors';
 import type { NodeTabProps } from './tabs';
+import { coreLayout } from '../../lib/cores';
+import { utilSeries as cpuUtilSeries } from './partsB/cores';
 
 const pct = (n: number) => formatPercent(n);
-const CPU_SERIES: readonly SeriesSpec[] = [
-  { key: 'cpu.perf_util', label: 'Performance' },
-  { key: 'cpu.eff_util', label: 'Efficiency' },
-];
 const MEM_SERIES: readonly SeriesSpec[] = [
   { key: 'mem.used', label: 'Used' },
   { key: 'mem.gpu', label: 'GPU-allocated' },
@@ -42,6 +40,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
   const memTotal = info?.mem_total ?? null;
   const layout = useMemo(() => memoryLayout(info), [info]);
   const unified = layout.name === 'Unified memory';
+  const cores = useMemo(() => coreLayout(info?.cores ?? [], info?.cpu_model ?? null), [info]);
   const rails = useMemo(() => cx7Rails(info), [info]);
   const railNames = useMemo(() => rails.map((r) => r.name), [rails]);
   const railId = railNames.join(',');
@@ -122,8 +121,8 @@ export default function Summary({ nodeId }: NodeTabProps) {
         <Panel title={layout.name} subtitle={unified ? 'Shared by CPU and GPU' : layout.sharesRam ? 'Host RAM, with the GPU memory held in it' : 'Host RAM; VRAM is on the Memory tab'} actions={<TabLink nodeId={nodeId} tab="memory">Memory</TabLink>}>
           <TimeSeriesChart node={nodeId} title={`${layout.name} used`} series={layout.sharesRam ? MEM_SERIES : SYSTEM_SERIES} format={formatBytes} yMin={0} yMax={memTotal ?? undefined} yIncrs={BYTE_INCRS} height={168} />
         </Panel>
-        <Panel title="CPU utilisation" subtitle="By core type" actions={<TabLink nodeId={nodeId} tab="cpu">CPU</TabLink>}>
-          <TimeSeriesChart node={nodeId} title="CPU utilisation by core type" series={CPU_SERIES} format={pct} yMin={0} yMax={100} height={168} />
+        <Panel title="CPU utilisation" subtitle={cores.split ? 'By core type' : 'All cores'} actions={<TabLink nodeId={nodeId} tab="cpu">CPU</TabLink>}>
+          <TimeSeriesChart node={nodeId} title={cores.split ? 'CPU utilisation by core type' : 'CPU utilisation'} series={cpuUtilSeries(cores)} format={pct} yMin={0} yMax={100} height={168} />
         </Panel>
         <Panel title="ConnectX-7 throughput" subtitle="Inter-node traffic, both directions" className="nsum__wide" actions={<TabLink nodeId={nodeId} tab="network">Network</TabLink>}>
           {netGap ? (

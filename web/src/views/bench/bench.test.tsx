@@ -32,7 +32,7 @@ describe('ConfigureDialog', () => {
     expect(screen.getByText('You can cancel at any time; cancelling cleans up containers and temp files.')).toBeInTheDocument();
     expect(screen.getByText('Disrupts running workloads')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
-    expect(onRun).toHaveBeenCalledWith(['spark1'], { dtypes: ['bf16', 'fp16', 'fp8'], size: '8192', iterations: 100 });
+    expect(onRun).toHaveBeenCalledWith(['spark1'], { dtypes: ['bf16', 'fp16', 'fp8'], size: '8192', iterations: 100 }, {});
   });
 
   it('offers choices too long for equal segments on a phone as a select', () => {
@@ -55,7 +55,7 @@ describe('ConfigureDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /Review & run/ }));
     expect(screen.getByText('Runs RDMA bandwidth & latency between spark2 (source) and spark1 (target).')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Run benchmark' }));
-    expect(onRun).toHaveBeenCalledWith(['spark2', 'spark1'], { rail: 'B', duration_s: 10 });
+    expect(onRun).toHaveBeenCalledWith(['spark2', 'spark1'], { rail: 'B', duration_s: 10 }, {});
   });
 });
 

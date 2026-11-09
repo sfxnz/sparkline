@@ -1,5 +1,6 @@
 // Shared node-page hooks: freshness of a node's data and range-level aggregates (peaks, energy, means).
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { dataOf, useLoadable } from '../../../lib/loadable';
 import type { TimeRange } from '../../../lib/prefs';
 import type { NodeStatus, Sample } from '../../../lib/types';
 import { serverNow, useCluster } from '../../../store/cluster';
@@ -47,21 +48,20 @@ export interface RangeData {
 export function useRangeData(nodeId: string, keys: readonly string[]): { range: TimeRange; data: RangeData | null; error: boolean } {
   const range = usePrefs((s) => s.timeRange);
   const keysId = keys.join('|');
-  const [state, setState] = useState<{ id: string; data: RangeData | null; error: boolean }>({ id: '', data: null, error: false });
-  const id = `${nodeId}|${keysId}|${range}`;
+  const [value, update] = useLoadable<RangeData>(`${nodeId}|${keysId}|${range}`);
 
   useEffect(() => {
     const ks = keysId.split('|');
     let cancelled = false;
-    const done = (data: RangeData | null, error = false) => {
-      if (!cancelled) setState({ id, data, error });
+    const done = (outcome: { data: RangeData } | { error: unknown }) => {
+      if (!cancelled) update(outcome);
     };
     let tick: () => void;
     let stop: () => void;
     if (range === 'live') {
       tick = () => {
         const w = liveStore.window(nodeId, ks, serverNow() - LIVE_AGG_S);
-        done({ ts: w.ts, series: Object.fromEntries(ks.map((k, i) => [k, w.values[i] ?? []])), min: {}, max: {} });
+        done({ data: { ts: w.ts, series: Object.fromEntries(ks.map((k, i) => [k, w.values[i] ?? []])), min: {}, max: {} } });
       };
       const t = setInterval(tick, 5_000);
       stop = () => { clearInterval(t); };
@@ -69,8 +69,8 @@ export function useRangeData(nodeId: string, keys: readonly string[]): { range: 
       tick = () => {
         historyCache
           .load(nodeId, ks, range, serverNow())
-          .then((r) => { done({ ts: r.ts, series: r.series, min: r.min, max: r.max }); })
-          .catch(() => { done(null, true); });
+          .then((r) => { done({ data: { ts: r.ts, series: r.series, min: r.min, max: r.max } }); })
+          .catch((error: unknown) => { done({ error }); });
       };
       stop = joinHistoryRefresh(range, tick);
     }
@@ -79,21 +79,15 @@ export function useRangeData(nodeId: string, keys: readonly string[]): { range: 
       cancelled = true;
       stop();
     };
-  }, [nodeId, keysId, range, id]);
+  }, [nodeId, keysId, range, update]);
 
-  const current = state.id === id;
-  return { range, data: current ? state.data : null, error: current && state.error };
+  return { range, data: dataOf(value), error: value.state === 'error' };
 }
 
 const noop = () => () => undefined;
 
-/**
- * Timestamp of the newest buffered tick, subscribed only while `enabled`. Lets a stale view re-render once the
- * ring buffer is back-filled from history (that does not change the latest full Sample, so useLatest misses it).
- * Disabled while live, so it never adds a render per tick.
- */
-export function useBufferTs(nodeId: string, enabled: boolean): number | null {
+export function useRerenderOnBufferWrite(nodeId: string, enabled: boolean): void {
   const subscribe = useCallback((cb: () => void) => liveStore.subscribeSample(nodeId, cb), [nodeId]);
-  const get = () => (enabled ? liveStore.lastTs(nodeId) : null);
-  return useSyncExternalStore(enabled ? subscribe : noop, get, get);
+  const get = () => (enabled ? liveStore.revision(nodeId) : null);
+  useSyncExternalStore(enabled ? subscribe : noop, get, get);
 }

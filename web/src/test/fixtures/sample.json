@@ -16,6 +16,7 @@
     {"mount": "/data/models", "key": "data_models", "device": "/dev/nvme0n1p3", "total": 0, "used": 0, "free": 0}
   ],
   "temps": [{"id": "acpitz.0", "c": 63.5}, {"id": "nvme.composite", "c": null}, {"id": "mlx5.0", "c": 66.0}],
+  "cpu_temp_c": 61.5,
   "procs": null,
   "errors": {}
 }

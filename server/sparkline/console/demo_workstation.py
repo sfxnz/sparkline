@@ -10,7 +10,7 @@ Telemetry is a deterministic function of wall time, as in DemoModel. vLLM serves
 with tensor parallel 4, so the four GPUs load together. On scenario time: GPU 3, with impaired cooling, heats
 past slowdown every 6 min from 90 s for ~50 s under a burst of requests (sw_thermal then hw_thermal, clocks
 sag). Otherwise GPU 2, between two cards, runs hottest. GPU 2's power reading drops out every 6 min from 200 s
-for 20 s, as on a transient NVML power read error. Demo benchmark GPU load lands on GPU 0.
+for 20 s, as on a transient NVML power read error.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from ..common.schema import (
     TempSample,
     Unsupported,
 )
-from .demo import Smooth, _clamp, _episode, _h
+from .demo import BenchWindow, Smooth, _clamp, _episode, _h, bench_load
 
 GIB = 1 << 30
 MEM_TOTAL = 263_617_544 * 1024
@@ -66,16 +66,11 @@ SLOT_HEAT_C = (1.0, 3.0, 6.0, 0.0)
 POWER_SKEW_W = (0.0, 2.5, -2.0, 3.5)
 EPISODE_GPU = 3
 POWER_DROPOUT_GPU, POWER_DROPOUT_S = 2, (200, 220)
-BENCH_GPU = 0
 CCD_HEAT_C = (0.0, 1.5, -1.0, 2.0)
 WORKER_CPUS = (2, 10, 18, 26)
 ENGINE_CPU, API_CPU = 5, 1
 MODEL_ID = "nvidia/Llama-3.3-70B-Instruct-FP8"
 VRAM_ONLY = "NVML does not report the system memory this GPU uses; its memory is dedicated VRAM"
-
-
-def _ccd(cpu: int) -> int:
-    return (cpu % 32) // 8
 
 
 class WorkstationModel:
@@ -97,15 +92,8 @@ class WorkstationModel:
         self.boot = t0 - 2.4 * 86400 - 3600 * (1 + _h(node_id, "boot"))
         self.info = self._info()
         self._cum: dict[tuple[str, int], list[float]] = {}
-        self.bench_windows: list[list[float]] = []
+        self.bench_windows: list[BenchWindow] = []
         self.disk_windows: list[list[float]] = []
-
-    def bench_load(self, t: float) -> tuple[float, float]:
-        load = heat = 0.0
-        for a, b, i in self.bench_windows:
-            if a <= t < b:
-                load, heat = max(load, i), max(heat, i * min(1.0, (t - a) / 45))
-        return load, heat
 
     def scen(self, t: float) -> float:
         return (t - self.t0) * self.speed
@@ -133,9 +121,8 @@ class WorkstationModel:
         u = a * (62 + 36 * b + 1.5 * self.skew[i](t)) + (1 - a) * 0.3
         if noise:
             u += 0.8 * _h(self.node_id, "u", i, int(t))
-        if i == BENCH_GPU:
-            u = max(u, 98 * self.bench_load(t)[0])
-        return _clamp(u, 0, 100)
+        load, _ = bench_load(self.bench_windows, t, i)
+        return _clamp(max(u, 98 * load), 0, 100)
 
     def raw_power(self, i: int, t: float, noise: bool = True) -> float:
         p = IDLE_W + 2.8 * self.util(i, t, noise) + POWER_SKEW_W[i]
@@ -143,9 +130,8 @@ class WorkstationModel:
             p += 1.2 * _h(self.node_id, "p", i, int(t))
         if i == EPISODE_GPU:
             p += 12 * self.thermal(t)
-        if i == BENCH_GPU:
-            p += 25 * self.bench_load(t)[1]
-        return p
+        _, heat = bench_load(self.bench_windows, t, i)
+        return p + 25 * heat
 
     def power_at(self, i: int, t: float) -> float:
         raw = self.raw_power(i, t)
@@ -359,6 +345,7 @@ class WorkstationModel:
             TempSample(id=f"k10temp.tccd{k + 1}", c=round(tctl - 4 + off + 0.5 * j(f"ccd{k}"), 1))
             for k, off in enumerate(CCD_HEAT_C)
         ]
+        cpu_temp = max(t.c for t in temps if t.c is not None)
         for prefix, base in (("nvme", nvme), ("nvme1", nvme - 3)):
             temps += [
                 TempSample(id=f"{prefix}.composite", c=round(base, 1)),
@@ -378,6 +365,7 @@ class WorkstationModel:
             disk=disk,
             fs=fs,
             temps=temps,
+            cpu_temp_c=cpu_temp,
             procs=self._procs(t, gpus, b) if procs else None,
         )
 
@@ -448,7 +436,7 @@ class WorkstationModel:
 
     def _info(self) -> NodeInfo:
         cores = [
-            CoreInfo(id=c, kind="unknown", model=CPU_MODEL, max_mhz=CPU_MAX_MHZ, cluster=_ccd(c))
+            CoreInfo(id=c, kind="unknown", model=CPU_MODEL, max_mhz=CPU_MAX_MHZ, cluster=None)
             for c in range(THREADS)
         ]
 
@@ -461,9 +449,9 @@ class WorkstationModel:
             NetIfInfo(name=SPARE_PORT, role="other", label=SPARE_PORT, mac=mac(1)),
             NetIfInfo(name="docker0", role="virtual", label="docker0", mac=mac(2)),
         ]
-        sensors = [SensorInfo(id="k10temp.tctl", label="k10temp Tctl", group="other")]
+        sensors = [SensorInfo(id="k10temp.tctl", label="CPU control (Tctl)", group="other")]
         sensors += [
-            SensorInfo(id=f"k10temp.tccd{k}", label=f"k10temp Tccd{k}", group="other") for k in range(1, 5)
+            SensorInfo(id=f"k10temp.tccd{k}", label=f"CPU CCD {k}", group="other") for k in range(1, 5)
         ]
         for prefix in ("nvme", "nvme1"):
             sensors += [

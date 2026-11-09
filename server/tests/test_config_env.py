@@ -195,7 +195,7 @@ def test_agent_cli_precedence(tmp_path, monkeypatch, no_server):
 def test_console_unreadable_default_config_falls_back_to_defaults(tmp_path, monkeypatch):
     """`sparkline --demo` must survive a default config the user cannot read (#54).
 
-    /etc/sparkline is commonly root:sparkline 0750, and on Python 3.13
+    /etc/sparkline is commonly root:sparkline 0750, and on Python 3.12 and 3.13
     Path.exists() propagates that EACCES instead of reporting the file absent.
     An unreadable default counts as absent; an explicit path still errors loudly.
     """

@@ -1,6 +1,5 @@
 import { render, screen } from '@testing-library/react';
 import { ChartDataTable, downsampleRows } from './ChartDataTable';
-import { orderCores } from './Heatmap';
 
 describe('downsampleRows', () => {
   it('bucket-averages to at most maxRows, ignoring gaps', () => {
@@ -22,12 +21,5 @@ describe('ChartDataTable', () => {
     expect(screen.getByRole('columnheader', { name: 'GPU' })).toBeInTheDocument();
     expect(screen.getByText('70 °C')).toBeInTheDocument();
     expect(screen.getByText('—')).toBeInTheDocument();
-  });
-});
-
-describe('chart helpers', () => {
-  it('orders cores performance first, then efficiency', () => {
-    const cores = [0, 5, 10, 15].map((id) => ({ id, kind: id % 10 < 5 ? 'efficiency' : 'performance', model: null, max_mhz: null, cluster: null }) as const);
-    expect(orderCores(cores).map((r) => r.core.id)).toEqual([5, 15, 0, 10]);
   });
 });

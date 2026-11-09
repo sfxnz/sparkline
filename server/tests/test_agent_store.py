@@ -1,6 +1,23 @@
+import importlib.util
+import shutil
+import sqlite3
+from pathlib import Path
+
 import pytest
 
 from sparkline.agent.store import Rollup, Store, agg_kind, choose_resolution, downsample
+
+HISTORY_FIXTURES = Path(__file__).parent / "fixtures" / "agent" / "history"
+
+
+def store_at_d96ee29() -> type:
+    spec = importlib.util.spec_from_file_location(
+        "sparkline.agent.store_d96ee29", HISTORY_FIXTURES / "store_d96ee29.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.Store
 
 
 def test_agg_kinds():
@@ -13,7 +30,7 @@ def test_agg_kinds():
 
 def test_event_counts_are_summed_through_rollup_and_downsample():
     """Per-interval error counts must total exactly over any range, not average out."""
-    r = Rollup(10)
+    r = Rollup(10, 1.0)
     for t, n in [(100.0, 0), (101.0, 3), (102.0, 0), (109.0, 1)]:
         r.add(t, {"net.x.errors": n})
     first = r.add(110.0, {"net.x.errors": 2})
@@ -26,7 +43,7 @@ def test_event_counts_are_summed_through_rollup_and_downsample():
 
 
 def test_rollup_avg_min_max_last_or():
-    r = Rollup(10)
+    r = Rollup(10, 0.5)
     samples = [
         (100.0, {"gpu0.util": 10, "gpu0.energy_j": 1000, "gpu0.throttle_mask": 0x4}),
         (104.0, {"gpu0.util": 30, "gpu0.energy_j": 1030, "gpu0.throttle_mask": 0x20}),
@@ -36,13 +53,13 @@ def test_rollup_avg_min_max_last_or():
         assert r.add(ts, flat) is None  # same bucket
     done = r.add(110.0, {"gpu0.util": 99})
     assert done is not None
-    ts, data = done
-    assert ts == 100
+    ts, data, covered_s = done
+    assert ts == 100 and covered_s == 1.5, "3 samples of 0.5 s"
     assert data["gpu0.util"] == [20.0, 10.0, 30.0]
     assert data["gpu0.energy_j"] == [1050.0, 1000.0, 1050.0]
     assert data["gpu0.throttle_mask"][0] == float(0x4 | 0x20)
     assert data["mem.used"] == [7.0, 7.0, 7.0]  # key present in only one sample
-    assert r.flush() == (110, {"gpu0.util": [99.0, 99.0, 99.0]})
+    assert r.flush() == (110, {"gpu0.util": [99.0, 99.0, 99.0]}, 0.5)
     assert r.flush() is None
 
 
@@ -90,16 +107,16 @@ def test_choose_resolution():
 
 def test_store_roundtrip(tmp_path):
     s = Store(str(tmp_path / "d"))
-    s.write(10, 100, {"a": [1, 0, 2]})
-    s.write(10, 110, {"a": [3, 3, 3]})
-    s.write(60, 60, {"a": [2, 0, 3]})
+    s.write(10, 100, {"a": [1, 0, 2]}, 10.0)
+    s.write(10, 110, {"a": [3, 3, 3]}, 2.0)
+    s.write(60, 60, {"a": [2, 0, 3]}, 60.0)
     # rows are keyed by bucket start and served at the bucket centre
-    assert s.query(10, 100, 110) == [(105.0, {"a": [1, 0, 2]}), (115.0, {"a": [3, 3, 3]})]
+    assert s.query(10, 100, 110) == ([(105.0, {"a": [1, 0, 2]}), (115.0, {"a": [3, 3, 3]})], [10.0, 2.0])
     s.prune(now=125, retention={10: 20, 60: 1000})
-    assert s.query(10, 0, 1000) == [(115.0, {"a": [3, 3, 3]})]
+    assert s.query(10, 0, 1000) == ([(115.0, {"a": [3, 3, 3]})], [2.0])
     assert s.db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     s.clear()
-    assert s.query(10, 0, 1000) == [] and s.query(60, 0, 1000) == []
+    assert s.query(10, 0, 1000) == ([], []) and s.query(60, 0, 1000) == ([], [])
     s.close()
 
 
@@ -111,9 +128,69 @@ def test_store_query_with_keys_returns_just_those_keys_as_stored(tmp_path):
         "temp.odd\\name": [40.0, 39.5, 41.25],
         "mem.used": [5.0, 5.0, 5.0],
     }
-    s.write(60, 60, row)
-    s.write(60, 120, {"mem.used": [6.0, 6.0, 6.0]})
+    s.write(60, 60, row, 60.0)
+    s.write(60, 120, {"mem.used": [6.0, 6.0, 6.0]}, 30.0)
     keys = ["gpu0.util", "fs.media_Ünï dísk.used", "temp.odd\\name", "nope"]
-    assert s.query(60, 0, 1000, keys) == [(90.0, {k: row[k] for k in keys[:3]}), (150.0, {})]
-    assert s.query(60, 0, 1000) == [(90.0, row), (150.0, {"mem.used": [6.0, 6.0, 6.0]})]
+    assert s.query(60, 0, 1000, keys) == ([(90.0, {k: row[k] for k in keys[:3]}), (150.0, {})], [60.0, 30.0])
+    assert s.query(60, 0, 1000) == ([(90.0, row), (150.0, {"mem.used": [6.0, 6.0, 6.0]})], [60.0, 30.0])
+    s.close()
+
+
+def test_store_upgrades_a_database_the_agent_at_d96ee29_wrote(tmp_path):
+    db = tmp_path / "history.sqlite"
+    shutil.copy(HISTORY_FIXTURES / "main-d96ee29.sqlite", db)
+    with sqlite3.connect(db) as half_upgraded:
+        half_upgraded.execute("CREATE TABLE r10_covered (ts INTEGER PRIMARY KEY, covered_s REAL NOT NULL)")
+    t0 = 1_793_000_100
+    s = Store(str(tmp_path))
+    rows, covered = s.query(60, t0, t0 + 120, ["gpu0.util"])
+    assert rows == [(t0 + 30 + 60 * i, {"gpu0.util": [u, u, u]}) for i, u in enumerate([10.0, 20.0, 30.0])]
+    assert covered == [60.0, 60.0, 60.0], "an older row counts as a full minute, as it did before"
+    rows, covered = s.query(10, t0 + 110, t0 + 120)
+    assert [r[1]["gpu0.util"][0] for r in rows] == [20.0, 30.0] and covered == [10.0, 10.0]
+    s.write(60, t0 + 180, {"gpu0.util": [40.0, 40.0, 40.0]}, 12.0)
+    s.close()
+
+    with sqlite3.connect(db) as rolled_back:
+        rolled_back.execute(
+            "INSERT OR REPLACE INTO r60 VALUES (?, ?)", (t0 + 240, '{"gpu0.util":[50,50,50]}')
+        )
+    s = Store(str(tmp_path))
+    rows, covered = s.query(60, t0, t0 + 240)
+    assert [r[1]["gpu0.util"][0] for r in rows] == [10.0, 20.0, 30.0, 40.0, 50.0]
+    assert covered == [60.0, 60.0, 60.0, 12.0, 60.0], "a row the older agent writes after a rollback"
+    s.close()
+
+
+@pytest.mark.parametrize("killed_mid_upgrade", [False, True])
+def test_a_row_the_agent_at_d96ee29_replaces_after_a_rollback_counts_as_full_width(
+    tmp_path, killed_mid_upgrade
+):
+    m = 1_793_000_160
+    if killed_mid_upgrade:
+        with sqlite3.connect(tmp_path / "history.sqlite") as half_upgraded:
+            for t in ("r10", "r60"):
+                half_upgraded.execute(f"CREATE TABLE {t} (ts INTEGER PRIMARY KEY, data TEXT NOT NULL)")
+                half_upgraded.execute(
+                    f"CREATE TABLE {t}_covered (ts INTEGER PRIMARY KEY, covered_s REAL NOT NULL)"
+                )
+            half_upgraded.execute(
+                "CREATE TRIGGER r10_row_replaced AFTER INSERT ON r10"
+                " BEGIN DELETE FROM r10_covered WHERE ts = NEW.ts; END"
+            )
+    s = Store(str(tmp_path))
+    s.write(60, m, {"gpu0.util": [0.0, 0.0, 0.0]}, 2.0)
+    s.write(10, m, {"gpu0.util": [0.0, 0.0, 0.0]}, 2.0)
+    s.close()
+
+    old = store_at_d96ee29()(str(tmp_path))
+    old.write(60, m, {"gpu0.util": [100.0, 100.0, 100.0]})
+    old.write(10, m, {"gpu0.util": [100.0, 100.0, 100.0]})
+    old.close()
+
+    s = Store(str(tmp_path))
+    assert s.query(60, m, m) == ([(m + 30.0, {"gpu0.util": [100.0, 100.0, 100.0]})], [60.0])
+    assert s.query(10, m, m) == ([(m + 5.0, {"gpu0.util": [100.0, 100.0, 100.0]})], [10.0])
+    s.write(60, m, {"gpu0.util": [50.0, 50.0, 50.0]}, 30.0)
+    assert s.query(60, m, m)[1] == [30.0], "the agent's own replace keeps the seconds it just wrote"
     s.close()

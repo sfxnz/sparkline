@@ -414,8 +414,8 @@ Benchmarks run only when you confirm them in the console. One job runs per node 
 | Benchmark | What it measures | Default duration | Impact | Needs |
 |---|---|---|---|---|
 | GPU matmul (`gpu-matmul`) | Dense GEMM TFLOPS for BF16, FP16, FP8 and FP4 (NVFP4 on GB10; reported as unsupported elsewhere) | about 20 s | High: saturates the GPU | Docker + PyTorch image |
-| Unified memory bandwidth (`mem-bandwidth`) | Copy/triad GB/s from the GPU and from the CPU (all, performance and efficiency cores) | about 10 s | Medium: slows running inference | Docker + PyTorch image |
-| CPU throughput (`cpu-throughput`) | Single- and multi-core MB/s, per core type | about 25 s | Medium CPU, GPU barely affected | nothing extra |
+| Unified memory bandwidth (`mem-bandwidth`) | Copy/triad GB/s from the GPU and from the CPU (all, performance and efficiency cores; all cores only on a CPU without a performance/efficiency split) | about 10 s | Medium: slows running inference | Docker + PyTorch image |
+| CPU throughput (`cpu-throughput`) | Single- and multi-core MB/s, per core type (all cores only on a CPU without a performance/efficiency split) | about 25 s | Medium CPU, GPU barely affected | nothing extra |
 | NCCL all-reduce (`nccl-allreduce`) | All-reduce bus bandwidth between the two nodes over the CX7 rails | about 10 s | Medium: stalls a TP=2 job | Docker + PyTorch image, 2 nodes |
 | RDMA bandwidth and latency (`rdma-bw-lat`) | `ib_write_bw` / `ib_write_lat` over one CX7 rail | about 10 s | Low: saturates that rail | `perftest`, 2 nodes |
 | NVMe storage (`storage-fio`) | Sequential 1 MiB and random 4 KiB read/write: MB/s, IOPS, p99 latency | about 35 s | Low, but heavy disk I/O | `fio` (optional) |
@@ -604,8 +604,10 @@ One Python package (`server/`, package `sparkline`) provides both commands, `spa
 - `install.sh` targets systemd-based Linux (DGX OS / Ubuntu 24.04) and needs PyPI access at install time.
 - Sparkline is built and tested on DGX Spark (GB10, aarch64). The agent also runs on other Linux machines, with or
   without an NVIDIA GPU, but some views assume GB10. The memory view assumes CPU and GPU share memory, so
-  discrete-GPU memory is not shown correctly. On x86, core names read "Arm core", and the split into performance
-  and efficiency cores relies on per-core maximum frequency. Interconnect views label any RDMA link as ConnectX-7.
+  discrete-GPU memory is not shown correctly. On x86, only Intel hybrid CPUs split into performance and
+  efficiency cores, from the CPU lists of the kernel's `cpu_core`, `cpu_atom` and `cpu_lowpower` perf PMUs. Other
+  x86 CPUs, including AMD parts that mix Zen 5 and Zen 5c cores, show all cores as one group. The CPU views count
+  each SMT thread as a core. Interconnect views label any RDMA link as ConnectX-7.
 
 ## License
 

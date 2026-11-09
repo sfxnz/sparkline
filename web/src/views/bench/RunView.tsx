@@ -23,7 +23,6 @@ import {
   aboutDuration,
   cancelSentence,
   elapsed,
-  estimateDuration,
   eta,
   formatDateTime,
   headlineResults,
@@ -41,17 +40,21 @@ import {
   modelledResults,
   nodeMeta,
   nodesText,
-  servedModel,
+  notDgxSpark,
+  servedParts,
   signedFormat,
   unitText,
   orderedMeta,
   paramText,
-  paramsSummary,
+  paramParts,
   projectedTotal,
   resultDelta,
   resultText,
+  runEstimate,
+  runGpuParts,
   runLog,
   stopwatch,
+  unestimatedRunNodes,
   valueWithUnit,
 } from './model';
 import { BetterHint, DeltaBadge, ModelledNote, RunStatusPill } from './parts';
@@ -126,9 +129,10 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
   // The threshold the console flagged this run's regressions with; the setting may have changed since.
   const regressionPct = typeof run.metadata.regression_pct === 'number' ? run.metadata.regression_pct : settingPct;
   const active = isActive(run.status);
-  // The agents' own estimate for these exact parameters once they report it, else the catalog-based guess.
-  const agentEst = Math.max(0, ...Object.values(run.node_states ?? {}).map((st) => (typeof st.metadata.est_duration_s === 'number' ? st.metadata.est_duration_s : 0)));
-  const estimate = agentEst > 0 ? agentEst : spec ? estimateDuration(spec, run.params as never) : 60;
+  // The agents' own estimate for these exact parameters once they report it, else the catalog-based guess (a minute
+  // until the catalog loads); none when a node's agent gives none.
+  const estimate = runEstimate(run, spec);
+  const expected = estimate === null ? elapsed(run, now) : projectedTotal(run, now, estimate);
   const name = spec?.name ?? run.bench_id;
   const pending = run.id.startsWith(PENDING_PREFIX);
 
@@ -176,6 +180,13 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
   const statusText = `${name} ${run.status === 'succeeded' ? 'finished' : run.status}`;
   const modelled = modelledNodes(run);
+  const sub = [
+    [nodesText(run.bench_id, run.nodes)],
+    ...runGpuParts(run).map((part) => [part]),
+    servedParts(run.results),
+    [`Started ${formatDateTime(run.started_ts ?? run.created_ts)}`],
+    spec?.params.length ? paramParts(spec, run.params, 4) : [],
+  ].filter((item) => item.length);
 
   return (
     <div className="view bench-run">
@@ -187,21 +198,19 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
             <RunStatusPill status={run.status} />
           </div>
           <p className="bench-run__sub">
-            <span>{nodesText(run.bench_id, run.nodes)}</span>
-            {servedModel(run.results) ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{servedModel(run.results)}</span>
-              </>
-            ) : null}
-            <span aria-hidden="true">·</span>
-            <span>Started {formatDateTime(run.started_ts ?? run.created_ts)}</span>
-            {spec?.params.length ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{paramsSummary(spec, run.params, 4)}</span>
-              </>
-            ) : null}
+            {sub.map((item, i) => (
+              <span key={i}>
+                {i ? <span className="bench-run__sep" aria-hidden="true"> · </span> : null}
+                <span className="bench-run__item">
+                  {item.map((part, j) => (
+                    <span key={j}>
+                      {j ? <span className="bench-run__sep" aria-hidden="true"> · </span> : null}
+                      {part}
+                    </span>
+                  ))}
+                </span>
+              </span>
+            ))}
           </p>
         </div>
         <div className="bench-run__actions">
@@ -225,7 +234,7 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
       {active ? (
         <Panel title="Progress" className="bench-run__progress">
-          <Progress run={run} now={now} estimate={estimate} cancelling={cancelling} />
+          <Progress run={run} now={now} estimate={estimate} noEstimate={unestimatedRunNodes(run, spec)} cancelling={cancelling} />
         </Panel>
       ) : run.status === 'succeeded' ? (
         <Completion run={run} celebrate={celebrate} regressionPct={regressionPct} />
@@ -266,11 +275,11 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
       {active || run.started_ts != null ? (
         <Panel title={active ? 'Live telemetry' : 'Telemetry during the run'} subtitle={run.nodes.length > 1 ? 'One line per node · dashed rules mark the run' : 'Dashed rules mark the run'}>
-          <RunTelemetry run={run} category={spec?.category} expected={projectedTotal(run, now, estimate)} />
+          <RunTelemetry run={run} category={spec?.category} expected={expected} />
         </Panel>
       ) : null}
 
-      {spec?.category === 'soak' || run.bench_id === 'thermal-soak' ? <SoakPanel run={run} expected={projectedTotal(run, now, estimate)} /> : null}
+      {spec?.category === 'soak' || run.bench_id === 'thermal-soak' ? <SoakPanel run={run} expected={expected} /> : null}
 
       {run.results.length ? <ResultsPanel run={run} regressionPct={regressionPct} onShare={() => { setShareOpen(true); }} /> : null}
 
@@ -306,9 +315,9 @@ function RunBody({ run, spec }: { run: BenchRun; spec: BenchSpec | undefined }) 
 
 // ------------------------------------------------------------------------------------------------ progress
 
-function Progress({ run, now, estimate, cancelling }: { run: BenchRun; now: number; estimate: number; cancelling: boolean }) {
+function Progress({ run, now, estimate, noEstimate, cancelling }: { run: BenchRun; now: number; estimate: number | null; noEstimate: readonly string[]; cancelling: boolean }) {
   const pct = Math.round(Math.min(1, Math.max(0, run.progress)) * 100);
-  const left = eta(run, now, estimate);
+  const left = estimate === null ? null : eta(run, now, estimate);
   const phase = cancelling ? 'Cancelling — stopping processes and removing containers…' : run.phase || (run.status === 'queued' ? 'Queued' : 'Starting…');
   const states = Object.values(run.node_states ?? {});
   return (
@@ -339,9 +348,10 @@ function Progress({ run, now, estimate, cancelling }: { run: BenchRun; now: numb
         </div>
         <div>
           <dt>Expected total</dt>
-          <dd className="num">{aboutDuration(projectedTotal(run, now, estimate))}</dd>
+          <dd className="num">{aboutDuration(estimate === null ? null : projectedTotal(run, now, estimate))}</dd>
         </div>
       </dl>
+      {noEstimate.length ? <p className="bench-progress__note">Sparkline estimates run time from DGX Spark rates, and {notDgxSpark(noEstimate)}.</p> : null}
       {states.length > 1 || run.nodes.length > 1 ? (
         <ul className="bench-nodeprog" aria-label="Progress per node">
           {run.nodes.map((n) => {

@@ -13,6 +13,8 @@ WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
+# The build type-checks the tests too, and Memory.test.tsx reads these two console fixtures.
+COPY server/tests/fixtures/console/node_info.json server/tests/fixtures/console/sample.json /src/server/tests/fixtures/console/
 RUN npm run build
 
 # --- 2. Python package --------------------------------------------------------------------------------

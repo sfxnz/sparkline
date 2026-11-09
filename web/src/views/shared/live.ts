@@ -1,7 +1,8 @@
 // Freshness and history helpers shared by the Overview, the node tabs and Wall mode, so every screen agrees on
 // when values are "not live", what the last known value is, and how a range is worded and refreshed.
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { api } from '../../lib/api';
+import { useLoadable, type Loadable } from '../../lib/loadable';
 import type { TimeRange } from '../../lib/prefs';
 import type { HistoryResponse, NodeStatus } from '../../lib/types';
 import { serverNow, useCluster } from '../../store/cluster';
@@ -77,8 +78,6 @@ export function spanPhrase(range: TimeRange, oldestTs: number | null | undefined
   return d.toDateString() === new Date(now * 1000).toDateString() ? `since ${hm}` : `since ${d.getDate()} ${d.toLocaleString('en-GB', { month: 'short' })} ${hm}`;
 }
 
-export type Loadable<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'error'; message: string };
-
 export type Span = 'today' | '7d';
 export const SPAN_REFRESH_MS: Record<Span, number> = { today: 60_000, '7d': 300_000 };
 const spanFrom = (span: Span, now: number) => (span === 'today' ? startOfDay(now) : now - 7 * 86400);
@@ -100,8 +99,7 @@ export function loadSpan(node: string, keys: readonly string[], span: Span): Pro
  *  `range` null = not needed (e.g. Live mode): stays 'loading' and fetches nothing. */
 export function useRangeHistory(node: string, keys: readonly string[], range: HistoryRange | null): Loadable<HistoryResponse> {
   const keysId = keys.join('|');
-  const id = `${node}|${keysId}|${range ?? ''}`;
-  const [tagged, setTagged] = useState<{ id: string; value: Loadable<HistoryResponse> }>({ id: '', value: { state: 'loading' } });
+  const [value, update] = useLoadable<HistoryResponse>(`${node}|${keysId}|${range ?? ''}`);
   useEffect(() => {
     if (!range || !keysId) return;
     let cancelled = false;
@@ -109,8 +107,8 @@ export function useRangeHistory(node: string, keys: readonly string[], range: Hi
     const fetchOnce = () => {
       historyCache
         .load(node, list, range, serverNow())
-        .then((data) => { if (!cancelled) setTagged({ id, value: { state: 'ready', data } }); })
-        .catch((e: unknown) => { if (!cancelled) setTagged({ id, value: { state: 'error', message: e instanceof Error ? e.message : String(e) } }); });
+        .then((data) => { if (!cancelled) update({ data }); })
+        .catch((error: unknown) => { if (!cancelled) update({ error }); });
     };
     fetchOnce();
     const stop = joinHistoryRefresh(range, fetchOnce);
@@ -118,6 +116,6 @@ export function useRangeHistory(node: string, keys: readonly string[], range: Hi
       cancelled = true;
       stop();
     };
-  }, [node, keysId, range, id]);
-  return tagged.id === id ? tagged.value : { state: 'loading' };
+  }, [node, keysId, range, update]);
+  return value;
 }

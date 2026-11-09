@@ -13,10 +13,10 @@ import sparkline.agent.collectors.net as net_mod
 from sparkline.agent.collectors import counter_delta, parse_psi
 from sparkline.agent.collectors import cpu as cpu_mod
 from sparkline.agent.collectors.cpu import (
-    classify_cores,
+    core_kinds,
     core_utils,
-    describe_cpu,
-    parse_cpuinfo_parts,
+    parse_cpuinfo,
+    parse_cpulist,
     parse_loadavg,
     parse_proc_stat,
 )
@@ -42,11 +42,11 @@ from sparkline.agent.collectors.procs import (
     select_top,
 )
 from sparkline.agent.collectors.storage import disk_rates, parse_diskstats, parse_mounts
-from sparkline.agent.collectors.thermal import Chip, build_sensors
+from sparkline.agent.collectors.thermal import Chip, ThermalCollector, build_sensors
 from sparkline.agent.ethtool import parse_gstrings
 from sparkline.agent.sources import RootFs
 from sparkline.common.netutil import default_route_iface
-from sparkline.common.schema import NetIfInfo
+from sparkline.common.schema import NetIfInfo, Unsupported
 
 FIX = Path(__file__).parent / "fixtures" / "agent"
 
@@ -100,18 +100,85 @@ def test_proc_stat_utils():
     assert core_utils(b, a, ids) == [0.0] * 20  # counters went backwards (reset): 0
 
 
-def test_core_classification_from_fixture():
-    models = parse_cpuinfo_parts(fx("cpuinfo"))
-    assert models[0] == "Cortex-A725" and models[5] == "Cortex-X925" and len(models) == 20
-    max_khz = {i: 3900000 if i in (5, 6, 7, 8, 9, 15, 16, 17, 18, 19) else 2808000 for i in range(20)}
-    clusters = {i: 56 if i < 10 else 1144 for i in range(20)}
-    cores = classify_cores(max_khz, models, clusters)
-    assert [c.kind for c in cores[:6]] == ["efficiency"] * 5 + ["performance"]
-    assert cores[5].max_mhz == 3900 and cores[0].model == "Cortex-A725"
-    assert {c.cluster for c in cores} == {0, 1}
-    assert describe_cpu(cores) == "10× Cortex-X925 + 10× Cortex-A725"
-    same = classify_cores(dict.fromkeys(range(4), 2000000), {}, {})
-    assert {c.kind for c in same} == {"unknown"}
+GB10_CAPACITY = {
+    **dict.fromkeys(range(5), 718),
+    **dict.fromkeys(range(5, 10), 997),
+    **dict.fromkeys(range(10, 15), 731),
+    **dict.fromkeys(range(15, 19), 1017),
+    19: 1024,
+}
+
+
+def test_arm_cores_are_named_by_midr_and_split_by_design_not_by_the_favoured_core():
+    procs = parse_cpuinfo(fx("cpuinfo"))
+    assert len(procs) == 20
+    assert (procs[0].midr, procs[0].core_model) == ((0x41, 0xD87), "Cortex-A725")
+    assert (procs[5].core_model, procs[5].model_name) == ("Cortex-X925", None)
+    kinds = core_kinds(list(range(20)), {}, {i: p.midr for i, p in procs.items() if p.midr}, GB10_CAPACITY)
+    assert [i for i in range(20) if kinds[i] == "performance"] == [5, 6, 7, 8, 9, 15, 16, 17, 18, 19]
+    assert [i for i in range(20) if kinds[i] == "efficiency"] == [0, 1, 2, 3, 4, 10, 11, 12, 13, 14]
+
+
+X925, A725 = (0x41, 0xD85), (0x41, 0xD87)
+TWO_DESIGNS = {0: A725, 1: A725, 2: X925, 3: X925}
+
+
+@pytest.mark.parametrize(
+    ("hybrid", "midr", "capacity", "expected"),
+    [
+        pytest.param(
+            {},
+            TWO_DESIGNS,
+            {0: 718, 1: 731, 2: 997, 3: 1024},
+            ["efficiency", "efficiency", "performance", "performance"],
+            id="the design with the top capacity is performance, its less favoured cores too",
+        ),
+        pytest.param(
+            {}, TWO_DESIGNS, {0: 718, 1: 731, 2: 997}, ["unknown"] * 4, id="a core without capacity: no split"
+        ),
+        pytest.param(
+            {},
+            TWO_DESIGNS,
+            {0: 1024, 1: 731, 2: 997, 3: 1024},
+            ["unknown"] * 4,
+            id="a tie for the top capacity: no split",
+        ),
+        pytest.param(
+            {}, dict.fromkeys(range(4), X925), dict.fromkeys(range(4), 1024), ["unknown"] * 4, id="one design"
+        ),
+        pytest.param({}, {}, {}, ["unknown"] * 4, id="x86 without hybrid PMUs"),
+        pytest.param(
+            {"cpu_core": {0, 1}, "cpu_lowpower": {3}},
+            TWO_DESIGNS,
+            {0: 1024, 1: 1024, 2: 1024, 3: 512},
+            ["performance", "performance", "unknown", "efficiency"],
+            id="hybrid PMUs name the kind, and a core in none is unknown",
+        ),
+        pytest.param(
+            {"cpu_atom": {0, 1, 2, 3}}, {}, {}, ["unknown"] * 4, id="hybrid PMUs name one kind: no split"
+        ),
+    ],
+)
+def test_core_kinds_come_from_kernel_core_type_data(hybrid, midr, capacity, expected):
+    kinds = core_kinds([0, 1, 2, 3], hybrid, midr, capacity)
+    assert [kinds[i] for i in range(4)] == expected
+
+
+def test_pmus_that_name_one_core_kind_give_no_split(tmp_path):
+    for i in range(8):
+        (tmp_path / "sys/devices/system/cpu" / f"cpu{i}").mkdir(parents=True)
+    pmu = tmp_path / "sys/bus/event_source/devices/cpu_core"
+    pmu.mkdir(parents=True)
+    (pmu / "cpus").write_text("0-7\n")
+
+    c = cpu_mod.CpuCollector(gb10(fs=RootFs(tmp_path)))
+    assert [core.kind for core in c.cores] == ["unknown"] * 8
+    assert [type(c.caps()[m]) for m in ("cpu.perf_util", "cpu.eff_util")] == [Unsupported, Unsupported]
+
+
+def test_kernel_cpulists_parse_ranges_and_single_cpus():
+    assert parse_cpulist("0-15,32\n") == {*range(16), 32}
+    assert parse_cpulist("\n") == set()
 
 
 def test_loadavg():
@@ -323,6 +390,49 @@ def test_hwmon_sensors():
     assert s["mlx5.0"].crit_c == 105.0 and s["mlx5.0"].group == "nic"
     assert s["mt7925_phy0.1"].group == "wireless"
     assert len(s) == len(built) == 12  # ids unique
+
+
+def hwmon(root: Path, n: int, name: str, temps: dict[int, tuple[str, int]]) -> None:
+    d = root / f"sys/class/hwmon/hwmon{n}"
+    d.mkdir(parents=True)
+    (d / "name").write_text(name + "\n")
+    for i, (label, milli) in temps.items():
+        (d / f"temp{i}_input").write_text(f"{milli}\n")
+        (d / f"temp{i}_label").write_text(label + "\n")
+
+
+@pytest.mark.parametrize(
+    ("k10temp", "hottest"),
+    [
+        pytest.param({1: ("Tctl", 77_000), 2: ("Tdie", 50_000)}, 50.0, id="Tdie, so Tctl carries the offset"),
+        pytest.param({1: ("Tctl", 58_375), 3: ("Tccd1", 52_000)}, 58.375, id="no Tdie, so Tctl counts"),
+        pytest.param(
+            {1: ("Tctl", 55_500), 3: ("Tccd1", 52_000), 4: ("Tccd2", 57_250)}, 57.25, id="a CCD runs hottest"
+        ),
+    ],
+)
+def test_cpu_temp_is_the_hottest_cpu_die_reading(tmp_path, k10temp, hottest):
+    hwmon(tmp_path, 0, "k10temp", k10temp)
+    hwmon(tmp_path, 1, "nvme", {1: ("Composite", 80_850)})
+    t = ThermalCollector(gb10(fs=RootFs(tmp_path)))
+    assert t.caps()["cpu.temp"] is None
+    assert t.collect()["cpu_temp_c"] == hottest
+
+
+def test_each_cpu_sensor_chip_is_numbered_in_its_labels(tmp_path):
+    hwmon(tmp_path, 1, "coretemp", {1: ("Package id 0", 61_000), 2: ("Core 0", 58_000)})
+    hwmon(
+        tmp_path, 2, "coretemp", {1: ("Package id 1", 66_000), 2: ("Core 0", 64_000), 3: ("Uncore", 50_000)}
+    )
+    t = ThermalCollector(gb10(fs=RootFs(tmp_path)))
+    assert [(s.id, s.label, s.group) for s in t.sensors] == [
+        ("coretemp.package_id_0", "CPU 1 package", "other"),
+        ("coretemp.core_0", "CPU 1 core 0", "other"),
+        ("coretemp.package_id_1", "CPU 2 package", "other"),
+        ("coretemp.core_0_1", "CPU 2 core 0", "other"),
+        ("coretemp.uncore", "CPU 2 Uncore", "other"),
+    ]
+    assert t.collect()["cpu_temp_c"] == 66.0
 
 
 # -- processes -------------------------------------------------------------------------------------------

@@ -1,0 +1,8 @@
+{
+ "nvmlInit": {
+  "[]": {
+   "__error__": 12,
+   "str": "NVML Shared Library Not Found"
+  }
+ }
+}

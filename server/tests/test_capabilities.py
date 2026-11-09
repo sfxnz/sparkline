@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from platforms import GB10, gb10, gb10_without, workstation
+from platforms import AMD_THREADRIPPER, GB10, INTEL_HYBRID, gb10, gb10_without, workstation
 
 from sparkline.agent.collectors import VOCABULARY, covers, declares
 from sparkline.agent.collectors.gpu.nvml import VIOLATION_EVERY_S
@@ -25,7 +25,7 @@ from sparkline.console.demo_fleets import FLEETS
 
 WEB = Path(__file__).resolve().parents[2] / "web" / "src"
 T0 = 1_791_280_000.0
-PROBED_ONLY = ("mem_mhz", "fan_pct", "ecc", "pcie_bps", "cpu.temp")
+PROBED_ONLY = ("mem_mhz", "fan_pct", "ecc", "pcie_bps")
 
 
 def vocabulary_keys(info: NodeInfo) -> list[str]:
@@ -142,6 +142,8 @@ ZERO_INSTANCES = {
 RECORDED = {
     "gb10": lambda tmp: gb10(),
     "4-GPU discrete workstation": workstation,
+    "amd-threadripper": lambda tmp: recorded(AMD_THREADRIPPER),
+    "intel-hybrid": lambda tmp: recorded(INTEL_HYBRID),
     **ZERO_INSTANCES,
     "degraded box without pressure or network files": lambda tmp: gb10_without(
         tmp, "/proc/pressure", "/sys/class/net", "/proc/self/net/dev"

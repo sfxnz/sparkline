@@ -1,0 +1,51 @@
+{
+ "docker": {},
+ "ethtool": {},
+ "net_if_addrs": {
+  "enp5s0": [
+   {
+    "address": "198.51.100.21",
+    "family": "AF_INET",
+    "netmask": "255.255.255.0"
+   },
+   {
+    "address": "02:00:00:00:02:01",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ],
+  "lo": [
+   {
+    "address": "127.0.0.1",
+    "family": "AF_INET",
+    "netmask": "255.0.0.0"
+   },
+   {
+    "address": "00:00:00:00:00:00",
+    "family": "AF_LINK",
+    "netmask": null
+   }
+  ]
+ },
+ "statvfs": {
+  "/": [
+   4096,
+   4096,
+   480309840,
+   401234567,
+   376812345,
+   122101760,
+   121234567,
+   121234567,
+   4096,
+   255
+  ]
+ },
+ "which": {
+  "all_reduce_perf": null,
+  "docker": null,
+  "fio": null,
+  "ib_write_bw": null,
+  "nvcc": null
+ }
+}

@@ -35,15 +35,17 @@ from pydantic import ValidationError
 if TYPE_CHECKING:  # imported at run time only by demo tool-eval runs
     from tool_eval_bench.domain.scenarios import ModelScoreSummary, ScenarioDefinition, ScenarioResult
 
-from ..agent.bench import probes
+from ..agent.bench import metadata, probes
+from ..agent.bench.jobs import soak_keys
 from ..agent.bench.specs import REGISTRY as AGENT_REGISTRY
-from ..agent.bench.specs import levels, mem_growth_label, nccl_sizes, validation_message
+from ..agent.bench.specs import is_gb10, levels, mem_growth_label, nccl_sizes, validation_message
 from ..common.schema import (
     BenchResult,
     BenchRun,
     BenchSpec,
     BenchStartRequest,
     Event,
+    GpuSample,
     NodeBenchState,
     NodeInfo,
     Problem,
@@ -60,10 +62,11 @@ from .bench import (
     rail_ip,
     regression_title,
     threshold_text,
+    uses_gpu,
 )
 from .bench_store import BenchStore
 from .cluster import Cluster
-from .demo import GIB, DemoNode, DemoSource
+from .demo import GIB, BenchWindow, DemoNode, DemoSource
 
 log = logging.getLogger("sparkline.console.demo_bench")
 SUITE_GIT = "demo"  # the real agent reports the suite's git hash
@@ -79,7 +82,6 @@ GPU_LOAD = {
 }
 TICK_S = 0.5
 FINISHED_KEEP = 20
-SOAK_KEYS = ("gpu0.sm_mhz", "gpu0.temp_c", "gpu0.power_w", "gpu0.throttle_mask", "gpu0.util")
 STORAGE_LABEL = {
     "seq_write": "Sequential write 1 MiB",
     "seq_read": "Sequential read 1 MiB",
@@ -96,6 +98,8 @@ SERVED_MODEL = {
 
 def _env(node: str, info: NodeInfo | None) -> probes.Env:
     env = probes.Env()
+    if info is not None:
+        env.gpu = probes.gpu_problem(node, info)
     if info is not None and not any(n.rdma_device for n in info.net):
         env.rdma = Problem(
             message=f"{node} has no RDMA interconnect",
@@ -129,12 +133,8 @@ DISK_LOAD = {
 GB10_RESULTS = ("gpu-matmul", "mem-bandwidth", "cpu-throughput", "storage-fio")
 
 
-def _gb10(info: NodeInfo | None) -> bool:
-    return info is None or any(g.name == "NVIDIA GB10" for g in info.gpus)
-
-
 def _not_gb10(node: str, info: NodeInfo | None) -> Problem | None:
-    if _gb10(info):
+    if is_gb10(info):
         return None
     return Problem(
         message="Demo results are modelled on GB10 only",
@@ -150,13 +150,23 @@ TE_SPEED = {"median_turn_ms", "responsiveness", "deployability"}
 
 
 def _modelled(bench: str, info: NodeInfo | None) -> dict[str, str]:
-    return {MODELLED_KEY: MODELLED_ON} if bench in GB10_SPEEDS and not _gb10(info) else {}
+    return {MODELLED_KEY: MODELLED_ON} if bench in GB10_SPEEDS and not is_gb10(info) else {}
+
+
+def _gpu_load(bench: str, params: dict[str, Any]) -> float:
+    b = AGENT_REGISTRY.get(bench)
+    return 0.0 if b is not None and b.gpu and not uses_gpu(bench, params) else GPU_LOAD.get(bench, 0.0)
+
+
+def _unestimated(bench: str, params: dict[str, Any], info: NodeInfo | None) -> dict[str, None]:
+    b = AGENT_REGISTRY[bench]
+    return {} if b.estimate_on(b.validate(params), info).grounded else {"est_duration_s": None}
 
 
 def _gb10_modelled(
     info: NodeInfo | None, rows: list[BenchResult], metrics: set[str] | None = None
 ) -> list[BenchResult]:
-    if _gb10(info):
+    if is_gb10(info):
         return rows
     return [
         r.model_copy(update={"extras": {**r.extras, MODELLED_KEY: MODELLED_ON}})
@@ -187,7 +197,7 @@ def _llm_memory(
     of its container at the end, and system memory's peak during the run less its use at the start, from at
     most 61 samples (the demo's memory moves over tens of minutes). No such process: no serving row, as on a
     real node."""
-    if _gb10(info):
+    if is_gb10(info):
         serving, growth = gb10
         found = [(serving, "pid 4242 and its children")]
         mem: dict[str, float] = {}
@@ -216,14 +226,16 @@ def _llm_memory(
 def demo_catalog(node: str, info: NodeInfo | None) -> list[BenchSpec]:
     env = _env(node, info)
     not_gb10 = _not_gb10(node, info)
+    options = {node: probes.gpu_options(node, info)} if info is not None else {}
     out = []
     for b in AGENT_REGISTRY.values():
         problem, note = probes.availability(b.id, env)
-        if b.id in GB10_RESULTS:
+        if b.id in GB10_RESULTS and not (b.gpu and env.gpu):
             problem = not_gb10 or problem
         notes = {"llm-inference": LLM_NOTE, "llm-showcase": SHOWCASE_NOTE, "tool-eval": TE_NOTE}
         demo = notes.get(b.id, COMPRESSED_NOTE)
-        out.append(b.spec({node: problem}, f"{note} {demo}".strip()))
+        no_estimate = [] if b.grounded_on(info) else [node]
+        out.append(b.spec({node: problem}, f"{note} {demo}".strip(), options, no_estimate))
     return out
 
 
@@ -535,22 +547,18 @@ def make_results(
     return [], {}
 
 
-def soak_point(model: DemoNode, t: float, rng: random.Random) -> dict[str, float]:
-    g = model.sample_at(t).gpu[0]
+def soak_point(model: DemoNode, t: float, rng: random.Random, gpu: int) -> dict[str, float]:
+    g = metadata.gpu_sample(model.sample_at(t), gpu) or GpuSample(index=gpu)
     vals = [g.sm_mhz, g.temp_c, g.power_w, g.throttle_mask, g.util]
-    pt = {k: float(v or 0.0) for k, v in zip(SOAK_KEYS, vals, strict=True)}
-    if _gb10(model.info):  # measured 10 min soaks at 8192: 94.6 TFLOPS at 2149 MHz, 95.5 at 2181 MHz
+    pt = {k: float(v or 0.0) for k, v in zip(soak_keys(gpu), vals, strict=True)}
+    if is_gb10(model.info):  # measured 10 min soaks at 8192: 94.6 TFLOPS at 2149 MHz, 95.5 at 2181 MHz
         pt["tflops"] = round(96.5 * min(1.0, (g.sm_mhz or 0.0) / 2200) * (1 + rng.gauss(0, 0.004)), 3)
     return pt
 
 
-def soak_results(s: dict[str, list[float]]) -> list[BenchResult]:
-    clk, temp, mask, tf = (
-        s.get("gpu0.sm_mhz", []),
-        s.get("gpu0.temp_c", []),
-        s.get("gpu0.throttle_mask", []),
-        s.get("tflops", []),
-    )
+def soak_results(s: dict[str, list[float]], gpu: int) -> list[BenchResult]:
+    sm_mhz, temp_c, _, throttle_mask, _ = soak_keys(gpu)
+    clk, temp, mask, tf = s.get(sm_mhz, []), s.get(temp_c, []), s.get(throttle_mask, []), s.get("tflops", [])
     if len(clk) < 2:
         return []
     out = []
@@ -590,14 +598,18 @@ def soak_results(s: dict[str, list[float]]) -> list[BenchResult]:
     ]
 
 
-def node_metadata(info: NodeInfo | None, model: DemoNode, t0: float, t1: float, extra: dict) -> dict:
+def node_metadata(
+    info: NodeInfo | None, model: DemoNode, t0: float, t1: float, extra: dict, gpu: probes.GpuTarget | None
+) -> dict:
     """The keys the real agent records (agent/bench/metadata.py), with telemetry snapshots at start/end."""
-    g = info.gpus[0] if info and info.gpus else None
 
     def snap(t: float) -> dict:
         s = model.sample_at(t)
-        x = s.gpu[0]
-        return {"ts": t, "mem_used": s.mem.used, "sm_mhz": x.sm_mhz, "temp_c": x.temp_c, "power_w": x.power_w}
+        out: dict = {"ts": t, "mem_used": s.mem.used}
+        if (index := metadata.described_gpu(len(s.gpu), gpu)) is not None:
+            x = metadata.gpu_sample(s, index) or GpuSample(index=index)
+            out.update(sm_mhz=x.sm_mhz, temp_c=x.temp_c, power_w=x.power_w)
+        return out
 
     return {
         "hostname": info.hostname if info else model.node_id,
@@ -606,9 +618,7 @@ def node_metadata(info: NodeInfo | None, model: DemoNode, t0: float, t1: float, 
         "driver": info.driver if info else None,
         "cuda": info.cuda if info else None,
         "nvml": info.nvml if info else None,
-        "gpu_name": g.name if g else None,
-        "gpu_uuid": g.uuid if g else None,
-        "gpu_cc": g.compute_capability if g else None,
+        **metadata.gpu(info.gpus if info else [], gpu),
         "suite_git": SUITE_GIT,
         "start": snap(t0),
         "end": snap(t1),
@@ -1101,7 +1111,7 @@ class ShowcaseDemo:
         for i in range(n):
             kind = pool[i % len(pool)]
             prompt, lines = kind[i // len(pool) % len(kind)]
-            if not _gb10(info):
+            if not is_gb10(info):
                 lines = [x.replace(SPARK_READING, NO_READING) for x in lines]
             tokens = p["max_tokens"]
             if not p["fill_to_max"]:
@@ -1862,7 +1872,8 @@ class _Sim:
     req: BenchStartRequest
     state: NodeBenchState
     duration: float
-    window: list[float] | None = None
+    gpu: probes.GpuTarget | None = None
+    window: BenchWindow | None = None
     disk: list[list[float]] = field(default_factory=list)
     task: asyncio.Task | None = None
     llm: LlmDemo | None = None  # llm-inference: the planned requests its live view plays
@@ -1903,6 +1914,17 @@ class DemoBench:
                 ),
             )
         params = validate(req.bench_id, req.params)
+        info = self.cluster.sources[node].state.info
+        bench = AGENT_REGISTRY[req.bench_id]
+        gpu: probes.GpuTarget | None = None
+        if not uses_gpu(req.bench_id, params):
+            if req.gpu_index is not None:
+                raise BenchError(400, probes.unused_gpu(bench.name, bench.gpu, req.gpu_index))
+        elif info is not None:
+            target = probes.resolve_gpu(node, info, req.gpu_index)
+            if isinstance(target, Problem):
+                raise BenchError(400, target)
+            gpu = target
         st = NodeBenchState(
             run_id=req.run_id,
             bench_id=req.bench_id,
@@ -1911,13 +1933,14 @@ class DemoBench:
             status="running",
             phase="Starting",
             started_ts=time.time(),
-            metadata=_modelled(req.bench_id, self.cluster.sources[node].state.info),
+            metadata={**_modelled(req.bench_id, info), **_unestimated(req.bench_id, params, info)},
         )
         sim = _Sim(
             node=node,
             req=req.model_copy(update={"params": params}),
             state=st,
             duration=demo_duration(req.bench_id, params),
+            gpu=gpu,
         )
         self.current[node] = sim
         sim.task = asyncio.create_task(self._run(sim))
@@ -1954,9 +1977,9 @@ class DemoBench:
         p = req.params
         rng = random.Random(f"{req.run_id}{sim.node}")
         t0 = time.time()
-        load = GPU_LOAD.get(req.bench_id, 0.0)
+        load = _gpu_load(req.bench_id, p)
         if load and req.role != "server":
-            sim.window = [t0, t0 + sim.duration + 1, load]
+            sim.window = BenchWindow(t0, t0 + sim.duration + 1, load, metadata.gpu_index(sim.gpu))
             model.bench_windows.append(sim.window)
             del model.bench_windows[:-64]
         if req.bench_id == "storage-fio":
@@ -1978,7 +2001,7 @@ class DemoBench:
             else:
                 await self._timeline(sim, model, rng, t0)
             if req.bench_id == "thermal-soak":
-                st.results = soak_results(st.series)
+                st.results = soak_results(st.series, metadata.gpu_index(sim.gpu))
             elif sim.llm is not None:  # the requests the live view showed
                 st.results = sim.llm.results(info, RunSpan(model, st.started_ts or t0, time.time()))
             elif sim.showcase is not None:
@@ -2001,7 +2024,7 @@ class DemoBench:
             )
         finally:
             if sim.window:
-                sim.window[1] = min(sim.window[1], time.time())
+                sim.window.end = min(sim.window.end, time.time())
             for w in sim.disk:  # a cancelled run stops loading the disk
                 w[1] = min(w[1], time.time())
             extra = {
@@ -2009,8 +2032,9 @@ class DemoBench:
                 "params": p,
                 **_extra(req.bench_id, info),
                 **_modelled(req.bench_id, info),
+                **_unestimated(req.bench_id, p, info),
             }
-            st.metadata = node_metadata(info, model, t0, time.time(), extra)
+            st.metadata = node_metadata(info, model, t0, time.time(), extra, sim.gpu)
             if self.current.get(sim.node) is sim:
                 del self.current[sim.node]
             self.finished.setdefault(sim.node, deque(maxlen=FINISHED_KEEP)).append(sim)
@@ -2041,7 +2065,7 @@ class DemoBench:
             if soak and frac > 0.03:
                 if label == "Sustained load":  # in real-run minutes, as the agent shows it
                     label = f"Sustained load {frac * p['minutes']:.1f} of {p['minutes']} min"
-                pt = soak_point(model, now, rng)
+                pt = soak_point(model, now, rng, metadata.gpu_index(sim.gpu))
                 pt["t"] = round(now - t0, 2)
                 for k, v in pt.items():
                     st.series.setdefault(k, []).append(v)
@@ -2176,8 +2200,8 @@ def seed_history(
         )
         for n in nodes:
             m = models[n]
-            if bench in GPU_LOAD:
-                m.bench_windows.append([started, started + dur, GPU_LOAD[bench]])
+            if load := _gpu_load(bench, params):
+                m.bench_windows.append(BenchWindow(started, started + dur, load))
             if bench == "storage-fio":
                 m.disk_windows += storage_windows(params, started, dur)
             first = n == nodes[0]
@@ -2188,11 +2212,11 @@ def seed_history(
             series: dict[str, list[float]] = {}
             if bench == "thermal-soak":
                 for k in range(0, int(dur), 2):
-                    pt = soak_point(m, started + k, rng)
+                    pt = soak_point(m, started + k, rng, 0)
                     pt["t"] = float(k)
                     for key, v in pt.items():
                         series.setdefault(key, []).append(v)
-                results = soak_results(series)
+                results = soak_results(series, 0)
             elif bench == "tool-eval":  # a finished evaluation: its board, scenario records and summary
                 te = ToolEvalDemo(params, n, rng)
                 results = _gb10_modelled(m.info, te.bench_results(), TE_SPEED)
@@ -2232,7 +2256,7 @@ def seed_history(
             run.results += [r.model_copy(update={"node_id": owner}) for r in results]
             run.series.update({f"{n}.{k}": v for k, v in series.items()})
             extra = {"params": params, **_extra(bench, m.info)}
-            run.metadata["nodes"][n] = node_metadata(m.info, m, started, started + dur, extra)
+            run.metadata["nodes"][n] = node_metadata(m.info, m, started, started + dur, extra, None)
             _telemetry(run, n, m, started, started + dur)
         if outcome == "failed":
             run.error = Problem(
@@ -2270,10 +2294,10 @@ def seed_history(
 def _telemetry(run: BenchRun, node: str, m: DemoNode, t0: float, t1: float) -> None:
     """The overlay a real run would have recorded: 1 s points (<= 1800 by stepping)."""
     step = max(1.0, (t1 - t0) / 1800)
-    pre = f"telemetry.{node}."
+    pre, gpu = f"telemetry.{node}.", run.gpu_index.get(node, 0)
     t = t0
     while t < t1:
-        g = m.sample_at(t).gpu[0]
+        g = metadata.gpu_sample(m.sample_at(t), gpu) or GpuSample(index=gpu)
         for key, v in (
             ("ts", t),
             ("util", g.util),
@@ -2294,8 +2318,10 @@ def _register_windows(store: BenchStore, models: dict[str, DemoNode]) -> None:
         for n in run.nodes:
             if n not in models:
                 continue
-            if run.bench_id in GPU_LOAD:
-                models[n].bench_windows.append([run.started_ts, run.finished_ts, GPU_LOAD[run.bench_id]])
+            if load := _gpu_load(run.bench_id, run.params):
+                models[n].bench_windows.append(
+                    BenchWindow(run.started_ts, run.finished_ts, load, run.gpu_index.get(n, 0))
+                )
             elif run.bench_id == "storage-fio":
                 dur = run.finished_ts - run.started_ts
                 models[n].disk_windows += storage_windows(run.params, run.started_ts, dur)

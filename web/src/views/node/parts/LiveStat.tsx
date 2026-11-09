@@ -8,7 +8,7 @@ import type { Formatter } from '../../../lib/format';
 import type { Sample } from '../../../lib/types';
 import { liveStore, useLatest } from '../../../store/live';
 import { lastKnownValue } from '../../shared/live';
-import { useBufferTs, useFreshness } from './hooks';
+import { useRerenderOnBufferWrite, useFreshness } from './hooks';
 
 interface Props {
   nodeId: string;
@@ -33,7 +33,7 @@ export function LiveStat({ nodeId, label, select, format, metric, unsupported, h
   const live = useLatest(nodeId, select);
   const { stale, waiting } = useFreshness(nodeId);
   const fallback = live === null && stale && metric !== undefined;
-  useBufferTs(nodeId, fallback);
+  useRerenderOnBufferWrite(nodeId, fallback);
   const value = live ?? (fallback ? lastKnownValue(nodeId, metric) : null);
 
   if (waiting && !unsupported) {

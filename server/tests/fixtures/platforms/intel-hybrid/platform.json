@@ -1,0 +1,25 @@
+{
+ "assumed": [
+  "CPU numbering: cpu0-15 the P-cores' threads (siblings 2k, 2k+1), cpu16-31 the E-cores",
+  "core id 4k for P-core k and 32-47 for the E-cores (APIC ids 8k, and 64 + 2j for E-core j)",
+  "cluster_id 8k for P-core k and 64 + 8m for E-core module m (2 threads or 4 E-cores per L2)",
+  "cpuinfo_max_freq 5800000 on the two favoured P-cores (cpu4-7), 5500000 on the other P-cores, 4300000 on the E-cores, and the scaling_cur_freq values",
+  "TjMax 100 C (temp*_crit) and every temperature",
+  "No NVIDIA driver: no /proc/driver/nvidia, and nvidia-ml-py's nvmlInit fails as it does without libnvidia-ml.so.1 (NVML_ERROR_LIBRARY_NOT_FOUND)",
+  "Everything outside the CPU and its sensor is a placeholder: memory, disk, NIC, addresses, /proc/stat counters, load, pressure, hostname and boot time"
+ ],
+ "built": "Synthesized by server/tests/synthesized_platforms.py from documented sysfs layouts and kernel source; no real device was read",
+ "device": "13th Gen Intel Core i9-13900K desktop (Raptor Lake, family 6 model 183), no NVIDIA driver",
+ "generated_by": "python tests/synthesized_platforms.py",
+ "platform": "linux",
+ "sources": {
+  "https://docs.kernel.org/hwmon/coretemp.html": "coretemp: per-core and package sensors, crit = TjMax",
+  "https://github.com/torvalds/linux/blob/v6.14/Documentation/ABI/testing/sysfs-devices-system-cpu": "cpu_capacity, from drivers/base/arch_topology.c, which x86 does not build",
+  "https://github.com/torvalds/linux/blob/v6.14/arch/x86/events/intel/core.c": "intel_hybrid_pmu_type_map: the cpu_core, cpu_atom and cpu_lowpower PMUs",
+  "https://github.com/torvalds/linux/blob/v6.14/arch/x86/kernel/cpu/cacheinfo.c": "cluster_id (l2c_id): the APIC id with the L2-sharing bits cleared",
+  "https://github.com/torvalds/linux/blob/v6.14/drivers/cpufreq/cpufreq.c": "no cpuinfo_avg_freq in 6.14, so scaling_cur_freq",
+  "https://github.com/torvalds/linux/blob/v6.14/drivers/hwmon/coretemp.c": "temp1 \"Package id N\"; \"Core N\" of the core id at temp(core id + 2), so sparse core ids leave gaps; the docs' \"Physical id\" label is older text",
+  "https://github.com/torvalds/linux/blob/v6.14/tools/perf/Documentation/intel-hybrid.txt": "/sys/devices/cpu_core and cpu_atom, with cpus"
+ },
+ "synthesized": true
+}
