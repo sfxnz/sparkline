@@ -36,8 +36,8 @@ def test_demo_agents_report_the_installed_version(tmp_path: Path) -> None:
     dist.mkdir()
     (dist / "METADATA").write_text("Metadata-Version: 2.1\nName: sparkline\nVersion: 9.9.9\n")
     code = (
-        "from sparkline.console.demo import NODES, DemoModel\n"
-        "for n in NODES: print(DemoModel(n, 0.0).info.agent_version)"
+        "from sparkline.console.demo_fleets import FLEETS\n"
+        "for make in FLEETS['mixed'].values(): print(make(0.0, 1.0).info.agent_version)"
     )
     # The first sparkline dist-info on sys.path wins, and PYTHONPATH comes before site-packages.
     path = os.pathsep.join(filter(None, [str(tmp_path), os.environ.get("PYTHONPATH")]))

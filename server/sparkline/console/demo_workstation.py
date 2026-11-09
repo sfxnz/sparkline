@@ -37,6 +37,7 @@ from ..common.schema import (
     TempSample,
     Unsupported,
 )
+from .cluster import VERSION
 from .demo import BenchWindow, Smooth, _clamp, _episode, _h, bench_load
 
 GIB = 1 << 30
@@ -467,7 +468,7 @@ class WorkstationModel:
         return NodeInfo(
             node_id=self.node_id,
             hostname=self.node_id,
-            agent_version="0.1.0",
+            agent_version=VERSION,
             os="Ubuntu 24.04.3 LTS",
             kernel="6.14.0-35-generic",
             platform="linux",
