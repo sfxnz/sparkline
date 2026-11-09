@@ -12,15 +12,18 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 The first tagged release. It includes all earlier work on `main`, which had no version tags. The lists
 below name the changes merged last before the release.
 
-Sparkline 0.1.0 has run only on a DGX Spark. Its x86, discrete NVIDIA, AMD and Mac paths are tested against
-recordings built from vendor and kernel documentation, against fake GPU backends and against simulated demo
-nodes. Reports from real hardware are welcome, and `sparkline-capture` records a Linux machine for one.
+Sparkline 0.1.0 has run only on a DGX Spark. Its paths for Intel and AMD x86 CPUs and for discrete NVIDIA GPUs
+are tested against recordings built from vendor and kernel documentation, against fake GPU backends and against
+simulated demo nodes. It does not read AMD or Apple GPUs yet. On those machines, and on any Mac, the GPU
+benchmarks say why they cannot run. Reports from real hardware are welcome, and `sparkline-capture` records a
+Linux machine for one.
 
 ### Upgrading
 
 If you run Sparkline from a checkout older than 0.1.0, upgrade the console first and the agents after it,
-or upgrade them all at once. A 0.1.0 console reads older agents correctly. An older console misreads a 0.1.0
-agent in two ways:
+or upgrade them all at once. A 0.1.0 console reads older agents correctly, except that their interconnect
+headings say "Interconnect" without the NIC model, which older agents do not report. An older console misreads
+a 0.1.0 agent in two ways:
 
 - When the memory collector of a 0.1.0 agent cannot start, the agent keeps running and sends an empty memory
   reading. An older console reads that as no free memory and raises a false "Memory running low" alert.
@@ -58,7 +61,8 @@ gives the upgrade commands.
   parsing each one again for every history request (#60).
 - Interconnects are named by role ("Interconnect A") with the NIC model beside the name, and the RDMA and
   NCCL benchmarks find their rails from data instead of the label. NCCL on both rails refuses to start when
-  a rail is down or has no address, where it used to run on one rail (#64).
+  a rail is down or has no address, where it used to run on one rail. NCCL on rail B alone meets on rail B's
+  address, where it used rail A's (#64).
 - The agent reads the machine through one replaceable source, so its collectors are tested against recorded
   machines. A recorded DGX Spark comes with the tests (#67).
 - An idle Memory tab no longer redraws 43 times a second after its numbers settle (#68).
@@ -75,11 +79,13 @@ gives the upgrade commands.
 - An end-to-end test no longer fails on slow runs when two "Reconnecting" messages are on the page (#57).
 - After a reconnect, power average and peak, sensor minimum and maximum, and live energy include the gap that
   the console filled in (#58).
-- An alert threshold reads in the same unit in the rule editor and in the alert it raises (#59).
+- An alert threshold reads in the same unit in the rule editor and in the alert it raises. An alert on CPU
+  temperature gives it in °C (#59).
 - After an agent restart, history counts the partial minute of the restart by the seconds it covers, not as
   a full minute (#61).
 - When one history refresh fails, a loaded chart keeps its data with a note that the refresh failed. It used
-  to become a Retry box until the next refresh (#62).
+  to become a Retry box until the next refresh. Range figures such as power average and peak keep their last
+  values too (#62).
 - Two benchmark runner tests no longer fail on a busy machine (#63).
 - The console rejects agent history that holds strings, booleans, NaN or infinity in numeric fields, instead
   of passing it on to the charts (#65).
