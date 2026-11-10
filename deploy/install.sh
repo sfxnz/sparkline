@@ -684,6 +684,8 @@ uninstall() {
 		fi
 		run rm -f "$(p "$UNIT_DIR/$unit")"
 	done
+	# Kept data must not hold a pending request: a later install would start an update at once.
+	run rm -f "$(p "$AGENT_DATA/update-request")"
 	run rm -rf "$(p "$DROPIN_DIR")"
 	[[ $SYSTEM == 1 ]] && run systemctl daemon-reload
 	local name link
