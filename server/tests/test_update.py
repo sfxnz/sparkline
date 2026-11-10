@@ -411,6 +411,15 @@ def test_sparkline_update_is_a_subcommand(capsys: pytest.CaptureFixture[str]) ->
     assert "--check" in capsys.readouterr().out
 
 
+def test_sparkline_help_says_update_reaches_every_node_from_the_console_host(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        sparkline_main(["--help"])
+    epilog = " ".join(capsys.readouterr().out.split())
+    assert "on the console host, every node in /etc/sparkline/console.toml" in epilog
+
+
 # --- the nodes in the console's config ----------------------------------------------------------------
 
 

@@ -412,9 +412,10 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
 - **Remote updates install only the latest release.** `POST /api/v1/update` on an agent needs the agent
   token and takes no parameters. The agent only creates `/var/lib/sparkline-agent/update-request`, and the
   root `sparkline-update.service` it starts runs `sparkline update --this-host`: the latest GitHub release,
-  checked against its `SHA256SUMS`, never a version or URL from the request. So the agent token adds "install
-  the latest official release now", less than benchmarks already allow. The agent's own unit and sandbox
-  are unchanged. It refuses while a benchmark is running.
+  checked against its `SHA256SUMS`, never a version or URL from the request. On a node installed with
+  `--enable-benchmarks`, that adds less than benchmarks already allow. On a monitor-only node it is the first
+  thing the agent token can make run as root, and all it can do is install the latest checksum-verified
+  release now. The agent's own unit and sandbox are unchanged. It refuses while a benchmark is running.
 - **systemd sandboxing.** Both services run as the unprivileged `sparkline` user, with no capabilities,
   `NoNewPrivileges`, a read-only filesystem except their state directory (`ProtectSystem=strict`), a private
   /tmp, a system-call filter, and network access limited to IPv4, IPv6, Unix and netlink sockets. The agent

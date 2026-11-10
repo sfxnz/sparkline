@@ -60,7 +60,8 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         prog="sparkline",
         description="Sparkline aggregator and web API",
-        epilog="sparkline update: update this host to the latest release (sparkline update --help)",
+        epilog="sparkline update: update this host to the latest release, then, on the console host, every "
+        "node in /etc/sparkline/console.toml (sparkline update --help)",
     )
     p.add_argument(
         "--config", type=Path, help="TOML config (default $SPARKLINE_CONFIG or /etc/sparkline/console.toml)"
