@@ -16,6 +16,10 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 - Each GitHub release carries `sparkline-X.Y.Z.tar.gz`, the source with the built web app, and
   `SHA256SUMS` (#86).
 
+### Fixed
+
+- A browser tab left open across an update reloads onto the new web app when it opens a page it had not loaded yet, instead of showing "Settings couldn't be displayed".
+
 ## [0.1.0] - 2026-11-09
 
 The first tagged release. It includes all earlier work on `main`, which had no version tags. The lists
