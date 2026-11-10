@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -364,7 +365,7 @@ def ensure_root(argv: list[str], api: str) -> None:
         # The venv's own script, not `python -m`, which would import from the working directory as root.
         script = Path(sys.executable).with_name("sparkline")
         os.execvp("sudo", ["sudo", str(script), "update", *argv])
-    raise UpdateError("updating needs root. Run: sudo sparkline update")
+    raise UpdateError(f"updating needs root. Run: {shlex.join(['sudo', 'sparkline', 'update', *argv])}")
 
 
 def confirm(question: str) -> None:

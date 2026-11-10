@@ -240,8 +240,18 @@ def test_non_root_without_a_terminal_is_told_to_use_sudo(
     monkeypatch.setattr("sys.stdin", io.StringIO())
     gh = FakeGitHub(tmp_path / "install.log", asset_base=GITHUB_ASSETS)
     assert update.main(["--yes"], {}, gh.client()) == 1
-    assert "Run: sudo sparkline update" in capsys.readouterr().err
+    assert "Run: sudo sparkline update --yes\n" in capsys.readouterr().err
     assert gh.requested == ["/repos/sfxnz/sparkline/releases/latest"]
+
+
+def test_a_check_without_root_names_the_check_in_its_sudo_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host_install: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("os.geteuid", lambda: 1000)
+    monkeypatch.setattr("sys.stdin", io.StringIO())
+    gh = FakeGitHub(tmp_path / "install.log", asset_base=GITHUB_ASSETS)
+    assert update.main(["--check"], {}, gh.client()) == 1
+    assert "Run: sudo sparkline update --check\n" in capsys.readouterr().err
 
 
 class Tty(io.StringIO):
