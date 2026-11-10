@@ -1,0 +1,13 @@
+# Lets the console update this node. The agent cannot install anything: on POST /api/v1/update it only
+# creates the file below, and this unit then starts sparkline-update.service as root. Installed by
+# deploy/install.sh agent.
+
+[Unit]
+Description=Watch for update requests from the Sparkline console
+
+[Path]
+PathExists=/var/lib/sparkline-agent/update-request
+Unit=sparkline-update.service
+
+[Install]
+WantedBy=paths.target

@@ -14,16 +14,13 @@ from sparkline.agent.bench import probes
 from sparkline.agent.bench.runner import BenchRunner
 from sparkline.agent.sampler import Sampler
 
-PATH_UNIT = """\
-[Path]
-PathExists=/var/lib/sparkline-agent/update-request
-"""
+PATH_UNIT = Path(__file__).resolve().parents[2] / "deploy/systemd/sparkline-update.path"
 
 
 def helper_installed(root: Path) -> Path:
     units = root / "etc/systemd/system"
     units.mkdir(parents=True)
-    (units / "sparkline-update.path").write_text(PATH_UNIT)
+    (units / "sparkline-update.path").write_text(PATH_UNIT.read_text())
     state = root / "var/lib/sparkline-agent"
     state.mkdir(parents=True)
     return state
