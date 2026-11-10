@@ -36,6 +36,13 @@ Each pull request that changes what a user sees adds one line under `## [Unrelea
    (cd web && npm version X.Y.Z --no-git-tag-version)
    ```
 
+   The web test fixtures record the demo agents' version. Rerun the server install line from
+   [DEV.md](../DEV.md) so that the server reports `X.Y.Z`, then regenerate the fixtures.
+
+   ```sh
+   (cd server && .venv/bin/python tests/web_fixtures.py)
+   ```
+
 2. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` with today's date. Add an empty
    `## [Unreleased]` above it. At the bottom, point `[Unreleased]` at `vX.Y.Z...HEAD`, and add an `[X.Y.Z]`
    link to the release.
