@@ -273,8 +273,8 @@ node in `console.toml` whose agent is behind to update itself, all at once, wait
 prints one line per node:
 
 ```
-  spark1  updated              0.1.1 -> 0.1.2
-  spark2  busy                 0.1.1: a benchmark is running. Run sudo sparkline update when it ends
+  spark1  updated              0.1.2 -> 0.1.3
+  spark2  busy                 0.1.2: a benchmark is running. Run sudo sparkline update when it ends
 ```
 
 It exits with status 1 if any node is not at the latest release. Run it again once the cause is fixed: nodes
