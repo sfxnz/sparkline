@@ -5,7 +5,10 @@ import io
 import json
 import sys
 import tarfile
+import threading
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import httpx
 import pytest
@@ -16,13 +19,26 @@ from sparkline.console.main import main as sparkline_main
 API = "https://api.example.test/releases"
 GITHUB_ASSETS = "https://github.com/sfxnz/sparkline/releases/download/v0.1.1"
 UNIT = "[Service]\nExecStart=/opt/sparkline/venv/bin/{} --config /etc/sparkline/x.toml\n"
+AGENT_TOKEN = "agent-token-0123456789"
 
 
-def install(root: Path, *, console: bool = True, agent: bool = True, bench: bool = False, version="0.1.0"):
+def install(
+    root: Path,
+    *,
+    console: bool = True,
+    agent: bool = True,
+    bench: bool = False,
+    version="0.1.0",
+    nodes: list[str] = (),
+    agent_token: str = AGENT_TOKEN,
+):
     units = root / "etc/systemd/system"
     units.mkdir(parents=True, exist_ok=True)
     if console:
         (units / "sparkline.service").write_text(UNIT.format("sparkline"))
+        entries = "".join(f'[[nodes]]\nid = "{n}"\nurl = "{node_url(n)}/"\n' for n in nodes)
+        (root / "etc/sparkline").mkdir(parents=True, exist_ok=True)
+        (root / "etc/sparkline/console.toml").write_text(f'agent_token = "{agent_token}"\n{entries}')
     if agent:
         (units / "sparkline-agent.service").write_text(UNIT.format("sparkline-agent"))
     if bench:
@@ -85,9 +101,9 @@ def as_root(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("os.geteuid", lambda: 0)
 
 
-def run(root: Path, gh: FakeGitHub, *argv: str) -> int:
-    env = {"SPARKLINE_UPDATE_ROOT": str(root), "SPARKLINE_RELEASES_API": API}
-    return update.main(list(argv), env, gh.client())
+def run(root: Path, gh: FakeGitHub, *argv: str, agents: FakeAgents | None = None, **env: str) -> int:
+    env = {"SPARKLINE_UPDATE_ROOT": str(root), "SPARKLINE_RELEASES_API": API, **env}
+    return update.main(list(argv), env, gh.client(), (agents or FakeAgents("0.1.1", {})).client())
 
 
 def calls(log: Path) -> list[str]:
@@ -99,7 +115,7 @@ def test_an_up_to_date_host_downloads_nothing(tmp_path: Path, capsys: pytest.Cap
     install(root, version="0.1.1")
     gh = FakeGitHub(log)
     assert run(root, gh) == 0
-    assert "Sparkline 0.1.1 is up to date." in capsys.readouterr().out
+    assert "Sparkline 0.1.1 is up to date on this host." in capsys.readouterr().out
     assert gh.requested == ["/releases/latest"]
     assert calls(log) == []
 
@@ -111,7 +127,7 @@ def test_the_highest_of_several_installed_versions_counts(
     install(root, version="0.1.0")
     (root / "opt/sparkline/venv/lib/python3.12/site-packages/sparkline-0.1.1.dist-info").mkdir()
     assert run(root, FakeGitHub(log)) == 0
-    assert "Sparkline 0.1.1 is up to date." in capsys.readouterr().out
+    assert "Sparkline 0.1.1 is up to date on this host." in capsys.readouterr().out
 
 
 def test_reinstall_reruns_every_installer_on_an_up_to_date_host(tmp_path: Path, as_root: None) -> None:
@@ -250,9 +266,11 @@ def user_on_a_terminal(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
 @pytest.fixture
 def host_install(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A console and an agent 0.1.0 under the real root, without reading this machine's /etc/systemd."""
+    """A console and an agent 0.1.0 under the real root, without reading this machine's /etc/systemd or
+    /etc/sparkline."""
     found = [update.Component(m, Path("/opt/sparkline"), (0, 1, 0)) for m in ("console", "agent")]
     monkeypatch.setattr(update, "detect", lambda root: found if root == Path("/") else [])
+    monkeypatch.setattr(update, "node_targets", lambda root, env: ([], AGENT_TOKEN))
 
 
 def test_non_root_on_a_terminal_reruns_the_venv_script_under_sudo(
@@ -381,3 +399,211 @@ def test_sparkline_update_is_a_subcommand(capsys: pytest.CaptureFixture[str]) ->
         sparkline_main(["update", "--help"])
     assert exit.value.code == 0
     assert "--check" in capsys.readouterr().out
+
+
+# --- the nodes in the console's config ----------------------------------------------------------------
+
+
+def node_url(node_id: str) -> str:
+    return f"http://192.0.2.{ord(node_id[0]) - ord('a') + 10}:9750"
+
+
+Behaviour = Literal["updates", "busy", "no_endpoint", "no_helper", "down", "stuck"]
+
+
+@dataclass
+class FakeNode:
+    version: str
+    behaviour: Behaviour = "updates"
+    asked: int = 0
+    accepted: bool = False  # answered 202
+
+
+class FakeAgents:
+    """Agents that answer GET /api/v1/info and POST /api/v1/update. An "updates" node reports the latest
+    version only once every node that will be asked has been asked, so waiting on one node before asking
+    the next times out."""
+
+    def __init__(self, latest: str, nodes: dict[str, FakeNode], log: Path | None = None):
+        self.latest = latest
+        self.nodes = {node_url(n): node for n, node in nodes.items()}
+        self.log = log
+        self.installs_before_first_ask: list[str] | None = None
+        self.lock = threading.Lock()
+
+    def everyone_asked(self) -> bool:
+        return all(
+            n.accepted for n in self.nodes.values() if n.behaviour == "updates" and n.version != self.latest
+        )
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        node = self.nodes[f"{request.url.scheme}://{request.url.host}:{request.url.port}"]
+        if node.behaviour == "down":
+            raise httpx.ConnectError("Connection refused", request=request)
+        if request.headers.get("authorization") != f"Bearer {AGENT_TOKEN}":
+            return httpx.Response(401)
+        with self.lock:
+            if request.method == "POST" and request.url.path == "/api/v1/update":
+                if self.installs_before_first_ask is None and self.log is not None:
+                    self.installs_before_first_ask = calls(self.log)
+                node.asked += 1
+                status = {"busy": 409, "no_endpoint": 404, "no_helper": 501}.get(node.behaviour, 202)
+                node.accepted = status == 202
+                return httpx.Response(status)
+            if request.url.path == "/api/v1/info":
+                if node.behaviour == "updates" and node.accepted and self.everyone_asked():
+                    node.version = self.latest
+                return httpx.Response(200, json={"agent_version": node.version})
+        return httpx.Response(404)
+
+    def client(self) -> httpx.Client:
+        return httpx.Client(transport=httpx.MockTransport(self.handle))
+
+    def asked(self) -> dict[str, int]:
+        return {url: n.asked for url, n in self.nodes.items()}
+
+
+@pytest.fixture
+def fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(update, "POLL_S", 0.01)
+    monkeypatch.setattr(update, "NODE_TIMEOUT_S", 1.0)
+
+
+def node_lines(out: str) -> dict[str, tuple[str, str]]:
+    """The last per-node line printed for each node: {id: (outcome, detail)}."""
+    lines = [line.split(None, 2) for line in out.splitlines() if line.startswith("  ")]
+    return {parts[0]: (parts[1], parts[2] if len(parts) > 2 else "") for parts in lines}
+
+
+def test_console_host_updates_itself_then_asks_every_node_at_once(
+    tmp_path: Path, as_root: None, fast: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, nodes=["a", "b", "c"])
+    agents = FakeAgents("0.1.1", {n: FakeNode("0.1.0") for n in "abc"}, log)
+    assert run(root, FakeGitHub(log), "--yes", agents=agents) == 0
+    assert agents.installs_before_first_ask == [
+        f"console --yes --prefix /opt/sparkline --destdir {root}",
+        f"agent --yes --prefix /opt/sparkline --destdir {root}",
+    ]
+    assert set(agents.asked().values()) == {1}
+    out = capsys.readouterr().out
+    assert node_lines(out) == {n: ("updated", "0.1.0 -> 0.1.1") for n in "abc"}
+    assert "All 3 nodes run 0.1.1." in out
+
+
+def test_a_rerun_asks_only_the_nodes_still_behind(
+    tmp_path: Path, as_root: None, fast: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, version="0.1.1", nodes=["a", "b"])
+    agents = FakeAgents("0.1.1", {"a": FakeNode("0.1.0", "busy"), "b": FakeNode("0.1.0")})
+    assert run(root, FakeGitHub(log), "--yes", agents=agents) == 1
+    assert node_lines(capsys.readouterr().out)["b"] == ("updated", "0.1.0 -> 0.1.1")
+    agents.nodes[node_url("a")].behaviour = "updates"
+    assert run(root, FakeGitHub(log), "--yes", agents=agents) == 0
+    assert node_lines(capsys.readouterr().out) == {
+        "a": ("updated", "0.1.0 -> 0.1.1"),
+        "b": ("up_to_date", "0.1.1"),
+    }
+    assert agents.asked() == {node_url("a"): 2, node_url("b"): 1}
+    assert run(root, FakeGitHub(log), "--yes", agents=agents) == 0
+    assert agents.asked() == {node_url("a"): 2, node_url("b"): 1}
+    assert calls(log) == []
+
+
+def test_each_node_gets_one_line_and_any_node_left_behind_fails_the_run(
+    tmp_path: Path, as_root: None, fast: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    nodes = {
+        "a": FakeNode("0.1.2"),
+        "b": FakeNode("0.1.1"),
+        "c": FakeNode("0.1.1", "busy"),
+        "d": FakeNode("0.1.1", "no_endpoint"),
+        "e": FakeNode("0.1.0", "no_endpoint"),
+        "f": FakeNode("0.1.1", "no_helper"),
+        "g": FakeNode("0.1.1", "down"),
+        "h": FakeNode("0.1.1", "stuck"),
+    }
+    install(root, version="0.1.2", nodes=list(nodes))
+    assert run(root, FakeGitHub(log, "0.1.2"), "--yes", agents=FakeAgents("0.1.2", nodes)) == 1
+    captured = capsys.readouterr()
+    lines = node_lines(captured.out)
+    assert {n: outcome for n, (outcome, _) in lines.items()} == {
+        "a": "up_to_date",
+        "b": "updated",
+        "c": "busy",
+        "d": "needs_manual_update",
+        "e": "needs_manual_update",
+        "f": "needs_manual_update",
+        "g": "unreachable",
+        "h": "timed_out",
+    }
+    assert lines["d"][1].endswith("Run once on d: sudo sparkline update")
+    assert "Run once on e, from a checkout of the latest release: sudo ./install.sh agent" in lines["e"][1]
+    assert "has no sparkline-update.path" in lines["f"][1]
+    assert lines["h"][1].startswith("still 0.1.1 after 1 s")
+    assert "6 of 8 nodes are not at 0.1.2" in captured.out.split("Result:")[1]
+
+
+def test_check_lists_this_host_and_every_node_and_asks_none(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, version="0.1.1", nodes=["a", "b", "c"])
+    agents = FakeAgents(
+        "0.1.1", {"a": FakeNode("0.1.1"), "b": FakeNode("0.1.0"), "c": FakeNode("0.1.0", "down")}
+    )
+    assert run(root, FakeGitHub(log), "--check", agents=agents) == 0
+    out = capsys.readouterr().out
+    assert "Sparkline 0.1.1 is up to date on this host." in out
+    lines = node_lines(out)
+    assert lines["a"] == ("up_to_date", "0.1.1")
+    assert lines["b"] == ("update_available", "0.1.0, latest 0.1.1")
+    assert lines["c"][0] == "unreachable"
+    assert "Run: sudo sparkline update" in out
+    assert set(agents.asked().values()) == {0}
+
+
+def test_dry_run_lists_the_nodes_it_would_ask_and_asks_none(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, nodes=["a", "b"])
+    agents = FakeAgents("0.1.1", {"a": FakeNode("0.1.1"), "b": FakeNode("0.1.0")})
+    assert run(root, FakeGitHub(log), "--dry-run", agents=agents) == 0
+    assert "Dry run: would ask 1 of 2 nodes to update (b)." in capsys.readouterr().out
+    assert all(line.endswith("--dry-run") for line in calls(log)) and len(calls(log)) == 2
+    assert set(agents.asked().values()) == {0}
+
+
+def test_this_host_updates_only_this_host(tmp_path: Path, as_root: None) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, nodes=["a"])
+    agents = FakeAgents("0.1.1", {"a": FakeNode("0.1.0", "down")})
+    assert run(root, FakeGitHub(log), "--yes", "--this-host", agents=agents) == 0
+    assert [line.split()[0] for line in calls(log)] == ["console", "agent"]
+
+
+def test_the_agent_token_comes_from_the_console_config_and_its_env_override(
+    tmp_path: Path, as_root: None, fast: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, version="0.1.1", nodes=["a"], agent_token="not-the-agents-token")
+    agents = FakeAgents("0.1.1", {"a": FakeNode("0.1.0")})
+    assert run(root, FakeGitHub(log), "--yes", agents=agents) == 1
+    outcome, detail = node_lines(capsys.readouterr().out)["a"]
+    assert outcome == "error" and "agent_token does not match" in detail
+    assert run(root, FakeGitHub(log), "--yes", agents=agents, SPARKLINE_AGENT_TOKEN=AGENT_TOKEN) == 0
+
+
+def test_a_console_without_a_readable_node_list_changes_nothing(
+    tmp_path: Path, as_root: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root)
+    (root / "etc/sparkline/console.toml").unlink()
+    assert run(root, FakeGitHub(log), "--yes") == 1
+    assert "cannot read the nodes from" in capsys.readouterr().err
+    assert calls(log) == []

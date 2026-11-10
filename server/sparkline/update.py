@@ -1,5 +1,7 @@
 """`sparkline update`: update the console and the agent that deploy/install.sh installed on this host to the
-latest GitHub release, by running that release's own installer in the same mode and prefix."""
+latest GitHub release, by running that release's own installer in the same mode and prefix. On the console
+host it then asks every node in the console's config to do the same, through each agent's
+POST /api/v1/update."""
 
 from __future__ import annotations
 
@@ -11,16 +13,25 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
 import httpx
 
+from .console.config import load_config as load_console_config
+
 RELEASES_API = "https://api.github.com/repos/sfxnz/sparkline/releases"
 UNIT_DIR = Path("etc/systemd/system")
 BENCHMARKS_DROPIN = UNIT_DIR / "sparkline-agent.service.d/10-benchmarks.conf"
+CONSOLE_CONFIG = Path("etc/sparkline/console.toml")
+NODE_TIMEOUT_S = 600.0  # a node downloads the release and rebuilds its venv, then restarts its agent
+POLL_S = 2.0
+FIRST_WITH_UPDATE = (0, 1, 1)  # the first release that has `sparkline update`
 
 Mode = Literal["console", "agent"]
 # install.sh modes in the order an update runs them: the console before the agents (docs/RELEASING.md).
@@ -59,6 +70,36 @@ class Release:
     @property
     def tarball(self) -> str:
         return f"sparkline-{show(self.version)}.tar.gz"
+
+
+@dataclass(frozen=True)
+class NodeTarget:
+    """One [[nodes]] entry of the console's config: an agent to update."""
+
+    id: str
+    url: str
+
+
+class Outcome(StrEnum):
+    UP_TO_DATE = "up_to_date"
+    UPDATE_AVAILABLE = "update_available"  # --check and --dry-run: the node was not asked
+    UPDATED = "updated"
+    BUSY = "busy"  # a benchmark is running there
+    NEEDS_MANUAL_UPDATE = "needs_manual_update"  # its agent cannot update itself: someone must log in once
+    UNREACHABLE = "unreachable"
+    TIMED_OUT = "timed_out"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class NodeResult:
+    node: NodeTarget
+    outcome: Outcome
+    detail: str
+
+    @property
+    def current(self) -> bool:
+        return self.outcome in (Outcome.UP_TO_DATE, Outcome.UPDATED)
 
 
 def parse_version(text: str) -> Version | None:
@@ -208,6 +249,107 @@ def run_installers(tree: Path, steps: list[list[str]]) -> None:
             )
 
 
+def node_targets(root: Path, env: Mapping[str, str]) -> tuple[list[NodeTarget], str]:
+    """The console's [[nodes]] and agent token, read with the console's own loader and env overrides."""
+    path = root / CONSOLE_CONFIG
+    try:
+        cfg = load_console_config(path, env)
+    except (OSError, ValueError) as e:
+        raise UpdateError(f"cannot read the nodes from {path}: {e}") from None
+    return [NodeTarget(n.id, n.url.rstrip("/")) for n in cfg.nodes], cfg.agent_token
+
+
+def agent_version(client: httpx.Client, node: NodeTarget, headers: dict[str, str]) -> Version | None:
+    r = client.get(f"{node.url}/api/v1/info", headers=headers)
+    r.raise_for_status()
+    return parse_version(str(r.json()["agent_version"]))
+
+
+def manual_update(node: NodeTarget, version: Version | None) -> str:
+    if version is not None and version >= FIRST_WITH_UPDATE:
+        return (
+            f"agent {show(version)} cannot be updated remotely. Run once on {node.id}: sudo sparkline update"
+        )
+    return (
+        f"agent {show(version)} cannot be updated remotely. Run once on {node.id}, from a checkout of the "
+        "latest release: sudo ./install.sh agent (add --enable-benchmarks if it runs benchmarks)"
+    )
+
+
+def update_node(
+    client: httpx.Client, node: NodeTarget, headers: dict[str, str], latest: Version, ask: bool
+) -> NodeResult:
+    """Read the node's version and, if it is behind and ask is set, ask it to update and wait until it is."""
+    try:
+        before = agent_version(client, node, headers)
+    except httpx.TransportError as e:
+        return NodeResult(node, Outcome.UNREACHABLE, f"{node.url}: {e}")
+    except httpx.HTTPStatusError as e:
+        hint = (
+            ": the console's agent_token does not match this node's token"
+            if e.response.status_code == 401
+            else ""
+        )
+        return NodeResult(node, Outcome.ERROR, f"HTTP {e.response.status_code} from {e.request.url}{hint}")
+    except (ValueError, KeyError) as e:
+        return NodeResult(node, Outcome.ERROR, f"unexpected answer from {node.url}/api/v1/info: {e!r}")
+    if before is not None and before >= latest:
+        return NodeResult(node, Outcome.UP_TO_DATE, show(before))
+    if not ask:
+        return NodeResult(node, Outcome.UPDATE_AVAILABLE, f"{show(before)}, latest {show(latest)}")
+    try:
+        r = client.post(f"{node.url}/api/v1/update", headers=headers)
+    except httpx.TransportError as e:
+        return NodeResult(node, Outcome.UNREACHABLE, f"{node.url}: {e}")
+    if r.status_code == 409:
+        return NodeResult(
+            node,
+            Outcome.BUSY,
+            f"{show(before)}: a benchmark is running. Run sudo sparkline update when it ends",
+        )
+    if r.status_code == 404:  # an agent older than POST /api/v1/update
+        return NodeResult(node, Outcome.NEEDS_MANUAL_UPDATE, manual_update(node, before))
+    if r.status_code == 501:
+        return NodeResult(
+            node,
+            Outcome.NEEDS_MANUAL_UPDATE,
+            f"agent {show(before)} has no sparkline-update.path: update {node.id} the way it was installed, "
+            "or reinstall it with install.sh agent",
+        )
+    if r.status_code != 202:
+        return NodeResult(node, Outcome.ERROR, f"HTTP {r.status_code} from POST {node.url}/api/v1/update")
+    now = before
+    deadline = time.monotonic() + NODE_TIMEOUT_S
+    while time.monotonic() < deadline:
+        time.sleep(POLL_S)
+        try:
+            now = agent_version(client, node, headers)
+        except (httpx.HTTPError, ValueError, KeyError):
+            continue  # its agent restarts at the end of the update
+        if now is not None and now >= latest:
+            return NodeResult(node, Outcome.UPDATED, f"{show(before)} -> {show(now)}")
+    return NodeResult(
+        node,
+        Outcome.TIMED_OUT,
+        f"still {show(now)} after {NODE_TIMEOUT_S:.0f} s. On {node.id}: journalctl -u sparkline-update",
+    )
+
+
+def update_nodes(
+    client: httpx.Client, nodes: list[NodeTarget], token: str, latest: Version, ask: bool
+) -> list[NodeResult]:
+    """All nodes at once, so a cluster takes as long as its slowest node."""
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    with ThreadPoolExecutor(max_workers=max(1, len(nodes))) as pool:
+        return list(pool.map(lambda n: update_node(client, n, headers, latest, ask), nodes))
+
+
+def print_nodes(results: list[NodeResult]) -> None:
+    width = max((len(r.node.id) for r in results), default=0)
+    for r in results:
+        print(f"  {r.node.id:<{width}}  {r.outcome:<19}  {r.detail}")
+
+
 def ensure_root(argv: list[str], api: str) -> None:
     if os.geteuid() == 0:
         return
@@ -232,18 +374,40 @@ def confirm(question: str) -> None:
         raise UpdateError("cancelled: nothing was changed")
 
 
-def update(args: argparse.Namespace, argv: list[str], root: Path, api: str, client: httpx.Client) -> int:
+def update(
+    args: argparse.Namespace,
+    argv: list[str],
+    root: Path,
+    api: str,
+    env: Mapping[str, str],
+    client: httpx.Client,
+    agents: httpx.Client,
+) -> int:
     installed = detect(root)
     if not installed:
         raise UpdateError(NOT_INSTALLED)
     release = latest_release(client, api)
     steps = plan(installed, release, root, args.dry_run, args.reinstall)
+    fleet = not args.this_host and any(c.mode == "console" for c in installed)
+    nodes: list[NodeTarget] = []
+    token = ""
+    if fleet:
+        if root == Path("/"):  # the agent token is in a root-only file
+            ensure_root(argv, api)
+        nodes, token = node_targets(root, env)
     for c in installed:
         print(f"Installed: {describe(c)}")
-    if not steps:
-        print(f"Sparkline {show(release.version)} is up to date.")
+    if steps:
+        print(f"Latest release: {show(release.version)}")
+    else:
+        print(f"Sparkline {show(release.version)} is up to date on this host.")
+    before = update_nodes(agents, nodes, token, release.version, ask=False) if nodes else []
+    if fleet:
+        print(f"Nodes in /{CONSOLE_CONFIG}:" if nodes else f"No [[nodes]] in /{CONSOLE_CONFIG}.")
+        print_nodes(before)
+    behind = [r.node for r in before if not r.current]
+    if not steps and not behind:
         return 0
-    print(f"Latest release: {show(release.version)}")
     if args.check:
         print("Run: sudo sparkline update")
         return 0
@@ -251,8 +415,43 @@ def update(args: argparse.Namespace, argv: list[str], root: Path, api: str, clie
         if root == Path("/"):  # a staged root goes to install.sh --destdir, which needs no root
             ensure_root(argv, api)
         if not args.yes:
-            parts = " and the ".join(s[0] for s in steps)
-            confirm(f"Update the {parts} to {show(release.version)} and restart them?")
+            parts = [" and the ".join(s[0] for s in steps)] if steps else []
+            if behind:
+                parts.append(
+                    f"{len(behind)} node{'s' * (len(behind) > 1)} ({', '.join(n.id for n in behind)})"
+                )
+            confirm(f"Update the {', then '.join(parts)} to {show(release.version)} and restart them?")
+    if steps:
+        update_this_host(args, release, steps, client)
+    if not behind:
+        return 0
+    ids = ", ".join(n.id for n in behind)
+    if args.dry_run:
+        print(f"Dry run: would ask {len(behind)} of {len(nodes)} nodes to update ({ids}).")
+        return 0
+    print(
+        f"\nAsking {ids} to update to {show(release.version)}, all at once. Waiting up to "
+        f"{NODE_TIMEOUT_S / 60:.0f} minutes.",
+        flush=True,
+    )
+    asked = {r.node: r for r in update_nodes(agents, behind, token, release.version, ask=True)}
+    results = [asked.get(r.node, r) for r in before]
+    print("Result:")
+    print_nodes(results)
+    failed = [r for r in results if not r.current]
+    if failed:
+        print(
+            f"{len(failed)} of {len(results)} nodes are not at {show(release.version)}: see above. "
+            "Run sudo sparkline update again once fixed; nodes already up to date are skipped."
+        )
+        return 1
+    print(f"All {len(results)} nodes run {show(release.version)}.")
+    return 0
+
+
+def update_this_host(
+    args: argparse.Namespace, release: Release, steps: list[list[str]], client: httpx.Client
+) -> None:
     with tempfile.TemporaryDirectory(prefix="sparkline-update-") as tmp:
         tarball = Path(tmp) / release.tarball
         print(f"Downloading {release.tarball}", flush=True)
@@ -266,33 +465,46 @@ def update(args: argparse.Namespace, argv: list[str], root: Path, api: str, clie
     if args.dry_run:
         print(f"\nDry run: the {release.tarball} installers ran with --dry-run. Nothing was changed.")
     else:
-        print(f"\nSparkline updated to {show(release.version)}.")
-    return 0
+        print(f"\nSparkline updated to {show(release.version)} on this host.", flush=True)
 
 
-def main(argv: list[str], env: Mapping[str, str] = os.environ, client: httpx.Client | None = None) -> int:
+def main(
+    argv: list[str],
+    env: Mapping[str, str] = os.environ,
+    client: httpx.Client | None = None,
+    agents: httpx.Client | None = None,
+) -> int:
     p = argparse.ArgumentParser(
         prog="sparkline update",
-        description="Update the Sparkline console and agent installed on this host by install.sh to the "
-        "latest release. Config and data are kept. Run it on the console host first, then on each node.",
+        description="Update Sparkline to the latest release. On the console host it updates this host (the "
+        "console, then its agent), then every node in /etc/sparkline/console.toml, all at once. On any other "
+        "host it updates only that host. Config and data are kept.",
     )
-    p.add_argument("--check", action="store_true", help="compare with the latest release, change nothing")
     p.add_argument(
-        "--dry-run", action="store_true", help="download and verify, then run the installers with --dry-run"
+        "--check", action="store_true", help="compare this host and every node with the latest release"
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="download and verify, run this host's installers with --dry-run, list the nodes it would ask",
     )
     p.add_argument(
         "--reinstall",
         action="store_true",
         help="run the latest release's installer for every component, even one already at that version",
     )
+    p.add_argument("--this-host", action="store_true", help="update only this host, not the nodes")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
     args = p.parse_args(argv)
     # Test seams: a staged root (passed to install.sh as --destdir) and a local fake of the GitHub API.
     root = Path(env.get("SPARKLINE_UPDATE_ROOT") or "/")
     api = (env.get("SPARKLINE_RELEASES_API") or RELEASES_API).rstrip("/")
     try:
-        with client or httpx.Client(follow_redirects=True, timeout=30) as c:
-            return update(args, argv, root, api, c)
+        with (
+            client or httpx.Client(follow_redirects=True, timeout=30) as c,
+            agents or httpx.Client(timeout=10) as a,
+        ):
+            return update(args, argv, root, api, env, c, a)
     except UpdateError as e:
         sys.stdout.flush()
         print(f"sparkline update: {e}", file=sys.stderr)
