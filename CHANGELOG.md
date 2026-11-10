@@ -7,6 +7,14 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-10
+
+### Upgrading
+
+Sparkline 0.1.0 has no `sparkline update`, so upgrade a 0.1.0 host to 0.1.1 from a checkout of `v0.1.1`, as
+[docs/RELEASING.md](https://github.com/sfxnz/sparkline/blob/main/docs/RELEASING.md#upgrade-the-console-before-the-agents)
+says. After that, `sudo sparkline update` installs each later release.
+
 ### Added
 
 - `sudo sparkline update` updates the console and the agent on a host to the latest release. It keeps the
@@ -18,7 +26,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ### Fixed
 
-- A browser tab left open across an update reloads onto the new web app when it opens a page it had not loaded yet, instead of showing "Settings couldn't be displayed".
+- A browser tab left open across an update reloads onto the new web app when it opens a page it had not
+  loaded yet, instead of showing "Settings couldn't be displayed" (#87).
 
 ## [0.1.0] - 2026-11-09
 
@@ -117,5 +126,6 @@ gives the upgrade commands.
 - The web tests' copy of undici, which jsdom pulls in, moves from 8.11.2 to 8.12.3 and gets the security fixes
   of undici 8.12.2. The built web app does not include undici (#73).
 
-[Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.1
 [0.1.0]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.0
