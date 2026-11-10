@@ -9,9 +9,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ### Upgrading
 
-Agents from 0.1.1 and older cannot be updated from the console yet. After `sudo sparkline update` on the
-console host, run `sudo sparkline update` once on each 0.1.1 node (the console's output lists them as
-`needs_manual_update`). From then on, the console host's `sudo sparkline update` updates every node.
+Hosts on 0.1.1 have no remote update yet, so this upgrade is the last one done host by host. Run
+`sudo sparkline update` once on the console host and once on each other 0.1.1 node. On older nodes, run the
+installer from a checkout. From then on, one `sudo sparkline update` on the console host updates every node.
 
 ### Added
 
