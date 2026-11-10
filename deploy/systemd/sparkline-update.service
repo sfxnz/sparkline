@@ -7,6 +7,9 @@
 Description=Update Sparkline on this host to the latest release
 Wants=network-online.target
 After=network-online.target
+# Each request starts a run, and a node that is already current finishes in a second. The default start
+# limit would fail the path unit after a few quick requests and leave this node deaf until reset-failed.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot

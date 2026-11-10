@@ -48,3 +48,8 @@ def test_the_service_clears_the_request_the_path_unit_watches_and_never_fans_out
     assert f"ExecStartPre=/bin/rm -f {request}\n" in service
     assert "ExecStart=/opt/sparkline/venv/bin/sparkline update --yes --this-host\n" in service
     assert "ReadWritePaths=/var/lib/sparkline-agent\n" in (UNITS / "sparkline-agent.service").read_text()
+
+
+def test_back_to_back_requests_never_hit_the_start_limit() -> None:
+    unit = (UNITS / "sparkline-update.service").read_text().split("[Service]")[0]
+    assert "\nStartLimitIntervalSec=0\n" in unit
