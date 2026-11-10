@@ -414,11 +414,16 @@ def test_sparkline_update_is_a_subcommand(capsys: pytest.CaptureFixture[str]) ->
 # --- the nodes in the console's config ----------------------------------------------------------------
 
 
+HERE = "here"  # the console host's own agent, listed in [[nodes]] by a local address
+
+
 def node_url(node_id: str) -> str:
+    if node_id == HERE:
+        return "http://127.0.0.1:9750"
     return f"http://192.0.2.{ord(node_id[0]) - ord('a') + 10}:9750"
 
 
-Behaviour = Literal["updates", "busy", "no_endpoint", "no_helper", "down", "stuck"]
+Behaviour = Literal["updates", "busy", "no_endpoint", "no_helper", "down", "stuck", "this_host"]
 
 
 @dataclass
@@ -427,6 +432,7 @@ class FakeNode:
     behaviour: Behaviour = "updates"
     asked: int = 0
     accepted: bool = False  # answered 202
+    restarts: int = 0  # this_host: reads refused once this host's agent installer ran, while it restarts
 
 
 class FakeAgents:
@@ -452,6 +458,11 @@ class FakeAgents:
             raise httpx.ConnectError("Connection refused", request=request)
         if request.headers.get("authorization") != f"Bearer {AGENT_TOKEN}":
             return httpx.Response(401)
+        if node.behaviour == "this_host" and any(c.startswith("agent ") for c in calls(self.log)):
+            if node.restarts:
+                node.restarts -= 1
+                raise httpx.ConnectError("Connection refused", request=request)
+            node.version = self.latest
         with self.lock:
             if request.method == "POST" and request.url.path == "/api/v1/update":
                 if self.installs_before_first_ask is None and self.log is not None:
@@ -619,3 +630,68 @@ def test_a_console_without_a_readable_node_list_changes_nothing(
     assert "cannot read the nodes from" in err
     assert "sudo sparkline update --this-host updates only this host" in err
     assert calls(log) == []
+
+
+def test_this_hosts_own_agent_is_updated_by_this_host_and_never_asked(
+    tmp_path: Path, as_root: None, fast: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, nodes=[HERE, "b"])
+    agents = FakeAgents("0.1.1", {HERE: FakeNode("0.1.0", "this_host"), "b": FakeNode("0.1.0")}, log)
+    assert run(root, FakeGitHub(log), "--yes", agents=agents) == 0
+    assert agents.asked() == {node_url(HERE): 0, node_url("b"): 1}
+    out = capsys.readouterr().out
+    assert "Asking b to update to 0.1.1" in out
+    assert node_lines(out.split("Result:")[1]) == {
+        HERE: ("updated", "0.1.0 -> 0.1.1 (this host)"),
+        "b": ("updated", "0.1.0 -> 0.1.1"),
+    }
+    assert "All 2 nodes run 0.1.1." in out
+
+
+def test_this_hosts_own_agent_is_left_out_of_the_question(
+    tmp_path: Path, as_root: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, nodes=[HERE, "b"])
+    agents = FakeAgents("0.1.1", {HERE: FakeNode("0.1.0", "this_host"), "b": FakeNode("0.1.0")}, log)
+    questions: list[str] = []
+    monkeypatch.setattr("sys.stdin", Tty())
+    monkeypatch.setattr("builtins.input", lambda q: questions.append(q) or "n")
+    assert run(root, FakeGitHub(log), agents=agents) == 1
+    assert questions == [
+        "Update the console and the agent, then 1 node (b) to 0.1.1 and restart them? [y/N] "
+    ]
+
+
+def test_dry_run_leaves_this_hosts_own_agent_out_of_the_nodes_to_ask(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, nodes=[HERE, "b"])
+    agents = FakeAgents("0.1.1", {HERE: FakeNode("0.1.0", "this_host"), "b": FakeNode("0.1.0")}, log)
+    assert run(root, FakeGitHub(log), "--dry-run", agents=agents) == 0
+    assert "Dry run: would ask 1 of 2 nodes to update (b)." in capsys.readouterr().out
+    assert set(agents.asked().values()) == {0}
+
+
+def test_this_hosts_own_agent_restarting_after_its_update_is_waited_for(
+    tmp_path: Path, as_root: None, fast: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, nodes=[HERE])
+    agents = FakeAgents("0.1.1", {HERE: FakeNode("0.1.0", "this_host", restarts=3)}, log)
+    assert run(root, FakeGitHub(log), "--yes", agents=agents) == 0
+    assert node_lines(capsys.readouterr().out.split("Result:")[1]) == {
+        HERE: ("updated", "0.1.0 -> 0.1.1 (this host)")
+    }
+
+
+def test_a_local_node_is_asked_when_this_host_runs_no_agent(
+    tmp_path: Path, as_root: None, fast: None
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, agent=False, nodes=[HERE])
+    agents = FakeAgents("0.1.1", {HERE: FakeNode("0.1.0")}, log)
+    assert run(root, FakeGitHub(log), "--yes", agents=agents) == 0
+    assert agents.asked() == {node_url(HERE): 1}

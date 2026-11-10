@@ -10,12 +10,13 @@ import hashlib
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import StrEnum
@@ -322,6 +323,17 @@ def update_node(
         )
     if r.status_code != 202:
         return NodeResult(node, Outcome.ERROR, f"HTTP {r.status_code} from POST {node.url}/api/v1/update")
+    return wait_until_current(client, node, headers, latest, before, "sparkline-update")
+
+
+def wait_until_current(
+    client: httpx.Client,
+    node: NodeTarget,
+    headers: dict[str, str],
+    latest: Version,
+    before: Version | None,
+    unit: str,
+) -> NodeResult:
     now = before
     deadline = time.monotonic() + NODE_TIMEOUT_S
     while time.monotonic() < deadline:
@@ -335,23 +347,54 @@ def update_node(
     return NodeResult(
         node,
         Outcome.TIMED_OUT,
-        f"still {show(now)} after {NODE_TIMEOUT_S:.0f} s. On {node.id}: journalctl -u sparkline-update",
+        f"still {show(now)} after {NODE_TIMEOUT_S:.0f} s. On {node.id}: journalctl -u {unit}",
     )
 
 
 def update_nodes(
-    client: httpx.Client, nodes: list[NodeTarget], token: str, latest: Version, ask: bool
+    client: httpx.Client,
+    nodes: list[NodeTarget],
+    token: str,
+    latest: Version,
+    ask: bool,
+    updated_here: Mapping[NodeTarget, Version | None] | None = None,
 ) -> list[NodeResult]:
-    """All nodes at once, so a cluster takes as long as its slowest node."""
+    """All nodes at once, so a cluster takes as long as its slowest node. A node in updated_here is this
+    host's own agent, which this host's update already installed: it is only waited for, from the version
+    given."""
     headers = {"Authorization": f"Bearer {token}"} if token else {}
+    here = updated_here or {}
+
+    def one(n: NodeTarget) -> NodeResult:
+        if n in here:
+            return wait_until_current(client, n, headers, latest, here[n], "sparkline-agent")
+        return update_node(client, n, headers, latest, ask)
+
     with ThreadPoolExecutor(max_workers=max(1, len(nodes))) as pool:
-        return list(pool.map(lambda n: update_node(client, n, headers, latest, ask), nodes))
+        return list(pool.map(one, nodes))
 
 
-def print_nodes(results: list[NodeResult]) -> None:
+def on_this_host(url: str) -> bool:
+    """Whether the URL's host is an address of this host: only a local address can be bound."""
+    try:
+        addresses = socket.getaddrinfo(httpx.URL(url).host, None, proto=socket.IPPROTO_TCP)
+    except (OSError, UnicodeError, httpx.InvalidURL):
+        return False
+    for family, kind, proto, _, address in addresses:
+        try:
+            with socket.socket(family, kind, proto) as s:
+                s.bind((address[0], 0, *address[2:]))
+        except OSError:
+            continue
+        return True
+    return False
+
+
+def print_nodes(results: list[NodeResult], here: Collection[NodeTarget] = ()) -> None:
     width = max((len(r.node.id) for r in results), default=0)
     for r in results:
-        print(f"  {r.node.id:<{width}}  {r.outcome:<19}  {r.detail}")
+        mark = " (this host)" if r.node in here else ""
+        print(f"  {r.node.id:<{width}}  {r.outcome:<19}  {r.detail}{mark}")
 
 
 def ensure_root(argv: list[str], api: str) -> None:
@@ -394,11 +437,14 @@ def update(
     steps = plan(installed, release, root, args.dry_run, args.reinstall)
     fleet = not args.this_host and any(c.mode == "console" for c in installed)
     nodes: list[NodeTarget] = []
+    here: set[NodeTarget] = set()  # this host's own agent, which this host's update installs
     token = ""
     if fleet:
         if root == Path("/"):  # the agent token is in a root-only file
             ensure_root(argv, api)
         nodes, token = node_targets(root, env)
+        if any(c.mode == "agent" for c in installed):
+            here = {n for n in nodes if on_this_host(n.url)}
     for c in installed:
         print(f"Installed: {describe(c)}")
     if steps:
@@ -408,9 +454,10 @@ def update(
     before = update_nodes(agents, nodes, token, release.version, ask=False) if nodes else []
     if fleet:
         print(f"Nodes in /{CONSOLE_CONFIG}:" if nodes else f"No [[nodes]] in /{CONSOLE_CONFIG}.")
-        print_nodes(before)
+        print_nodes(before, here)
     behind = [r.node for r in before if not r.current]
-    if not steps and not behind:
+    asking = [n for n in behind if n not in here]
+    if not steps and not asking:
         return 0
     if args.check:
         print("Run: sudo sparkline update")
@@ -420,28 +467,34 @@ def update(
             ensure_root(argv, api)
         if not args.yes:
             parts = [" and the ".join(s[0] for s in steps)] if steps else []
-            if behind:
+            if asking:
                 parts.append(
-                    f"{len(behind)} node{'s' * (len(behind) > 1)} ({', '.join(n.id for n in behind)})"
+                    f"{len(asking)} node{'s' * (len(asking) > 1)} ({', '.join(n.id for n in asking)})"
                 )
             confirm(f"Update the {', then '.join(parts)} to {show(release.version)} and restart them?")
     if steps:
         update_this_host(args, release, steps, client)
-    if not behind:
-        return 0
-    ids = ", ".join(n.id for n in behind)
+    ids = ", ".join(n.id for n in asking)
     if args.dry_run:
-        print(f"Dry run: would ask {len(behind)} of {len(nodes)} nodes to update ({ids}).")
+        if asking:
+            print(f"Dry run: would ask {len(asking)} of {len(nodes)} nodes to update ({ids}).")
         return 0
-    print(
-        f"\nAsking {ids} to update to {show(release.version)}, all at once. Waiting up to "
-        f"{NODE_TIMEOUT_S / 60:.0f} minutes.",
-        flush=True,
+    agent_before = next((c.version for c in installed if c.mode == "agent"), None)
+    updated_here = (
+        {n: agent_before for n in behind if n in here} if any(s[0] == "agent" for s in steps) else {}
     )
-    asked = {r.node: r for r in update_nodes(agents, behind, token, release.version, ask=True)}
-    results = [asked.get(r.node, r) for r in before]
+    if not asking and not updated_here:
+        return 0
+    wait = f"Waiting up to {NODE_TIMEOUT_S / 60:.0f} minutes"
+    if asking:
+        print(f"\nAsking {ids} to update to {show(release.version)}, all at once. {wait}.", flush=True)
+    else:
+        print(f"\n{wait} for this host's agent to report {show(release.version)}.", flush=True)
+    done = update_nodes(agents, asking + list(updated_here), token, release.version, True, updated_here)
+    finished = {r.node: r for r in done}
+    results = [finished.get(r.node, r) for r in before]
     print("Result:")
-    print_nodes(results)
+    print_nodes(results, here)
     failed = [r for r in results if not r.current]
     if failed:
         print(
