@@ -19,7 +19,7 @@ console host, run `sudo sparkline update` once on each 0.1.1 node (the console's
   `console.toml` that is behind, all at once, with one result line per node. `--check` and `--dry-run` list
   every node; `--this-host` updates only the host it runs on. Each agent gets `POST /api/v1/update`, which
   only asks the new root helper units `sparkline-update.path` and `sparkline-update.service` to install the
-  latest release (#NN).
+  latest release (#89).
 
 ## [0.1.1] - 2026-11-10
 
