@@ -91,15 +91,22 @@ name its version tag, such as `ghcr.io/sfxnz/sparkline:0.1.0`.
 Each release keeps the console able to read older agents. An older console can misread a newer agent, and
 the **Upgrading** part of each `CHANGELOG.md` section says how. Upgrade the console first, then each agent.
 
-On the console host, and then on each node, run:
+On the console host, run:
 
 ```sh
 sudo sparkline update
 ```
 
-It installs the latest release over the console, the agent, or both, as `install.sh` installed them on
-that host. Versions older than 0.1.1 have no `sparkline update`, and Docker Compose does not use it. Upgrade
-those from a checkout.
+It installs the latest release over the console and then the agent on that host, as `install.sh` installed
+them. Then it asks each node in `console.toml` whose agent is behind to update itself, all at once, and prints
+one line per node. So the console is upgraded before the agents. Run it again after fixing a node that
+failed: nodes already up to date are skipped.
+
+A node updates itself through `sparkline-update.path` and `sparkline-update.service`, which `install.sh agent`
+installs from 0.1.2 on. Agents older than 0.1.2 lack them and show `needs_manual_update`: run
+`sudo sparkline update` once on a 0.1.1 node, and the installer from a checkout on an older one. On a node,
+`sudo sparkline update` updates only that node. Versions older than 0.1.1 have no `sparkline update`, and
+Docker Compose does not use it. Upgrade those from a checkout.
 
 To upgrade from a checkout, on the console host, check out the new tag and run the installer:
 

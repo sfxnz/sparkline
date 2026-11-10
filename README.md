@@ -255,17 +255,34 @@ console's Origin check passes. Tailnet traffic is already encrypted by WireGuard
 
 ### Update
 
+On the console host:
+
 ```sh
-sparkline update --check          # compare this host with the latest release; changes nothing
-sudo sparkline update             # update the console and the agent on this host to the latest release
-sudo sparkline update --dry-run   # download and verify the release, then print what its installer would do
+sudo sparkline update --check     # compare this host and every node with the latest release; changes nothing
+sudo sparkline update             # update this host, then every node in console.toml, to the latest release
+sudo sparkline update --dry-run   # download and verify the release, print what its installer would do here,
+                                  # and list the nodes it would ask
 sudo sparkline update --reinstall # run the installer again even where the version is current, after a failure
+sudo sparkline update --this-host # update only this host
 ```
 
 `sparkline update` downloads the latest GitHub release, checks it against the release's `SHA256SUMS`, and runs
 that release's `install.sh` for each part that this host runs: the console first, then the agent. It keeps
-the config, the data, the install prefix and `--enable-benchmarks`. Update the console host first, then each
-node. Sparkline 0.1.1 is the first version with `sparkline update`, so install 0.1.1 from a checkout once
+the config, the data, the install prefix and `--enable-benchmarks`. On the console host it then asks every
+node in `console.toml` whose agent is behind to update itself, all at once, waits up to 10 minutes, and
+prints one line per node:
+
+```
+  spark1  updated              0.1.1 -> 0.1.2
+  spark2  busy                 0.1.1: a benchmark is running. Run sudo sparkline update when it ends
+```
+
+It exits with status 1 if any node is not at the latest release. Run it again once the cause is fixed: nodes
+that are already up to date are skipped. A node updates itself through a small root helper that
+`install.sh agent` installs (`sparkline-update.path` and `sparkline-update.service`); it is the same
+`sparkline update`, limited to that node. Agents older than 0.1.2 don't have the helper, so each such node
+shows `needs_manual_update` with the one command to run there once. Sparkline 0.1.1 is the first version with
+`sparkline update`, so install 0.1.1 or later from a checkout once
 ([docs/RELEASING.md](docs/RELEASING.md#upgrade-the-console-before-the-agents)).
 
 With Docker Compose, run `git pull` and `docker compose -f deploy/docker-compose.yml up -d --build` instead.
@@ -392,6 +409,12 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   Without the flag the agent is monitor-only: GPU benchmarks report Docker as unavailable, the host-side
   benchmarks (CPU, storage, RDMA, LLM inference, tool-calling evaluation) report the agent as CPU-capped, and
   container names in the process table fall back to short container ids.
+- **Remote updates install only the latest release.** `POST /api/v1/update` on an agent needs the agent
+  token and takes no parameters. The agent only creates `/var/lib/sparkline-agent/update-request`, and the
+  root `sparkline-update.service` it starts runs `sparkline update --this-host`: the latest GitHub release,
+  checked against its `SHA256SUMS`, never a version or URL from the request. So the agent token adds "install
+  the latest official release now", less than benchmarks already allow. The agent's own unit and sandbox
+  are unchanged. It refuses while a benchmark is running.
 - **systemd sandboxing.** Both services run as the unprivileged `sparkline` user, with no capabilities,
   `NoNewPrivileges`, a read-only filesystem except their state directory (`ProtectSystem=strict`), a private
   /tmp, a system-call filter, and network access limited to IPv4, IPv6, Unix and netlink sockets. The agent

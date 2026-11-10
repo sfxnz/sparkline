@@ -7,6 +7,20 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+### Upgrading
+
+Agents from 0.1.1 and older cannot be updated from the console yet. After `sudo sparkline update` on the
+console host, run `sudo sparkline update` once on each 0.1.1 node (the console's output lists them as
+`needs_manual_update`). From then on, the console host's `sudo sparkline update` updates every node.
+
+### Added
+
+- `sudo sparkline update` on the console host updates the whole cluster: this host first, then every node in
+  `console.toml` that is behind, all at once, with one result line per node. `--check` and `--dry-run` list
+  every node; `--this-host` updates only the host it runs on. Each agent gets `POST /api/v1/update`, which
+  only asks the new root helper units `sparkline-update.path` and `sparkline-update.service` to install the
+  latest release (#NN).
+
 ## [0.1.1] - 2026-11-10
 
 ### Upgrading
