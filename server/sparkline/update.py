@@ -256,7 +256,10 @@ def node_targets(root: Path, env: Mapping[str, str]) -> tuple[list[NodeTarget], 
     try:
         cfg = load_console_config(path, env)
     except (OSError, ValueError) as e:
-        raise UpdateError(f"cannot read the nodes from {path}: {e}") from None
+        raise UpdateError(
+            f"cannot read the nodes from {path}: {e}. "
+            "sudo sparkline update --this-host updates only this host"
+        ) from None
     return [NodeTarget(n.id, n.url.rstrip("/")) for n in cfg.nodes], cfg.agent_token
 
 

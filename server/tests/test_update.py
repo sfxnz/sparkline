@@ -615,5 +615,7 @@ def test_a_console_without_a_readable_node_list_changes_nothing(
     install(root)
     (root / "etc/sparkline/console.toml").unlink()
     assert run(root, FakeGitHub(log), "--yes") == 1
-    assert "cannot read the nodes from" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "cannot read the nodes from" in err
+    assert "sudo sparkline update --this-host updates only this host" in err
     assert calls(log) == []
