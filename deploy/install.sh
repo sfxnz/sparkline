@@ -109,7 +109,10 @@ CONSOLE_DATA=/var/lib/sparkline
 VENV=$PREFIX/venv
 DROPIN_DIR=$UNIT_DIR/sparkline-agent.service.d
 DROPIN=$DROPIN_DIR/10-benchmarks.conf
+BIN_DIR=/usr/local/bin
+COMMANDS=(sparkline sparkline-agent sparkline-capture)
 PY=${PYTHON:-python3}
+CONFIG_KEPT=0 # an existing install: the summary skips the tokens and the first-install steps
 
 # Real system changes (users, ownership, systemd) only as root and without --destdir. --dry-run shows
 # them as if run by root.
@@ -358,6 +361,22 @@ install_code() {
 	fi
 }
 
+# Put the commands on PATH, so `sudo sparkline update` works from any directory.
+link_commands() {
+	local bin name link
+	bin=$(p "$BIN_DIR")
+	say "Commands in $bin"
+	run mkdir -p "$bin"
+	for name in "${COMMANDS[@]}"; do
+		link=$bin/$name
+		if [[ -e $link && ! -L $link ]]; then
+			warn "$link exists and is not a link: left alone"
+			continue
+		fi
+		run ln -sfn "$VENV/bin/$name" "$link"
+	done
+}
+
 # --- config -------------------------------------------------------------------------------------------
 config_dir() {
 	local dir
@@ -376,6 +395,7 @@ write_agent_config() {
 	say "Agent config $file"
 	if [[ -f $file ]]; then
 		info "kept existing config (never overwritten)"
+		CONFIG_KEPT=1
 		[[ -z $BIND && -z $PORT ]] || warn "--bind/--port ignored: edit $ETC/agent.toml instead"
 		[[ -z $AGENT_TOKEN ]] || warn "--agent-token ignored: $ETC/agent.toml already has a token"
 		return
@@ -435,6 +455,7 @@ write_console_config() {
 	say "Console config $file"
 	if [[ -f $file ]]; then
 		info "kept existing config (never overwritten)"
+		CONFIG_KEPT=1
 		[[ -z $BIND && -z $PORT && -z $NODES ]] || warn "--bind/--port/--nodes ignored: edit $ETC/console.toml instead"
 		return
 	fi
@@ -581,6 +602,7 @@ install_agent() {
 	check_platform
 	ensure_user
 	install_code
+	link_commands
 	config_dir
 	write_agent_config
 	data_dir "$AGENT_DATA"
@@ -590,17 +612,19 @@ install_agent() {
 	local file url token
 	file=$(p "$ETC/agent.toml")
 	echo
-	say "sparkline-agent installed$([[ $DRY_RUN == 1 ]] && echo " (dry run: nothing was changed)")"
+	say "sparkline-agent $([[ $CONFIG_KEPT == 1 ]] && echo updated || echo installed)$([[ $DRY_RUN == 1 ]] && echo " (dry run: nothing was changed)")"
 	[[ $DRY_RUN == 1 ]] && return 0
 	url=$(service_url "$file" 9750)
 	wait_healthy sparkline-agent.service "$url"
-	token=$(toml_get "$file" token)
 	info "Agent URL:    $url"
-	info "Agent token:  $(show_secret "$token" "$file" token)"
-	info "Put this URL in the console's --nodes list, and the same token in the console's agent_token."
-	info "On every other node, pass the token through the environment (never on the command line, which sudo logs):"
-	info "  read -rs SPARKLINE_AGENT_TOKEN && export SPARKLINE_AGENT_TOKEN"
-	info "  sudo --preserve-env=SPARKLINE_AGENT_TOKEN $0 agent"
+	if [[ $CONFIG_KEPT == 0 ]]; then
+		token=$(toml_get "$file" token)
+		info "Agent token:  $(show_secret "$token" "$file" token)"
+		info "Put this URL in the console's --nodes list, and the same token in the console's agent_token."
+		info "On every other node, pass the token through the environment (never on the command line, which sudo logs):"
+		info "  read -rs SPARKLINE_AGENT_TOKEN && export SPARKLINE_AGENT_TOKEN"
+		info "  sudo --preserve-env=SPARKLINE_AGENT_TOKEN $0 agent"
+	fi
 	if [[ $ENABLE_BENCH == 1 ]]; then
 		info "Benchmarks:   enabled (docker group, caps lifted)"
 	else
@@ -613,6 +637,7 @@ install_console() {
 	build_web
 	ensure_user
 	install_code
+	link_commands
 	config_dir
 	GENERATED_AGENT_TOKEN=0
 	write_console_config
@@ -623,11 +648,12 @@ install_console() {
 	local file url
 	file=$(p "$ETC/console.toml")
 	echo
-	say "Sparkline console installed$([[ $DRY_RUN == 1 ]] && echo " (dry run: nothing was changed)")"
+	say "Sparkline console $([[ $CONFIG_KEPT == 1 ]] && echo updated || echo installed)$([[ $DRY_RUN == 1 ]] && echo " (dry run: nothing was changed)")"
 	[[ $DRY_RUN == 1 ]] && return 0
 	url=$(service_url "$file" 9700)
 	wait_healthy sparkline.service "$url"
 	info "Open:           $url"
+	[[ $CONFIG_KEPT == 1 ]] && return 0
 	info "Console token:  $(show_secret "$(toml_get "$file" token)" "$file" token)   (type this on the sign-in screen)"
 	info "Agent token:    $(show_secret "$(toml_get "$file" agent_token)" "$file" agent_token)"
 	if [[ $GENERATED_AGENT_TOKEN == 1 ]]; then
@@ -653,6 +679,13 @@ uninstall() {
 	done
 	run rm -rf "$(p "$DROPIN_DIR")"
 	[[ $SYSTEM == 1 ]] && run systemctl daemon-reload
+	local name link
+	for name in "${COMMANDS[@]}"; do
+		link=$(p "$BIN_DIR/$name")
+		if [[ -L $link && $(readlink "$link") == "$PREFIX"/* ]]; then
+			run rm -f "$link"
+		fi
+	done
 	run rm -rf "$(p "$PREFIX")"
 	if [[ $PURGE == 0 ]]; then
 		info "kept $ETC, $AGENT_DATA, $CONSOLE_DATA and the $SVC_USER user (use --purge to delete them)"

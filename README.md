@@ -108,7 +108,7 @@ The console picks up the agent token from the agent's config on the same host.
 `sudo grep ^token /etc/sparkline/console.toml`.
 
 > **What the installer changes.** It creates the system user `sparkline`, the code and venv in
-> `/opt/sparkline`, config in `/etc/sparkline/*.toml` (mode 0640), history in `/var/lib/sparkline*`, and
+> `/opt/sparkline`, links `sparkline`, `sparkline-agent` and `sparkline-capture` in `/usr/local/bin`, config in `/etc/sparkline/*.toml` (mode 0640), history in `/var/lib/sparkline*`, and
 > sandboxed systemd units. With benchmarks enabled, the agent joins the **docker group, which is
 > root-equivalent**. Every installer takes `--dry-run`. `sudo ./install.sh uninstall --purge` removes
 > everything from the node it runs on. Run it on each node; on a second node set up by `install-cluster.sh`,
@@ -252,6 +252,24 @@ Then open `http://spark1.<your-tailnet>.ts.net:9700` (or `http://spark1:9700` wi
 not the 100.x address: `tailscale serve` routes by hostname. Tailscale forwards the Host header, so the
 console's Origin check passes. Tailnet traffic is already encrypted by WireGuard. Remove the proxy with
 `tailscale serve --http=9700 off`.
+
+### Update
+
+```sh
+sparkline update --check          # compare this host with the latest release; changes nothing
+sudo sparkline update             # update the console and the agent on this host to the latest release
+sudo sparkline update --dry-run   # download and verify the release, then print what its installer would do
+sudo sparkline update --reinstall # run the installer again even where the version is current, after a failure
+```
+
+`sparkline update` downloads the latest GitHub release, checks it against the release's `SHA256SUMS`, and runs
+that release's `install.sh` for each part that this host runs: the console first, then the agent. It keeps
+the config, the data, the install prefix and `--enable-benchmarks`. Update the console host first, then each
+node. Sparkline 0.1.1 is the first version with `sparkline update`, so install 0.1.1 from a checkout once
+([docs/RELEASING.md](docs/RELEASING.md#upgrade-the-console-before-the-agents)).
+
+With Docker Compose, run `git pull` and `docker compose -f deploy/docker-compose.yml up -d --build` instead.
+With the image alone, run the new version's tag, such as `ghcr.io/sfxnz/sparkline:0.1.1`.
 
 ### Uninstall
 

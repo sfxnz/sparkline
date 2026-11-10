@@ -54,15 +54,19 @@ Each pull request that changes what a user sees adds one line under `## [Unrelea
    The tag starts `.github/workflows/image.yml`. It publishes the console image as
    `ghcr.io/<owner>/sparkline:X.Y.Z` and `:X.Y`, and then it creates the GitHub release `vX.Y.Z`, titled
    "Sparkline X.Y.Z". The release notes are the version's `CHANGELOG.md` section, which
-   `deploy/release-notes.sh X.Y.Z` prints. The release appears only once the image is published. The
+   `deploy/release-notes.sh X.Y.Z` prints. The release carries two assets, which `sparkline update`
+   downloads: `sparkline-X.Y.Z.tar.gz`, the tagged source with the built `web/dist`, and `SHA256SUMS`.
+   `deploy/release-tarball.sh` builds both. The release appears only once the image is published. The
    workflow refuses a version whose heading still says `unreleased`.
 
 5. Check that the release is on the repository's **Releases** page. If the release job failed, fix the cause
    and rerun the failed job, or create the release by hand:
 
    ```sh
-   deploy/release-notes.sh X.Y.Z > notes.md \
-   	&& gh release create vX.Y.Z --verify-tag --title "Sparkline X.Y.Z" --notes-file notes.md
+   git checkout vX.Y.Z && (cd web && npm ci && npm run build)
+   deploy/release-notes.sh X.Y.Z > notes.md && deploy/release-tarball.sh X.Y.Z assets \
+   	&& gh release create vX.Y.Z --verify-tag --title "Sparkline X.Y.Z" --notes-file notes.md \
+   		assets/sparkline-X.Y.Z.tar.gz assets/SHA256SUMS
    ```
 
 For 0.1.0, the version and its section already exist. Replace `unreleased` on the `## [0.1.0]` line with the
@@ -80,7 +84,17 @@ name its version tag, such as `ghcr.io/sfxnz/sparkline:0.1.0`.
 Each release keeps the console able to read older agents. An older console can misread a newer agent, and
 the **Upgrading** part of each `CHANGELOG.md` section says how. Upgrade the console first, then each agent.
 
-On the console host, from a checkout of the new tag:
+On the console host, and then on each node, run:
+
+```sh
+sudo sparkline update
+```
+
+It installs the latest release over the console, the agent, or both, as `install.sh` installed them on
+that host. Versions older than 0.1.1 have no `sparkline update`, and Docker Compose does not use it. Upgrade
+those from a checkout.
+
+To upgrade from a checkout, on the console host, check out the new tag and run the installer:
 
 ```sh
 git fetch --tags && git checkout vX.Y.Z
