@@ -2,7 +2,7 @@
   "schema_version": 1,
   "node_id": "ws1",
   "hostname": "ws1",
-  "agent_version": "0.1.1",
+  "agent_version": "0.1.2",
   "os": "Ubuntu 24.04.3 LTS",
   "kernel": "6.14.0-35-generic",
   "platform": "linux",

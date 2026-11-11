@@ -2,7 +2,7 @@
   "schema_version": 1,
   "node_id": "spark1",
   "hostname": "spark1",
-  "agent_version": "0.1.1",
+  "agent_version": "0.1.2",
   "os": "Ubuntu 24.04.4 LTS (DGX OS)",
   "kernel": "6.17.0-1032-nvidia",
   "platform": "linux",
