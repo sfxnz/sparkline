@@ -7,6 +7,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-11
+
 ### Upgrading
 
 Hosts on 0.1.1 have no remote update yet, so this upgrade is the last one done host by host. Run
@@ -140,6 +142,7 @@ gives the upgrade commands.
 - The web tests' copy of undici, which jsdom pulls in, moves from 8.11.2 to 8.12.3 and gets the security fixes
   of undici 8.12.2. The built web app does not include undici (#73).
 
-[Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.2
 [0.1.1]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.1
 [0.1.0]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.0
