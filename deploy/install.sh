@@ -516,6 +516,12 @@ install_units() {
 	run mkdir -p "$units"
 	install_unit "$REPO/deploy/systemd/$unit" "$units/$unit"
 	[[ $unit == sparkline-agent.service ]] || return 0
+	# The root helper that lets the console update this node: the agent leaves a request, the path unit
+	# starts the service.
+	local helper
+	for helper in sparkline-update.service sparkline-update.path; do
+		install_unit "$REPO/deploy/systemd/$helper" "$units/$helper"
+	done
 	local dropin
 	dropin=$(p "$DROPIN")
 	if [[ $ENABLE_BENCH == 1 ]]; then
@@ -608,6 +614,7 @@ install_agent() {
 	data_dir "$AGENT_DATA"
 	install_units sparkline-agent.service
 	start_unit sparkline-agent.service
+	start_unit sparkline-update.path
 
 	local file url token
 	file=$(p "$ETC/agent.toml")
@@ -669,14 +676,16 @@ uninstall() {
 		confirm "Delete $ETC (tokens), $AGENT_DATA and $CONSOLE_DATA (all history and benchmark results)?"
 	fi
 	local unit
-	for unit in sparkline-agent.service sparkline.service; do
+	for unit in sparkline-update.path sparkline-update.service sparkline-agent.service sparkline.service; do
 		if [[ $SYSTEM == 0 ]]; then
 			skip "$(why_no_system)" "systemctl disable --now $unit"
 		elif [[ $DRY_RUN == 1 ]] || systemctl cat "$unit" >/dev/null 2>&1; then
-			run systemctl disable --now "$unit"
+			run systemctl disable --quiet --now "$unit"
 		fi
 		run rm -f "$(p "$UNIT_DIR/$unit")"
 	done
+	# Kept data must not hold a pending request: a later install would start an update at once.
+	run rm -f "$(p "$AGENT_DATA/update-request")"
 	run rm -rf "$(p "$DROPIN_DIR")"
 	[[ $SYSTEM == 1 ]] && run systemctl daemon-reload
 	local name link

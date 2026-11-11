@@ -73,7 +73,9 @@ agent carries them. `README.md` documents installation.)
 | `GET /healthz` (no auth) | liveness |
 
 The agent exposes the same shapes for a single node: `GET /api/v1/info`, `GET /api/v1/snapshot`, `WS /api/v1/stream`,
-`GET /api/v1/history`, `DELETE /api/v1/history`, `GET/POST /api/v1/bench/...`, and `GET /healthz`.
+`GET /api/v1/history`, `DELETE /api/v1/history`, `GET/POST /api/v1/bench/...`, and `GET /healthz`. It also has
+`POST /api/v1/update` (no body), which asks the node's root helper to install the latest release (202, 409 while a
+benchmark runs, 501 without the helper).
 
 Live samples are full `Sample` objects (~3–5 kB) per node per tick. Processes are refreshed every 5 s (they are the
 most expensive collector), and `procs` is `null` on the ticks in between. NVMe and Wi-Fi temperatures and the RDMA

@@ -6,9 +6,13 @@ import asyncio
 import contextlib
 import hmac
 import ipaddress
+import os
+import re
+import tempfile
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlsplit
 
@@ -30,6 +34,24 @@ from .sampler import Sampler
 
 PING_EVERY_S = 15.0
 FAIL_LIMIT = 10  # wrong bearer tokens per minute per client IP (the console's sign-in limit)
+UPDATE_PATH_UNIT = Path("etc/systemd/system/sparkline-update.path")
+
+
+def update_request_file(root: Path) -> Path | None:
+    """The file whose existence starts sparkline-update.service as root, from the PathExists= of the path unit
+    that install.sh agent installed under root, or None if there is no such unit."""
+    try:
+        unit = (root / UPDATE_PATH_UNIT).read_text()
+    except FileNotFoundError:
+        return None
+    m = re.search(r"^PathExists=(/\S+)$", unit, re.MULTILINE)
+    return root / m[1].lstrip("/") if m else None
+
+
+def write_request(path: Path) -> None:
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    os.close(fd)
+    os.replace(tmp, path)
 
 
 def _token_ok(expected: str, got: str | None) -> bool:
@@ -66,6 +88,7 @@ def create_app(
     manage_sampler: bool = True,
     bench: BenchRunner | None = None,
     close: Callable[[], None] = lambda: None,
+    update_root: Path | None = None,
 ) -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -154,10 +177,39 @@ def create_app(
         await sampler.clear_history()
         return {"ok": True}
 
-    if bench is not None:
+    def problem(status: int, p: Problem) -> JSONResponse:
+        return JSONResponse({"problem": p.model_dump()}, status_code=status)
 
-        def problem(status: int, p: Problem) -> JSONResponse:
-            return JSONResponse({"problem": p.model_dump()}, status_code=status)
+    @app.post("/api/v1/update", dependencies=[Depends(auth)], status_code=202, response_model=None)
+    async def request_update() -> dict | JSONResponse:
+        """Ask this node's root helper to install the latest release. The request carries nothing else."""
+        request = update_request_file(update_root) if update_root is not None else None
+        if request is None:
+            return problem(
+                501,
+                Problem(
+                    message=f"{sampler.node_id} cannot update itself",
+                    cause=f"/{UPDATE_PATH_UNIT} is not installed",
+                    fix="Update it the way it was installed, or reinstall it with install.sh agent",
+                ),
+            )
+        if bench is not None and bench.current is not None:
+            cur = bench.current.state
+            return problem(
+                409,
+                Problem(
+                    message=f"A benchmark is running on {sampler.node_id}",
+                    cause=f"{cur.bench_id} (run {cur.run_id}) is {cur.status}",
+                    fix="Update again when it finishes, or cancel it",
+                ),
+            )
+        try:
+            await asyncio.to_thread(write_request, request)
+        except OSError as e:
+            return problem(500, Problem(message="Cannot write the update request", cause=str(e), fix=""))
+        return {"ok": True}
+
+    if bench is not None:
 
         @app.get("/api/v1/bench/catalog", dependencies=[Depends(auth)])
         async def bench_catalog() -> list[BenchSpec]:

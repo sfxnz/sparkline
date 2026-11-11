@@ -7,6 +7,7 @@ import ipaddress
 import logging
 import os
 import sys
+from pathlib import Path
 
 import uvicorn
 
@@ -93,7 +94,15 @@ def main(argv: list[str] | None = None) -> int:
             cfg.bench_dir,
             payload_device=cfg.bench_payload_device,
         )
-        app = create_app(sampler, lambda: info, cfg.token, bench=bench, close=collectors.close)
+        app = create_app(
+            sampler,
+            lambda: info,
+            cfg.token,
+            bench=bench,
+            close=collectors.close,
+            # Test seam: a staged root, as for sparkline update.
+            update_root=Path(os.environ.get("SPARKLINE_UPDATE_ROOT") or "/"),
+        )
         log.info(
             "sparkline-agent %s node=%s listening on %s:%d, interval %d ms, data %s",
             info.agent_version,

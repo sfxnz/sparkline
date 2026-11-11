@@ -7,6 +7,20 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+### Upgrading
+
+Hosts on 0.1.1 have no remote update yet, so this upgrade is the last one done host by host. Run
+`sudo sparkline update` once on the console host and once on each other 0.1.1 node. On older nodes, run the
+installer from a checkout. From then on, one `sudo sparkline update` on the console host updates every node.
+
+### Added
+
+- `sudo sparkline update` on the console host updates the whole cluster: this host first, including its own
+  agent when `console.toml` lists it as a node, then every other node in `console.toml` that is behind, all
+  at once, with one result line per node. `--check` and `--dry-run` list every node; `--this-host` updates
+  only the host it runs on. Each agent gets `POST /api/v1/update`, which only asks the new root helper units
+  `sparkline-update.path` and `sparkline-update.service` to install the latest release (#89).
+
 ## [0.1.1] - 2026-11-10
 
 ### Upgrading

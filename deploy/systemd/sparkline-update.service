@@ -1,0 +1,20 @@
+# Installs the latest checksum-verified Sparkline release on this host, started by sparkline-update.path
+# when the agent leaves an update request. Nothing in the request is used: no version, no URL.
+# --this-host: a node never asks other nodes to update. Installed by deploy/install.sh agent, which
+# rewrites /opt/sparkline when --prefix is used.
+
+[Unit]
+Description=Update Sparkline on this host to the latest release
+Wants=network-online.target
+After=network-online.target
+# Each request starts a run, and a node that is already current finishes in a second. The default start
+# limit would fail the path unit after a few quick requests and leave this node deaf until reset-failed.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+# Removed first, so a request that arrives during this run starts another run afterwards.
+ExecStartPre=/bin/rm -f /var/lib/sparkline-agent/update-request
+ExecStart=/opt/sparkline/venv/bin/sparkline update --yes --this-host
+# A oneshot has no start timeout by default. A hung run would swallow every later request.
+TimeoutStartSec=30min
