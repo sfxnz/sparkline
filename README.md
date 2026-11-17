@@ -604,6 +604,10 @@ api_key = "the key the server was started with"   # optional
 
 The key is sent only to that port on this node. It is never part of a sample, a log line or an error.
 
+A listed port always has a card. Until the port answers as a model server, the card says what it answered
+instead: it is not listening, it is loading (HTTP 503), it wants an API key or refused the one it was sent
+(HTTP 401 or 403), or it did not answer as a model server.
+
 **Turning it off.** `model_server_discovery = false` stops the agent asking any port you did not list. With
 no `[[model_servers]]` either, it asks nothing. Do this on a node with a llama.cpp server that should stay
 asleep: it is not confirmed whether `GET /v1/models` wakes a sleeping llama.cpp model. llama.cpp's

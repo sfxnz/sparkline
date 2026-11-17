@@ -27,7 +27,7 @@ describe('reading', () => {
   });
 
   it('has no reading for a server that is down or loading, whatever it last sent', () => {
-    for (const f of LLM_FIELDS) expect(reading(down, f)).toEqual({ kind: 'empty', why: 'The server is not answering' });
+    for (const f of LLM_FIELDS) expect(reading(down, f)).toEqual({ kind: 'empty', why: 'No reading from this server' });
     expect(reading(server({ state: 'loading' }), 'running')).toEqual({ kind: 'empty', why: 'The server is still loading its model' });
     expect(reading(server({ state: 'sleeping' }), 'running')).toEqual({ kind: 'value', value: 3 });
   });

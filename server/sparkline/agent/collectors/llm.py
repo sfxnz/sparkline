@@ -55,7 +55,12 @@ NO_METRICS = {
     "llama.cpp": "llama.cpp serves metrics only when started with --metrics",
     "TensorRT-LLM": "TensorRT-LLM serves Prometheus metrics only with return_perf_metrics",
 }
-NEEDS_KEY = "It wants an API key to list its models. Set api_key under [[model_servers]] in agent.toml"
+REFUSED = (401, 403)
+# Completes "Its model list ..." or "Port N ...", keyed by whether the agent sent a key.
+KEY_FIX = {
+    False: "wants an API key. Set api_key under [[model_servers]] in agent.toml",
+    True: "refused the API key it was sent. Correct api_key under [[model_servers]] in agent.toml",
+}
 HEALTH_PATH = "/health"
 UP_STATES: tuple[ServerState, ...] = ("ready", "sleeping")
 
@@ -145,7 +150,8 @@ class PrometheusAdapter:
         reply = http(_url(at, "/v1/models"), auth)
         if reply.status == 503:
             return LOADING
-        locked = reply.status in (401, 403)
+        locked = reply.status in REFUSED
+        key_fix = KEY_FIX[bool(auth)]
         listed = None if locked else _listed(reply)
         if not locked and (reply.status != 200 or listed is None):
             return NOT_A_MODEL_SERVER
@@ -163,11 +169,11 @@ class PrometheusAdapter:
             ns = pick_namespace(_series(got), need_proof=locked)
             if ns is not None:
                 named = software or KNOWN_NAMESPACES.get(ns) or owner or ns.rstrip(":_") or None
-                return Identity(named, models, path, NEEDS_KEY if locked else None)
+                return Identity(named, models, path, f"Its model list {key_fix}" if locked else None)
         if software is None:
             # No metrics and no known owner. Ollama, LM Studio and mlx_lm answer /v1/models with the models
             # on disk, not the loaded ones, so they wait for adapters of their own.
-            return NOT_A_MODEL_SERVER
+            return Unread(why=key_fix) if locked else NOT_A_MODEL_SERVER
         problem = NO_METRICS.get(software, f"{software} serves no metrics on this port")
         return Identity(software, models, None, problem)
 

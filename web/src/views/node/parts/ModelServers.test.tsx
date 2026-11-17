@@ -65,7 +65,7 @@ describe('ModelServersPanel', () => {
     expect(within(card).getByRole('heading', { name: 'Port 9931' })).toBeInTheDocument();
     expect(card).toHaveTextContent('Down');
     expect(card).not.toHaveTextContent('up ');
-    expect(stat(card, 'Requests running')).toHaveTextContent('The server is not answering');
+    expect(stat(card, 'Requests running')).toHaveTextContent('No reading from this server');
     expect(stat(card, 'Requests running')).not.toHaveTextContent(/\d/);
   });
 
