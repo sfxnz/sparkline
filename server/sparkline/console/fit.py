@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from typing import Annotated, Literal, NamedTuple, NewType
 
 import httpx
@@ -240,7 +241,8 @@ def file_sizes(repo: RepoId, info: object) -> dict[str, int] | Problem:
         )
     sizes = {f.rfilename: f.size for f in files}
     if len(sizes) != len(files):
-        twice = sorted({f.rfilename for f in files if sum(g.rfilename == f.rfilename for g in files) > 1})
+        seen = Counter(f.rfilename for f in files)
+        twice = sorted(name for name, n in seen.items() if n > 1)
         return _problem(
             f"Hugging Face lists a file of {repo} twice",
             f"{_listed(twice)} appears more than once with a size, so the lookup cannot tell how large it is",
@@ -316,8 +318,8 @@ def indexed_weights(repo: RepoId, sizes: dict[str, int], index: object) -> int |
     if others:
         return _problem(
             f"The weight index of {repo} does not name every safetensors file in the repo",
-            f"It names {len(names)}, and the lookup cannot tell whether a server loads {_listed(others)} "
-            "as well, as it does for a model whose weights sit partly in a subfolder",
+            f"It names {len(names)} of them, and the lookup cannot tell whether a server also loads "
+            f"{_listed(others)}: some models load a file in a subfolder, or one beside the index's",
         )
     return _total(repo, sizes, names)
 
