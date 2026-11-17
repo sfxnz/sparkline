@@ -55,6 +55,12 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   restart. A fix that edits `console.toml` now ends with the console restart, because the console reads its
   config only when it starts.
 
+### Fixed
+
+- **Alerts > Notifications on a phone.** With no channel configured, the card's text and its `[[notify]]`
+  example were cut off on both sides on a narrow screen. The text now wraps, and the example scrolls inside
+  its own box and has a copy button.
+
 ## [0.2.0] - 2026-11-17
 
 ### Upgrading

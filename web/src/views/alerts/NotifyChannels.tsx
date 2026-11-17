@@ -1,6 +1,7 @@
 import { BellOff, Send } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '../../design/components/Button';
+import { CommandLine } from '../../design/components/CommandLine';
 import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
 import { useHashTarget } from '../../design/useHashTarget';
@@ -19,7 +20,7 @@ const KIND_LABEL: Record<ChannelKind, string> = { ntfy: 'ntfy', discord: 'Discor
 const SENDS: Record<Severity, string> = { info: 'Every alert', warning: 'Warning and above', critical: 'Critical only' };
 const SNIPPET = `[[notify]]
 name = "phone"
-kind = "ntfy"            # or "discord", "slack", "webhook"
+kind = "ntfy"  # or "discord", "slack", "webhook"
 url = "https://ntfy.sh/<your-topic>"`;
 
 type Load = { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'ready'; rows: NotifyChannelStatus[] };
@@ -139,9 +140,7 @@ export function NotifyChannels() {
             Add a <code>[[notify]]</code> table to <code>/etc/sparkline/console.toml</code> and restart the console. The README section
             &ldquo;Notifications&rdquo; describes each kind.
           </p>
-          <pre className="notify-snippet">
-            <code>{SNIPPET}</code>
-          </pre>
+          <div className="notify-snippet"><CommandLine text={SNIPPET} what="notify table" /></div>
         </EmptyState>
       ) : (
         <>

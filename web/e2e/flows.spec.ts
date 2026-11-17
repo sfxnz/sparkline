@@ -144,6 +144,25 @@ test('with no [[notify]] table the Alerts view shows how to add a channel', asyn
   const panel = page.getByRole('region', { name: 'Notifications' });
   await expect(panel.getByText('No notification channels')).toBeVisible();
   await expect(panel.locator('pre')).toContainText('[[notify]]');
+
+  // On a phone the card is whole: the words wrap inside it, and the snippet scrolls inside its own box.
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 844 });
+    // Polled: the sidebar folds to its rail over a moment, and the card is measured once it has its width.
+    const cut = () => panel.evaluate((card) => {
+      const box = card.getBoundingClientRect();
+      const out = (el: Element) => { const r = el.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; };
+      const words = card.querySelector('.state__copy p');
+      const snippet = card.querySelector('pre');
+      return {
+        outside: [...card.querySelectorAll('.state__title, .state__copy p, .cmd, pre, button')].filter(out).map((el) => el.className || el.tagName),
+        wordsWrap: !!words && words.scrollWidth <= words.clientWidth,
+        snippetScrolls: !!snippet && getComputedStyle(snippet).overflowX === 'auto',
+      };
+    });
+    await expect.poll(cut, `${String(width)} px`).toEqual({ outside: [], wordsWrap: true, snippetScrolls: true });
+    await expect(panel.getByRole('button', { name: 'Copy notify table' })).toBeVisible();
+  }
 });
 
 test('a notification channel can be tested from the Alerts view', async ({ page }) => {

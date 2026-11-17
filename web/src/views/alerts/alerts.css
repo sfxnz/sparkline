@@ -171,7 +171,7 @@
 .notify-host { font-family: var(--font-mono); font-size: var(--fs-footnote); overflow-wrap: anywhere; }
 .notify-last__result { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .notify-tested { padding: var(--space-3) var(--space-5) var(--space-4); }
-.notify-snippet { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--fill-1); text-align: left; font-size: var(--fs-footnote); line-height: var(--lh-footnote); overflow-x: auto; }
+.notify-snippet { margin-top: var(--space-3); }
 
 /* ------------------------------------------------------------------ rules */
 .rules-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
