@@ -13,6 +13,8 @@ import {
   openAlertCounts,
   recentIncidents,
   topGpuProcess,
+  waitingLine,
+  welcomeSentence,
   workloadSentence,
 } from './model';
 
@@ -70,6 +72,82 @@ describe('clusterHealth', () => {
 
   it('handles zero nodes', () => {
     expect(clusterHealth([], none).sentence).toBe('No nodes configured');
+  });
+});
+
+describe('clusterHealth with nodes that have never answered', () => {
+  const fresh = (id: string, status: 'connecting' | 'offline' | 'error' | 'online') => ({ id, status, isNew: status !== 'online' });
+
+  it('says a refused new node has not connected yet, in the setup tone and never as offline or critical', () => {
+    const h = clusterHealth([fresh('spark1', 'offline')], none);
+    expect(h).toEqual({ status: 'setup', label: 'Setting up', sentence: 'spark1 hasn’t connected yet' });
+  });
+
+  it('a token mismatch on a new node is setup too, not Error', () => {
+    const h = clusterHealth([fresh('spark1', 'online'), fresh('spark2', 'error'), fresh('spark3', 'offline')], none);
+    expect(h.sentence).toBe('spark2 and spark3 haven’t connected yet');
+    expect(h.status).toBe('setup');
+    expect(h.label).toBe('1 of 3 connected');
+  });
+
+  it('counts a new node that is still connecting as not connected', () => {
+    const h = clusterHealth([fresh('spark1', 'online'), fresh('spark2', 'connecting'), fresh('spark3', 'offline')], none);
+    expect(h.sentence).toBe('spark3 hasn’t connected yet · Waiting for spark2…');
+    expect(h.label).toBe('1 of 3 connected');
+  });
+
+  it('a real problem on another node still comes first', () => {
+    const h = clusterHealth([{ id: 'spark1', status: 'offline' }, fresh('spark2', 'offline')], { critical: 0, warning: 0, explained: 'critical' });
+    expect(h.sentence).toBe('spark1 is offline · spark2 hasn’t connected yet');
+    expect(h.status).toBe('critical');
+  });
+
+  it('a node that answered once and then drops is offline, as before', () => {
+    expect(clusterHealth([{ id: 'spark1', status: 'offline', isNew: false }], none).sentence).toBe('spark1 is offline');
+  });
+});
+
+describe('welcomeSentence', () => {
+  const fresh = (id: string, status: 'connecting' | 'offline' | 'error' | 'online') => ({ id, status, isNew: status !== 'online' });
+  const say = (nodes: ReturnType<typeof fresh>[], firstVisit = true) => welcomeSentence(nodes, clusterHealth(nodes, none), firstVisit);
+
+  it('welcomes and says where the nodes stand', () => {
+    expect(say([fresh('spark1', 'connecting')])).toBe('Welcome to Sparkline. Connecting to spark1…');
+    expect(say([fresh('spark1', 'online')])).toBe('Welcome to Sparkline. spark1 is live.');
+    expect(say([fresh('spark1', 'online'), fresh('spark2', 'online'), fresh('spark3', 'online')])).toBe('Welcome to Sparkline. All 3 nodes are live.');
+    expect(say([fresh('spark1', 'offline')])).toBe('Welcome to Sparkline. spark1 hasn’t connected yet.');
+    expect(say([fresh('spark1', 'online'), fresh('spark2', 'error'), fresh('spark3', 'offline')])).toBe('Welcome to Sparkline. spark1 is live, two more to connect.');
+    expect(say([fresh('spark1', 'online'), fresh('spark2', 'online'), fresh('spark3', 'connecting')])).toBe('Welcome to Sparkline. spark1 and spark2 are live, one more to connect.');
+  });
+
+  it('only on a first visit', () => {
+    expect(say([fresh('spark1', 'online')], false)).toBeNull();
+  });
+
+  it('steps aside when a node needs attention', () => {
+    const nodes = [{ id: 'spark1', status: 'online' as const }, { id: 'spark2', status: 'offline' as const }];
+    expect(welcomeSentence(nodes, clusterHealth(nodes, none), true)).toBeNull();
+    const alerting = [{ id: 'spark1', status: 'online' as const }];
+    expect(welcomeSentence(alerting, clusterHealth(alerting, { critical: 0, warning: 1 }), true)).toBeNull();
+  });
+});
+
+describe('waitingLine', () => {
+  const n = (node_id: string, status: 'connecting' | 'offline' | 'error' | 'online', first_seen: number | null = null) => ({ node_id, status, first_seen });
+
+  it('says there is nothing to do while the first connection is being made', () => {
+    expect(waitingLine([n('spark1', 'connecting')])).toBe('Waiting for the first reading. Nothing to do here.');
+  });
+
+  it('points at the card that holds the fix', () => {
+    expect(waitingLine([n('spark1', 'offline')])).toBe('spark1’s card says what to check. This page goes live by itself when it answers.');
+    expect(waitingLine([n('spark1', 'offline'), n('spark2', 'error')])).toBe('Each card says what to check. This page goes live by itself when a node answers.');
+  });
+
+  it('is silent once any node has reported, and for a console that does not say', () => {
+    expect(waitingLine([n('spark1', 'offline', 5), n('spark2', 'offline')])).toBeNull();
+    expect(waitingLine([{ node_id: 'spark1', status: 'offline' }])).toBeNull();
+    expect(waitingLine([])).toBeNull();
   });
 });
 

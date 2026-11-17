@@ -99,6 +99,8 @@
   --warn: #f2b440;      --warn-text: #f6c566;  --warn-bg: rgba(242, 180, 64, 0.13);
   --crit: #ff645b;      --crit-text: #ff8c85;  --crit-bg: rgba(255, 100, 91, 0.14);
   --stale: #8f949d;     --stale-text: #a9adb5; --stale-bg: rgba(143, 148, 157, 0.14);
+  /* Setup: a node that has never connected. A step to take, not a fault, so it wears the accent and never amber or red. */
+  --setup: #7286ff;     --setup-text: #98a7ff; --setup-bg: rgba(114, 134, 255, 0.16);
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-2: 0 1px 1px rgba(0, 0, 0, 0.25), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
@@ -156,6 +158,7 @@
   --warn: #b97700;      --warn-text: #865600;  --warn-bg: rgba(220, 150, 20, 0.14);
   --crit: #d63a32;      --crit-text: #b2261f;  --crit-bg: rgba(214, 58, 50, 0.1);
   --stale: #7b8089;     --stale-text: #585d66; --stale-bg: rgba(123, 128, 137, 0.13);
+  --setup: #4459e0;     --setup-text: #3346c4; --setup-bg: rgba(68, 89, 224, 0.11);
 
   --shadow-1: 0 1px 2px rgba(20, 24, 36, 0.06);
   --shadow-2: 0 1px 1px rgba(20, 24, 36, 0.04), 0 8px 24px -10px rgba(20, 24, 36, 0.14);

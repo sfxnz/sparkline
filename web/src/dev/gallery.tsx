@@ -93,7 +93,7 @@ function Gallery() {
   return (
     <div style={{ padding: 32, display: 'grid', gap: 20, maxWidth: 1400 }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        {(['healthy', 'warning', 'critical', 'stale', 'offline', 'connecting', 'unknown'] as const).map((s) => <StatusPill key={s} status={s} />)}
+        {(['healthy', 'warning', 'critical', 'stale', 'offline', 'connecting', 'setup', 'unknown'] as const).map((s) => <StatusPill key={s} status={s} />)}
         <SegmentedControl label="Range" value={range} onChange={setRange} options={[{ value: 'live', label: 'Live' }, { value: '5m', label: '5m' }, { value: '1h', label: '1h' }]} />
         <Button variant="primary">Primary</Button>
         <Button>Secondary</Button>

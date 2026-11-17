@@ -79,10 +79,10 @@ const dark = block(":root[data-theme='dark']");
 const themes = { dark, light: { ...dark, ...block(":root[data-theme='light']") } };
 
 const SURFACES = ['bg', 'surface-1', 'surface-2', 'surface-3'];
-const TEXT = ['text-1', 'text-2', 'text-3', 'accent-text', 'ok-text', 'warn-text', 'crit-text', 'stale-text'];
-const NON_TEXT = ['accent', 'focus-ring', 'ok', 'warn', 'crit', 'stale', 'chart-1', 'chart-2', 'chart-3', 'heat-1', 'heat-2', 'heat-3', 'heat-4'];
+const TEXT = ['text-1', 'text-2', 'text-3', 'accent-text', 'ok-text', 'warn-text', 'crit-text', 'stale-text', 'setup-text'];
+const NON_TEXT = ['accent', 'focus-ring', 'ok', 'warn', 'crit', 'stale', 'setup', 'chart-1', 'chart-2', 'chart-3', 'heat-1', 'heat-2', 'heat-3', 'heat-4'];
 const HEAT = ['heat-0', 'heat-1', 'heat-2', 'heat-3', 'heat-4'];
-const STATUS = ['ok', 'warn', 'crit', 'stale'];
+const STATUS = ['ok', 'warn', 'crit', 'stale', 'setup'];
 const GPU = Array.from({ length: 8 }, (_, i) => `gpu-${i}`);
 
 describe.each(Object.entries(themes))('%s theme contrast', (_name, t) => {

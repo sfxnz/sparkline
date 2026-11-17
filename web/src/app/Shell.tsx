@@ -149,7 +149,8 @@ function NodeNavItem({ id, index, active, collapsed }: { id: string; index: numb
       collapsed={collapsed}
       trailing={
         <span className="nav__trailing">
-          <StatusPill status={st} variant="inline" size="sm" />
+          {/* The sidebar is narrow: the pill's "Not connected yet" loses its last word here. */}
+          <StatusPill status={st} label={st === 'setup' ? 'Not connected' : undefined} variant="inline" size="sm" />
           {index < 9 ? <span className="visually-hidden">, shortcut {index + 1}</span> : null}
         </span>
       }

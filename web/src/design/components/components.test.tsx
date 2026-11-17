@@ -133,6 +133,25 @@ describe('StatusPill', () => {
     expect(nodeDisplayStatus('online', 'critical', false)).toBe('stale');
     expect(nodeDisplayStatus(undefined, null, false)).toBe('unknown');
   });
+
+  it('nodeDisplayStatus: a node that has never answered is connecting, then not connected yet, never offline or an error', () => {
+    expect(nodeDisplayStatus('connecting', null, true, true)).toBe('connecting');
+    expect(nodeDisplayStatus('offline', null, true, true)).toBe('setup');
+    expect(nodeDisplayStatus('error', null, true, true)).toBe('setup');
+    // An alert cannot make it Critical, and a lost console does not turn "never connected" into "not reporting".
+    expect(nodeDisplayStatus('offline', 'critical', true, true)).toBe('setup');
+    expect(nodeDisplayStatus('error', null, false, true)).toBe('setup');
+    // Its first sample makes it an ordinary node.
+    expect(nodeDisplayStatus('online', null, true, false)).toBe('healthy');
+    expect(nodeDisplayStatus('offline', null, true, false)).toBe('offline');
+  });
+
+  it('the setup pill says "Not connected yet" in the setup tone, with an icon', () => {
+    const { container } = render(<StatusPill status="setup" />);
+    expect(screen.getByText('Not connected yet')).toBeInTheDocument();
+    expect(container.querySelector('.status')).toHaveClass('tone-setup');
+    expect(container.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+  });
 });
 
 describe('Stat / AnimatedNumber', () => {

@@ -2,8 +2,10 @@ import { LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '../../design/components/Button';
 import { Panel } from '../../design/components/Panel';
+import { StatusPill, nodeDisplayStatus } from '../../design/components/StatusPill';
 import { Table, type Column } from '../../design/components/Table';
 import { DASH } from '../../lib/format';
+import { isNewNode } from '../../lib/onboarding';
 import type { NodeState } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { stopSession } from '../../store/session';
@@ -15,7 +17,8 @@ import { gpuSetName } from '../../lib/platform';
 
 const COLUMNS: readonly Column<NodeState>[] = [
   { id: 'node', header: 'Node', render: (n) => <span className="t-headline">{n.node_id}</span> },
-  { id: 'agent', header: 'Agent', render: (n) => n.info?.agent_version ?? <span className="t-tertiary">Not connected yet</span> },
+  // No agent version to show: say where the node stands instead, in the words every other screen uses for it.
+  { id: 'agent', header: 'Agent', render: (n) => n.info?.agent_version ?? <StatusPill status={nodeDisplayStatus(n.status, null, true, isNewNode(n))} variant="inline" size="sm" /> },
   { id: 'driver', header: 'NVIDIA driver', render: (n) => n.info?.driver ?? DASH },
   { id: 'cuda', header: 'CUDA', render: (n) => n.info?.cuda ?? DASH },
   { id: 'gpu', header: 'GPU', render: (n) => (n.info ? gpuSetName(n.info) : null) ?? DASH },

@@ -4,6 +4,7 @@ import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { nodeDisplayStatus, type Status } from '../design/components/StatusPill';
 import { nodeCondition, nodeConditions, quietAfterS, quietGpus, sameCondition, sameNodeConditions, type LiveCondition, type NodeConditions } from '../lib/condition';
 import type { SilentFor } from '../lib/gpu';
+import { isNewNode } from '../lib/onboarding';
 import type { NodeInfo, Sample } from '../lib/types';
 import { useCluster } from './cluster';
 import { useConnection } from './connection';
@@ -38,10 +39,11 @@ export function useLiveCondition(id: string): LiveCondition | null {
 /** Status pill for a node in any chrome (sidebar, card, header, wall, interconnect). */
 export function useNodeDisplayStatus(id: string): Status {
   const status = useCluster((s) => s.nodes[id]?.status);
+  const isNew = useCluster((s) => isNewNode(s.nodes[id]));
   const alert = useEvents((s) => openAlertLevel(s.events, id));
   const consoleLive = useConnection((s) => s.status === 'live');
   const condition = useLiveCondition(id);
-  return nodeDisplayStatus(status, worstLevel(alert, condition?.level ?? null), consoleLive);
+  return nodeDisplayStatus(status, worstLevel(alert, condition?.level ?? null), consoleLive, isNew);
 }
 
 /** Live conditions of several nodes, GPU by GPU (for the cluster sentence). Re-renders only when one of them changes. */

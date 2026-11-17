@@ -5,7 +5,8 @@ import { worstCondition, type GpuCondition, type NodeConditions } from '../../li
 import { gpuCountText, type GpuCount } from '../../lib/gpu';
 import { railName } from '../../lib/interconnect';
 import { gpuKey } from '../../lib/metrics';
-import type { Event, NetIfInfo, NodeInfo, NodeStatus, ProcSample } from '../../lib/types';
+import { isNewNode, needsSetup } from '../../lib/onboarding';
+import type { Event, NetIfInfo, NodeInfo, NodeState, NodeStatus, ProcSample } from '../../lib/types';
 import { linkRecoveries } from '../alerts/model';
 
 // ------------------------------------------------------------------------------------------------ wording helpers
@@ -29,6 +30,8 @@ export interface NodeHealthInput {
   conditions?: NodeConditions | null;
   /** The node's open warning and critical alerts. */
   alerts?: readonly Event[];
+  /** The console has never received a sample from this node (lib/onboarding.ts isNewNode). */
+  isNew?: boolean;
 }
 
 export interface AlertCounts {
@@ -84,10 +87,12 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   if (!consoleLive) {
     return { status: 'stale', label: 'Not live', sentence: 'Connection to Sparkline lost · showing the last known state' };
   }
-  const by = (s: NodeStatus) => nodes.filter((n) => n.status === s).map((n) => n.id);
+  // A node that never answered was never online: it is "not connected yet", a setup step, and not an outage.
+  const by = (s: NodeStatus) => nodes.filter((n) => n.status === s && !n.isNew).map((n) => n.id);
   const offline = by('offline');
   const error = by('error');
   const stale = by('stale');
+  const setup = nodes.filter(stuck).map((n) => n.id);
   const connecting = nodes.filter((n) => n.status === 'connecting' || n.status === undefined).map((n) => n.id);
   const flagged = nodes.flatMap((n) => {
     const conditions = n.status === 'online' ? n.conditions : null;
@@ -100,6 +105,7 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   if (error.length) parts.push(`${listNodes(error)} ${error.length === 1 ? 'has' : 'have'} a connection error`);
   if (stale.length) parts.push(`${listNodes(stale)} ${isAre(stale)} not reporting`);
   for (const n of flagged) parts.push(`${n.id} ${n.condition.text}`);
+  if (setup.length) parts.push(`${listNodes(setup)} ${setup.length === 1 ? 'hasn’t' : 'haven’t'} connected yet`);
   if (connecting.length) parts.push(`Waiting for ${listNodes(connecting)}…`);
   const problems = parts.length > 0;
 
@@ -120,12 +126,48 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   // A node the console cannot use (token mismatch, protocol version): a setup fault, labelled as such, not "Critical".
   else if (error.length) status = 'error';
   else if (offline.length || stale.length || alerts.warning || alerts.explained || flagged.length) status = 'warning';
+  else if (setup.length) status = 'setup';
   else if (connecting.length) status = 'connecting';
   else status = 'healthy';
 
+  const connected = nodes.filter((n) => !n.isNew).length;
   const label =
-    status === 'healthy' ? 'Healthy' : status === 'critical' ? 'Critical' : status === 'error' ? 'Error' : status === 'warning' ? 'Needs attention' : 'Connecting';
+    status === 'healthy' ? 'Healthy' : status === 'critical' ? 'Critical' : status === 'error' ? 'Error' : status === 'warning' ? 'Needs attention'
+      : status === 'setup' ? (connected ? `${connected} of ${nodes.length} connected` : 'Setting up') : 'Connecting';
   return { status, label, sentence };
+}
+
+/** A new node the console has tried and could not use (lib/onboarding.ts needsSetup, on this input). */
+const stuck = (n: NodeHealthInput) => needsSetup({ first_seen: n.isNew ? null : 0, status: n.status ?? 'connecting' });
+
+const COUNT_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+const countWord = (n: number) => COUNT_WORDS[n] ?? String(n);
+
+/**
+ * The health sentence on a first visit: the welcome, and where the nodes stand. Null when it does not apply: the
+ * person has been here before (`firstVisit` false), or a node needs attention, which always comes first.
+ */
+export function welcomeSentence(nodes: readonly NodeHealthInput[], health: Health, firstVisit: boolean): string | null {
+  if (!firstVisit || !nodes.length || !(['healthy', 'connecting', 'setup'] as Status[]).includes(health.status)) return null;
+  const live = nodes.filter((n) => !n.isNew).map((n) => n.id);
+  const waiting = nodes.filter((n) => n.isNew);
+  const setup = waiting.filter(stuck).map((n) => n.id);
+  let tail: string;
+  if (!waiting.length) tail = nodes.length === 1 ? `${live[0] ?? ''} is live.` : `All ${nodes.length} nodes are live.`;
+  else if (live.length) tail = `${listNodes(live)} ${isAre(live)} live, ${countWord(waiting.length)} more to connect.`;
+  else if (setup.length) tail = `${listNodes(setup)} ${setup.length === 1 ? 'hasn’t' : 'haven’t'} connected yet.`;
+  else tail = `Connecting to ${listNodes(waiting.map((n) => n.id))}…`;
+  return `Welcome to Sparkline. ${tail}`;
+}
+
+/** The line under the sentence while no node has ever reported: where the fix is, or that there is nothing to do.
+ *  Null once a node has, when "no live data" is news. */
+export function waitingLine(nodes: readonly (Pick<NodeState, 'node_id' | 'status' | 'first_seen'> | undefined)[]): string | null {
+  if (!nodes.length || !nodes.every(isNewNode)) return null;
+  const waiting = nodes.filter(needsSetup);
+  if (!waiting.length) return 'Waiting for the first reading. Nothing to do here.';
+  const card = waiting.length === 1 ? `${waiting[0]?.node_id ?? ''}’s card says` : 'Each card says';
+  return `${card} what to check. This page goes live by itself when ${nodes.length === 1 ? 'it' : 'a node'} answers.`;
 }
 
 // ------------------------------------------------------------------------------------------------ recent events

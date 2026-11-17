@@ -139,6 +139,7 @@ time,
 .tone-warn { --tone: var(--warn); --tone-text: var(--warn-text); --tone-bg: var(--warn-bg); }
 .tone-crit { --tone: var(--crit); --tone-text: var(--crit-text); --tone-bg: var(--crit-bg); }
 .tone-stale { --tone: var(--stale); --tone-text: var(--stale-text); --tone-bg: var(--stale-bg); }
+.tone-setup { --tone: var(--setup); --tone-text: var(--setup-text); --tone-bg: var(--setup-bg); }
 
 /* ------------------------------------------------------------------ focus */
 :focus {
