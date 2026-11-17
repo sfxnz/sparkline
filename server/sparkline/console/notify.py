@@ -159,7 +159,11 @@ def _webhook(msg: Message, now: float) -> dict[str, object]:
         "more": msg.more,
         # Always a list, so a Home Assistant template can index into it. "severity" is the alert's.
         "notices": [
-            {**n.event.model_dump(mode="json"), "status": n.status, "severity": n.severity}
+            {
+                **n.event.model_dump(mode="json", exclude={"resolved_ts", "acked"}),
+                "status": n.status,
+                "severity": n.severity,
+            }
             for n in msg.notices
         ],
     }
@@ -229,42 +233,42 @@ class FailureSpec:
     fix: str  # {name} is filled in
 
 
-_RETRIED = "Waiting alerts are sent again automatically"
+_RETRIED = "Waiting alerts are sent again automatically."
 _EDIT = "in [[notify]] {name!r} in console.toml, then restart the console"
 
 FAILURES: dict[NotifyFailure, FailureSpec] = {
-    "dns": FailureSpec("retry", "{host} did not resolve", f"Check the host name {_EDIT}. {_RETRIED}"),
+    "dns": FailureSpec("retry", "{host} did not resolve.", f"Check the host name {_EDIT}. {_RETRIED}"),
     "connect": FailureSpec(
         "retry",
-        "{host} refused the connection or could not be reached",
+        "{host} refused the connection or could not be reached.",
         f"Check that the service is up and reachable from the console host. {_RETRIED}",
     ),
     "tls": FailureSpec(
         "retry",
-        "The certificate of {host} did not verify",
+        "The certificate of {host} did not verify.",
         f"Check the host name and the service's certificate. {_RETRIED}",
     ),
-    "timeout": FailureSpec("retry", "{host} did not answer in time", _RETRIED),
-    "server_error": FailureSpec("retry", "HTTP {status} from {host}", f"The service is failing. {_RETRIED}"),
+    "timeout": FailureSpec("retry", "{host} did not answer in time.", _RETRIED),
+    "server_error": FailureSpec("retry", "HTTP {status} from {host}.", f"The service is failing. {_RETRIED}"),
     "rate_limited": FailureSpec(
         "wait",
-        "HTTP 429 from {host}",
-        "Sparkline waits as long as the service asks, then sends what is waiting",
+        "HTTP 429 from {host}.",
+        "Sparkline waits as long as the service asks, then sends what is waiting.",
     ),
     "rejected": FailureSpec(
         "drop",
-        "HTTP {status} from {host}",
-        f"The webhook was probably deleted, or the token is wrong. Put a working url {_EDIT}",
+        "HTTP {status} from {host}.",
+        f"The webhook was probably deleted, or the token is wrong. Put a working url {_EDIT}.",
     ),
     "redirect": FailureSpec(
         "drop",
-        "{host} answered with a redirect, and Sparkline never follows one",
-        f"Put the final url {_EDIT}",
+        "{host} answered with a redirect, and Sparkline never follows one.",
+        f"Put the final url {_EDIT}.",
     ),
     "address_refused": FailureSpec(
         "drop",
-        "{host} resolves to an address this url may not reach: http:// reaches private addresses only",
-        "Use https://, or a host on your LAN",
+        "{host} resolves to an address this url may not reach: http:// reaches private addresses only.",
+        "Use https://, or a host on your LAN.",
     ),
 }
 
@@ -381,7 +385,9 @@ class _Worker:
             self.more -= more
         if then == "drop":
             log.warning(
-                "notify %r: dropped %d notices, sending them again cannot work", self.cfg.name, taken + more
+                "notify %r: dropped %s, sending again cannot work",
+                self.cfg.name,
+                _plural(taken + more, "notice"),
             )
         self._settle(delivery, retry_after, test=False)
 
@@ -419,7 +425,8 @@ class _Worker:
         if failure is None:
             log.info("notify %r: sent %s", self.cfg.name, what)
         else:
-            log.warning("notify %r: %s not sent: %s (HTTP %s)", self.cfg.name, what, failure, status)
+            answer = f" (HTTP {status})" if status else ""
+            log.warning("notify %r: %s not sent: %s%s", self.cfg.name, what, failure, answer)
         return delivery, retry_after
 
     def _delivery(

@@ -405,7 +405,7 @@ async def test_a_failed_test_is_an_outcome_with_a_problem_and_is_not_retried(rig
     st = await r.notifier.test("team")
     assert (st.last.ok, st.last.test, st.last.failure, st.last.http_status) == (False, True, "rejected", 404)
     assert st.last.problem.message == "Could not send to 'team'"
-    assert st.last.problem.cause == "HTTP 404 from discord.com"
+    assert st.last.problem.cause == "HTTP 404 from discord.com."
     assert "[[notify]] 'team'" in st.last.problem.fix
     await r.clock.advance(3600)
     assert len(r.bodies("team")) == 1 and st.pending == 0
@@ -583,8 +583,32 @@ def test_webhook_sends_a_versioned_shape_with_every_notice_and_the_alert_severit
         "text": DIGEST_TEXT,
         "more": 0,
         "notices": [
-            {**CRITICAL.model_dump(mode="json"), "status": "firing", "severity": "critical"},
-            {**recovery(HIGH).model_dump(mode="json"), "status": "resolved", "severity": "warning"},
+            {
+                "id": 1,
+                "ts": T0,
+                "node_id": "spark1",
+                "kind": "alert",
+                "rule_id": "gpu_temp_critical",
+                "title": "GPU temperature critical on spark1 · GPU 1",
+                "detail": "96 °C for 10 s (threshold 95 °C)",
+                "metric": "gpu1.temp_c",
+                "value": 87.0,
+                "status": "firing",
+                "severity": "critical",
+            },
+            {
+                "id": 2,
+                "ts": T0,
+                "node_id": "spark1",
+                "kind": "recovered",
+                "rule_id": "gpu_temp_high",
+                "title": "Resolved: GPU temperature high on spark1",
+                "detail": "Now 71 °C · cleared after 3 min · was warning",
+                "metric": "gpu0.temp_c",
+                "value": 71.0,
+                "status": "resolved",
+                "severity": "warning",
+            },
         ],
     }
     test = render("webhook", TEST)

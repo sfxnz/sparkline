@@ -146,7 +146,7 @@ def test_a_test_that_cannot_be_delivered_is_a_200_with_the_problem_in_the_row(tm
         )
         assert last["problem"]["message"] == "Could not send to 'down'"
         assert (
-            last["problem"]["cause"] == f"127.0.0.1:{closed} refused the connection or could not be reached"
+            last["problem"]["cause"] == f"127.0.0.1:{closed} refused the connection or could not be reached."
         )
 
 
