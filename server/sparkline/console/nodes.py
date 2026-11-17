@@ -39,6 +39,9 @@ log = logging.getLogger("sparkline.console.nodes")
 BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 30.0
 BACKOFF_NEW_CAP_S = 5.0  # a node that has never answered: someone is setting it up and watching the page
+# ...and whose agent answered and turned the console away. Each try with a wrong token counts toward the
+# agent's limit (agent/app.py, FAIL_LIMIT a minute per IP). At the limit it refuses the right token too.
+BACKOFF_TURNED_AWAY_CAP_S = 10.0
 RING_S = 900.0
 SKEW_WARN_S = 5.0
 
@@ -281,10 +284,14 @@ class NodeSource:
         self._attempt = 0
         self._wake.set()
 
-    def backoff_delay(self) -> float:
-        """The wait before the next try: doubling, up to 30 s for a node that has answered before. Until a
-        node's first answer the wait stays short, so starting its agent shows on the page within seconds."""
-        cap = BACKOFF_NEW_CAP_S if self.state.first_seen is None else BACKOFF_CAP_S
+    def backoff_delay(self, status: NodeStatus) -> float:
+        """The wait before the next try, after one that ended in ``status``: doubling, up to 30 s for a node
+        that has answered before. Until a node's first answer the wait stays short, so starting its agent
+        shows on the page within seconds."""
+        if self.state.first_seen is not None:
+            cap = BACKOFF_CAP_S
+        else:
+            cap = BACKOFF_TURNED_AWAY_CAP_S if status == "error" else BACKOFF_NEW_CAP_S
         return min(cap, BACKOFF_BASE_S * 2 ** min(self._attempt, 10) * random.uniform(0.8, 1.2))
 
     async def run(self) -> None:
@@ -307,7 +314,7 @@ class NodeSource:
             if failure is not None:
                 status, problem = classify(failure, self.node_id, self.url, self.state.first_seen is None)
                 log.debug("%s: session failed: %r", self.node_id, failure)
-            delay = self.backoff_delay()
+            delay = self.backoff_delay(status)
             self._wake.clear()
             self.set_status(status, problem, time.time() + delay)
             with contextlib.suppress(TimeoutError):

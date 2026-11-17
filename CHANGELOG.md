@@ -54,7 +54,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   installer ends with the console's address and how to sign in. Where the output is not a terminal, a token
   line says so, with the command that reads the token on a line of its own.
 - The console tries a node that has never answered every 5 s at most, so starting its agent shows on the
-  page within seconds. A node that has answered before is tried up to 30 s apart, as before.
+  page within seconds. While that node's agent turns the console away (a wrong token), it is tried every
+  10 s at most. That stays under the agent's limit of 10 wrong tokens a minute, so a corrected token is
+  accepted on the first try. A node that has answered before is tried up to 30 s apart, as before.
 - The fix for "Agent unreachable" on a refused connection says what to run: the command that starts the
   agent, the command that shows why it did not stay up and, for a node that has never answered, the install
   command. The fix for a rejected agent token says how to compare the two tokens and which service to

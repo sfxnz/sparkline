@@ -3,14 +3,17 @@ from __future__ import annotations
 import asyncio
 import errno
 import json
+import random
 import re
 import socket
 import time
 from pathlib import Path
 
 import httpx
+import pytest
 
-from sparkline.common.schema import ConsoleSettings, NodeInfo, Sample
+from sparkline.agent.app import FAIL_LIMIT
+from sparkline.common.schema import ConsoleSettings, NodeInfo, NodeStatus, Sample
 from sparkline.console.cluster import Cluster
 from sparkline.console.hub import Hub
 from sparkline.console.nodes import (
@@ -154,19 +157,57 @@ def test_a_node_is_retried_within_seconds_until_its_first_answer_and_backs_off_t
     src = NodeSource("n", URL, cluster)
     cluster.add_source(src)
 
-    def waits() -> list[float]:
+    def waits(status: NodeStatus) -> list[float]:
         out = []
         for src._attempt in range(12):
-            out.append(src.backoff_delay())
+            out.append(src.backoff_delay(status))
         return out
 
-    never_answered = waits()
+    never_answered = waits("offline")
     assert never_answered[0] <= 1.2 and max(never_answered) == 5.0, never_answered
+    turned_away = waits("error")
+    assert turned_away[0] <= 1.2 and max(turned_away) == 10.0, turned_away
     src.got_hello(NodeInfo.model_validate(info))
     src.got_sample(Sample.model_validate(sample))
     assert src.state.first_seen is not None
-    answered_once = waits()
-    assert answered_once[0] <= 1.2 and max(answered_once) == 30.0, answered_once
+    for status in ("offline", "error"):
+        answered_once = waits(status)
+        assert answered_once[0] <= 1.2 and max(answered_once) == 30.0, answered_once
+
+
+async def test_a_new_node_that_rejects_the_token_is_tried_again_later_than_one_that_does_not_answer(tmp_path):
+    class Refusing(NodeSource):
+        async def session(self) -> None:
+            raise ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+
+    class Rejecting(NodeSource):
+        async def session(self) -> None:
+            raise AuthRejected(403)
+
+    cluster = Cluster(Store(tmp_path / "c.sqlite"), Hub(), ConsoleSettings())
+    for source, wait in ((Refusing, 5.0), (Rejecting, 10.0)):
+        src = source("n", URL, cluster)
+        src._attempt = 8  # well into its retries
+        task = asyncio.create_task(src.run())
+        try:
+            while src.state.next_retry_ts is None:
+                await asyncio.sleep(0.01)
+        finally:
+            task.cancel()
+        assert src.state.next_retry_ts - time.time() == pytest.approx(wait, abs=0.5), source.__name__
+
+
+def test_a_console_with_the_wrong_token_never_fills_the_agents_wrong_token_limit(tmp_path, monkeypatch):
+    """The agent counts wrong tokens per client IP and, at FAIL_LIMIT in a minute, turns the next request
+    away before it looks at its token. A console that retried that often would have its corrected token
+    refused too. So even with the shortest waits it can draw, from its first try, a console leaves room."""
+    monkeypatch.setattr(random, "uniform", lambda low, high: low)
+    src = NodeSource("n", URL, Cluster(Store(tmp_path / "c.sqlite"), Hub(), ConsoleSettings()))
+    tries = [0.0]
+    for src._attempt in range(40):
+        tries.append(tries[-1] + src.backoff_delay("error"))
+    busiest_minute = max(sum(start <= t < start + 60 for t in tries) for start in tries)
+    assert busiest_minute < FAIL_LIMIT, (busiest_minute, tries)
 
 
 def test_stale_threshold_respects_the_agent_interval(tmp_path):
