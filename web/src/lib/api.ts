@@ -1,5 +1,5 @@
 // REST client for the console. Same-origin (dev/preview proxy /api to the console); auth is an HttpOnly cookie.
-import type { AlertRule, AlertRulesStatus, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, FitRequest, FitResponse, HistoryResponse, ModelFacts, NodeState, Problem, RunStatus } from './types';
+import type { AlertRule, AlertRulesStatus, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, FitRequest, FitResponse, HistoryResponse, ModelFacts, NodeState, NotifyChannelStatus, Problem, RunStatus } from './types';
 
 export type ApiErrorKind = 'unauthorized' | 'unreachable' | 'server' | 'client';
 
@@ -75,6 +75,9 @@ export const api = {
   rules: () => request<AlertRule[]>('/api/v1/alerts/rules'),
   rulesStatus: () => request<AlertRulesStatus>('/api/v1/alerts/rules/status'),
   putRules: (rules: AlertRule[]) => request<AlertRule[]>('/api/v1/alerts/rules', json(rules, 'PUT')),
+  notifyChannels: () => request<NotifyChannelStatus[]>('/api/v1/notify/channels'),
+  /** Sends a test now. A test that could not be delivered still resolves: the failure is in the row's `last`. */
+  testNotify: (name: string) => request<NotifyChannelStatus>(`/api/v1/notify/channels/${encodeURIComponent(name)}/test`, { method: 'POST' }),
   settings: () => request<ConsoleSettings>('/api/v1/settings'),
   putSettings: (s: ConsoleSettings) => request<ConsoleSettings>('/api/v1/settings', json(s, 'PUT')),
   /** Irreversible: deletes the node's stored history (the console requires the explicit confirm body). */

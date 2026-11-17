@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, fields
 DEFAULT_PATH = "/etc/sparkline/agent.toml"
 DEFAULT_BENCH_IMAGE = "nvcr.io/nvidia/pytorch:26.07-py3"
 _IMAGE_RE = re.compile(r"^[A-Za-z0-9][\w.\-/:@]{0,254}$")
+_HEADER_SAFE = re.compile(r"^[\x20-\x7e]+$")
 
 
 def default_data_dir() -> str:
@@ -20,6 +21,12 @@ def default_data_dir() -> str:
     if os.path.isdir(sys_dir) and os.access(sys_dir, os.W_OK):
         return sys_dir
     return os.path.expanduser("~/.local/share/sparkline-agent")
+
+
+@dataclass(frozen=True)
+class Target:
+    port: int
+    api_key: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -40,6 +47,8 @@ class AgentConfig:
     bench_image: str = DEFAULT_BENCH_IMAGE  # container image for GPU benchmarks
     bench_work_dir: str = ""  # scratch for benchmark files; default <data_dir>/bench-work
     bench_payload_device: str = "cuda"  # "cpu": code-path smoke test of GPU payloads
+    model_server_discovery: bool = True  # false: look only at the servers listed under [[model_servers]]
+    model_servers: list[dict] = field(default_factory=list)  # [{port, api_key?}], read through targets()
 
     def validate(self) -> None:
         if not 250 <= self.interval_ms <= 5000:
@@ -54,6 +63,28 @@ class AgentConfig:
             raise ValueError(f"bench_image is not a valid image reference: {self.bench_image!r}")
         if self.bench_payload_device not in ("cuda", "cpu"):
             raise ValueError(f"bench_payload_device must be cuda or cpu (got {self.bench_payload_device!r})")
+        if not isinstance(self.model_server_discovery, bool):
+            raise ValueError("model_server_discovery must be true or false")
+        self.targets()
+
+    def targets(self) -> list[Target]:
+        if not isinstance(self.model_servers, list) or not all(
+            isinstance(t, dict) for t in self.model_servers
+        ):
+            raise ValueError("model_servers must be a list of tables, written as [[model_servers]]")
+        out: list[Target] = []
+        for table in self.model_servers:
+            if unknown := set(table) - {"port", "api_key"}:
+                raise ValueError(f"unknown keys in [[model_servers]]: {', '.join(sorted(unknown))}")
+            port, key = table.get("port"), table.get("api_key")
+            if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+                raise ValueError("[[model_servers]] needs a port between 1 and 65535")
+            if key is not None and not (isinstance(key, str) and key.strip() and _HEADER_SAFE.match(key)):
+                raise ValueError(f"[[model_servers]] port {port}: api_key must be printable ASCII text")
+            if any(t.port == port for t in out):
+                raise ValueError(f"[[model_servers]] lists port {port} twice")
+            out.append(Target(port, key))
+        return out
 
     @property
     def bench_dir(self) -> str:

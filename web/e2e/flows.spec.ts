@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
-// Key flows against the demo console the Playwright config starts (simulated spark1-3, no auth). Nothing here is
-// stubbed: the build, the preview proxy, the console's REST + WebSocket and its alert engine are all real.
+// Key flows against the demo console the Playwright config starts (simulated spark1-3, no auth). Only the
+// notification channel routes are stubbed, because the demo console has no [[notify]] table: the build, the preview
+// proxy, the console's REST + WebSocket and its alert engine are all real.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -135,6 +136,29 @@ test('an open alert can be acknowledged, and stays acknowledged after a reload',
   await ready(page);
   // Still acknowledged after a reload (it may have resolved meanwhile; then the timeline says so).
   await expect(page.getByText(/Acknowledged|Open · acknowledged/).first()).toBeVisible();
+});
+
+test('with no [[notify]] table the Alerts view shows how to add a channel', async ({ page }) => {
+  await page.goto('/alerts');
+  await ready(page);
+  const panel = page.getByRole('region', { name: 'Notifications' });
+  await expect(panel.getByText('No notification channels')).toBeVisible();
+  await expect(panel.locator('pre')).toContainText('[[notify]]');
+});
+
+test('a notification channel can be tested from the Alerts view', async ({ page }) => {
+  const channel = { name: 'phone', kind: 'ntfy', host: 'ntfy.sh', min_severity: 'warning', send_resolved: true, pending: 0, retry_at: null, last: null };
+  const delivered = { ts: Date.now() / 1000, ok: true, test: true, notices: 0, failure: null, http_status: 200, problem: null };
+  await page.route('**/api/v1/notify/channels', (route) => route.fulfill({ json: [channel] }));
+  await page.route('**/api/v1/notify/channels/phone/test', (route) => route.fulfill({ json: { ...channel, last: delivered } }));
+  await page.goto('/alerts');
+  await ready(page);
+  const panel = page.getByRole('region', { name: 'Notifications' });
+  await expect(panel.getByRole('row', { name: /phone/ })).toContainText('Nothing sent since the console started');
+  await panel.getByRole('button', { name: 'Send test to phone' }).click();
+  await expect(panel.getByRole('status')).toContainText('Test sent to phone');
+  await expect(panel.getByRole('row', { name: /phone/ })).toContainText('Delivered');
+  expect(await axeViolations(page)).toEqual([]);
 });
 
 test('the theme choice in Settings persists across reloads', async ({ page }) => {

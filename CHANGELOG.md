@@ -9,6 +9,27 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ### Added
 
+- Alert notifications. Each `[[notify]]` table in `console.toml` is a channel (`ntfy`, `discord`, `slack` or a
+  generic JSON `webhook`) that receives alerts and their recoveries when no browser is open, filtered by
+  `min_severity` and `send_resolved`. Alerts that fire together arrive as one message. The Alerts view lists
+  the channels with their last delivery and a **Send test** button, through `GET /api/v1/notify/channels`
+  and `POST /api/v1/notify/channels/{name}/test`. The console sends to the hosts in those
+  tables, which can be outside the LAN: see "Security model" in the README and `docs/adr/0003-outbound-notifications.md`.
+- **Model servers.** Each agent finds the model servers running on its own node, with no setup, and the node
+  summary shows for each one whether it is up, which model is loaded, the requests running and waiting, tokens
+  per second, time to first token, KV cache use and memory held. The overview card carries one line per
+  server. It reads vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM and any server that uses the same Prometheus
+  metric names under its own prefix. A value a server does not export reads "Not reported by this server",
+  never 0. The readings are also history and alert keys, `llm.<port>.<field>`. `[[model_servers]]` in
+  `agent.toml` names a server on another port or one that needs an API key, and
+  `model_server_discovery = false` stops the agent asking any port you did not list. See
+  [Model servers](README.md#model-servers).
+- **Prometheus export.** `GET /metrics` on the console serves every node's latest readings in Prometheus
+  text format: GPU, memory, CPU, network, disk, filesystem, temperature and model-server series named
+  `sparkline_*`, in base units, with a `node` label. A node that is not online exports only
+  `sparkline_node_up` 0 and the time of its last sample. The new `metrics_token` key in `console.toml` opens
+  `/metrics` and nothing else, so Prometheus does not need the console token. See
+  [Prometheus](README.md#prometheus).
 - **Will it fit?** A new page estimates what a model needs at a context length (weights, KV cache, and 10 to
   20 % on top for activations, so the total is a range) and compares it with what each node has free in its
   latest sample: available memory minus 4 GiB on a unified-memory node, or the free memory of the emptiest
@@ -38,6 +59,14 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   or typed by hand. The KV cache is sized as every layer at full width, so it is too high for
   sliding-window and latent-attention models, which the page says. New endpoints `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new
   `console.toml` key `hf_lookup` (default `true`) turns the lookup off.
+
+### Changed
+
+- Editing, disabling or deleting an alert rule while its alert is open now adds a "Resolved" event that says
+  the rule was changed or removed, in the timeline and on every notification channel. Before, the alert was
+  closed with no recovery. If the edited rule still matches, its alert fires again.
+- An alert that is open when the console restarts stays open until a reading from its node decides it, then
+  ends with a "Resolved" event or fires again. Before, every open alert was closed at the start with no recovery.
 
 ## [0.1.2] - 2026-11-11
 

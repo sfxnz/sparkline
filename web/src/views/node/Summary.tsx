@@ -12,6 +12,7 @@ import type { Sample } from '../../lib/types';
 import { nicHeading, nicModel, nicNoun, noLinkReason, railName } from '../../lib/interconnect';
 import { useCluster } from '../../store/cluster';
 import { LiveStat } from './parts/LiveStat';
+import { ModelServersPanel } from './parts/ModelServers';
 import { NowLabel } from './parts/NowLabel';
 import { TabLink } from './parts/TabLink';
 import { NodeTempFooter } from './parts/TempFooter';
@@ -113,6 +114,7 @@ export default function Summary({ nodeId }: NodeTabProps) {
 
       <ThrottleNotice nodeId={nodeId} />
       <CollectorErrors nodeId={nodeId} link />
+      <ModelServersPanel nodeId={nodeId} />
 
       <div className="nsum__charts">
         <Panel title="GPU utilisation" subtitle="Share of time the GPU was busy" actions={<TabLink nodeId={nodeId} tab="gpu">GPU</TabLink>}>

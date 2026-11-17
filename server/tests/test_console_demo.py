@@ -14,7 +14,7 @@ from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors
 from sparkline.agent.sources import recorded
 from sparkline.common.metrics import flatten
-from sparkline.common.schema import ConsoleSettings, NodeInfo, Sample
+from sparkline.common.schema import LLM_FIELDS, ConsoleSettings, NodeInfo, Sample
 from sparkline.common.throttle import POWER_CAP_BIT
 from sparkline.console.app import create_app
 from sparkline.console.cluster import Cluster
@@ -40,6 +40,64 @@ def test_demo_samples_and_info_validate_against_schema():
         for i in range(0, 900, 3):  # covers thermal episode, storage error, stalls
             s = m.sample_at(T0 + i, i, procs=i % 5 == 0)
             assert Sample.model_validate(json.loads(s.model_dump_json())) == s
+
+
+def test_the_demo_shows_a_model_server_in_each_state_the_panel_renders():
+    at = T0 + 60
+    [gaps] = DemoModel("spark1", T0).sample_at(at, procs=True).llm
+    assert gaps.reports == ["gen_tps", "prompt_tps", "running", "waiting"] and gaps.values["up"] == 1
+    assert not {"kv_cache_pct", "ttft_p50_s"} & set(gaps.values), "not reported by this server"
+    assert (gaps.mem_source, gaps.values["mem_bytes"]) == (
+        "process",
+        flatten_at("spark1", at)["gpu0.shared_used"],
+    )
+    assert DemoModel("spark2", T0).sample_at(at).llm == []
+    assert ws1().sample_at(at).llm == []
+
+    spark3 = DemoModel("spark3", T0)
+    [full] = spark3.sample_at(at).llm
+    assert set(full.reports) == set(LLM_FIELDS) - {"up", "mem_bytes"} and full.state == "ready"
+    assert set(full.values) >= set(LLM_FIELDS) - {"ttft_p50_s", "ttft_p95_s"}
+    assert all(set(spark3.sample_at(T0 + i).llm[0].values) <= set(LLM_FIELDS) for i in range(0, 900, 7))
+
+
+def flatten_at(node: str, t: float) -> dict[str, float]:
+    return flatten(DemoModel(node, T0).sample_at(t))
+
+
+def test_the_demo_vllm_server_restarts_every_ten_minutes_and_has_no_rate_on_its_first_poll():
+    spark3 = DemoModel("spark3", T0)
+    [down] = spark3.sample_at(T0 + 230).llm
+    assert (down.state, down.values) == ("down", {"up": 0}) and "stopped listening" in down.problem
+    assert flatten_at("spark3", T0 + 230)["llm.8001.up"] == 0
+    [back] = spark3.sample_at(T0 + 246).llm
+    assert back.state == "ready" and "gen_tps" not in back.values and "running" in back.values
+    assert "gen_tps" in spark3.sample_at(T0 + 248).llm[0].values
+    assert [spark3.sample_at(T0 + s).llm[0].state for s in (224, 225, 244, 245, 825)] == [
+        "ready",
+        "down",
+        "down",
+        "ready",
+        "down",
+    ]
+
+
+def test_an_idle_demo_server_has_no_first_token_time_and_a_busy_one_has():
+    spark3 = DemoModel("spark3", T0)
+    samples = [spark3.sample_at(T0 + 2000 + i * 60).llm[0] for i in range(600)]
+    served = [s for s in samples if s.state == "ready" and "gen_tps" in s.values]
+    idle = [s for s in served if "ttft_p50_s" not in s.values]
+    busy = [s for s in served if "ttft_p50_s" in s.values]
+    assert idle and busy
+    assert all(s.values["gen_tps"] == 0 and s.values["running"] == 0 for s in idle)
+    assert all(s.values["gen_tps"] > 20 and s.values["running"] > 0 for s in busy)
+    assert all(s.values["ttft_p95_s"] > s.values["ttft_p50_s"] > 0 for s in busy)
+
+
+def test_demo_history_carries_the_model_server_series():
+    spark3 = DemoModel("spark3", T0)
+    h = demo_history(spark3, ["llm.8001.gen_tps", "llm.8001.up"], T0 - 3600, T0, 60, now=T0)
+    assert any(v for v in h.series["llm.8001.gen_tps"]) and set(h.series["llm.8001.up"]) == {1.0}
 
 
 def test_demo_hardware_mirrors_discovery():

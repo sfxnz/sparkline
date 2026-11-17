@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import time
+from collections.abc import Callable
 from importlib.metadata import version as pkg_version
 
 from pydantic import TypeAdapter
@@ -79,10 +80,20 @@ def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> li
 
 
 class Cluster:
-    def __init__(self, store: Store, hub: Hub, default_settings: ConsoleSettings, demo: bool = False):
+    def __init__(
+        self,
+        store: Store,
+        hub: Hub,
+        default_settings: ConsoleSettings,
+        demo: bool = False,
+        notify: Callable[[Event], None] = lambda ev: None,
+        adopt: Callable[[list[Event]], None] = lambda left_open: None,
+    ):
         self.store = store
         self.hub = hub
         self.demo = demo
+        self.notify = notify
+        self.adopt = adopt
         saved: ConsoleSettings | None = store.kv_read("settings", _saved_settings)
         self.settings = saved or default_settings
         metrics = _saved_rule_metrics(store, store.kv_read(RULE_METRICS_KEY, _METRICS.validate_python))
@@ -99,7 +110,9 @@ class Cluster:
 
     # -- lifecycle ----------------------------------------------------------------------------------
     async def start(self) -> None:
-        self.store.resolve_open_alerts(time.time())
+        left_open = self.store.open_alerts()
+        self.adopt(left_open)
+        self.alerts.adopt(left_open, self.sources.keys(), time.time())
         self.store.prune()
         self._tasks = [asyncio.create_task(s.run(), name=f"node:{s.node_id}") for s in self.sources.values()]
         self._tasks += [asyncio.create_task(self._watchdog()), asyncio.create_task(self._housekeeping())]
@@ -145,6 +158,7 @@ class Cluster:
     def add_event(self, ev: Event) -> Event:
         ev = self.store.add_event(ev)
         self.hub.broadcast({"type": "event", "event": ev.model_dump(mode="json")})
+        self.notify(ev)
         return ev
 
     def resolve_event(self, ev: Event, ts: float) -> None:
