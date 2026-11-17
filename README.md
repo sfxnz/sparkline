@@ -157,7 +157,9 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
 - **Will it fit?** Before you download a model: what it needs at a context length (weights, KV cache, plus
   10 to 20 % for activations, so a range and not one number) against what each node has free right now, with
   a verdict per node (Fits, Tight, Does not fit, Unknown). Look a public safetensors repo up on Hugging Face,
-  or type the parameter count, layers, KV heads and head size by hand. A unified-memory node offers its
+  or type the parameter count, layers, KV heads and head size by hand. A lookup takes the weights from the
+  size of the repo's safetensors files, so a 4-bit AWQ, GPTQ or bitsandbytes repo counts as it is stored. A
+  count typed by hand is sized at 32, 16, 8 or 4 bits per weight. A unified-memory node offers its
   available memory minus 4 GiB. A node with dedicated GPU memory offers the free memory of its emptiest GPU,
   so the verdict is for a model on one GPU. On a GB10, vLLM's `--gpu-memory-utilization` is not a hard cap,
   and the page says so. Not modelled: GGUF files, sliding-window attention layers, a model split across
@@ -406,8 +408,9 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   console. The web app shows it as plain text, never as HTML or Markdown. tool-eval-bench's tools are mocks:
   nothing the model asks for is executed.
 - **Hugging Face lookup, only on request.** The console contacts `https://huggingface.co` when a signed-in user
-  presses Look up on the Will it fit? page, and at no other time. It then sends two GET requests, for
-  the repo's parameter counts and its `config.json`. The repo id must match `owner/name`, the host is fixed,
+  presses Look up on the Will it fit? page, and at no other time. A lookup that succeeds sends three GET
+  requests: one for the repo's file list and two for its `config.json`, which Hugging Face answers with a
+  redirect to a cache path on the same host. The repo id must match `owner/name`, the host is fixed,
   a redirect is followed only while it stays on `https://huggingface.co`, each response is read up to 1 MiB,
   and no token or cookie of yours is sent. Hugging Face sees the console host's address and the repo id.
   `hf_lookup = false` in `console.toml` turns it off.

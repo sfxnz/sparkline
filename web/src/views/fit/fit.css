@@ -8,6 +8,7 @@
 .fit-repo { display: flex; flex-wrap: wrap; gap: var(--space-2); width: 100%; max-width: 32rem; }
 .fit-repo .input { flex: 1 1 12rem; width: auto; min-width: 0; }
 .fit-weights { display: flex; gap: var(--space-2); align-items: flex-start; flex-wrap: wrap; }
+.fit-weights--files { align-items: center; gap: var(--space-3); }
 .fit-note { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--ok-text); }
 .fit-actions { display: flex; justify-content: flex-end; }
 

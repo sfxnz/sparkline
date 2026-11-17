@@ -18,20 +18,6 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from ..common.schema import NodeInfo, NodeState, Problem, Sample
 
-DTYPE_BYTES = {
-    "F64": 8,
-    "F32": 4,
-    "F16": 2,
-    "BF16": 2,
-    "I64": 8,
-    "I32": 4,
-    "I16": 2,
-    "I8": 1,
-    "U8": 1,
-    "BOOL": 1,
-    "F8_E4M3": 1,
-    "F8_E5M2": 1,
-}
 KV_DTYPE_BYTES = {"fp16": 2, "bf16": 2, "fp8": 1}
 KEY_AND_VALUE = 2
 OVERHEAD_PCT = (10, 20)
@@ -50,19 +36,13 @@ REPO_ID_PATTERN = rf"^{_REPO_PART}/{_REPO_PART}$"
 
 class ModelFacts(BaseModel):
     repo: str | None = None  # set when the facts came from a lookup
-    params_by_dtype: dict[str, Annotated[int, Field(ge=0)]] = Field(min_length=1)
+    # From a lookup this is the size of the repo's weight files. Hugging Face's parameter counts cannot give
+    # it. For packed 4-bit weights they count the weights the files unpack to, not the elements stored.
+    weights_bytes: int = Field(gt=0)
     num_layers: int = Field(gt=0)
     num_kv_heads: int = Field(gt=0)
     head_dim: int = Field(gt=0)
     max_context: int | None = Field(default=None, gt=0)
-
-    @field_validator("params_by_dtype")
-    @classmethod
-    def _known_dtypes(cls, v: dict[str, int]) -> dict[str, int]:
-        unknown = sorted(set(v) - set(DTYPE_BYTES))
-        if unknown:
-            raise ValueError(f"unknown weight dtype {', '.join(unknown)} (known: {', '.join(DTYPE_BYTES)})")
-        return v
 
 
 class Estimate(BaseModel):
@@ -124,7 +104,7 @@ class FitResponse(BaseModel):
 
 
 def estimate(facts: ModelFacts, context_tokens: int, kv_dtype: str) -> Estimate:
-    weights = sum(n * DTYPE_BYTES[dtype] for dtype, n in facts.params_by_dtype.items())
+    weights = facts.weights_bytes
     per_head = KEY_AND_VALUE * facts.head_dim * KV_DTYPE_BYTES[kv_dtype]
     per_token = facts.num_layers * facts.num_kv_heads * per_head
     kv = per_token * context_tokens
@@ -190,23 +170,54 @@ def _problem(message: str, cause: str, fix: str = MANUAL_FIX) -> Problem:
     return Problem(message=message, cause=cause, fix=fix)
 
 
-def _params(info: object) -> object:
-    safetensors = info.get("safetensors") if isinstance(info, dict) else None
-    return safetensors.get("parameters") if isinstance(safetensors, dict) else None
+def _unreadable(repo: RepoId, e: ValidationError) -> Problem:
+    errs = "; ".join(f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}" for err in e.errors()[:3])
+    return _problem(f"Hugging Face does not describe {repo} in a way this estimator reads", errs)
 
 
-def _no_safetensors(repo: RepoId) -> Problem:
-    return _problem(
-        f"{repo} has no safetensors parameter counts on Hugging Face",
-        "Only safetensors repos can be looked up. GGUF and PyTorch .bin repos are not read",
-    )
+class _RepoFile(BaseModel):
+    rfilename: str
+    size: int = Field(ge=0)
 
 
-def parse_facts(repo: RepoId, info: object, config: object) -> ModelFacts | Problem:
-    """The repo's ``/api/models`` answer and its ``config.json``, both as decoded JSON."""
-    params = _params(info)
-    if not params:
-        return _no_safetensors(repo)
+class _RepoFiles(BaseModel):
+    siblings: list[_RepoFile]
+
+
+_WEIGHTS = re.compile(r"model(?:-\d+-of-(\d+))?\.safetensors")
+
+
+def weights_bytes(repo: RepoId, info: object) -> int | Problem:
+    """The size of the weights a server loads, from the repo's ``/api/models`` file list as decoded JSON.
+
+    Only ``model.safetensors`` or the ``model-00001-of-0000N.safetensors`` shards at the top level count.
+    Repos also keep the same weights in other files (``consolidated.safetensors``, ``original/``, an fp32
+    variant), so adding up every ``.safetensors`` file counts them twice.
+    """
+    try:
+        files = _RepoFiles.model_validate(info, strict=True).siblings
+    except ValidationError as e:
+        return _unreadable(repo, e)
+    weights = [(f, m[1]) for f in files if (m := _WEIGHTS.fullmatch(f.rfilename))]
+    if not weights:
+        return _problem(
+            f"{repo} has no safetensors weights at its top level",
+            "The lookup sizes model.safetensors or the model-00001-of-0000N.safetensors shards. "
+            "GGUF, PyTorch .bin and other layouts are not read",
+        )
+    # The shard numbers cannot show that a set is complete. openai/gpt-oss-20b numbers three shards 0 to 2
+    # "of 2". Two totals, or a whole file next to shards, do show two sets.
+    if len({shard_total for _, shard_total in weights}) > 1:
+        names = ", ".join(f.rfilename for f, _ in weights[:6])
+        return _problem(
+            f"{repo} holds more than one set of safetensors weights",
+            f"Its file list has {names}, and the lookup cannot tell which set a server loads",
+        )
+    return sum(f.size for f, _ in weights)
+
+
+def parse_facts(repo: RepoId, weights: int, config: object) -> ModelFacts | Problem:
+    """The size of the repo's weights and its ``config.json`` as decoded JSON."""
     if not isinstance(config, dict):
         return _problem(f"The config.json of {repo} is not a JSON object", f"It is a {type(config).__name__}")
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
@@ -217,7 +228,7 @@ def parse_facts(repo: RepoId, info: object, config: object) -> ModelFacts | Prob
         return ModelFacts.model_validate(
             {
                 "repo": repo,
-                "params_by_dtype": params,
+                "weights_bytes": weights,
                 "num_layers": config.get("num_hidden_layers"),
                 "num_kv_heads": config.get("num_key_value_heads", heads),
                 "head_dim": head_dim,
@@ -226,8 +237,7 @@ def parse_facts(repo: RepoId, info: object, config: object) -> ModelFacts | Prob
             strict=True,
         )
     except ValidationError as e:
-        errs = "; ".join(f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}" for err in e.errors()[:3])
-        return _problem(f"Hugging Face does not describe {repo} in a way this estimator reads", errs)
+        return _unreadable(repo, e)
 
 
 class _Json(NamedTuple):
@@ -276,20 +286,23 @@ async def _get_hf_json(
 
 
 async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | Problem:
-    """Read a public repo's parameter counts and architecture."""
+    """Read the size of a public repo's weights and its architecture."""
     # Hugging Face answers 401 for a repo that does not exist and for a private one alike.
     absent = _problem(
         f"Hugging Face has no public model {repo}",
         "The repo does not exist or is private",
         f"Check the repo id, {OR_MANUAL_FIX}",
     )
+    # expand[]=siblings keeps the answer to the file list. Without it the model card comes too, which is
+    # a third of the response cap for some repos.
     info = await _get_hf_json(
-        client, f"/api/models/{repo}?expand[]=safetensors", {401: absent, 403: absent, 404: absent}
+        client, f"/api/models/{repo}?expand[]=siblings&blobs=true", {401: absent, 403: absent, 404: absent}
     )
     if isinstance(info, Problem):
         return info
-    if not _params(info.value):
-        return _no_safetensors(repo)
+    weights = weights_bytes(repo, info.value)
+    if isinstance(weights, Problem):
+        return weights
     gated = _problem(
         f"{repo} is gated on Hugging Face",
         "Its config.json is only served to accounts that accepted the model's terms",
@@ -300,4 +313,4 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | P
     )
     if isinstance(config, Problem):
         return config
-    return parse_facts(repo, info.value, config.value)
+    return parse_facts(repo, weights, config.value)

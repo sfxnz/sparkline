@@ -10,7 +10,7 @@ import type { FitRequest, FitResponse, KvDtype, NodeFit, Problem } from '../lib/
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
-import { budgetText, EMPTY_DRAFT, fromFacts, hasNvidiaUnifiedMemory, KV_DTYPES, rangeText, toRequest, VERDICTS, WEIGHT_DTYPES, type Draft } from './fit/model';
+import { budgetText, EMPTY_DRAFT, fromFacts, hasNvidiaUnifiedMemory, KV_DTYPES, rangeText, toRequest, VERDICTS, WEIGHT_BITS, type Draft } from './fit/model';
 import './fit/fit.css';
 import './views.css';
 
@@ -27,6 +27,7 @@ export default function Fit() {
   const set = (patch: Partial<Draft>) => { setDraft((d) => ({ ...d, ...patch })); };
   const editFact = (patch: Partial<Draft>) => { set({ ...patch, source: null }); };
   const repo = draft.repo.trim();
+  const weights = draft.weights;
   const context = parsed.ok ? parsed.request.context_tokens : null;
   const maxContext = draft.source?.maxContext ?? null;
 
@@ -83,23 +84,27 @@ export default function Fit() {
           </Field>
           {lookup.status === 'error' ? <div className="fit-wide"><ProblemBanner problem={lookup.problem} /></div> : null}
 
-          {draft.weights.map((w, i) => (
-            <Field key={i} id={`fit-count-${i}`} label={draft.weights.length > 1 ? `Parameters (${w.dtype})` : 'Parameters'} hint={i === 0 ? 'A count such as 8190735360 or 8.19B, and the dtype the weights are stored in.' : undefined}>
+          {weights.kind === 'files' ? (
+            <Field id="fit-weights" label="Weights" hint="The size of the repo's safetensors weight files, so quantised weights count as they are stored.">
+              <div className="fit-weights fit-weights--files">
+                <output id="fit-weights" className="num" aria-describedby="fit-weights-hint">{formatBytes(weights.bytes)}</output>
+                <Button size="sm" onClick={() => { editFact({ weights: EMPTY_DRAFT.weights }); }}>Enter a parameter count</Button>
+              </div>
+            </Field>
+          ) : (
+            <Field
+              id="fit-count"
+              label="Parameters"
+              hint={`A count such as 8190735360 or 8.19B, and the bits each weight is stored in.${weights.bits < 16 ? ' A quantised repo keeps some layers at 16 bits, so its files are larger than this.' : ''}`}
+            >
               <div className="fit-weights">
-                <NumberField
-                  id={`fit-count-${i}`}
-                  describedBy={i === 0 ? 'fit-count-0-hint' : undefined}
-                  value={w.count}
-                  onChange={(count) => { editFact({ weights: draft.weights.map((x, j) => (j === i ? { ...x, count } : x)) }); }}
-                  error={errors[`count${i}`]}
-                  width="9rem"
-                />
-                <Select aria-label={`Weight dtype${draft.weights.length > 1 ? ` ${i + 1}` : ''}`} value={w.dtype} onChange={(e) => { editFact({ weights: draft.weights.map((x, j) => (j === i ? { ...x, dtype: e.target.value } : x)) }); }}>
-                  {WEIGHT_DTYPES.map((d) => <option key={d} value={d}>{d}</option>)}
+                <NumberField id="fit-count" describedBy="fit-count-hint" value={weights.count} onChange={(count) => { editFact({ weights: { ...weights, count } }); }} error={errors.count} width="9rem" />
+                <Select aria-label="Bits per weight" value={weights.bits} onChange={(e) => { editFact({ weights: { ...weights, bits: Number(e.target.value) } }); }}>
+                  {WEIGHT_BITS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
                 </Select>
               </div>
             </Field>
-          ))}
+          )}
           <Field id="fit-layers" label="Layers" hint="num_hidden_layers in config.json.">
             <NumberField id="fit-layers" describedBy="fit-layers-hint" value={draft.layers} onChange={(layers) => { editFact({ layers }); }} error={errors.layers} />
           </Field>

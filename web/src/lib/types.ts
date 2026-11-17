@@ -501,8 +501,8 @@ export type KvDtype = 'fp16' | 'bf16' | 'fp8';
 export interface ModelFacts {
   /** Set when the facts came from a Hugging Face lookup. */
   repo: string | null;
-  /** safetensors dtype name -> parameter count. */
-  params_by_dtype: Record<string, number>;
+  /** From a lookup, the size of the repo's safetensors weight files. */
+  weights_bytes: number;
   num_layers: number;
   num_kv_heads: number;
   head_dim: number;

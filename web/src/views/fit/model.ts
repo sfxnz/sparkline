@@ -2,8 +2,12 @@ import type { Status } from '../../design/components/StatusPill';
 import { DASH, formatBytes } from '../../lib/format';
 import type { FitEstimate, FitRequest, FitVerdict, KvDtype, ModelFacts, NodeBudget, NodeFit } from '../../lib/types';
 
-/** The safetensors dtypes the console can size: the keys of DTYPE_BYTES in server/sparkline/console/fit.py. */
-export const WEIGHT_DTYPES = ['BF16', 'F16', 'F32', 'F64', 'F8_E4M3', 'F8_E5M2', 'I8', 'U8', 'I16', 'I32', 'I64', 'BOOL'] as const;
+export const WEIGHT_BITS: readonly { value: number; label: string }[] = [
+  { value: 32, label: '32-bit (F32)' },
+  { value: 16, label: '16-bit (BF16, F16)' },
+  { value: 8, label: '8-bit (FP8, INT8)' },
+  { value: 4, label: '4-bit (AWQ, GPTQ, bitsandbytes)' },
+];
 
 export const KV_DTYPES: readonly { value: KvDtype; label: string }[] = [
   { value: 'bf16', label: 'bf16 (2 bytes)' },
@@ -18,9 +22,12 @@ export const VERDICTS: Record<FitVerdict, { status: Status; label: string }> = {
   unknown: { status: 'unknown', label: 'Unknown' },
 };
 
+/** A lookup knows the size of the repo's weight files. By hand it is a parameter count and the bits each one is stored in. */
+type DraftWeights = { kind: 'files'; bytes: number } | { kind: 'params'; count: string; bits: number };
+
 export interface Draft {
   repo: string;
-  weights: { dtype: string; count: string }[];
+  weights: DraftWeights;
   layers: string;
   kvHeads: string;
   headDim: string;
@@ -32,7 +39,7 @@ export interface Draft {
 
 export const EMPTY_DRAFT: Draft = {
   repo: '',
-  weights: [{ dtype: 'BF16', count: '' }],
+  weights: { kind: 'params', count: '', bits: 16 },
   layers: '',
   kvHeads: '',
   headDim: '',
@@ -44,7 +51,7 @@ export const EMPTY_DRAFT: Draft = {
 export function fromFacts(draft: Draft, facts: ModelFacts): Draft {
   return {
     ...draft,
-    weights: Object.entries(facts.params_by_dtype).map(([dtype, n]) => ({ dtype, count: String(n) })),
+    weights: { kind: 'files', bytes: facts.weights_bytes },
     layers: String(facts.num_layers),
     kvHeads: String(facts.num_kv_heads),
     headDim: String(facts.head_dim),
@@ -62,7 +69,7 @@ export function parseCount(text: string): number | null {
   return n > 0 && Number.isSafeInteger(n) ? n : null;
 }
 
-export type DraftErrors = Partial<Record<'layers' | 'kvHeads' | 'headDim' | 'context' | `count${number}`, string>>;
+export type DraftErrors = Partial<Record<'layers' | 'kvHeads' | 'headDim' | 'context' | 'count', string>>;
 
 export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { ok: false; errors: DraftErrors } {
   const errors: DraftErrors = {};
@@ -71,12 +78,11 @@ export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { o
     if (n === null) errors[key] = 'Enter a whole number above 0';
     return n ?? 0;
   };
-  const params: Record<string, number> = {};
-  draft.weights.forEach((w, i) => { params[w.dtype] = (params[w.dtype] ?? 0) + need(`count${i}`, w.count); });
+  const w = draft.weights;
   const request: FitRequest = {
     facts: {
       repo: draft.source?.repo ?? null,
-      params_by_dtype: params,
+      weights_bytes: w.kind === 'files' ? w.bytes : Math.ceil((need('count', w.count) * w.bits) / 8),
       num_layers: need('layers', draft.layers),
       num_kv_heads: need('kvHeads', draft.kvHeads),
       head_dim: need('headDim', draft.headDim),

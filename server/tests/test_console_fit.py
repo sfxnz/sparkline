@@ -23,8 +23,14 @@ GIB = 2**30
 T0 = 1_791_000_000.0
 TOKEN = "s3cret-browser-token"
 BEARER = {"Authorization": f"Bearer {TOKEN}"}
-QWEN = ModelFacts(params_by_dtype={"BF16": 8_190_735_360}, num_layers=36, num_kv_heads=8, head_dim=128)
-QWEN_INFO = {"id": "Qwen/Qwen3-8B", "safetensors": {"parameters": {"BF16": 8_190_735_360}}}
+QWEN = ModelFacts(weights_bytes=16_381_470_720, num_layers=36, num_kv_heads=8, head_dim=128)
+
+
+def repo_files(sizes: dict[str, int]) -> dict[str, object]:
+    return {"siblings": [{"rfilename": name, "size": size} for name, size in sizes.items()]}
+
+
+QWEN_INFO = repo_files({"config.json": 726, "model.safetensors": 16_381_470_720})
 QWEN_CONFIG = {
     "hidden_size": 4096,
     "max_position_embeddings": 40960,
@@ -42,23 +48,17 @@ def test_the_worked_example_qwen3_8b_at_32k_context():
     assert (est.total_low, est.total_high) == (23_334_639_820, 25_455_970_713)
 
 
-def test_weights_count_every_dtype_and_fp8_halves_the_kv_cache():
-    facts = QWEN.model_copy(update={"params_by_dtype": {"F32": 10, "BF16": 100, "U8": 7, "F8_E4M3": 3}})
-    assert estimate(facts, 1, "fp16").weights_bytes == 40 + 200 + 7 + 3
+def test_fp8_halves_the_kv_cache():
     assert estimate(QWEN, 1000, "fp8").kv_bytes * 2 == estimate(QWEN, 1000, "fp16").kv_bytes
 
 
-def test_an_unknown_dtype_is_refused_not_guessed():
-    with pytest.raises(ValidationError, match="unknown weight dtype Q4_K"):
-        ModelFacts(params_by_dtype={"Q4_K": 1}, num_layers=1, num_kv_heads=1, head_dim=1)
+def test_an_unknown_kv_cache_dtype_is_refused_not_guessed():
     with pytest.raises(ValidationError, match="unknown KV cache dtype"):
         fit.FitRequest(facts=QWEN, context_tokens=1, kv_dtype="q8_0")
 
 
-def test_the_web_form_offers_exactly_the_dtypes_the_console_sizes():
+def test_the_web_form_offers_exactly_the_kv_cache_dtypes_the_console_sizes():
     web = (Path(__file__).parents[2] / "web/src/views/fit/model.ts").read_text()
-    weights = re.search(r"WEIGHT_DTYPES = \[([^\]]*)\] as const", web)
-    assert weights and set(re.findall(r"'([^']+)'", weights[1])) == set(fit.DTYPE_BYTES)
     assert set(re.findall(r"value: '([^']+)'", web)) == set(fit.KV_DTYPE_BYTES)
 
 
@@ -153,7 +153,7 @@ def public_repo(info=QWEN_INFO, config=QWEN_CONFIG) -> dict[str, httpx.Response 
     }
 
 
-async def test_lookup_reads_parameter_counts_and_the_model_shape():
+async def test_lookup_reads_the_size_of_the_weights_and_the_model_shape():
     hf = FakeHuggingFace(public_repo())
     facts = await hf.lookup()
     assert facts == QWEN.model_copy(update={"repo": "Qwen/Qwen3-8B", "max_context": 40960})
@@ -168,7 +168,7 @@ async def test_lookup_falls_back_to_attention_heads_and_an_explicit_head_dim_win
     assert facts.head_dim == 256
 
 
-# What Hugging Face reports for four real 4-bit repos: its parameter counts and the size of the weight files.
+# Hugging Face's parameter counts and weight file sizes for four real 4-bit repos.
 PACKED_REPOS = [
     pytest.param(
         {"I32": 6_525_288_448, "F16": 1_090_328_064},
@@ -198,13 +198,19 @@ PACKED_REPOS = [
 
 @pytest.mark.parametrize(("parameters", "files"), PACKED_REPOS)
 async def test_a_4_bit_repo_weighs_what_its_safetensors_files_hold(parameters, files):
-    info = {
-        "safetensors": {"parameters": parameters},
-        "siblings": [{"rfilename": name, "size": size} for name, size in files.items()],
-    }
+    info = {"safetensors": {"parameters": parameters}, **repo_files(files)}
     facts = await FakeHuggingFace(public_repo(info=info)).lookup()
     assert isinstance(facts, ModelFacts), facts
     assert estimate(facts, 1, "bf16").weights_bytes == sum(files.values())
+
+
+async def test_only_the_weights_a_server_loads_are_counted_not_other_copies_in_the_repo():
+    copies = {"consolidated.safetensors": 7, "original/model.safetensors": 7, "model.fp32.safetensors": 14}
+    shards = {"model-00001-of-000002.safetensors": 3, "model-00002-of-000002.safetensors": 4}
+    from_zero = {f"model-0000{i}-of-00002.safetensors": size for i, size in enumerate((3, 2, 2))}
+    for weights in ({"model.safetensors": 7}, shards, from_zero):
+        facts = await FakeHuggingFace(public_repo(info=repo_files({**copies, **weights}))).lookup()
+        assert facts.weights_bytes == 7
 
 
 def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
@@ -219,9 +225,24 @@ def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
         (refused(CONFIG_PATH, 401), "is gated"),
         (refused(CONFIG_PATH, 404), "no config.json"),
         (refused(INFO_PATH, 500), "could not answer"),
-        (public_repo(info={"id": "Qwen/Qwen3-8B"}), "no safetensors"),
-        ({**refused(CONFIG_PATH, 404), INFO_PATH: httpx.Response(200, json={"id": "x"})}, "no safetensors"),
-        (public_repo(info={"safetensors": {"parameters": {"Q4_K": 5}}}), "does not describe"),
+        (public_repo(info=repo_files({"model.Q4_K_M.gguf": 5, "pytorch_model.bin": 5})), "no safetensors"),
+        (
+            {**refused(CONFIG_PATH, 404), INFO_PATH: httpx.Response(200, json=repo_files({}))},
+            "no safetensors",
+        ),
+        (
+            public_repo(info=repo_files({f"model-00001-of-0000{n}.safetensors": 5 for n in (2, 3)})),
+            "more than one",
+        ),
+        (
+            public_repo(info=repo_files({f"model{x}.safetensors": 5 for x in ("", "-00001-of-00001")})),
+            "more than one",
+        ),
+        (public_repo(info={"id": "Qwen/Qwen3-8B"}), "does not describe"),
+        (
+            public_repo(info={"siblings": [{"rfilename": "model.safetensors", "size": "big"}]}),
+            "does not describe",
+        ),
         (public_repo(config={"num_hidden_layers": 36}), "does not describe"),
         (public_repo(config=["not", "an", "object"]), "not a JSON object"),
         ({INFO_PATH: httpx.ConnectError("Name or service not known")}, "Could not reach huggingface.co"),
@@ -341,7 +362,7 @@ def test_estimate_route_refuses_facts_it_cannot_size(tmp_path):
         for bad in (
             body(kv_dtype="q4_0"),
             body(context_tokens=0),
-            body(facts={**body()["facts"], "params_by_dtype": {"Q4_K": 1}}),
+            body(facts={**body()["facts"], "weights_bytes": 0}),
             body(facts={**body()["facts"], "num_layers": 0}),
         ):
             r = c.post("/api/v1/fit/estimate", json=bad, headers=BEARER)

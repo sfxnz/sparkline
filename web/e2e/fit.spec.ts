@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-const QWEN = { repo: 'Qwen/Qwen3-8B', params_by_dtype: { BF16: 8_190_735_360 }, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+const QWEN = { repo: 'Qwen/Qwen3-8B', weights_bytes: 16_381_470_720, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
 
 test('a looked-up model gets an estimate and a verdict for every node', async ({ page }) => {
   await page.route('**/api/v1/fit/lookup?*', (route) => route.fulfill({ json: QWEN }));
@@ -10,7 +10,7 @@ test('a looked-up model gets an estimate and a verdict for every node', async ({
   await expect(page).toHaveTitle('Will it fit? · Sparkline');
   await page.getByRole('textbox', { name: 'Hugging Face repo' }).fill('Qwen/Qwen3-8B');
   await page.getByRole('button', { name: 'Look up' }).click();
-  await expect(page.getByRole('textbox', { name: 'Parameters' })).toHaveValue('8190735360');
+  await expect(page.getByRole('status', { name: 'Weights' })).toHaveText('15.3 GiB');
   await page.getByRole('button', { name: 'Estimate' }).click();
 
   const result = page.getByRole('region', { name: 'Result' });

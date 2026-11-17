@@ -7,7 +7,7 @@ import { EMPTY_DRAFT, fromFacts, parseCount, toRequest } from './model';
 const GIB = 1024 ** 3;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-const QWEN: ModelFacts = { repo: 'Qwen/Qwen3-8B', params_by_dtype: { BF16: 8_190_735_360 }, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+const QWEN: ModelFacts = { repo: 'Qwen/Qwen3-8B', weights_bytes: 16_381_470_720, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
 const RESPONSE: FitResponse = {
   estimate: { weights_bytes: 16_381_470_720, kv_bytes_per_token: 147_456, kv_bytes: 4.5 * GIB, total_low: 23_334_639_820, total_high: 25_455_970_713 },
   nodes: [
@@ -42,7 +42,7 @@ describe('Will it fit', () => {
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B');
     await user.click(screen.getByRole('button', { name: 'Look up' }));
     expect(await screen.findByText('Filled in from Qwen/Qwen3-8B.')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Parameters' })).toHaveValue('8190735360');
+    expect(screen.getByRole('status', { name: 'Weights' })).toHaveTextContent('15.3 GiB');
     expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('36');
     expect(screen.getByText('This model supports up to 40,960 tokens.')).toBeInTheDocument();
 
@@ -85,7 +85,8 @@ describe('Will it fit', () => {
     expect(spy).not.toHaveBeenCalled();
 
     await user.type(screen.getByRole('textbox', { name: 'Parameters' }), '8.19B');
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Weight dtype' }), 'F16');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Bits per weight' }), '4-bit (AWQ, GPTQ, bitsandbytes)');
+    expect(screen.getByText(/A quantised repo keeps some layers at 16 bits/)).toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Layers' }), '36');
     await user.type(screen.getByRole('textbox', { name: 'KV heads' }), '8');
     await user.type(screen.getByRole('textbox', { name: 'Head size' }), '128');
@@ -96,7 +97,7 @@ describe('Will it fit', () => {
     await screen.findByRole('region', { name: 'Result' });
     expect(spy).toHaveBeenCalledTimes(1);
     expect(sent(spy)).toEqual({
-      facts: { repo: null, params_by_dtype: { F16: 8_190_000_000 }, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null },
+      facts: { repo: null, weights_bytes: 4_095_000_000, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null },
       context_tokens: 8192,
       kv_dtype: 'fp8',
     });
@@ -139,6 +140,18 @@ describe('Will it fit', () => {
     await screen.findByRole('region', { name: 'Result' });
     expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, num_layers: 360 });
   });
+
+  it('lets a parameter count replace the size a lookup found', async () => {
+    const user = userEvent.setup();
+    const spy = fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'Enter a parameter count' }));
+    await user.type(screen.getByRole('textbox', { name: 'Parameters' }), '8190735360');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    await screen.findByRole('region', { name: 'Result' });
+    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null });
+  });
 });
 
 describe('fit form model', () => {
@@ -150,9 +163,14 @@ describe('fit form model', () => {
     for (const bad of ['', '0', '-3', '1e9', '8 billion', '0.4']) expect(parseCount(bad), bad).toBeNull();
   });
 
-  it('keeps every dtype of a mixed-precision repo', () => {
-    const facts = { ...QWEN, params_by_dtype: { BF16: 100, F32: 7 } };
+  it('sends the size a lookup found as it came', () => {
+    const facts = { ...QWEN, weights_bytes: 5_570_829_761 };
     const parsed = toRequest(fromFacts(EMPTY_DRAFT, facts));
     expect(parsed.ok && parsed.request.facts).toEqual(facts);
+  });
+
+  it('rounds a typed count up to whole bytes', () => {
+    const parsed = toRequest({ ...fromFacts(EMPTY_DRAFT, QWEN), weights: { kind: 'params', count: '3', bits: 4 } });
+    expect(parsed.ok && parsed.request.facts.weights_bytes).toBe(2);
   });
 });
