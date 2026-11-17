@@ -609,11 +609,22 @@ def test_onboarding_put_needs_a_sign_in_the_consoles_own_origin_and_a_readable_p
     evil = {**bearer(), "Origin": "http://evil.example"}
     r = client.put(ONBOARDING, json={"finished": True}, headers=evil)
     assert r.status_code == 403 and r.json()["problem"]["message"] == "Cross-site request blocked"
-    r = client.put(ONBOARDING, json={"seen": "fit"}, headers=bearer())
-    assert r.status_code == 422 and r.json()["problem"]["message"] == "Invalid request"
+    unreadable = (
+        {"seen": "fit"},
+        {"seen": ["a" * 65]},
+        {"seen": [f"row-{i}" for i in range(65)]},
+        *({"seen": [bad]} for bad in ("", "Fit", "fit_it", "-fit", "fit-", "fit--it", "fit it", "fit\n", 5)),
+    )
+    for body in unreadable:
+        r = client.put(ONBOARDING, json=body, headers=bearer())
+        assert r.status_code == 422 and r.json()["problem"]["message"] == "Invalid request", body
     assert cluster_state(client)["onboarding"] == NEW
     assert client.post(LOGIN, json={"token": TOKEN}).status_code == 200  # the session cookie opens it too
     assert client.put(ONBOARDING, json={"seen": ["fit"]}, headers=SAME).json()["seen"] == ["fit"]
+    longest = ["a" * 64, *(f"row-{i}" for i in range(63))]  # the most one patch may carry
+    assert client.put(ONBOARDING, json={"seen": longest}, headers=SAME).json()["seen"] == sorted(
+        [*longest, "fit"]
+    )
 
 
 def test_an_onboarding_change_is_broadcast_to_open_streams(client):

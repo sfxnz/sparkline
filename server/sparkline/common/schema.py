@@ -11,9 +11,9 @@ Conventions:
 from __future__ import annotations
 
 import re
-from typing import Any, Literal, Self, get_args
+from typing import Annotated, Any, Literal, Self, get_args
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 SCHEMA_VERSION = 1
 
@@ -370,8 +370,12 @@ class Onboarding(BaseModel):
     seen: list[str] = Field(default_factory=list)  # ids of guide items the person opened. Sorted, unique
 
 
+GuideItemId = Annotated[str, StringConstraints(max_length=64, pattern=r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")]
+
+
 class OnboardingPatch(BaseModel):
-    seen: list[str] | None = None  # ids to add. Unknown ids are kept
+    # ids to add. Unknown ids are kept
+    seen: Annotated[list[GuideItemId], Field(max_length=64)] | None = None
     finished: bool | None = None  # True stamps `finished` once. False clears it and sets `reopened`
 
 
