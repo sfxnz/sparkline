@@ -231,10 +231,19 @@ async def test_a_4_bit_repo_weighs_what_its_safetensors_files_hold(parameters, f
 COPIES = {"consolidated.safetensors": 7, "original/model.safetensors": 7, "model.fp32.safetensors": 14}
 
 
-async def test_a_repo_with_no_index_weighs_its_model_safetensors_and_not_the_copies_beside_it():
-    hf = FakeHuggingFace(public_repo(info=repo_files({**COPIES, "model.safetensors": 7})))
+async def test_a_repo_with_no_index_weighs_its_model_safetensors_and_not_the_copies_in_subfolders():
+    files = {"original/model.safetensors": 7, "onnx/model.fp32.safetensors": 14, "model.safetensors": 7}
+    hf = FakeHuggingFace(public_repo(info=repo_files(files)))
     assert (await hf.lookup()).weights_bytes == 7
     assert len(hf.hosts) == 3
+
+
+def test_a_repo_with_no_index_and_other_safetensors_files_beside_its_model_safetensors_is_refused():
+    # With no index some servers load only model.safetensors and some load every top-level .safetensors file.
+    refused = fit.unindexed_weights(parse_repo_id("an-owner/a-model"), {**COPIES, "model.safetensors": 7})
+    assert not isinstance(refused, int), refused
+    assert "beside its model.safetensors" in refused.message
+    assert "(consolidated.safetensors, model.fp32.safetensors)" in refused.cause
 
 
 async def test_an_indexed_repo_weighs_the_files_its_index_names_and_not_the_copies_beside_them():
