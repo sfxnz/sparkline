@@ -15,6 +15,8 @@ from netports import free_ports
 from sparkline.common.schema import Event
 from sparkline.console.app import create_app
 from sparkline.console.config import ConsoleConfig
+from sparkline.console.demo import DemoModel
+from sparkline.console.nodes import NodeSource, classify
 from sparkline.console.notify import NotifyConfig
 
 TOKEN = "s3cret-browser-token"
@@ -229,3 +231,35 @@ def test_disabling_a_rule_whose_alert_is_firing_tells_the_channel_the_alert_ende
             ("resolved", "critical", "Resolved: Node offline on spark1"),
         ]
         assert sink.seen[1]["body"]["text"] == "Closed because its rule was changed · was critical"
+
+
+def test_a_node_that_never_answered_raises_no_offline_alert_and_the_same_node_does_once_it_has(
+    tmp_path, sink
+):
+    app = make(tmp_path, hook(sink))
+    with TestClient(app) as c:
+        rules = c.get(RULES, headers=AUTH).json()
+        at_once = [{**r, "for_s": 0} if r["id"] == "node_offline" else r for r in rules]
+        assert c.put(RULES, json=at_once, headers=AUTH).status_code == 200
+        cluster = app.state.cluster
+        src = NodeSource("spark1", "http://127.0.0.1:1", cluster)  # driven by hand: its loop never runs
+        c.portal.call(cluster.add_source, src)
+        refused = classify(ConnectionRefusedError(), "spark1", src.url)
+
+        def node() -> dict:
+            return c.get("/api/v1/cluster", headers=AUTH).json()["nodes"][0]
+
+        c.portal.call(src.set_status, *refused, None)
+        time.sleep(1.5)  # more than one pass of the watchdog, which evaluates every node each second
+        assert (node()["status"], node()["first_seen"]) == ("offline", None)
+        assert c.get("/api/v1/events", headers=AUTH).json() == [] and sink.seen == []
+
+        before = time.time()
+        c.portal.call(src.got_sample, DemoModel("spark1", before).sample_at(before))
+        assert node()["status"] == "online" and before <= node()["first_seen"] <= time.time()
+        c.portal.call(src.set_status, *refused, None)
+        until(lambda: len(sink.seen) == 1)
+        [notice] = sink.seen[0]["body"]["notices"]
+        assert (notice["status"], notice["title"]) == ("firing", "Node offline on spark1")
+        [event] = c.get("/api/v1/events", headers=AUTH).json()
+        assert (event["kind"], event["rule_id"], event["node_id"]) == ("alert", "node_offline", "spark1")

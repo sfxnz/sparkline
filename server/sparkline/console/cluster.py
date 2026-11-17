@@ -205,13 +205,24 @@ class Cluster:
 
     def on_status(self, src: NodeSource, old: NodeState) -> None:
         new = src.state
+        if new.status == "online" and new.first_seen is None:
+            # Only a sample turns a node online, so this is its first one here. Stamped before the broadcast:
+            # the message that says online is the one that says the node is no longer new.
+            new.first_seen = time.time()
+            self.onboarding.node_seen(src.node_id, new.first_seen)
         self.hub.broadcast({"type": "node_status", "node": new.model_dump(mode="json")})
         if new.status == old.status:
             return
         try:  # outages are recorded by the node_offline alert (one alert + one recovery), not separate events
-            self.alerts.evaluate_status(src.node_id, new.status, new.error, time.time())
+            self._evaluate_status(src, time.time())
         except Exception:
             log.exception("status handling failed for %s", src.node_id)
+
+    def _evaluate_status(self, src: NodeSource, now: float) -> None:
+        """node_offline for a node that has answered this console at least once. One that never has is not
+        connected yet, which is not an outage: no alert, no event, no notification."""
+        if src.state.first_seen is not None:
+            self.alerts.evaluate_status(src.node_id, src.state.status, src.state.error, now)
 
     # -- background loops ---------------------------------------------------------------------------
     async def _watchdog(self) -> None:
@@ -253,7 +264,7 @@ class Cluster:
                 )
             elif age > max(self.settings.stale_after_s, floor) and st.status == "online":
                 src.set_status("stale", None, None)
-        self.alerts.evaluate_status(src.node_id, src.state.status, src.state.error, now)
+        self._evaluate_status(src, now)
 
     async def _housekeeping(self) -> None:
         while True:
