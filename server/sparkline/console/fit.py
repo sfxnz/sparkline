@@ -3,6 +3,14 @@
 The estimate and the budgets are pure functions. The only IO is ``fetch_facts``, which reads a public
 Hugging Face repo when the user asks for a lookup. The wire types are mirrored in web/src/lib/types.ts.
 
+A lookup gives a size only where the repo's own weight files are the whole model, and says why when it
+cannot tell. Servers load weights the repo's files do not hold in ways a lookup cannot see from them: vLLM's
+Ultravox loads the repos named in ``text_model_id`` and ``audio_model_id``, its kimi_audio loads a subfolder
+of the repo it serves, its d3 and clef models load one file beside the index's by name, and transformers
+swaps a repo holding ``adapter_config.json`` for the base model named there. The first, the fourth and any
+left-over safetensors file are visible in the two files a lookup reads, and each of them refuses the size.
+A file beside the index in a format the lookup does not read is not, and nor is a loader argument.
+
 Not modelled: GGUF repos, sliding-window attention layers, splitting a model across GPUs, the AMD GTT limit
 and the macOS wired-memory limit.
 """

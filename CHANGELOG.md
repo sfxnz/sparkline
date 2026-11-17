@@ -13,14 +13,16 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   20 % on top for activations, so the total is a range) and compares it with what each node has free in its
   latest sample: available memory minus 4 GiB on a unified-memory node, or the free memory of the emptiest
   GPU on a node with dedicated GPU memory. Each node gets a verdict: Fits, Tight, Does not fit or Unknown.
-  Look up reads a public repo from huggingface.co. The weights are the size of the files that the repo's
-  `model.safetensors.index.json` names, or of its `model.safetensors` when it has no index, so a 4-bit AWQ,
-  GPTQ, bitsandbytes or MLX repo counts as it is stored. The model's shape comes from its `config.json`.
-  An index over 1 MiB is not read. When the repo's safetensors files are then one set of shards, the weights
-  are their total, which a server never exceeds, and the page says so beside the number. When the lookup
-  cannot tell which files a server loads, for example because such a repo holds other safetensors files as
-  well, it shows no size, says why and fills in the part it read. The same facts can be typed by hand, with
-  the weights as the size of the weight files in GB or GiB and not as a parameter count. New endpoints
+  Look up reads a public repo from huggingface.co. It gives a size only where the repo's own files are the
+  whole model: its `config.json` can be read and names no other repo for weights, it holds no
+  `adapter_config.json`, and it holds no safetensors file outside the ones sized. The weights are then the
+  size of the files that its `model.safetensors.index.json` names, or of its `model.safetensors` when it has
+  no index, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it is stored. The model's shape comes
+  from the same `config.json`. An index over 1 MiB is not read. When the repo's safetensors files are then
+  one set of shards, the weights are their total, which a server never exceeds, and the page says so beside
+  the number. Anything else shows no size, says why and fills in the part it read. The same facts can be
+  typed by hand, with the weights as the size of the weight files in GiB or GB and never as a parameter
+  count. New endpoints
   `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new `console.toml` key `hf_lookup`
   (default `true`) turns the lookup off.
 
