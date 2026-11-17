@@ -150,4 +150,31 @@ describe('CommandPalette', () => {
     expect(options()).toContain('ws1 › System memory');
     expect(options()).not.toContain('ws1 › Unified memory');
   });
+
+  it('opens the getting-started guide again: tells the console and goes to the overview', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) =>
+      Promise.resolve(new Response(JSON.stringify(url === '/api/v1/onboarding' ? { started: 1, finished: null, seen: [] } : []), { status: 200, headers: { 'content-type': 'application/json' } })));
+    useCluster.getState().setHello({ ...cluster, onboarding: { started: 1, finished: 2, seen: [] } });
+    const loc = memoryLocation({ path: '/settings', record: true });
+    render(<Router hook={loc.hook}><CommandPalette /></Router>);
+    act(() => { useUi.getState().setPalette(true); });
+    await user.type(screen.getByRole('combobox', { name: /Search views/ }), 'getting started');
+    await user.keyboard('{Enter}');
+    expect(fetchSpy).toHaveBeenCalledWith('/api/v1/onboarding', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ finished: false }) }));
+    expect(loc.history.at(-1)).toBe('/');
+    expect(useUi.getState()).toMatchObject({ paletteOpen: false, guideWanted: true });
+    fetchSpy.mockRestore();
+    useUi.setState({ guideWanted: false });
+  });
+
+  it('has no guide command on a console that does not keep onboarding (before 0.3.0)', async () => {
+    const user = userEvent.setup();
+    useCluster.getState().setHello(cluster);
+    render(<Router hook={memoryLocation({ path: '/' }).hook}><CommandPalette /></Router>);
+    act(() => { useUi.getState().setPalette(true); });
+    await user.type(screen.getByRole('combobox', { name: /Search views/ }), 'getting started');
+    expect(screen.queryByRole('option', { name: /Open getting started/ })).toBeNull();
+    act(() => { useUi.getState().setPalette(false); });
+  });
 });

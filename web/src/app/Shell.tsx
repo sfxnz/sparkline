@@ -17,6 +17,7 @@ import { useNodeDisplayStatus } from '../store/attention';
 import { openAlertCount, useEvents } from '../store/events';
 import { usePrefs } from '../store/prefs';
 import { useUi } from '../store/ui';
+import { GuideEntry } from '../views/guide/Guide';
 import Node from '../views/Node';
 import Overview from '../views/Overview';
 import { ChartPanelSkeleton } from '../views/placeholders';
@@ -216,6 +217,7 @@ function Sidebar({ collapsed, canExpand, location }: { collapsed: boolean; canEx
           </div>
         </nav>
 
+        <GuideEntry collapsed={collapsed} />
         <div className="sidebar__foot">
           <Button variant="ghost" className="sidebar__wall" icon={<Monitor />} onClick={() => { navigate(paths.wall); }} title={collapsed ? 'Wall mode' : undefined} aria-label={collapsed ? 'Wall mode' : undefined}>
             <span className="nav__label">Wall mode</span>

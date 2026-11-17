@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '../../design/components/Button';
 import { EmptyState } from '../../design/components/EmptyState';
 import { Panel } from '../../design/components/Panel';
+import { useHashTarget } from '../../design/useHashTarget';
 import { ProblemState } from '../../design/components/ProblemState';
 import { StatusPill } from '../../design/components/StatusPill';
 import { Table, type Column } from '../../design/components/Table';
@@ -53,6 +54,7 @@ function LastDelivery({ row }: { row: NotifyChannelStatus }) {
 }
 
 export function NotifyChannels() {
+  useHashTarget('notifications');
   const [load, setLoad] = useState<Load>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [testing, setTesting] = useState<string | null>(null);
@@ -120,6 +122,7 @@ export function NotifyChannels() {
   const ready = load.status === 'ready';
   return (
     <Panel
+      id="notifications"
       className="alerts-notify"
       title="Notifications"
       subtitle="Where alerts and recoveries are sent when no browser is open. Channels are set in console.toml."

@@ -7,6 +7,7 @@ import { gpuProcessesGap, gpusWithUnknownProcesses } from '../../lib/gpu';
 import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
+import { GuideChip } from '../guide/Guide';
 import { excl } from '../shared/totalGap';
 import { clusterGpuNow, shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './hooks';
 import { waitingLine, workloadSentence } from './model';
@@ -24,6 +25,7 @@ export function Hero() {
         <StatusPill status={health.status} label={health.label} />
       </div>
       <Activity />
+      <GuideChip />
     </header>
   );
 }

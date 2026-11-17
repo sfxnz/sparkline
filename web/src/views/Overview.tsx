@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { EmptyState } from '../design/components/EmptyState';
 import { isNewNode, needsSetup } from '../lib/onboarding';
 import { useCluster } from '../store/cluster';
+import { Guide } from './guide/Guide';
 import { ClusterChart, ClusterChartSkeleton } from './overview/ClusterChart';
 import { Hero, HeroSkeleton } from './overview/Hero';
 import { InterconnectPanel, InterconnectSkeleton } from './overview/InterconnectPanel';
@@ -48,6 +49,7 @@ export default function Overview() {
       <div className="ov-cards">
         {order.map((id) => (needsSetup(nodes[id]) ? <SetupCard key={id} id={id} /> : <NodeCard key={id} id={id} arriving={arriving.has(id)} />))}
       </div>
+      <Guide />
       {nothingYet ? (
         <NothingYet nodes={order} />
       ) : (

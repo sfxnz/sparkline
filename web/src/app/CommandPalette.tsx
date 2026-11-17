@@ -1,4 +1,4 @@
-import { Activity, Bell, Blend, CornerDownLeft, Gauge, Keyboard, LayoutGrid, Monitor, PanelLeft, Search, Server, Settings, SunMoon, type LucideIcon } from 'lucide-react';
+import { Activity, Bell, Blend, Compass, CornerDownLeft, Gauge, Keyboard, LayoutGrid, Monitor, PanelLeft, Search, Server, Settings, SunMoon, type LucideIcon } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useLocation } from 'wouter';
 import { Dialog } from '../design/components/Dialog';
@@ -10,6 +10,7 @@ import { memoryLayout, type MemoryLayout } from '../lib/memoryLayout';
 import { nextTheme, resolveTheme } from '../lib/prefs';
 import type { BenchSpec } from '../lib/types';
 import { useCluster } from '../store/cluster';
+import { reopenGuide } from '../store/guide';
 import { usePrefs } from '../store/prefs';
 import { useUi } from '../store/ui';
 import { NODE_TABS, paths, type NodeTab } from './routes';
@@ -73,6 +74,7 @@ function useCommands(close: () => void, query: string): Command[] {
   const setPrefs = usePrefs((s) => s.set);
   const cycleTheme = usePrefs((s) => s.cycleTheme);
   const setHelp = useUi((s) => s.setHelp);
+  const hasGuide = useCluster((s) => s.onboarding !== null);
   const specs = useCatalog();
   const typing = query.trim() !== '';
 
@@ -111,8 +113,9 @@ function useCommands(close: () => void, query: string): Command[] {
       { id: 'act-shortcuts', group: 'Actions', label: 'Keyboard shortcuts', keywords: 'help keys', icon: Keyboard, hint: '?', run: () => { setHelp(true); } },
       { id: 'act-single-keys', group: 'Actions', label: singleKeys ? 'Turn off single-key shortcuts' : 'Turn on single-key shortcuts', keywords: 'keyboard keys speech accessibility', icon: Keyboard, run: () => { setPrefs({ singleKeyShortcuts: !singleKeys }); } },
     );
+    if (hasGuide) cmds.push({ id: 'act-guide', group: 'Actions', label: 'Open getting started', keywords: 'guide welcome onboarding tour help first steps', icon: Compass, run: () => { close(); void reopenGuide(); navigate(paths.overview); } });
     return cmds;
-  }, [order, nodes, theme, reduceTransparency, collapsed, singleKeys, navigate, close, setPrefs, cycleTheme, setHelp, specs, typing]);
+  }, [hasGuide, order, nodes, theme, reduceTransparency, collapsed, singleKeys, navigate, close, setPrefs, cycleTheme, setHelp, specs, typing]);
 }
 
 /** ⌘K / Ctrl+K palette: combobox + listbox with grouped options and fuzzy filtering. */

@@ -11,10 +11,13 @@ export interface Prefs {
   timeRange: TimeRange;
   /** Shortcuts without a modifier (G O, 1–9, T, W, ?). Can be turned off (WCAG 2.1.4). */
   singleKeyShortcuts: boolean;
+  /** Getting started on the overview: true shows every row, false one line. null follows how far the person is
+   *  (the console's Onboarding): every row on a first visit, one line once they have opened something. */
+  guideOpen: boolean | null;
 }
 
 export const PREFS_KEY = 'sparkline.prefs';
-export const DEFAULT_PREFS: Prefs = { theme: 'system', reduceTransparency: false, sidebarCollapsed: false, timeRange: 'live', singleKeyShortcuts: true };
+export const DEFAULT_PREFS: Prefs = { theme: 'system', reduceTransparency: false, sidebarCollapsed: false, timeRange: 'live', singleKeyShortcuts: true, guideOpen: null };
 
 const THEMES: readonly ThemePref[] = ['system', 'dark', 'light'];
 export const TIME_RANGES: readonly TimeRange[] = ['live', '5m', '1h', '24h', '7d'];
@@ -33,6 +36,7 @@ export function loadPrefs(): Prefs {
     sidebarCollapsed: p.sidebarCollapsed === true,
     timeRange: TIME_RANGES.includes(p.timeRange as TimeRange) ? (p.timeRange as TimeRange) : DEFAULT_PREFS.timeRange,
     singleKeyShortcuts: p.singleKeyShortcuts !== false,
+    guideOpen: typeof p.guideOpen === 'boolean' ? p.guideOpen : null,
   };
 }
 

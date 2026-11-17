@@ -1,0 +1,56 @@
+// The getting-started guide's facts and actions. What is done is derived (views/guide/items.ts) from the cluster and
+// from two counts the stream does not carry, fetched here once per visit while the guide is unfinished. The only
+// state the guide writes is the console's Onboarding (store/onboarding.ts) and one per-browser preference.
+import { create } from 'zustand';
+import { api, benchApi } from '../lib/api';
+import { patchOnboarding } from './onboarding';
+import { usePrefs } from './prefs';
+import { useUi } from './ui';
+
+interface GuideFacts {
+  /** Notification channels configured on the console. null: not known yet. */
+  notifyChannels: number | null;
+  /** 1 when the console has stored a benchmark run, 0 when it has none. null: not known yet. */
+  benchRuns: number | null;
+}
+
+export const useGuideFacts = create<GuideFacts>()(() => ({ notifyChannels: null, benchRuns: null }));
+
+let loading: Promise<void> | null = null;
+
+/** Ask the console for the two counts. Calls made while one is in flight share it; a failure keeps what was known. */
+export function loadGuideFacts(): Promise<void> {
+  loading ??= Promise.all([
+    api.notifyChannels().then((rows) => rows.length, () => null),
+    benchApi.runs({ limit: 1 }).then((runs) => runs.length, () => null),
+  ])
+    .then(([notifyChannels, benchRuns]) => {
+      useGuideFacts.setState((was) => ({ notifyChannels: notifyChannels ?? was.notifyChannels, benchRuns: benchRuns ?? was.benchRuns }));
+    })
+    .finally(() => { loading = null; });
+  return loading;
+}
+
+/** The person opened a row: the console remembers, so the guide is one line the next time, on any device. */
+export const markGuideItem = (id: string) => patchOnboarding({ seen: [id] });
+
+/** Put the guide away for good, by hand or because every row is done. */
+export function finishGuide(how: 'dismissed' | 'complete'): Promise<void> {
+  useUi.setState({ guideLeft: how });
+  return patchOnboarding({ finished: true });
+}
+
+/** Show every row or one line, in this browser. */
+export const setGuideOpen = (open: boolean) => { usePrefs.getState().set({ guideOpen: open }); };
+
+/** Bring the guide to the person: every row shown, and the overview scrolls to it. The caller navigates there. */
+export function wantGuide(): void {
+  setGuideOpen(true);
+  useUi.setState({ guideWanted: true, guideLeft: null });
+}
+
+/** Settings and the command palette: open a finished guide again. */
+export function reopenGuide(): Promise<void> {
+  wantGuide();
+  return patchOnboarding({ finished: false });
+}

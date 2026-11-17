@@ -7,9 +7,9 @@ describe('prefs', () => {
   });
 
   it('round-trips and validates', () => {
-    savePrefs({ theme: 'light', reduceTransparency: true, sidebarCollapsed: true, timeRange: '24h', singleKeyShortcuts: false });
-    expect(loadPrefs()).toEqual({ theme: 'light', reduceTransparency: true, sidebarCollapsed: true, timeRange: '24h', singleKeyShortcuts: false });
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: 'neon', timeRange: '3y', reduceTransparency: 'yes' }));
+    savePrefs({ theme: 'light', reduceTransparency: true, sidebarCollapsed: true, timeRange: '24h', singleKeyShortcuts: false, guideOpen: false });
+    expect(loadPrefs()).toEqual({ theme: 'light', reduceTransparency: true, sidebarCollapsed: true, timeRange: '24h', singleKeyShortcuts: false, guideOpen: false });
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: 'neon', timeRange: '3y', reduceTransparency: 'yes', guideOpen: 'yes' }));
     expect(loadPrefs()).toEqual(DEFAULT_PREFS);
   });
 
