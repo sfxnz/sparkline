@@ -231,9 +231,8 @@ async def test_a_4_bit_repo_weighs_what_its_safetensors_files_hold(parameters, f
 COPIES = {"consolidated.safetensors": 7, "original/model.safetensors": 7, "model.fp32.safetensors": 14}
 
 
-async def test_a_repo_with_no_index_weighs_its_model_safetensors_and_not_the_copies_in_subfolders():
-    files = {"original/model.safetensors": 7, "onnx/model.fp32.safetensors": 14, "model.safetensors": 7}
-    hf = FakeHuggingFace(public_repo(info=repo_files(files)))
+async def test_a_repo_with_no_index_weighs_its_model_safetensors_when_that_is_its_only_one():
+    hf = FakeHuggingFace(public_repo(info=repo_files({"config.json": 726, "model.safetensors": 7})))
     assert (await hf.lookup()).weights_bytes == 7
     assert len(hf.hosts) == 3
 
@@ -243,17 +242,50 @@ def test_a_repo_with_no_index_and_other_safetensors_files_beside_its_model_safet
     refused = fit.unindexed_weights(parse_repo_id("an-owner/a-model"), {**COPIES, "model.safetensors": 7})
     assert not isinstance(refused, int), refused
     assert "beside its model.safetensors" in refused.message
-    assert "(consolidated.safetensors, model.fp32.safetensors)" in refused.cause
+    assert "consolidated.safetensors, model.fp32.safetensors" in refused.cause
 
 
-async def test_an_indexed_repo_weighs_the_files_its_index_names_and_not_the_copies_beside_them():
+async def test_an_indexed_repo_weighs_the_files_its_index_names():
     shards = {"model-00001-of-000002.safetensors": 3, "model-00002-of-000002.safetensors": 4}
     from_zero = {f"model-0000{i}-of-00002.safetensors": size for i, size in enumerate((3, 2, 2))}
     under_another_name = {"model.safetensors-00001-of-00002.safetensors": 6, "layers-0.safetensors": 1}
     for weights in (shards, from_zero, under_another_name):
-        hf = FakeHuggingFace(indexed_repo({**COPIES, **weights}, *weights))
+        hf = FakeHuggingFace(indexed_repo(weights, *weights))
         assert (await hf.lookup()).weights_bytes == 7
         assert len(hf.hosts) == 5
+
+
+@pytest.mark.parametrize(
+    ("left_out", "named"),
+    [
+        # vLLM's Kimi-Audio loads a subfolder of the repo it serves as a second weight source.
+        pytest.param({"whisper-large-v3/model.safetensors": 3}, "whisper-large-v3/model.safetensors", id="a-subfolder"),
+        # vLLM's d3 and clef models load a file of their own beside the index's, by name.
+        pytest.param({"readout.safetensors": 1}, "readout.safetensors", id="a-file-beside-them"),
+        pytest.param({"original/model.safetensors": 7}, "original/model.safetensors", id="a-copy-of-the-model"),
+        pytest.param({"model.safetensors": 7}, "model.safetensors", id="a-single-file-the-index-does-not-name"),
+    ],
+)
+async def test_an_indexed_repo_that_holds_a_safetensors_file_its_index_does_not_name_is_refused(left_out, named):
+    shards = {"model-00001-of-00002.safetensors": 3, "model-00002-of-00002.safetensors": 4}
+    failure = await FakeHuggingFace(indexed_repo({**shards, **left_out}, *shards)).lookup()
+    assert failure.found.weights_bytes is None, failure
+    assert "does not name every" in failure.problem.message
+    assert named in failure.problem.cause
+    assert "by hand" in failure.problem.fix
+
+
+async def test_a_repo_with_no_index_and_a_safetensors_file_in_a_subfolder_is_refused():
+    files = {"config.json": 726, "model.safetensors": 7, "onnx/model.fp32.safetensors": 14}
+    failure = await FakeHuggingFace(public_repo(info=repo_files(files))).lookup()
+    assert failure.found.weights_bytes is None, failure
+    assert "onnx/model.fp32.safetensors" in failure.problem.cause
+
+
+async def test_the_upper_bound_path_answers_a_repo_whose_shards_are_its_only_safetensors_files():
+    hf = FakeHuggingFace(public_repo(info=repo_files({"config.json": 726, **OVER_THE_CAP, **SHARDS})))
+    facts = await hf.lookup()
+    assert (facts.weights_bytes, facts.weights_upper_bound) == (12_000_000_000, True)
 
 
 async def test_an_index_that_names_several_shard_families_weighs_every_one_of_them():
@@ -476,7 +508,7 @@ async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
                 {"model.safetensors": 5, "model-00001-of-00001.safetensors": 5},
                 "model-00001-of-00001.safetensors",
             ),
-            "two sets",
+            "does not name every",
         ),
         (public_repo(repo_files({INDEX: 9, "model.safetensors": 5}), index={"metadata": {}}), "weight index"),
         (
