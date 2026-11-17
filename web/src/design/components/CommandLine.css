@@ -1,0 +1,31 @@
+/* A command or snippet to copy. The text wraps anywhere rather than hiding behind an ellipsis. */
+.cmd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 5px 5px 5px var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  border: var(--hairline) solid var(--separator-strong);
+  text-align: left;
+}
+.cmd__prompt { flex: none; align-self: flex-start; font-family: var(--font-mono); font-size: var(--fs-footnote); line-height: 1.625rem; color: var(--text-3); user-select: none; }
+.cmd__text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-footnote);
+  line-height: 1.125rem;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.cmd__text code { padding: 0; background: none; font-size: inherit; }
+.cmd .btn { flex: none; align-self: flex-start; }
+.cmd .btn.is-copied { color: var(--ok-text); }
+/* Several lines: indentation is part of the text, so a line too long for the box scrolls inside it. */
+.cmd--block { align-items: flex-start; padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.cmd--block .cmd__text { white-space: pre; overflow-x: auto; overflow-wrap: normal; border-radius: var(--radius-xs); }

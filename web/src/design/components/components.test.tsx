@@ -6,6 +6,7 @@ import { bytesParts, tempParts } from '../../lib/format';
 import type { NodeInfo, Unsupported as UnsupportedEntry } from '../../lib/types';
 import { AnimatedNumber } from './AnimatedNumber';
 import { Button, IconButton } from './Button';
+import { CommandLine } from './CommandLine';
 import { ConfirmDialog } from './Dialog';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Announcer, DEDUPE_MS, MIN_GAP_MS } from './LiveAnnouncer';
@@ -310,5 +311,49 @@ describe('Announcer', () => {
     a.announce('GPU hot on spark1', 'warning');
     act(() => { vi.advanceTimersByTime(MIN_GAP_MS); });
     expect(out[2]).toBe('GPU hot on spark1');
+  });
+});
+
+describe('CommandLine', () => {
+  const secure = (on: boolean) => { Object.defineProperty(window, 'isSecureContext', { value: on, configurable: true }); };
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it('shows the whole command and copies exactly it, naming what was copied', async () => {
+    secure(true);
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<CommandLine text="systemctl status sparkline-agent" />);
+    expect(screen.getByText('systemctl status sparkline-agent')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy command' }));
+    expect(writeText).toHaveBeenCalledWith('systemctl status sparkline-agent');
+    expect(await screen.findByRole('button', { name: 'Copied command' })).toHaveTextContent('Copied');
+    expect(screen.getByRole('status')).toHaveTextContent('Copied command');
+  });
+
+  it('copies on a plain-http LAN page, where the clipboard API is missing', async () => {
+    secure(false);
+    const exec = vi.fn<(command: string) => boolean>(() => true);
+    Object.defineProperty(document, 'execCommand', { value: exec, configurable: true });
+    render(<CommandLine text="sudo grep ^token /etc/sparkline/console.toml" compact />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy command' }));
+    expect(await screen.findByRole('button', { name: 'Copied command' })).toBeInTheDocument();
+    expect(exec).toHaveBeenCalledWith('copy');
+  });
+
+  it('says so when the browser blocks the copy', async () => {
+    secure(false);
+    Object.defineProperty(document, 'execCommand', { value: () => false, configurable: true });
+    render(<CommandLine text="systemctl status sparkline-agent" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy command' }));
+    await vi.waitFor(() => { expect(screen.getByRole('status')).toHaveTextContent('The browser blocked the clipboard'); });
+    expect(screen.getByRole('button', { name: 'Copy command' })).toHaveTextContent('Copy');
+  });
+
+  it('keeps the lines of a snippet and names it', () => {
+    const text = 'scrape_configs:\n  - job_name: sparkline';
+    const { container } = render(<CommandLine text={text} what="scrape config" />);
+    expect(container.querySelector('pre')?.textContent).toBe(text);
+    expect(screen.getByRole('button', { name: 'Copy scrape config' })).toBeInTheDocument();
+    expect(container.querySelector('.cmd__prompt')).toBeNull();
   });
 });

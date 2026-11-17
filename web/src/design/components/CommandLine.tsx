@@ -1,0 +1,48 @@
+import { Check, Copy } from 'lucide-react';
+import { useCopy } from '../copy';
+import { Button, IconButton } from './Button';
+import './CommandLine.css';
+
+interface Props {
+  /** What is shown and copied, exactly. Several lines make a block (a config snippet) with no prompt. */
+  text: string;
+  /** What the copy button copies, for its name: "Copy command", "Copy scrape config". */
+  what?: string;
+  /** Icon-only copy button, where the line has little room (the sign-in card). */
+  compact?: boolean;
+}
+
+/** One thing to run or paste, whole and selectable, with a copy button. It wraps instead of truncating, so the
+ *  text on screen is always the text that works. */
+export function CommandLine({ text, what = 'command', compact }: Props) {
+  const { copied, copy } = useCopy();
+  const block = text.includes('\n');
+  const done = copied?.ok === true;
+  const name = done ? `Copied ${what}` : `Copy ${what}`;
+  const icon = done ? <Check /> : <Copy />;
+  const onClick = () => { copy(what, text); };
+  return (
+    <div className={`cmd${block ? ' cmd--block' : ''}`}>
+      {block ? (
+        // Focusable so a snippet wider than its box scrolls with the keyboard.
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+        <pre className="cmd__text" tabIndex={0} aria-label={what}><code>{text}</code></pre>
+      ) : (
+        <>
+          <span className="cmd__prompt" aria-hidden="true">$</span>
+          <code className="cmd__text">{text}</code>
+        </>
+      )}
+      {compact ? (
+        <IconButton size="sm" variant="secondary" className={done ? 'is-copied' : undefined} aria-label={name} title={name} icon={icon} onClick={onClick} />
+      ) : (
+        <Button size="sm" className={done ? 'is-copied' : undefined} aria-label={name} icon={icon} onClick={onClick}>
+          {done ? 'Copied' : 'Copy'}
+        </Button>
+      )}
+      <span className="visually-hidden" role="status">
+        {copied ? (copied.ok ? `Copied ${what}` : 'The browser blocked the clipboard. Select the text and copy it.') : ''}
+      </span>
+    </div>
+  );
+}
