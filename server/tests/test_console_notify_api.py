@@ -33,7 +33,7 @@ def sink():
             body = self.rfile.read(int(self.headers["content-length"]))
             seen.append({"path": self.path, "headers": dict(self.headers), "body": json.loads(body)})
             self.send_response(server.status)
-            self.send_header("Location", f"https://elsewhere.example{self.path}/")
+            self.send_header("Location", f"https://elsewhere.example/api/webhook/{CANARY}/")
             self.end_headers()
 
         def log_message(self, *args: object) -> None:
