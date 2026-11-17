@@ -21,6 +21,7 @@ TOKEN = "s3cret-browser-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 CANARY = "s3cr3t-canary"
 CHANNELS = "/api/v1/notify/channels"
+RULES = "/api/v1/alerts/rules"
 
 
 @pytest.fixture
@@ -211,3 +212,22 @@ def test_an_alert_and_its_recovery_reach_the_channel(tmp_path, sink):
         assert sink.seen[0]["body"]["text"] == "96 °C for 10 s (threshold 95 °C)"
         last = c.get(CHANNELS, headers=AUTH).json()[0]["last"]
         assert (last["ok"], last["test"], last["notices"]) == (True, False, 1)
+
+
+def test_disabling_a_rule_whose_alert_is_firing_tells_the_channel_the_alert_ended(tmp_path, sink):
+    app = make(tmp_path, hook(sink))
+    with TestClient(app) as c:
+        alerts, now = app.state.cluster.alerts, time.time()
+        c.portal.call(alerts.evaluate_status, "spark1", "offline", None, now - 20)
+        c.portal.call(alerts.evaluate_status, "spark1", "offline", None, now)
+        until(lambda: len(sink.seen) == 1)
+        rules = c.get(RULES, headers=AUTH).json()
+        disabled = [{**r, "enabled": r["enabled"] and r["id"] != "node_offline"} for r in rules]
+        assert c.put(RULES, json=disabled, headers=AUTH).status_code == 200
+        until(lambda: len(sink.seen) == 2)
+        notices = [r["body"]["notices"][0] for r in sink.seen]
+        assert [(n["status"], n["severity"], n["title"]) for n in notices] == [
+            ("firing", "critical", "Node offline on spark1"),
+            ("resolved", "critical", "Resolved: Node offline on spark1"),
+        ]
+        assert sink.seen[1]["body"]["text"] == "Closed because its rule was changed · was critical"

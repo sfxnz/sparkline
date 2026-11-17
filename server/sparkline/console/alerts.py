@@ -183,7 +183,24 @@ class AlertEngine:
             if new.get(rid) != old.get(rid):
                 st = self._st.pop(key)
                 if st.active:
-                    self._resolve(st.active, now)
+                    ev = st.active
+                    self._resolve(ev, now)
+                    self._add(
+                        Event(
+                            id=0,
+                            ts=now,
+                            node_id=ev.node_id,
+                            severity="info",
+                            kind="recovered",
+                            rule_id=rid,
+                            title=f"Resolved: {ev.title}",
+                            detail=(
+                                f"Closed because its rule was {'changed' if rid in new else 'removed'}"
+                                f" · was {ev.severity}"
+                            ),
+                            metric=ev.metric,
+                        )
+                    )
         self.rules = rules
 
     def _applies(self, r: AlertRule, node: str) -> bool:
