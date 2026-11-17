@@ -407,6 +407,98 @@ def test_a_server_behind_a_key_shows_its_metrics_and_asks_for_the_key(tmp_path):
     assert servers(c) == []
 
 
+EVERY_PATH = ("/v1/models", "/metrics", "/v1/metrics")
+
+
+@pytest.mark.parametrize(
+    ("key", "fix"), [(None, "Set api_key"), (KEY, "Correct api_key")], ids=["no key", "a wrong key"]
+)
+def test_a_listed_server_that_refuses_every_path_says_where_the_key_goes(tmp_path, key, fix):
+    listen(tmp_path, {9000: 42})
+    listed = "http://127.0.0.1:9000"
+    http = FakeHttp({listed + path: text("Unauthorized", 401) for path in EVERY_PATH})
+    c = collector(tmp_path, http, targets=(Target(9000, key),), discover=False)
+    for i in range(4):
+        c.poll_round(i * FIND_EVERY_S)
+    [s] = servers(c)
+    assert (s.state, s.values) == ("down", {"up": 0})
+    assert "API key" in s.problem and f"{fix} under [[model_servers]] in agent.toml" in s.problem
+    assert KEY not in s.model_dump_json()
+    assert http.asked(listed) == list(EVERY_PATH), "a refusal is not asked again"
+    listen(tmp_path, {})
+    c.poll_round(4 * FIND_EVERY_S)
+    assert servers(c)[0].problem == "Port 9000 is not listening"
+
+
+def test_a_server_that_guards_its_metrics_with_a_key_asks_for_the_key_not_for_a_flag(tmp_path):
+    listen(tmp_path, {9931: 41})
+    base = "http://127.0.0.1:9931"
+    http = FakeHttp(
+        {
+            f"{base}/v1/models": models("llamacpp"),
+            f"{base}/metrics": text('{"error":"invalid api key"}', 401),
+            f"{base}/v1/metrics": text('{"error":"invalid api key"}', 401),
+            f"{base}/health": text("{}"),
+        }
+    )
+    c = collector(tmp_path, http)
+    c.poll_round(0.0)
+    c.poll_round(2.0)
+    [s] = servers(c)
+    assert (s.software, s.state, [m.name for m in s.models]) == ("llama.cpp", "ready", ["example-model"])
+    assert "API key" in s.problem and "Set api_key under [[model_servers]] in agent.toml" in s.problem
+    assert "--metrics" not in s.problem
+
+
+def test_a_listed_server_that_is_loading_reads_loading(tmp_path):
+    listen(tmp_path, {8000: 41, 9000: 42})
+    listed = "http://127.0.0.1:9000"
+    loading = text("Loading model", 503)
+    http = FakeHttp({f"{listed}/v1/models": loading, f"{BASE}/v1/models": loading})
+    c = collector(tmp_path, http, targets=(Target(9000),))
+    c.poll_round(0.0)
+    c.poll_round(FIND_EVERY_S)
+    [s] = servers(c)
+    assert (s.port, s.state, s.values, s.problem) == (9000, "loading", {"up": 0}, None)
+    http.routes |= {f"{listed}/v1/models": models("vllm"), f"{listed}/metrics": text(VLLM)}
+    c.poll_round(2 * FIND_EVERY_S)
+    assert [(s.port, s.state) for s in servers(c)] == [(9000, "ready")]
+    listen(tmp_path, {8000: 41, 9000: 43})
+    http.routes[f"{listed}/v1/models"] = loading
+    c.poll_round(3 * FIND_EVERY_S)
+    [s] = servers(c)
+    assert (s.state, s.values, s.problem) == ("loading", {"up": 0}, None), "restarted, and loading again"
+    http.routes[f"{listed}/v1/models"] = ConnectionRefusedError("refused")
+    c.poll_round(4 * FIND_EVERY_S)
+    assert servers(c)[0].state == "down", "a socket that no longer answers 503 no longer reads loading"
+
+
+@pytest.mark.parametrize("listed", [False, True], ids=["found by discovery", "listed in agent.toml"])
+def test_a_login_walled_service_with_an_ordinary_metric_is_not_a_model_server(tmp_path, listed):
+    listen(tmp_path, {8000: 41, 8080: 52})
+    web_app = "http://127.0.0.1:8080"
+    exporter = "http_requests_total 5120\nhttp_requests_processing 2\nprocess_start_time_seconds 1700000000\n"
+    http = FakeHttp(
+        {
+            f"{web_app}/v1/models": text("login required", 401),
+            f"{web_app}/metrics": text(exporter),
+            f"{web_app}/v1/metrics": text("login required", 401),
+            f"{BASE}/v1/models": text("Unauthorized", 401),
+            f"{BASE}/metrics": text(ACMESERVE),
+        }
+    )
+    c = collector(tmp_path, http, targets=(Target(8080),) if listed else ())
+    for i in range(4):
+        c.poll_round(i * FIND_EVERY_S)
+    assert http.asked(web_app) == list(EVERY_PATH), "it is identified once and never polled"
+    model_server, *web = servers(c)
+    assert (model_server.port, model_server.state, model_server.software) == (8000, "ready", "acmeserve")
+    assert model_server.values["gen_tps"] == 0 and "api_key" in model_server.problem
+    assert [(s.port, s.state, s.software, s.values) for s in web] == (
+        [(8080, "down", None, {"up": 0})] if listed else []
+    )
+
+
 def test_with_discovery_off_only_the_listed_ports_are_asked(tmp_path):
     listen(tmp_path, {8000: 41, 9000: 42})
     keyed = "http://127.0.0.1:9000"
