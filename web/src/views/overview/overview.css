@@ -142,6 +142,8 @@
 .ov-card__foot { position: relative; margin-top: auto; }
 .ov-card__foot-main { display: flex; flex-direction: column; gap: var(--space-4); }
 .ov-card__foot.has-notice > .ov-card__foot-main { visibility: hidden; }
+/* Motion writes the opacity of an arriving card each frame; a CSS transition on it would lag behind. */
+.ov-card__values--arriving { transition-property: filter; }
 .ov-card--dim .ov-card__values { filter: saturate(0.3); }
 
 .ov-card__top { display: flex; align-items: center; gap: var(--space-4); }

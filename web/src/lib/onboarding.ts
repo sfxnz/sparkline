@@ -6,9 +6,11 @@ import type { NodeState, Onboarding, OnboardingPatch } from './types';
  *  were set up long ago and all count as seen. */
 export const isNewNode = (n: Pick<NodeState, 'first_seen'> | null | undefined): boolean => n?.first_seen === null;
 
+/** The console's last try at a node ended without a stream: nothing answered, or an agent turned it away. */
+export const couldNotConnect = (status: NodeState['status'] | undefined): boolean => status === 'offline' || status === 'error';
+
 /** A new node the console has tried and could not use: "Not connected yet", a setup step and not an outage. */
-export const needsSetup = (n: Pick<NodeState, 'first_seen' | 'status'> | null | undefined): boolean =>
-  isNewNode(n) && (n?.status === 'offline' || n?.status === 'error');
+export const needsSetup = (n: Pick<NodeState, 'first_seen' | 'status'> | null | undefined): boolean => isNewNode(n) && couldNotConnect(n?.status);
 
 /** Where the console looks for a node's agent: "192.168.1.11:9750" from its url. */
 export function agentAddress(url: string): string {

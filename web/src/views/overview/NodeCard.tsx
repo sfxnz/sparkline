@@ -80,8 +80,6 @@ export function NodeCard({ id, arriving = false }: { id: string; arriving?: bool
   const [landed, setLanded] = useState(false);
   if (land && freshness === 'live' && !landed) setLanded(true); // once: a later blip is a refresh, not an arrival
   const pose = landed ? arrival.landed : arrival.waiting;
-  // Motion writes the opacity each frame; the CSS transition on it would lag behind.
-  const own = land ? { transitionProperty: 'filter' } : undefined;
   return (
     <Ctx.Provider value={{ id, freshness, info, arriving: land }}>
       <m.div
@@ -103,7 +101,7 @@ export function NodeCard({ id, arriving = false }: { id: string; arriving?: bool
           subtitle={<Workload />}
           actions={<StatusPill status={display} />}
         >
-          <m.div className="ov-card__values" style={own} initial={false} animate={pose} transition={arrival.transition}>
+          <m.div className={`ov-card__values${land ? ' ov-card__values--arriving' : ''}`} initial={false} animate={pose} transition={arrival.transition}>
             <div className="ov-card__top">
               <UtilRing />
               <div className="ov-card__stats">

@@ -5,7 +5,7 @@ import { worstCondition, type GpuCondition, type NodeConditions } from '../../li
 import { gpuCountText, type GpuCount } from '../../lib/gpu';
 import { railName } from '../../lib/interconnect';
 import { gpuKey } from '../../lib/metrics';
-import { isNewNode, needsSetup } from '../../lib/onboarding';
+import { couldNotConnect, isNewNode, needsSetup } from '../../lib/onboarding';
 import type { Event, NetIfInfo, NodeInfo, NodeState, NodeStatus, ProcSample } from '../../lib/types';
 import { linkRecoveries } from '../alerts/model';
 
@@ -137,7 +137,7 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   return { status, label, sentence };
 }
 
-const stuck = (n: NodeHealthInput) => needsSetup({ first_seen: n.isNew ? null : 0, status: n.status ?? 'connecting' });
+const stuck = (n: NodeHealthInput) => !!n.isNew && couldNotConnect(n.status);
 
 const COUNT_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 export const countWord = (n: number) => COUNT_WORDS[n] ?? String(n);
