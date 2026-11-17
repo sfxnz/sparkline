@@ -7,12 +7,13 @@ import { ApiError } from '../lib/api';
 import type { ClusterState, Event, NodeInfo, NodeState, Sample } from '../lib/types';
 import { announcer } from '../design/components/LiveAnnouncer';
 import { useCluster } from '../store/cluster';
+import { useConnection } from '../store/connection';
 import { useEvents } from '../store/events';
 import { liveStore } from '../store/live';
 import { dispatch } from '../store/session';
 import { useUi } from '../store/ui';
 import { CommandPalette } from './CommandPalette';
-import { connectionLabel } from './ConnectionIndicator';
+import { ConnectionIndicator, connectionLabel } from './ConnectionIndicator';
 import { problemCopy } from './ConnectionProblem';
 import { loginErrorCopy } from './Login';
 import { documentTitle, pageTitle } from './routes';
@@ -31,6 +32,24 @@ describe('connection copy', () => {
     expect(connectionLabel({ status: 'reconnecting', retryAt: 4000 }, 0).text).toBe('Reconnecting in 4 s');
     expect(connectionLabel({ status: 'reconnecting', retryAt: 100 }, 200).text).toBe('Reconnecting…');
     expect(connectionLabel({ status: 'offline', retryAt: null }, 0).text).toBe('Offline');
+  });
+  it('says "Connected", in the neutral tone, until a node has answered this console, and "Live" from then on', () => {
+    const fresh = (id: string, first_seen: number | null): NodeState => ({ node_id: id, url: `http://${id}:9750`, status: 'offline', since: 0, last_sample_ts: null, error: null, info: null, next_retry_ts: null, first_seen });
+    useConnection.setState({ status: 'live', everLive: true });
+    useCluster.getState().setHello({ ...cluster, demo: false, nodes: [fresh('spark1', null), fresh('spark2', null)] });
+    render(<ConnectionIndicator />);
+    const pill = screen.getByRole('status');
+    expect(pill).toHaveTextContent(/^Connected$/);
+    expect(pill).toHaveClass('tone-stale');
+    expect(pill.querySelector('.conn__dot--live')).toBeNull();
+    // One node has answered, even if it is down now: the page has live data to show, as in 0.2.0.
+    act(() => { useCluster.getState().setHello({ ...cluster, demo: false, nodes: [fresh('spark1', null), fresh('spark2', 1)] }); });
+    expect(pill).toHaveTextContent(/^Live$/);
+    expect(pill).toHaveClass('tone-ok');
+    expect(pill.querySelector('.conn__dot--live')).not.toBeNull();
+    // A console from before 0.3.0 sends no first_seen: its nodes have answered.
+    act(() => { useCluster.getState().setHello(cluster); });
+    expect(pill).toHaveTextContent(/^Live$/);
   });
   it('explains the no-backend state with a concrete fix', () => {
     expect(problemCopy({ status: 'reconnecting', lastError: 'unreachable' })).toMatchObject({ title: 'Can’t reach Sparkline' });

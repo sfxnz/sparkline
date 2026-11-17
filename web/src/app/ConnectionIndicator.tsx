@@ -1,6 +1,7 @@
 import { RotateCw } from 'lucide-react';
 import { Button } from '../design/components/Button';
 import { useNow } from '../design/useNow';
+import { isNewNode } from '../lib/onboarding';
 import type { ConnState } from '../lib/ws';
 import { useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
@@ -30,14 +31,16 @@ export function ConnectionIndicator({ showRetry = true }: { showRetry?: boolean 
   const state = useConnection();
   const demo = useCluster((s) => s.cluster?.demo ?? false);
   const now = useNow(state.status === 'reconnecting' ? 250 : 5000);
-  const { text, tone } = connectionLabel(state, now);
+  // The stream is open, and no node has ever sent this console a reading: nothing on the page is live yet.
+  const noneAnswered = useCluster((s) => Object.values(s.nodes).every(isNewNode));
+  const { text, tone } = state.status === 'live' && noneAnswered ? { text: 'Connected', tone: 'stale' } : connectionLabel(state, now);
   const canRetry = showRetry && (state.status === 'reconnecting' || state.status === 'offline');
 
   return (
     <div className="conn">
       {demo ? <span className="conn__demo" title="Simulated telemetry (sparkline --demo)">Demo</span> : null}
       <span className={`conn__status tone-${tone}`} role="status" aria-live="off">
-        <span className={`conn__dot${state.status === 'live' ? ' conn__dot--live' : ''}`} aria-hidden="true" />
+        <span className={`conn__dot${tone === 'ok' ? ' conn__dot--live' : ''}`} aria-hidden="true" />
         <span className="conn__label num">{text}</span>
       </span>
       {canRetry ? (

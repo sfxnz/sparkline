@@ -66,6 +66,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   the command that reads the agent's log.
 - A config example with a copy button (an empty Notifications panel, the Prometheus scrape job) wraps on a
   phone, so every character is on screen without scrolling. Copy still takes the exact text.
+- The toolbar's connection pill reads "Connected", in a neutral tone, until a node has answered the console
+  for the first time. It read "Live" in green over a page with no readings. From the first reading on it
+  is "Live", as before.
 - On the benchmark cards, a node on its first connection attempt reads "Connecting".
 - A dialog that closes no longer pulls focus back to the control that opened it when focus has already
   moved on, as it has after a Search command that opens a panel.

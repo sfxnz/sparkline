@@ -141,10 +141,13 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   const spark1 = page.getByRole('region', { name: 'Node spark1', exact: true });
   await expect(spark1.getByText('Connecting')).toBeVisible();
   await expect(spark1.getByText(/^Reaching /)).toBeVisible();
+  // The page has its stream, and no reading yet: the toolbar does not say "Live".
+  await expect(page.locator('.conn__status')).toHaveText('Connected');
   await expectWholeFix(setupCard(page));
   await expectNoAlarm(page);
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^spark3/ })).toContainText('Not connected');
   await expect(spark1.getByText('Healthy')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.conn__status')).toHaveText('Live');
   await expect(page.getByRole('heading', { level: 2, name: /^Welcome to Sparkline\. spark1 is live/ })).toBeVisible();
   await expect(spark1.getByRole('img', { name: /^GPU utilisation \d+%/ })).toBeVisible({ timeout: 10_000 });
   await expectNoAlarm(page);
