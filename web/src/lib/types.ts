@@ -522,6 +522,80 @@ export interface BenchCompare {
   metrics: BenchCompareMetric[];
 }
 
+// --- Recommendations (GET /api/v1/recommendations) ----------------------------------------------
+
+export type RecGoal = 'cooler' | 'quieter' | 'roomier' | 'faster';
+export type RecState = 'applied' | 'not-applied' | 'not-applicable' | 'unknown';
+
+export interface RecSource {
+  title: string;
+  url: string;
+}
+export interface RecMetric {
+  label: string;
+  before: number;
+  after: number;
+  unit: string;
+}
+export interface RecMeasurement {
+  date: string;
+  machine: string;
+  method: string;
+  results: RecMetric[];
+  /** The evidence file, docs/recommendations/<id>.md. */
+  doc: string;
+}
+/** One community-recommended setting. Static: it ships in the release. */
+export interface Recommendation {
+  id: string;
+  title: string;
+  summary: string;
+  goal: RecGoal;
+  benefit: string;
+  cost: string;
+  sources: RecSource[];
+  /** null: a community claim that Sparkline has not measured. */
+  measurement: RecMeasurement | null;
+  /** The exact commands a person would type. */
+  apply: string[];
+  undo: string[];
+  /** false: a firmware change or a reboot, and `apply` are the manual steps. */
+  one_click: boolean;
+  persists: 'until-reboot' | 'persistent';
+  risks: string[];
+  /** Derived by the console: true only with a measurement. */
+  verified: boolean;
+}
+/** What the root helper did last for one recommendation on one node. */
+export interface TuneResult {
+  /** "apply", "undo" or "reapply" (at boot). */
+  action: string;
+  ts: number;
+  ok: boolean;
+  message: string;
+}
+/** One node, one recommendation, as that node's agent reads it. */
+export interface NodeRecState {
+  id: string;
+  state: RecState;
+  /** What the check read, e.g. "Capped at 2200 MHz by nvidia-lock-clocks.service". */
+  detail: string;
+  /** Applied by Sparkline's helper, so Undo works. false: applied by other means. */
+  managed: boolean;
+  last: TuneResult | null;
+}
+export interface NodeRecommendations {
+  /** null: this node accepts clicks. Else why not, with the fix. */
+  one_click: Problem | null;
+  items: NodeRecState[];
+}
+export interface RecommendationsView {
+  catalog: Recommendation[];
+  /** null: the node is unreachable or its agent is too old; `problems` says why. */
+  nodes: Record<string, NodeRecommendations | null>;
+  problems: Record<string, Problem>;
+}
+
 // --- WebSocket messages (console -> browser) ---------------------------------------------------
 
 export interface HelloMessage {

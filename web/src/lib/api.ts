@@ -1,5 +1,5 @@
 // REST client for the console. Same-origin (dev/preview proxy /api to the console); auth is an HttpOnly cookie.
-import type { AlertRule, AlertRulesStatus, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, HistoryResponse, NodeState, NotifyChannelStatus, Problem, RunStatus } from './types';
+import type { AlertRule, AlertRulesStatus, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, HistoryResponse, NodeState, NotifyChannelStatus, Problem, RecommendationsView, RunStatus } from './types';
 
 export type ApiErrorKind = 'unauthorized' | 'unreachable' | 'server' | 'client';
 
@@ -111,6 +111,15 @@ export const benchApi = {
   compare: (ids: readonly string[]) => request<BenchCompare>(`/api/v1/bench/compare?${query({ ids: ids.join(',') })}`),
   /** Download URL (the console answers with an attachment). */
   exportUrl: (id: string, format: 'json' | 'csv') => `${benchRun(id)}/export?${query({ format })}`,
+};
+
+/** Recommendations (used only by the lazy recommendations chunk). */
+export const recommendApi = {
+  view: () => request<RecommendationsView>('/api/v1/recommendations'),
+  /** Asks one node to apply or undo a one-click setting (202). The console refuses (400) without `confirm`, and the
+   *  page calls this only from its confirmation dialog. */
+  change: (id: string, verb: 'apply' | 'undo', node: string) =>
+    request<unknown>(`/api/v1/recommendations/${encodeURIComponent(id)}/${verb}`, json({ node, confirm: true })),
 };
 
 /** Human-readable Problem for any failure: the console's own {problem} when present, else a sensible default. */
