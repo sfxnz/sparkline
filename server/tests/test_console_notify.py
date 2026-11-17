@@ -460,6 +460,19 @@ async def test_one_send_answers_every_click_that_was_waiting(rig):
     assert len(r.bodies()) == 1 and all(row.last.ok and row.last.test for row in rows)
 
 
+async def test_an_alert_that_is_waiting_goes_out_before_the_next_test(rig):
+    r = await rig(channel())
+    await r.notifier.test("ops")
+    r.notifier.publish(alert())
+    clicks = []
+    for _ in range(3):
+        clicks.append(asyncio.ensure_future(r.notifier.test("ops")))
+        await settle()
+        await r.clock.advance(1.1)
+    assert [len(b["notices"]) for b in r.bodies()] == [0, 1, 0, 0] and r.status().pending == 0
+    assert all(row.last.ok and row.last.test for row in await asyncio.gather(*clicks))
+
+
 async def test_a_test_of_an_unknown_channel_or_a_stopped_notifier_raises(rig):
     r = await rig(channel())
     with pytest.raises(KeyError):

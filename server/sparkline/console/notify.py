@@ -354,7 +354,9 @@ class _Worker:
             self.wake.clear()
             now = self.clock.now()
             held = self.hold if self.hold and now < self.hold[1] else None
-            if self.tests:
+            # A test passes a batch only while a backoff or a rate limit holds that batch back. Otherwise
+            # the batch goes first, so tests asked for in a loop cannot keep an alert waiting.
+            if self.tests and (not self.mailbox or (held is not None and held[0] != "interval")):
                 if held and held[0] == "rate_limited":
                     self._answer_tests(self._delivery(True, 0, "rate_limited", 429))
                 elif held and held[0] == "interval":
