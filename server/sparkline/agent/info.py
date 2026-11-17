@@ -12,6 +12,7 @@ from ..common.schema import NodeInfo, Platform, Unsupported, UnsupportedKind
 from .collectors import VOCABULARY, Collector, declares
 from .collectors.cpu import CpuCollector
 from .collectors.gpu import GpuCollector
+from .collectors.llm import ModelServerCollector
 from .collectors.memory import MemoryCollector
 from .collectors.net import NetCollector
 from .collectors.procs import ProcsCollector
@@ -88,7 +89,7 @@ def startup_gaps(name: str, prefixes: list[str], e: Exception, root: str) -> lis
 
 class Collectors:
     """Builds the real collectors in tick order (GPU first: memory reuses its shared memory, procs its
-    per-process data)."""
+    per-process data; model servers last: they read the process list)."""
 
     def __init__(self, cfg: AgentConfig, src: Sources) -> None:
         self.fs = src.fs
@@ -104,6 +105,11 @@ class Collectors:
         )
         self.procs = self._start(
             "procs", ["procs"], lambda: ProcsCollector(src, self.gpu, cfg.procs_interval_s)
+        )
+        self.llm = self._start(
+            "llm",
+            ["llm"],
+            lambda: ModelServerCollector(src, self.procs, cfg.targets(), cfg.model_server_discovery),
         )
         self.tools = probe_tools(src)
 
@@ -121,12 +127,20 @@ class Collectors:
     def _gpu_mem(self) -> int | None:
         return self.gpu.shared_total if self.gpu else None
 
+    def start(self) -> None:
+        """Start what runs beside the sampling tick: the model-server poller. Building the collectors
+        starts nothing, so tests and sparkline-capture never reach a model server."""
+        if self.llm:
+            self.llm.start()
+
     def close(self) -> None:
         if self.gpu:
             self.gpu.close()
+        if self.llm:
+            self.llm.close()
 
     def ordered(self) -> list[Collector]:
-        built = [self.gpu, self.memory, self.cpu, self.net, self.storage, self.thermal, self.procs]
+        built = [self.gpu, self.memory, self.cpu, self.net, self.storage, self.thermal, self.procs, self.llm]
         return [c for c in built if c is not None]
 
     def unsupported(self) -> list[Unsupported]:

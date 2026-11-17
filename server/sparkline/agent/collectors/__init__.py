@@ -61,6 +61,7 @@ VOCABULARY: dict[str, str] = {
     "fs": "storage",
     **{k: "thermal" for k in ("temp", "cpu.temp", "fan", "system.power_w")},
     "procs": "procs",
+    "llm": "llm",
 }
 
 

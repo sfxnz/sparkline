@@ -491,6 +491,7 @@ class DemoModel:
             temps=temps,
             procs=self._procs(t, gpu_mem, util, b) if procs else None,
             errors=errors,
+            llm=[],
         )
 
     def _procs(self, t: float, gpu_mem: int, util: float, b: float) -> list[ProcSample]:

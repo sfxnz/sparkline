@@ -55,6 +55,8 @@ def reported(key: str, info: NodeInfo, sample: Sample, flat: dict[str, float]) -
         return True if sample.procs and any(p.gpu_mem is not None for p in sample.procs) else None
     if key == "procs":
         return sample.procs is not None
+    if key == "llm":  # a node with no model server reports an empty list, and no llm.* key
+        return sample.llm is not None
     return any(covers(key, k) for k in flat)
 
 

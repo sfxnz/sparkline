@@ -162,6 +162,9 @@ class ProcsCollector:
         self._names_t = -DOCKER_TTL_S
         self._cid: dict[tuple[int, int], str | None] = {}  # (pid, starttime) -> container id
         self._users: dict[int, str | None] = {}
+        # The last refresh, for the model-server join: its rows, and each row's command line before the cut.
+        self.rows: list[ProcSample] = []
+        self.cmdlines: dict[int, str] = {}
 
     def _container(self, pid: int, start: int) -> str | None:
         key = (pid, start)
@@ -219,6 +222,7 @@ class ProcsCollector:
             }
         self._cid = {k: v for k, v in self._cid.items() if k[0] in rows}
         out = []
+        cmdlines = {}
         for pid in select_top(rows):
             r = rows[pid]
             argv = [a for a in (self.fs.read_once(f"/proc/{pid}/cmdline") or "").split("\0") if a]
@@ -226,6 +230,7 @@ class ProcsCollector:
                 argv = argv[0].split()
             raw = " ".join(redact_argv(argv)).strip()
             cmd = raw or f"[{r['name']}]"  # kernel threads have no cmdline
+            cmdlines[pid] = cmd
             out.append(
                 ProcSample(
                     pid=pid,
@@ -240,4 +245,5 @@ class ProcsCollector:
                     model=detect_model(cmd),
                 )
             )
+        self.rows, self.cmdlines = out, cmdlines
         return {"procs": out}
