@@ -14,7 +14,7 @@ import { budgetText, EMPTY_DRAFT, foundOf, fromLookup, hasNvidiaUnifiedMemory, K
 import './fit/fit.css';
 import './views.css';
 
-type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done' };
+type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem };
 type Run = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; request: FitRequest; response: FitResponse };
 
 export default function Fit() {
@@ -37,7 +37,7 @@ export default function Fit() {
     try {
       const facts = await api.fitLookup(repo);
       setDraft((d) => fromLookup(d, repo, { weights_bytes: facts.weights_bytes, shape: facts }));
-      setLookup({ status: 'done' });
+      setLookup({ status: 'idle' });
     } catch (e) {
       const found = foundOf(e);
       if (found) setDraft((d) => fromLookup(d, repo, found));
