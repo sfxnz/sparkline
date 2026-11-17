@@ -67,7 +67,8 @@ function Cx7({ node, info }: { node: string; info: NodeInfo | null }) {
   }, shallowEqual, names.join(','));
   const gap = interconnectGap(info);
   if (gap) return <Unsupported gap={gap} />;
-  if (!names.length) return <Unsupported gap={{ kind: 'hardware', label: 'No direct link', detail: noLinkReason(nicModel(info?.net)) }} />;
+  // No info: the node has not said what links it has, so the tile shows the dash its other figures show.
+  if (info && !names.length) return <Unsupported gap={{ kind: 'hardware', label: 'No direct link', detail: noLinkReason(nicModel(info.net)) }} />;
   return <BigValue value={v.v} parts={gbpsParts} />;
 }
 

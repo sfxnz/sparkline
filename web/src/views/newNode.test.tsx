@@ -60,6 +60,12 @@ describe('a node that has never answered', () => {
     expect(within(tile).getByText('Agent on spark2 rejected the console’s token').closest('p')?.querySelector('svg')).toBeNull();
   });
 
+  it('states nothing about its links on the wall: a dash, like its other figures', () => {
+    render(<WallTile id="spark2" />);
+    const stats = [...screen.getByRole('region', { name: 'Node spark2' }).querySelectorAll('.wall-tile__stats > div')];
+    expect(stats.map((s) => s.textContent)).toEqual(['GPU temperature—', 'GPU power—', 'Memory available—', 'Interconnect in + out—']);
+  });
+
   it('keeps the slash on the wall tile of a node that has answered before and is down', () => {
     useCluster.setState({ nodes: { spark1: { ...refused, first_seen: now - 60 } } });
     render(<WallTile id="spark1" />);
