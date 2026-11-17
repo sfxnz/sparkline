@@ -24,7 +24,7 @@ export const VERDICTS: Record<FitVerdict, { status: Status; label: string }> = {
  * The size of the model's weight files, read by a lookup or typed. A parameter count is not taken: a quantised
  * model keeps some layers at 16 bits, so its files are larger than its count times its bits.
  */
-type DraftWeights = { kind: 'files'; bytes: number } | { kind: 'typed'; size: string; unit: SizeUnit };
+type DraftWeights = { kind: 'files'; bytes: number; upperBound: boolean } | { kind: 'typed'; size: string; unit: SizeUnit };
 
 export interface Draft {
   repo: string;
@@ -55,11 +55,11 @@ const EMPTY_SHAPE = { layers: EMPTY_DRAFT.layers, kvHeads: EMPTY_DRAFT.kvHeads, 
  * Fill the form with what a lookup of `repo` read. The part it could not read is emptied if an earlier lookup
  * filled it, so one repo's size never sits beside another repo's shape. What was typed by hand stays.
  */
-export function fromLookup(draft: Draft, repo: string, { weights_bytes: bytes, shape }: LookupFound): Draft {
+export function fromLookup(draft: Draft, repo: string, { weights_bytes: bytes, weights_upper_bound: upperBound, shape }: LookupFound): Draft {
   if (bytes === null && shape === null) return draft;
   return {
     ...draft,
-    weights: bytes !== null ? { kind: 'files', bytes } : draft.weights.kind === 'files' ? EMPTY_DRAFT.weights : draft.weights,
+    weights: bytes !== null ? { kind: 'files', bytes, upperBound } : draft.weights.kind === 'files' ? EMPTY_DRAFT.weights : draft.weights,
     ...(shape ? { layers: String(shape.num_layers), kvHeads: String(shape.num_kv_heads), headDim: String(shape.head_dim) } : draft.source ? EMPTY_SHAPE : {}),
     source: { repo, maxContext: shape?.max_context ?? null, complete: bytes !== null && shape !== null },
   };
@@ -109,6 +109,7 @@ export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { o
     facts: {
       repo: draft.source?.complete ? draft.source.repo : null,
       weights_bytes: w.kind === 'files' ? w.bytes : (typed ?? 0),
+      weights_upper_bound: w.kind === 'files' && w.upperBound,
       num_layers: need('layers', draft.layers),
       num_kv_heads: need('kvHeads', draft.kvHeads),
       head_dim: need('headDim', draft.headDim),

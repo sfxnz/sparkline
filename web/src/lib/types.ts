@@ -511,11 +511,14 @@ export interface ModelFacts extends ModelShape {
   repo: string | null;
   /** The size of the weight files a server loads. */
   weights_bytes: number;
+  /** True when a lookup could not read which files a server loads, and weights_bytes is the total of every weight file in the repo: a server loads that much or less. */
+  weights_upper_bound: boolean;
 }
 
 /** The part of the facts a refused lookup still read, sent beside its problem. */
 export interface LookupFound {
   weights_bytes: number | null;
+  weights_upper_bound: boolean;
   shape: ModelShape | null;
 }
 

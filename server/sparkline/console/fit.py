@@ -51,12 +51,16 @@ class ModelFacts(ModelShape):
     # The size of the weight files a server loads. A parameter count cannot give it: a quantised repo keeps
     # some layers at 16 bits, and Hugging Face counts packed 4-bit weights as the weights they unpack to.
     weights_bytes: int = Field(gt=0)
+    # Set when a lookup could not read which files a server loads, and weights_bytes is the total of every
+    # weight file in the repo: a server loads that much or less.
+    weights_upper_bound: bool = False
 
 
 class Found(BaseModel):
     """The part of the facts a refused lookup still read. The page fills it in and asks for the rest."""
 
     weights_bytes: int | None = None
+    weights_upper_bound: bool = False
     shape: ModelShape | None = None
 
 
@@ -292,6 +296,24 @@ def indexed_weights(repo: RepoId, sizes: dict[str, int], index: object) -> int |
     return _total(repo, sizes, names)
 
 
+_SHARD = re.compile(r"(.*)-\d+-of-(\d+)\.safetensors")
+
+
+def unread_index_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
+    """An upper bound on the weights of a repo whose index is too large to read: the total of its shards.
+
+    Only when every ``.safetensors`` file in the repo, at any depth, is a top-level shard of one family,
+    ``<stem>-N-of-M.safetensors`` with one stem and one M. A server loads that family or a part of it, so
+    the total is never too low. With a second family, a single file or a file in a subfolder the total can
+    be far above what a server loads, and the repo is refused.
+    """
+    files = _safetensors(sizes)
+    families = {m.groups() if "/" not in f and (m := _SHARD.fullmatch(f)) else None for f in files}
+    if len(families) != 1 or None in families:
+        return _index_too_large(repo, sizes)
+    return _total(repo, sizes, set(files))
+
+
 def _index_too_large(repo: RepoId, sizes: dict[str, int]) -> Problem:
     files = _safetensors(sizes)
     # Rounded up to 0.1 GB: the weights are some of these files, never more than all of them.
@@ -412,11 +434,13 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
         "Its files are only served to accounts that accepted the model's terms",
     )
     weights: int | Problem
+    upper_bound = False
     if INDEX_FILE not in sizes:
         weights = unindexed_weights(repo, sizes)
     # The file list gives the index's size, so an index over the cap is never asked for.
     elif sizes[INDEX_FILE] > MAX_RESPONSE_BYTES:
-        weights = _index_too_large(repo, sizes)
+        weights = unread_index_weights(repo, sizes)
+        upper_bound = not isinstance(weights, Problem)
     else:
         index = await _get_hf_json(client, f"/{repo}/resolve/main/{INDEX_FILE}", {401: gated, 403: gated})
         weights = index if isinstance(index, Problem) else indexed_weights(repo, sizes, index.value)
@@ -427,9 +451,15 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
     shape = config if isinstance(config, Problem) else parse_shape(repo, config.value)
     found = Found(
         weights_bytes=None if isinstance(weights, Problem) else weights,
+        weights_upper_bound=upper_bound,
         shape=None if isinstance(shape, Problem) else shape,
     )
     if found.weights_bytes is not None and found.shape is not None:
-        return ModelFacts(repo=repo, weights_bytes=found.weights_bytes, **found.shape.model_dump())
+        return ModelFacts(
+            repo=repo,
+            weights_bytes=found.weights_bytes,
+            weights_upper_bound=found.weights_upper_bound,
+            **found.shape.model_dump(),
+        )
     problems = [part for part in (weights, shape) if isinstance(part, Problem)]
     return LookupFailure(problem=problems[0], found=found)

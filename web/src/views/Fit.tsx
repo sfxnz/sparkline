@@ -36,7 +36,7 @@ export default function Fit() {
     setLookup({ status: 'loading' });
     try {
       const facts = await api.fitLookup(repo);
-      setDraft((d) => fromLookup(d, repo, { weights_bytes: facts.weights_bytes, shape: facts }));
+      setDraft((d) => fromLookup(d, repo, { weights_bytes: facts.weights_bytes, weights_upper_bound: facts.weights_upper_bound, shape: facts }));
       setLookup({ status: 'idle' });
     } catch (e) {
       const found = foundOf(e);
@@ -87,7 +87,15 @@ export default function Fit() {
           {lookup.status === 'error' ? <div className="fit-wide"><ProblemBanner problem={lookup.problem} /></div> : null}
 
           {weights.kind === 'files' ? (
-            <Field id="fit-weights" label="Weights" hint="The size of the weight files a server loads from this repo, so quantised weights count as they are stored.">
+            <Field
+              id="fit-weights"
+              label="Weights"
+              hint={
+                weights.upperBound
+                  ? "The total of the repo's weight files, which are one set of shards. The lookup could not read the repo's index, because it is too large, so a server may load fewer of these files and never more."
+                  : 'The size of the weight files a server loads from this repo, so quantised weights count as they are stored.'
+              }
+            >
               <div className="fit-weights fit-weights--files">
                 <output id="fit-weights" className="num" aria-describedby="fit-weights-hint">{formatBytes(weights.bytes)}</output>
                 <Button size="sm" onClick={() => { editFact({ weights: EMPTY_DRAFT.weights }); }}>Enter a size</Button>
@@ -190,6 +198,7 @@ function Result({ request, response }: { request: FitRequest; response: FitRespo
         <div>
           <dt>Weights</dt>
           <dd className="num">{formatBytes(estimate.weights_bytes)}</dd>
+          {request.facts.weights_upper_bound ? <dd className="fit-sums__detail">the total of the repo's weight files, index not read</dd> : null}
         </div>
         <div>
           <dt>KV cache</dt>
