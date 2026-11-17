@@ -73,8 +73,6 @@ class SteppedClock(Clock):
 
 
 class ScriptedEgress:
-    """Answers from ``script`` in turn, then 204. An exception is raised, an Event is waited on."""
-
     def __init__(self, script: list) -> None:
         self.script = script
         self.bodies: list[dict] = []
@@ -551,7 +549,7 @@ DIGEST_TEXT = (
     "Critical: GPU temperature critical on spark1 · GPU 1: 96 °C for 10 s (threshold 95 °C)\n"
     "Resolved: GPU temperature high on spark1: Now 71 °C · cleared after 3 min · was warning"
 )
-TEST = Message(test="Notifications to 'ops' work.")
+TEST = Message(test_text="Notifications to 'ops' work.")
 
 
 def render(kind: str, msg: Message, now: float = T0) -> dict:

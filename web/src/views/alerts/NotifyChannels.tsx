@@ -22,7 +22,6 @@ kind = "ntfy"            # or "discord", "slack", "webhook"
 url = "https://ntfy.sh/<your-topic>"`;
 
 type Load = { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'ready'; rows: NotifyChannelStatus[] };
-/** What the last "Send test" did: `problem` is null when the channel took the message. */
 interface Tested {
   name: string;
   problem: Problem | null;
@@ -53,8 +52,6 @@ function LastDelivery({ row }: { row: NotifyChannelStatus }) {
   );
 }
 
-/** The [[notify]] channels from console.toml: where alerts go, how the last delivery went, and a test button.
- *  Channels are edited in the file, never here, because their URLs are credentials. */
 export function NotifyChannels() {
   const [load, setLoad] = useState<Load>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
@@ -69,7 +66,6 @@ export function NotifyChannels() {
           if (!cancelled) setLoad({ status: 'ready', rows });
         },
         (e: unknown) => {
-          // A failed poll keeps the rows already shown.
           if (!cancelled && first) setLoad({ status: 'error', problem: problemOf(e, 'load the notification channels') });
         },
       );

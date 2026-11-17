@@ -27,7 +27,6 @@ const team: NotifyChannelStatus = {
 };
 const rejected = { message: "Could not send to 'phone'", cause: 'HTTP 404 from ntfy.sh.', fix: "Put a working url in [[notify]] 'phone' in console.toml, then restart the console." };
 
-/** Answers the channel list with `rows` and a test POST with `tested(name)`. */
 function serve(rows: NotifyChannelStatus[], tested: (name: string) => Response = () => json({})) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
     const test = /\/notify\/channels\/([^/]+)\/test$/.exec(typeof url === 'string' ? url : '');

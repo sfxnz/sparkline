@@ -31,7 +31,6 @@ def endpoint(url: str, token: str | None = None, **kw) -> Endpoint:
 
 
 def resolver(*answers: list[str]):
-    """Answers in turn, repeating the last one."""
     left = list(answers)
 
     async def resolve(host: str, port: int) -> list[str]:
@@ -53,7 +52,6 @@ def recorder(status: int = 204, headers: dict[str, str] | None = None):
 
 
 def failing(exc: Exception, then: int = 204):
-    """Raises ``exc`` for the first request, then answers."""
     seen: list[httpx.Request] = []
 
     def handle(request: httpx.Request) -> httpx.Response:

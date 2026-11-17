@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
-// Key flows against the demo console the Playwright config starts (simulated spark1-3, no auth). Nothing here is
-// stubbed: the build, the preview proxy, the console's REST + WebSocket and its alert engine are all real.
+// Key flows against the demo console the Playwright config starts (simulated spark1-3, no auth). Only the
+// notification channel routes are stubbed, because the demo console has no [[notify]] table: the build, the preview
+// proxy, the console's REST + WebSocket and its alert engine are all real.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -146,7 +147,6 @@ test('with no [[notify]] table the Alerts view shows how to add a channel', asyn
 });
 
 test('a notification channel can be tested from the Alerts view', async ({ page }) => {
-  // The demo console has no [[notify]] table, so these two routes are the one thing stubbed in this file.
   const channel = { name: 'phone', kind: 'ntfy', host: 'ntfy.sh', min_severity: 'warning', send_resolved: true, pending: 0, retry_at: null, last: null };
   const delivered = { ts: Date.now() / 1000, ok: true, test: true, notices: 0, failure: null, http_status: 200, problem: null };
   await page.route('**/api/v1/notify/channels', (route) => route.fulfill({ json: [channel] }));

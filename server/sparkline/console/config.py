@@ -39,7 +39,6 @@ class ConsoleConfig(BaseModel):
     # Reverse proxies (IPs or CIDRs) whose X-Forwarded-For / -Proto are believed: behind a TLS proxy the
     # session cookie is then Secure, and sign-in limits count the real client, not the proxy.
     trusted_proxies: list[str] = Field(default_factory=list)
-    # Outbound alert channels. With none, the console sends no notification.
     notify: list[NotifyConfig] = Field(default_factory=list)
 
     @field_validator("notify")

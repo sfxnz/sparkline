@@ -18,7 +18,7 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Literal, Self
+from typing import Any, Literal, NamedTuple, Self
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
@@ -37,31 +37,26 @@ log = logging.getLogger("sparkline.console.notify")
 
 SEVERITY_RANK: dict[Severity, int] = {"info": 0, "warning": 1, "critical": 2}
 MIN_INTERVAL_S = 1.0  # between sends on one channel: Slack's documented limit, safe for the other kinds
-MAX_PENDING = 50  # notices kept per channel. Later ones are counted and sent as "and N more"
-BACKOFF_S = (5.0, 15.0, 60.0, 300.0)  # after the 1st, 2nd, 3rd, then every later failure in a row
+MAX_PENDING = 50
+BACKOFF_S = (5.0, 15.0, 60.0, 300.0)
 BACKOFF_JITTER = 0.2
-RATE_LIMIT_DEFAULT_S = 30.0  # a 429 with no usable Retry-After
+RATE_LIMIT_DEFAULT_S = 30.0
 STOP_GRACE_S = 5.0
-LATE_S = 60.0  # a notice sent later than this after its event says when the event happened
+LATE_S = 60.0
 
 
 @dataclass(frozen=True)
 class Notice:
-    """One alert or recovery. ``severity`` is the alert's, also on a recovery, whose own Event is always
-    "info"."""
-
     status: Literal["firing", "resolved"]
-    severity: Severity
+    alert_severity: Severity
     event: Event
 
 
 @dataclass(frozen=True)
 class Message:
-    """What one request carries: every notice that was waiting, or a test."""
-
     notices: tuple[Notice, ...] = ()
-    more: int = 0  # notices that arrived after the mailbox was full
-    test: str | None = None  # the sentence a "Send test" message says
+    more: int = 0
+    test_text: str | None = None
 
 
 _MARKER: dict[Severity, str] = {"critical": "Critical", "warning": "Warning", "info": "Info"}
@@ -80,10 +75,8 @@ def _plural(n: int, word: str) -> str:
 
 
 def compose_text(msg: Message, now: float, limit: int) -> tuple[str, str]:
-    """(title, body) for the kinds that send text. The body is cut on a line boundary to ``limit``
-    characters and then ends in "… and N more"."""
-    if msg.test is not None:
-        return "Sparkline test", msg.test
+    if msg.test_text is not None:
+        return "Sparkline test", msg.test_text
     if len(msg.notices) == 1 and not msg.more:
         ev = msg.notices[0].event
         return ev.title, (ev.detail + _late(ev.ts, now))[:limit]
@@ -94,9 +87,9 @@ def compose_text(msg: Message, now: float, limit: int) -> tuple[str, str]:
         counts.append(f"{resolved} resolved")
     title = ", ".join(counts)
     lines = [
-        # A recovery's title already starts with "Resolved: ".
-        f"{'' if n.status == 'resolved' else _MARKER[n.severity] + ': '}{n.event.title}: {n.event.detail}"
-        f"{_late(n.event.ts, now)}"
+        # A recovery's title already starts with "Resolved: " (AlertEngine writes it).
+        f"{'' if n.status == 'resolved' else _MARKER[n.alert_severity] + ': '}{n.event.title}: "
+        f"{n.event.detail}{_late(n.event.ts, now)}"
         for n in msg.notices
     ]
     for kept in range(len(lines), -1, -1):
@@ -108,7 +101,7 @@ def compose_text(msg: Message, now: float, limit: int) -> tuple[str, str]:
 
 
 def _top_firing(msg: Message) -> Severity | None:
-    firing = [n.severity for n in msg.notices if n.status == "firing"]
+    firing = [n.alert_severity for n in msg.notices if n.status == "firing"]
     if not firing:
         return None
     return max(firing, key=lambda severity: SEVERITY_RANK[severity])
@@ -138,8 +131,7 @@ def _discord_escape(text: str) -> str:
     return _DISCORD_MARKUP.sub(r"\\\g<0>", text)
 
 
-def _whole_escapes(text: str) -> str:
-    """``text`` without the backslash that a cut left at its end with no character to escape."""
+def _drop_dangling_escape(text: str) -> str:
     trailing = len(text) - len(text.rstrip("\\"))
     return text[:-1] if trailing % 2 else text
 
@@ -159,7 +151,7 @@ def _discord(msg: Message, now: float) -> dict[str, object]:
     )
     title, body = compose_text(replace(msg, notices=plain), now, 1800)
     return {
-        "content": f"**{_whole_escapes(title[:150])}**\n{_whole_escapes(body)}",
+        "content": f"**{_drop_dangling_escape(title[:150])}**\n{_drop_dangling_escape(body)}",
         "username": "Sparkline",
         "allowed_mentions": {"parse": []},  # a node or rule named "@everyone" pings nobody
     }
@@ -179,16 +171,15 @@ def _webhook(msg: Message, now: float) -> dict[str, object]:
     return {
         "source": "sparkline",
         "version": 1,
-        "test": msg.test is not None,
+        "test": msg.test_text is not None,
         "title": title,
         "text": text,
         "more": msg.more,
-        # Always a list, so a Home Assistant template can index into it. "severity" is the alert's.
         "notices": [
             {
                 **n.event.model_dump(mode="json", exclude={"resolved_ts", "acked"}),
                 "status": n.status,
-                "severity": n.severity,
+                "severity": n.alert_severity,
             }
             for n in msg.notices
         ],
@@ -198,8 +189,8 @@ def _webhook(msg: Message, now: float) -> dict[str, object]:
 @dataclass(frozen=True)
 class KindSpec:
     label: str
-    takes_token: bool  # False: the webhook URL is the whole secret
-    render: Callable[[Message, float], dict[str, object]]  # (message, now) -> JSON body. Sees no secret
+    takes_token: bool
+    render: Callable[[Message, float], dict[str, object]]
     topic_in_path: bool = False  # the URL's last segment is a topic that the service wants in the JSON body
 
 
@@ -218,10 +209,10 @@ class NotifyConfig(BaseModel):
     # to stderr, which is the journal.
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
-    name: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")  # appears in the test route's path
+    name: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
     kind: ChannelKind
     url: SecretStr
-    token: SecretStr | None = None  # sent as Authorization: Bearer
+    token: SecretStr | None = None
     min_severity: Severity = "warning"
     send_resolved: bool = True
 
@@ -245,8 +236,6 @@ class NotifyConfig(BaseModel):
         return Endpoint.parse(self.url, self.token, topic_in_path=KINDS[self.kind].topic_in_path)
 
     def wants(self, severity: Severity, resolved: bool) -> bool:
-        """``severity`` is the alert's, also for its recovery, so a channel that skipped an alert skips its
-        recovery too."""
         return SEVERITY_RANK[severity] >= SEVERITY_RANK[self.min_severity] and (
             self.send_resolved or not resolved
         )
@@ -254,9 +243,9 @@ class NotifyConfig(BaseModel):
 
 @dataclass(frozen=True)
 class FailureSpec:
-    then: Literal["retry", "wait", "drop"]  # what happens to the notices that were in the message
-    cause: str  # {host} and {status} are filled in
-    fix: str  # {name} is filled in
+    then: Literal["retry", "wait", "drop"]
+    cause: str
+    fix: str
 
 
 _RETRIED = "Waiting alerts are sent again automatically."
@@ -299,8 +288,7 @@ FAILURES: dict[NotifyFailure, FailureSpec] = {
 }
 
 
-def classify(status: int) -> NotifyFailure | None:
-    """The failure an HTTP answer means, or None for a delivery."""
+def failure_for_status(status: int) -> NotifyFailure | None:
     if 200 <= status < 300:
         return None
     if status == 429:
@@ -309,7 +297,6 @@ def classify(status: int) -> NotifyFailure | None:
 
 
 def problem_for(name: str, host: str, failure: NotifyFailure, status: int | None) -> Problem:
-    """Built only from the table, the channel name, the shown host and the status code."""
     spec = FAILURES[failure]
     return Problem(
         message=f"Could not send to {name!r}",
@@ -335,21 +322,18 @@ class NotifierStopped(Exception):
     pass
 
 
-# (rule_id, node_id, metric): the AlertEngine's own state key
 AlertKey = tuple[str | None, str | None, str | None]
-Hold = Literal["interval", "backoff", "rate_limited"]
+HoldReason = Literal["interval", "backoff", "rate_limited"]
+
+
+class Hold(NamedTuple):
+    """Why a worker may not send yet, and until when. A test skips a backoff. Nothing skips a rate limit."""
+
+    reason: HoldReason
+    until: float
 
 
 class _Worker:
-    """The only writer of one channel's state. Everything here runs on the event loop: ``offer`` appends and
-    wakes, the task does the rest.
-
-    ``hold`` is why the worker may not send yet, and until when:
-        interval      it sent less than MIN_INTERVAL_S ago
-        backoff       a send failed in a way that may pass. A test skips this wait
-        rate_limited  the service answered 429. Nothing skips this wait
-    """
-
     def __init__(self, cfg: NotifyConfig, host: str, egress: Egress, clock: Clock):
         self.cfg = cfg
         self.host = host
@@ -359,7 +343,7 @@ class _Worker:
         self.more = 0
         self.tests: list[asyncio.Future[NotifyDelivery]] = []
         self.failures = 0
-        self.hold: tuple[Hold, float] | None = None
+        self.hold: Hold | None = None
         self.last: NotifyDelivery | None = None
         self.wake = asyncio.Event()
         self.closing = False
@@ -375,14 +359,17 @@ class _Worker:
     def pending(self) -> int:
         return len(self.mailbox) + self.more
 
+    def _test_goes_first(self, held: Hold | None) -> bool:
+        """A test passes a waiting batch only while a backoff or a rate limit holds that batch back, so tests
+        asked for in a loop cannot keep an alert waiting."""
+        return bool(self.tests) and (not self.mailbox or (held is not None and held.reason != "interval"))
+
     async def run(self) -> None:
         while True:
             self.wake.clear()
             now = self.clock.now()
-            held = self.hold if self.hold and now < self.hold[1] else None
-            # A test passes a batch only while a backoff or a rate limit holds that batch back. Otherwise
-            # the batch goes first, so tests asked for in a loop cannot keep an alert waiting.
-            if self.tests and (not self.mailbox or (held is not None and held[0] != "interval")):
+            held = self.hold if self.hold and now < self.hold.until else None
+            if self._test_goes_first(held):
                 if held and held[0] == "rate_limited":
                     self._answer_tests(self._delivery(True, 0, "rate_limited", 429))
                 elif held and held[0] == "interval":
@@ -424,7 +411,7 @@ class _Worker:
             f"Notifications to {self.cfg.name!r} work. "
             f"Alerts at {self.cfg.min_severity} and above are sent here."
         )
-        delivery, retry_after = await self._attempt(Message(test=text))
+        delivery, retry_after = await self._attempt(Message(test_text=text))
         self._settle(delivery, retry_after, test=True)
         self._answer_tests(delivery)
 
@@ -447,8 +434,8 @@ class _Worker:
             failure = "connect"
         else:
             status, retry_after = reply.status, reply.retry_after_s
-            failure = classify(status)
-        delivery = self._delivery(msg.test is not None, len(msg.notices), failure, status)
+            failure = failure_for_status(status)
+        delivery = self._delivery(msg.test_text is not None, len(msg.notices), failure, status)
         what = "test" if delivery.test else _plural(delivery.notices + msg.more, "notice")
         if failure is None:
             log.info("notify %r: sent %s", self.cfg.name, what)
@@ -472,23 +459,21 @@ class _Worker:
         return self.last
 
     def _settle(self, delivery: NotifyDelivery, retry_after: float | None, *, test: bool) -> None:
-        """Set the hold that follows an attempt."""
         now = delivery.ts
         then = FAILURES[delivery.failure].then if delivery.failure else None
         if then == "wait":
-            self.hold = ("rate_limited", now + (retry_after or RATE_LIMIT_DEFAULT_S))
+            self.hold = Hold("rate_limited", now + (retry_after or RATE_LIMIT_DEFAULT_S))
         elif then == "retry" and not test:
             step = BACKOFF_S[min(self.failures, len(BACKOFF_S) - 1)]
             self.failures += 1
-            self.hold = ("backoff", now + step * random.uniform(1 - BACKOFF_JITTER, 1 + BACKOFF_JITTER))
-        elif then is None or self.hold is None or self.hold[1] < now + MIN_INTERVAL_S:
-            # A delivery ends any backoff, so what is waiting goes out next. A failed test leaves it alone.
+            self.hold = Hold("backoff", now + step * random.uniform(1 - BACKOFF_JITTER, 1 + BACKOFF_JITTER))
+        elif then is None or self.hold is None or self.hold.until < now + MIN_INTERVAL_S:
             if then is None:
                 self.failures = 0
-            self.hold = ("interval", now + MIN_INTERVAL_S)
+            self.hold = Hold("interval", now + MIN_INTERVAL_S)
 
     def status(self) -> NotifyChannelStatus:
-        hold = self.hold if self.pending and self.hold and self.hold[0] != "interval" else None
+        hold = self.hold if self.pending and self.hold and self.hold.reason != "interval" else None
         return NotifyChannelStatus(
             name=self.cfg.name,
             kind=self.cfg.kind,
@@ -496,7 +481,7 @@ class _Worker:
             min_severity=self.cfg.min_severity,
             send_resolved=self.cfg.send_resolved,
             pending=self.pending,
-            retry_at=hold[1] if hold and hold[1] > self.clock.now() else None,
+            retry_at=hold.until if hold and hold.until > self.clock.now() else None,
             last=self.last,
         )
 
@@ -519,7 +504,6 @@ class Notifier:
         for c in configs:
             endpoint = c.endpoint()
             self._workers[c.name] = _Worker(c, endpoint.display_host, egress(endpoint), clock)
-        # The severity of each alert seen firing: a recovery Event does not carry it.
         self._firing: dict[AlertKey, Severity] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._stopped = False
@@ -540,7 +524,7 @@ class Notifier:
         else:
             return
         for w in self._workers.values():
-            if w.cfg.wants(notice.severity, notice.status == "resolved"):
+            if w.cfg.wants(notice.alert_severity, notice.status == "resolved"):
                 w.offer(notice)
 
     def start(self) -> None:
@@ -582,12 +566,12 @@ class Notifier:
         w = self._workers[name]
         if self._stopped or not self._tasks:
             raise NotifierStopped
-        done: asyncio.Future[NotifyDelivery] = asyncio.get_running_loop().create_future()
-        w.tests.append(done)
+        answer: asyncio.Future[NotifyDelivery] = asyncio.get_running_loop().create_future()
+        w.tests.append(answer)
         w.wake.set()
-        either: list[asyncio.Future[Any]] = [done, self._tasks[name]]
+        either: list[asyncio.Future[Any]] = [answer, self._tasks[name]]
         await asyncio.wait(either, return_when=asyncio.FIRST_COMPLETED)
-        if not done.done():  # the worker ended, so nothing will answer
-            done.cancel()
+        if not answer.done():
+            answer.cancel()
             raise NotifierStopped
-        return w.status().model_copy(update={"last": done.result()})
+        return w.status().model_copy(update={"last": answer.result()})

@@ -361,8 +361,8 @@ class Event(BaseModel):
 
 ChannelKind = Literal["ntfy", "discord", "slack", "webhook"]
 
-# A closed vocabulary: a delivery outcome has no field that can hold exception text, a URL or a response
-# body, so a channel secret has no path into the API, the log or the browser.
+# A closed vocabulary: a delivery's failure is one of these words, never exception text, a URL or a
+# response body.
 NotifyFailure = Literal[
     "dns",  # the host did not resolve
     "address_refused",  # resolved to an address the scheme may not reach (http:// to a public address)

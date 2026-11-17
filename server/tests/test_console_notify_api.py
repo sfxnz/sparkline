@@ -26,8 +26,6 @@ RULES = "/api/v1/alerts/rules"
 
 @pytest.fixture
 def sink():
-    """A loopback HTTP server that records every POST and answers ``server.status`` (204), with a Location
-    header that repeats the request path, as a redirect to a canonical URL does."""
     seen: list[dict] = []
 
     class Handler(BaseHTTPRequestHandler):

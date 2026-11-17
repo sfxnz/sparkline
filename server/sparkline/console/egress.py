@@ -36,9 +36,9 @@ from ..common.schema import NotifyFailure
 
 Scheme = Literal["http", "https"]
 Address = ipaddress.IPv4Address | ipaddress.IPv6Address
-Resolver = Callable[[str, int], Awaitable[list[str]]]  # (host, port) -> IP literals in resolver order
+Resolver = Callable[[str, int], Awaitable[list[str]]]
 
-TOTAL_TIMEOUT_S = 10.0  # resolve + connect + TLS + request + response head, over every address tried
+TOTAL_TIMEOUT_S = 10.0
 CONNECT_TIMEOUT_S = 5.0
 MAX_ADDRESSES = 3  # AAAA records with no IPv6 route are common, so a failed connect tries the next address
 RETRY_AFTER_MIN_S = 1.0
@@ -84,10 +84,10 @@ class Endpoint:
     ``port`` are safe to show. The rest is secret and prints as ``**********``."""
 
     scheme: Scheme
-    host: str  # lowercase ASCII name, or an IP literal without brackets
+    host: str
     port: int
-    path: SecretStr  # path and query, starting with "/"
-    topic: SecretStr | None = None  # sent in the JSON body instead of the path (ntfy)
+    path: SecretStr
+    topic: SecretStr | None = None
     bearer: SecretStr | None = None
 
     @classmethod
@@ -133,7 +133,6 @@ class Endpoint:
 
     @property
     def display_host(self) -> str:
-        """``discord.com``, or ``homeassistant.local:8123`` when the port is not the scheme's default."""
         host = f"[{self.host}]" if ":" in self.host else self.host
         return host if self.port == (443 if self.scheme == "https" else 80) else f"{host}:{self.port}"
 
@@ -164,7 +163,7 @@ def _retry_after(value: str | None) -> float | None:
     else:
         try:
             seconds = parsedate_to_datetime(value).timestamp() - time.time()
-        except (TypeError, ValueError, OverflowError, OSError):  # the last two: a date with no zone
+        except (TypeError, ValueError, OverflowError, OSError):
             return None
     return min(max(seconds, RETRY_AFTER_MIN_S), RETRY_AFTER_MAX_S)
 
@@ -184,7 +183,7 @@ async def _getaddrinfo(host: str, port: int) -> list[str]:
     answer: asyncio.Future[list[str]] = loop.create_future()
 
     def hand_back(ips: list[str], error: BaseException | None) -> None:
-        if answer.done():  # the send timed out or was cancelled
+        if answer.cancelled():
             return
         if error is None:
             answer.set_result(ips)
