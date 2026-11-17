@@ -154,12 +154,13 @@ class EgressError(Exception):
 def _retry_after(value: str | None) -> float | None:
     if not value:
         return None
-    if value.strip().isdigit():
+    # isascii: "²" and "١٢٠" pass isdigit, and float() raises on the first.
+    if value.isascii() and value.strip().isdigit():
         seconds = float(value)
     else:
         try:
             seconds = parsedate_to_datetime(value).timestamp() - time.time()
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError, OSError):  # the last two: a date with no zone
             return None
     return min(max(seconds, RETRY_AFTER_MIN_S), RETRY_AFTER_MAX_S)
 
@@ -263,7 +264,9 @@ class Egress:
                 _sending.reset(sending)
             if 300 <= response.status_code < 400:
                 raise EgressError("redirect")
-            return Reply(response.status_code, _retry_after(response.headers.get("retry-after")))
+            if response.status_code != 429:
+                return Reply(response.status_code, None)
+            return Reply(429, _retry_after(response.headers.get("retry-after")))
         raise EgressError(failure)
 
     async def aclose(self) -> None:

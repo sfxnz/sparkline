@@ -174,6 +174,27 @@ async def test_retry_after_as_a_date_in_the_past_waits_the_minimum():
     assert (await egress.post({})).retry_after_s == 1.0
 
 
+def answering_retry_after(status: int, header: str) -> httpx.MockTransport:
+    # As bytes: httpx builds no header from a str that is not ASCII, and a service can send one.
+    headers = [(b"Retry-After", header.encode())]
+    return httpx.MockTransport(lambda request: httpx.Response(status, headers=headers))
+
+
+@pytest.mark.parametrize("header", ["²", "١٢٠", "1²"])
+async def test_a_retry_after_in_digits_that_are_not_ascii_is_ignored(header):
+    transport = answering_retry_after(429, header)
+    egress = Egress(endpoint("https://hooks.example/x"), resolver=resolver([PUBLIC]), transport=transport)
+    assert await egress.post({}) == Reply(429, None)
+
+
+@pytest.mark.parametrize("status", [200, 204, 404, 503])
+@pytest.mark.parametrize("header", ["3", "²"])
+async def test_retry_after_is_read_from_a_429_only(status, header):
+    transport = answering_retry_after(status, header)
+    egress = Egress(endpoint("https://hooks.example/x"), resolver=resolver([PUBLIC]), transport=transport)
+    assert await egress.post({}) == Reply(status, None)
+
+
 async def test_a_failed_connect_tries_the_next_checked_address():
     transport, seen = failing(httpx.ConnectError("no route"))
     egress = Egress(
