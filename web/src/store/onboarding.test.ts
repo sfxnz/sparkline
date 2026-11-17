@@ -51,6 +51,34 @@ describe('onboarding transport', () => {
     expect(useCluster.getState().onboarding).toEqual(row);
   });
 
+  it('Dismiss then Bring it back, before the console answered: the screen never goes back to "dismissed"', async () => {
+    // The console answers each PUT only when the test lets it, and broadcasts each change as it would.
+    const answers: ((r: Response) => void)[] = [];
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => { answers.push(resolve); }));
+    vi.stubGlobal('fetch', fetch);
+    const json = (body: Onboarding) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const shown = () => useCluster.getState().onboarding?.finished;
+
+    const dismissed = patchOnboarding({ finished: true });
+    const back = patchOnboarding({ finished: false });
+    expect(shown()).toBeNull();
+    // One at a time, in order: the second PUT waits for the first answer.
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    dispatch({ type: 'onboarding', onboarding: { ...row, finished: 200 } }); // the broadcast of the first change
+    expect(shown()).toBeNull();
+    answers[0]?.(json({ ...row, finished: 200 }));
+    await dismissed;
+    expect(shown()).toBeNull();
+    await vi.waitFor(() => { expect(fetch).toHaveBeenCalledTimes(2); });
+    answers[1]?.(json(row));
+    await back;
+    expect(useCluster.getState().onboarding).toEqual(row);
+    // Settled: a change from another tab shows again.
+    dispatch({ type: 'onboarding', onboarding: { ...row, seen: ['benchmarks'] } });
+    expect(useCluster.getState().onboarding?.seen).toEqual(['benchmarks']);
+  });
+
   it('does nothing against a console with no first-run state', async () => {
     const fetch = reply(200, row);
     vi.stubGlobal('fetch', fetch);

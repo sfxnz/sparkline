@@ -5,6 +5,7 @@ import { ReconnectingSocket, type AuthResult } from '../lib/ws';
 import type { WsMessage } from '../lib/types';
 import { announce } from '../design/components/LiveAnnouncer';
 import { useBench } from './bench';
+import { receiveOnboarding } from './onboarding';
 import { useCluster } from './cluster';
 import { useConnection } from './connection';
 import { MAX_EVENTS, mergeEvents, useEvents } from './events';
@@ -56,7 +57,7 @@ export function dispatch(msg: WsMessage): void {
       useCluster.getState().setSettings(msg.settings);
       break;
     case 'onboarding':
-      useCluster.getState().setOnboarding(msg.onboarding);
+      receiveOnboarding(msg.onboarding);
       break;
     case 'ping':
       break;
