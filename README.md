@@ -587,7 +587,8 @@ behind a login that gives no such proof gets those three requests and no more.
 **What is shown.** vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM, and any server that exports the same metric
 names under its own prefix. A value the server does not export reads "Not reported by this server". llama.cpp
 serves metrics only with `--metrics` and SGLang only with `--enable-metrics`; without the flag the server is
-listed with its model and a note naming the flag. Ollama, LM Studio and mlx_lm are not read yet. Memory held
+listed with its model and a note naming the flag. A server that lists its models to anyone and answers 401
+or 403 on its metrics path is listed the same way, with a note asking for the API key. Ollama, LM Studio and mlx_lm are not read yet. Memory held
 is the server's own figure when it exports one, otherwise the GPU memory of the process (or of every process
 in its container) whose arguments name the port.
 

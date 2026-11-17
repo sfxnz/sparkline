@@ -448,6 +448,12 @@ def test_a_server_that_guards_its_metrics_with_a_key_asks_for_the_key_not_for_a_
     assert (s.software, s.state, [m.name for m in s.models]) == ("llama.cpp", "ready", ["example-model"])
     assert "API key" in s.problem and "Set api_key under [[model_servers]] in agent.toml" in s.problem
     assert "--metrics" not in s.problem
+    http.routes[f"{base}/v1/models"] = models("acme")
+    listen(tmp_path, {9931: 42})
+    c = collector(tmp_path, http, targets=(Target(9931),))
+    c.poll_round(0.0)
+    [s] = servers(c)
+    assert s.state == "down" and "Set api_key under [[model_servers]] in agent.toml" in s.problem
 
 
 def test_a_listed_server_that_is_loading_reads_loading(tmp_path):

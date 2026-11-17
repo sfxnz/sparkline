@@ -164,8 +164,10 @@ class PrometheusAdapter:
         else:
             software = next((n for key, n in PROMETHEUS_OWNERS.items() if key in owner.lower()), None)
             paths = ("/metrics", "/v1/metrics")
+        metrics_locked = False
         for path in paths:
             got = http(_url(at, path), auth)
+            metrics_locked |= got.status in REFUSED
             ns = pick_namespace(_series(got), need_proof=locked)
             if ns is not None:
                 named = software or KNOWN_NAMESPACES.get(ns) or owner or ns.rstrip(":_") or None
@@ -173,7 +175,9 @@ class PrometheusAdapter:
         if software is None:
             # No metrics and no known owner. Ollama, LM Studio and mlx_lm answer /v1/models with the models
             # on disk, not the loaded ones, so they wait for adapters of their own.
-            return Unread(why=key_fix) if locked else NOT_A_MODEL_SERVER
+            return Unread(why=key_fix) if locked or metrics_locked else NOT_A_MODEL_SERVER
+        if metrics_locked:
+            return Identity(software, models, None, f"Its metrics path {key_fix}")
         problem = NO_METRICS.get(software, f"{software} serves no metrics on this port")
         return Identity(software, models, None, problem)
 
