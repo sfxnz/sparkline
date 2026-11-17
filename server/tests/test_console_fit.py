@@ -89,6 +89,13 @@ def test_no_budget_without_a_sample_or_without_reported_gpu_memory():
     assert "dedicated memory" in node_budget(info, sample).reason
 
 
+def test_no_budget_when_the_memory_collector_has_no_reading():
+    info, sample = gb10(0)
+    empty = sample.model_copy(update={"mem": sample.mem.model_copy(update={"total": 0})})
+    b = node_budget(info, empty)
+    assert b.kind == "unknown" and "memory" in b.reason
+
+
 @pytest.mark.parametrize(
     ("available_gib", "want"),
     [(34, "fits"), (30, "tight"), (26, "tight"), (25, "no")],

@@ -405,8 +405,8 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   with the run in `console.sqlite`, included in its JSON export and visible to anyone signed in to the
   console. The web app shows it as plain text, never as HTML or Markdown. tool-eval-bench's tools are mocks:
   nothing the model asks for is executed.
-- **One outbound call, only on request.** The running console contacts the internet in one case: a signed-in user
-  presses Look up on the Will it fit? page. It then sends two GET requests to `https://huggingface.co`, for
+- **Hugging Face lookup, only on request.** The console contacts `https://huggingface.co` when a signed-in user
+  presses Look up on the Will it fit? page, and at no other time. It then sends two GET requests, for
   the repo's parameter counts and its `config.json`. The repo id must match `owner/name`, the host is fixed,
   a redirect is followed only while it stays on `https://huggingface.co`, each response is read up to 1 MiB,
   and no token or cookie of yours is sent. Hugging Face sees the console host's address and the repo id.

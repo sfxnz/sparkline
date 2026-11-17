@@ -80,7 +80,7 @@ export const api = {
   /** Irreversible: deletes the node's stored history (the console requires the explicit confirm body). */
   clearHistory: (node: string) =>
     request<{ ok: boolean; demo?: boolean }>(`/api/v1/history?${query({ node })}`, json({ confirm: 'DELETE' }, 'DELETE')),
-  /** The console reads the public repo from huggingface.co: the one call here that leaves the LAN. */
+  /** The console reads the public repo from huggingface.co, so this call leaves the LAN. */
   fitLookup: (repo: string) => request<ModelFacts>(`/api/v1/fit/lookup?${query({ repo })}`),
   fitEstimate: (body: FitRequest) => request<FitResponse>('/api/v1/fit/estimate', json(body)),
 };

@@ -143,6 +143,8 @@ def node_budget(info: NodeInfo | None, sample: Sample | None) -> NodeBudget:
         return UnknownBudget(reason="No sample from this node yet")
     dedicated = [g for g in info.gpus if g.memory != "unified"]
     if not dedicated:
+        if not sample.mem.total:  # the agent's placeholder when its memory collector has no reading
+            return UnknownBudget(reason="This node's agent has no memory reading")
         available = sample.mem.available
         return UnifiedBudget(
             bytes=max(0, available - UNIFIED_HEADROOM_BYTES),
