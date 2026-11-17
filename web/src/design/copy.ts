@@ -1,4 +1,3 @@
-// Copy to the clipboard, and say that it happened.
 import { useEffect, useRef, useState } from 'react';
 
 /** Write `text` to the clipboard; the console is often served over plain http on the LAN, where the async clipboard

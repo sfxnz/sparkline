@@ -1,5 +1,3 @@
-/* A node that has never answered: the setup block (overview card and node page). Neutral and accent only: this is
-   a step to finish, not a fault. Nothing here truncates: the fix is the point. */
 .setup { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; container-type: inline-size; }
 .setup__grid { display: grid; gap: var(--space-4); min-width: 0; }
 .setup__what { display: grid; gap: var(--space-3); align-content: start; min-width: 0; }
@@ -9,7 +7,6 @@
 .setup__cause { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); overflow-wrap: anywhere; }
 .setup__fix { gap: var(--space-3); }
 .setup__label + .setup__step { margin-top: calc(-1 * var(--space-1)); }
-/* One step of the fix: the sentence, then the commands it names. */
 .setup__step { display: grid; gap: var(--space-2); min-width: 0; }
 .setup__fix-text { font-size: var(--fs-callout); line-height: 1.375rem; color: var(--text-1); text-wrap: pretty; overflow-wrap: anywhere; }
 .setup__fix-text code, .setup__cause code { font-size: 0.86em; }
@@ -18,7 +15,6 @@
   .setup__fix { padding-left: var(--space-10); border-left: var(--hairline) solid var(--separator); }
 }
 
-/* The link picture: where the console's request stopped. */
 .setup-link { display: flex; align-items: center; gap: var(--space-2); min-width: 0; max-width: 26rem; }
 .setup-link__end {
   flex: 0 1 auto;
@@ -63,7 +59,6 @@
 .setup-link[data-reach='no-answer'] { --reach: 62%; --stop: 62%; }
 .setup-link[data-reach='turned-away'] { --reach: 100%; --stop: 80%; }
 
-/* When the console tries again. */
 .setup-retry { margin-top: auto; display: grid; gap: var(--space-3); }
 .setup-retry__bar { height: 2px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
 .setup-retry__bar i { display: block; height: 100%; width: 100%; background: var(--setup); opacity: 0.8; transform-origin: left; transition: transform 1s linear; }

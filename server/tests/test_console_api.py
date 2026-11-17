@@ -565,7 +565,7 @@ def test_onboarding_put_adds_seen_ids_and_stamps_finished_once_until_it_is_clear
         for same in ({"finished": True}, {"seen": ["fit"], "finished": True}, {"seen": []}, {}):
             assert put(same) == row, same
         assert cluster_state(c)["onboarding"] == row
-    with TestClient(make(tmp_path)) as c:  # kept across a restart
+    with TestClient(make(tmp_path)) as c:
         assert cluster_state(c)["onboarding"] == row
         reopened = {**row, "finished": None}
         for _ in range(2):
@@ -610,7 +610,6 @@ def test_a_store_an_earlier_release_ran_on_starts_finished_with_its_configured_n
         assert before <= row["started"] <= time.time()
         assert row == {"started": row["started"], "finished": row["started"], "seen": []}
         assert [n["first_seen"] for n in state["nodes"]] == [row["started"]] * 2
-    # once: a restart moves nothing, and a node added to the config since then is new
     with TestClient(make(tmp_path, nodes=["spark1", "spark2", "spark3"])) as c:
         state = cluster_state(c)
         assert state["onboarding"] == row
@@ -654,7 +653,7 @@ def test_the_first_run_demo_starts_as_a_new_install_whatever_the_last_demo_left(
         assert row == {**NEW, "started": row["started"]} and row["started"] is not None
         assert c.get(ME).json()["first_run"] is False
         assert [(n["status"], n["first_seen"]) for n in state["nodes"]] == [("connecting", None)] * 3
-    with TestClient(make(tmp_path, demo=True, first_run=True)) as c:  # with a token: the first-run sign-in
+    with TestClient(make(tmp_path, demo=True, first_run=True)) as c:
         assert c.get(ME).json()["first_run"] is True and cluster_state(c)["onboarding"] == NEW
         assert c.post(LOGIN, json={"token": TOKEN}).status_code == 200
         assert c.get(ME).json()["first_run"] is False

@@ -65,7 +65,6 @@ describe('a node that cannot be reached on a first run', () => {
     expect(within(card).getByRole('img', { name: 'The console tried spark1 at 192.168.1.11:9750 and nothing answered.' })).toBeInTheDocument();
     expect(within(card).getByRole('heading', { name: 'Agent unreachable on spark1' })).toBeInTheDocument();
     expect(within(card).getByText('Likely cause').nextElementSibling).toHaveTextContent('Connection refused at 192.168.1.11:9750');
-    // What to do, a step at a time, each command under the sentence that says when to run it.
     const steps = [...card.querySelectorAll('.setup__step')];
     expect(steps.map((s) => s.querySelector('p')?.textContent)).toEqual([
       'Start the agent on spark1: sudo systemctl start sparkline-agent.',

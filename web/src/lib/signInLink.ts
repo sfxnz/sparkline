@@ -28,16 +28,13 @@ export function watchSignInLink(): void {
   });
 }
 
-/** Be told when a link token arrives while the page is open. Returns the unsubscribe function. */
 export function onSignInLink(tell: () => void): () => void {
   listeners.add(tell);
   return () => { listeners.delete(tell); };
 }
 
-/** True while a link token waits to be used (the sign-in page starts in its "Signing in…" state). */
 export const hasSignInToken = () => pending !== null;
 
-/** The link token, once. */
 export function takeSignInToken(): string | null {
   const token = pending;
   pending = null;

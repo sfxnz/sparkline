@@ -29,8 +29,6 @@ chmod +x "$venv/bin/python"
 
 
 class Host:
-    """One machine to install on: a checkout and an empty stage."""
-
     def __init__(self, tmp_path: Path) -> None:
         self.stage = tmp_path / "stage"
         self.checkout = tmp_path / "checkout"
@@ -54,7 +52,6 @@ class Host:
         return subprocess.run(self.command(*args), env=env, capture_output=True, text=True, check=True).stdout
 
     def install_on_a_terminal(self, *args: str) -> str:
-        """Standard output of an install whose output is an interactive terminal."""
         master, slave = pty.openpty()
         chunks = []
         with subprocess.Popen(
@@ -141,7 +138,6 @@ def test_the_first_agent_ends_with_the_console_command_then_the_other_nodes(host
         "    More than one Spark? Install the agent on the others before the console, with this"
     )
     assert others == following + 3
-    # Off a terminal the token is not printed: the label says so, with the command on the next line, aligned.
     token = lines.index("      Agent token:  not printed, because this output is not a terminal. To read it:")
     assert lines[token + 1] == f"                    sudo grep ^token {host.stage}/etc/sparkline/agent.toml"
     assert lines[-1] == f"      {console} --nodes {node}=http://127.0.0.1:9829,<id>=<URL>"
@@ -224,7 +220,6 @@ def test_a_rerun_on_an_existing_install_stays_short(host: Host) -> None:
         "    Listening on:  http://127.0.0.1:9829",
         "    Benchmarks:    off (monitor-only). Re-run with --enable-benchmarks to allow them.",
     ]
-    # The console says where it is, under the label the first install used, and how to sign in. No token.
     rerun = host.install_on_a_terminal("console")
     assert ending(rerun) == [
         "    Console:        http://127.0.0.1:9828",

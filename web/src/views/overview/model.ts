@@ -137,7 +137,6 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
   return { status, label, sentence };
 }
 
-/** A new node the console has tried and could not use (lib/onboarding.ts needsSetup, on this input). */
 const stuck = (n: NodeHealthInput) => needsSetup({ first_seen: n.isNew ? null : 0, status: n.status ?? 'connecting' });
 
 const COUNT_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];

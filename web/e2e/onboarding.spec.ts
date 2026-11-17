@@ -1,7 +1,4 @@
 /// <reference lib="dom" />
-// A real first run, end to end: a console nobody has signed in to, nodes that answer a few seconds in and one that
-// refuses, the getting-started guide left, resumed, dismissed and brought back.
-//
 // Each test starts its own console (--demo-first-run with a token) and serves the built app from it, because the
 // first-run script runs on the console's clock from the moment it starts: a console shared by the whole suite would
 // be past "connecting" before the first test opened a page. --demo-speed 0.5 gives the tests room: spark1 answers
@@ -99,7 +96,6 @@ async function expectNoAlarm(page: Page) {
   await expect(page.getByRole('main').getByText('Critical')).toHaveCount(0);
 }
 
-/** The setup card says everything, whole, at this width. */
 async function expectWholeFix(card: Locator) {
   await expect(card.getByText('Not connected yet')).toBeVisible();
   await expect(card.getByRole('heading', { name: 'Agent unreachable on spark3' })).toBeVisible();
@@ -118,19 +114,16 @@ async function expectWholeFix(card: Locator) {
 }
 
 test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, and a guide that stays put away', async ({ page, browser }) => {
-  // Nobody has signed in: the sign-in page welcomes the person and says where the token is.
   await page.goto(`${BASE}/login`);
   await expect(page.getByRole('heading', { name: 'Welcome to Sparkline' })).toBeVisible();
   await expect(page.getByText('This console is new.')).toBeVisible();
   await expect(page.getByText('sudo grep ^token /etc/sparkline/console.toml')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copy command' })).toBeVisible();
 
-  // The installer's link signs in and leaves no token in the address bar or the history entry.
   await signInByLink(page);
   expect(await page.evaluate(() => `${location.href} ${JSON.stringify(history.state)}`)).not.toContain(TOKEN);
   expect(await page.evaluate(() => location.hash)).toBe('');
 
-  // Nodes that have never answered are connecting, then live. The one that refuses is a setup step, not an outage.
   await expect(page.getByRole('heading', { level: 2, name: /^Welcome to Sparkline\./ })).toBeVisible();
   const spark1 = page.getByRole('region', { name: 'Node spark1', exact: true });
   await expect(spark1.getByText('Connecting')).toBeVisible();
@@ -143,7 +136,6 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await expect(spark1.getByRole('img', { name: /^GPU utilisation \d+%/ })).toBeVisible({ timeout: 10_000 });
   await expectNoAlarm(page);
 
-  // Benchmarks and Settings > Data say the same of spark3: not connected yet, never offline, and nothing to clear.
   await page.goto(`${BASE}/benchmarks`);
   await expect(page.locator('.bench-avail', { hasText: 'spark3' }).first()).toContainText('Not connected yet');
   await expectNoAlarm(page);
@@ -152,14 +144,12 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await expect(page.getByRole('button', { name: 'Clear history for spark3…' })).toHaveCount(0);
   await page.goto(`${BASE}/`);
 
-  // The guide is open in full under the node cards, and the sidebar counts it.
   const panel = guidePanel(page);
   await expect(panel.getByRole('listitem')).toHaveCount(5);
   await expect(panel.getByRole('heading', { level: 3 })).toHaveText(['Set up', 'Already on', 'Try it']);
   const entry = page.getByRole('link', { name: /^Get started/ });
   await expect(entry).toContainText(/\d of 5/);
 
-  // Open an item: it is the real page. Come back after a reload: one line, with the next step.
   await panel.getByRole('link', { name: /^Prometheus export/ }).click();
   await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
   const prometheus = page.getByRole('region', { name: 'Prometheus' });
@@ -174,7 +164,6 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   // The welcome was for the first visit.
   await expect(page.getByRole('heading', { level: 2, name: /^Welcome to Sparkline/ })).toHaveCount(0);
 
-  // Dismiss: a line says where it went. After a reload there is nothing, here or in the sidebar.
   await strip.getByRole('button', { name: 'Dismiss getting started' }).click();
   await expect(page.getByText('Getting started is put away.')).toBeVisible();
   await page.reload();
@@ -193,7 +182,6 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await expect(phone.getByText(/Getting started|Get started/)).toHaveCount(0);
   await other.close();
 
-  // Settings brings it back, on the overview, in full.
   await page.goto(`${BASE}/settings`);
   await page.getByRole('button', { name: 'Open getting started' }).click();
   await expect(page).toHaveURL(`${BASE}/`);
@@ -227,7 +215,6 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   }
   await expectNoAlarm(page);
 
-  // The guide is below the node cards: the chip says it is there and takes the person to it.
   await page.evaluate(() => { window.scrollTo(0, 0); });
   const chip = page.getByRole('button', { name: /^Getting started \d of 5/ });
   await expect(chip).toBeVisible();
@@ -238,7 +225,6 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   // Taller than the screen: it starts at its title, under the toolbar.
   await expectJustUnderToolbar(page, '#getting-started');
 
-  // Open an item, come back: one line that fits the phone, and the chip still counts.
   await guidePanel(page).getByRole('link', { name: /^Alerts on your phone/ }).click();
   await expect(page).toHaveURL(`${BASE}/alerts#notifications`);
   await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
@@ -287,7 +273,6 @@ test('a touch screen is not shown a key to press', async ({ page, browser }) => 
 });
 
 test('the main path with a keyboard only', async ({ page }) => {
-  /** Tab until `target` has focus. */
   const tabTo = async (target: Locator) => {
     for (let i = 0; i < 80; i++) {
       if (await target.evaluate((el) => el === document.activeElement).catch(() => false)) return;
@@ -296,14 +281,12 @@ test('the main path with a keyboard only', async ({ page }) => {
     throw new Error('never reached the target with Tab');
   };
 
-  // Sign in: the token field has focus on arrival; Enter submits.
   await page.goto(`${BASE}/login`);
   await expect(page.getByLabel('Console token')).toBeFocused();
   await page.keyboard.type(TOKEN);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(`${BASE}/`);
 
-  // The setup card: copy the command and retry, without a pointer.
   const card = setupCard(page);
   await tabTo(card.getByRole('button', { name: 'Copy command' }).first());
   await page.keyboard.press('Enter');
@@ -312,12 +295,10 @@ test('the main path with a keyboard only', async ({ page }) => {
   await page.keyboard.press('Enter');
   await expect(card.getByText(/Trying now…|Trying again in/)).toBeVisible();
 
-  // The guide: open a row with Enter, come back, dismiss with the keyboard.
   await tabTo(guidePanel(page).getByRole('link', { name: /^Prometheus export/ }));
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
   await expect(page.getByRole('heading', { name: 'Prometheus' })).toBeFocused();
-  // Back from the sidebar entry: the guide takes focus, every row shown.
   await tabTo(page.getByRole('link', { name: /^Get started/ }));
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(`${BASE}/`);
@@ -340,7 +321,6 @@ test('the main path with a keyboard only', async ({ page }) => {
   await page.keyboard.press('Enter');
   await expect(page.getByText('Getting started is put away.')).toBeVisible();
 
-  // Bring it back from the command palette.
   await page.keyboard.press('Control+k');
   await expect(page.getByRole('combobox', { name: /Search views/ })).toBeFocused();
   await page.keyboard.type('getting started');
@@ -392,13 +372,11 @@ for (const scheme of ['dark', 'light'] as const) {
         await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
         expect(await axe(page), `sign-in, ${width} px`).toEqual([]);
 
-        // Overview with a connecting or live node, the setup card and the guide in full.
         await signInByLink(page);
         await expect(setupCard(page).getByRole('button', { name: 'Retry now' })).toBeVisible();
         await expect(page.locator('#getting-started')).toBeVisible();
         expect(await axe(page), `overview, ${width} px`).toEqual([]);
 
-        // The node page of the node that has never answered, and the Prometheus section.
         await page.goto(`${BASE}/node/spark3`);
         await expect(page.getByRole('region', { name: 'spark3 is not connected yet' })).toBeVisible();
         expect(await axe(page), `node page, ${width} px`).toEqual([]);
@@ -408,7 +386,6 @@ for (const scheme of ['dark', 'light'] as const) {
         expect(await axe(page, '#prometheus'), `settings, ${width} px`).toEqual([]);
       }
 
-      // The one-line strip and the line left behind after dismissing.
       await page.goto(`${BASE}/`);
       await guidePanel(page).getByRole('button', { name: 'Collapse' }).click();
       await expect(guideStrip(page)).toBeVisible();

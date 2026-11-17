@@ -145,7 +145,6 @@ test('with no [[notify]] table the Alerts view shows how to add a channel', asyn
   await expect(panel.getByText('No notification channels')).toBeVisible();
   await expect(panel.locator('pre')).toContainText('[[notify]]');
 
-  // On a phone the card is whole: the words wrap inside it, and the snippet scrolls inside its own box.
   for (const width of [390, 360]) {
     await page.setViewportSize({ width, height: 844 });
     // Polled: the sidebar folds to its rail over a moment, and the card is measured once it has its width.

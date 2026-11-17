@@ -41,7 +41,6 @@ describe('Clear history', () => {
     render(<DataSection />);
     expect(screen.getByText('spark3 has not connected yet. It has no history to clear.')).toBeInTheDocument();
     expect(screen.queryByText(/offline/)).not.toBeInTheDocument();
-    // Nothing to clear, so there is no button: not even a dimmed one.
     expect(screen.queryByRole('button', { name: /Clear history/ })).toBeNull();
   });
 

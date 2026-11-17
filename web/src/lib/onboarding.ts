@@ -28,7 +28,6 @@ export function fixCommands(fix: string | null | undefined): string[] {
 export interface FixStep {
   /** One sentence of the fix, with its `backtick` spans. */
   text: string;
-  /** The commands that sentence names. */
   commands: string[];
 }
 

@@ -136,7 +136,6 @@ describe('what the person does is kept by the console', () => {
     await userEvent.click(within(panel()).getByRole('link', { name: /Prometheus export/ }));
     expect(sent).toEqual([{ seen: ['prometheus'] }]);
     expect(loc.history.at(-1)).toBe('/settings#prometheus');
-    // Back on the overview it is one line, and the count went up.
     expect(await screen.findByRole('region', { name: 'Getting started, 2 of 5 done' })).toBeInTheDocument();
   });
 

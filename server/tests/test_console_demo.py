@@ -582,11 +582,9 @@ def test_the_first_run_demo_holds_every_scripted_failure_back_until_well_after_t
     quiet_until = FIRST_RUN_CALM_S + 60
     assert quiet_until >= 47 + 240
     assert [(s, failing(t0 + s)) for s in range(0, int(quiet_until)) if failing(t0 + s)] == []
-    # Then the script runs as it always does, shifted: thermal, spark2's stall, spark3 going offline.
     assert "spark1 hot" in failing(t0 + FIRST_RUN_CALM_S + 60 + 20)
     assert "spark2 stall" in failing(t0 + FIRST_RUN_CALM_S + 124)
     assert "spark3 refused" in failing(t0 + FIRST_RUN_CALM_S + 60 + 115)
-    # The ordinary demo is unchanged.
     plain = DemoModel("spark1", t0)
     assert plain.thermal(t0 + 80) > 0 and plain.scen(t0 + 80) == 80 and plain.scen(t0 - 500) == -500
     assert models["spark1"].scen(t0 - 500) == -500

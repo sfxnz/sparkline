@@ -1,9 +1,7 @@
-/* Getting started: the panel, the one-line strip, the line left behind, the sidebar entry and the phone chip. */
 .guide-ring { flex: none; transform: rotate(-90deg); }
 .guide-ring__track { stroke: color-mix(in srgb, var(--text-3) 38%, transparent); }
 .guide-ring__value { stroke: var(--accent); transition: stroke-dashoffset var(--dur-slow) var(--ease-out); }
 
-/* ------------------------------------------------------------ panel */
 .guide { container-type: inline-size; scroll-margin-top: calc(var(--toolbar-offset, var(--toolbar-height)) + var(--space-4)); scroll-margin-bottom: var(--space-4); }
 /* Panels drop their blur over the page background (Panel.css); this one keeps a faint accent wash at its corner. */
 .guide::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(46% 130% at 0% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%); }
@@ -49,7 +47,6 @@ a.guide-tile:hover { background: var(--fill-1); text-decoration: none; }
 .guide-tile__go { position: absolute; right: 0; top: calc((var(--lh-callout) - 14px) / 2); width: 14px; height: 14px; color: var(--text-3); opacity: 0; transform: translateX(-3px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .guide-tile:hover .guide-tile__go, .guide-tile:focus-visible .guide-tile__go { opacity: 1; transform: none; }
 @media (hover: none) { .guide-tile__go { opacity: 1; transform: none; } }
-/* A fact from the cluster's own state, beside the title. */
 .guide-tag { padding: 1px 6px; border-radius: var(--radius-xs); background: var(--accent-soft); color: var(--accent-text); font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
 /* Done: a check takes the icon's place and the words step back. Shape and wording change, not only colour. */
 .guide-tile.is-done .guide-tile__icon { background: var(--ok-bg); border-color: transparent; color: var(--ok-text); }
@@ -62,7 +59,6 @@ a.guide-tile:hover { background: var(--fill-1); text-decoration: none; }
   .guide__actions .btn { width: var(--btn-h); padding: 0; }
 }
 
-/* ------------------------------------------------------------ one line (collapsed, or come back later) */
 .guide-strip {
   display: flex;
   align-items: center;
@@ -100,19 +96,16 @@ a.guide-tile:hover { background: var(--fill-1); text-decoration: none; }
   .guide-strip__all-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }
 
-/* ------------------------------------------------------------ put away */
 .guide-gone { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-4); min-height: 2.75rem; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5); border-radius: var(--radius-lg); border: var(--hairline) dashed var(--separator-strong); font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 .guide-gone .kbd { margin: 0 1px; }
 @media (hover: none) and (pointer: coarse) { .guide-gone__keys { display: none; } }
 
-/* ------------------------------------------------------------ sidebar entry */
 .guide-entry { min-height: 2.5rem; margin-bottom: var(--space-3); border: var(--hairline) solid var(--separator); background: var(--fill-1); color: var(--text-1); }
 .guide-entry:hover { background: var(--fill-2); }
 .guide-entry__count { margin-left: auto; font-size: var(--fs-footnote); font-weight: 520; color: var(--text-2); white-space: nowrap; }
 .shell--collapsed .guide-entry__count { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .shell--collapsed .guide-entry { min-height: 2.25rem; }
 
-/* ------------------------------------------------------------ phone chip, under the welcome */
 .guide-chip {
   display: none;
   align-items: center;

@@ -226,7 +226,6 @@
 .ov-card--setup .ov-card__panel { border-style: dashed; border-color: var(--separator-strong); }
 .ov-card--setup .panel__body { display: flex; flex-direction: column; padding-top: var(--space-5); }
 
-/* No node has reported yet: one quiet line where totals, events and charts will be. */
 .ov-quiet { border-radius: var(--radius-lg); border: var(--hairline) dashed var(--separator-strong); }
 .ov-quiet .state { padding-block: var(--space-6); }
 .ov-quiet .state__title { text-wrap: balance; }

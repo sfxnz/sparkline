@@ -181,9 +181,7 @@ print(v if isinstance(v, (str, int)) else "")
 PYEOF
 }
 
-# A token line of the final summary. The token is shown on an interactive terminal only, so it never lands in a
-# `| tee` log or a CI transcript; elsewhere the line says so, and the command that reads it is on a line of its
-# own, under where the token would be.
+# The token is shown on an interactive terminal only, so it never lands in a `| tee` log or a CI transcript.
 TTY_OUT=0
 [[ -t 1 ]] && TTY_OUT=1
 token_line() {
@@ -208,7 +206,6 @@ with open(sys.argv[2], "rb") as f:
 PYEOF
 }
 
-# This installer's command line for a next step, with the options that have to stay the same.
 self_cmd() {
 	local cmd="$0 $*"
 	[[ $PREFIX == /opt/sparkline ]] || cmd+=" --prefix $PREFIX"
@@ -216,10 +213,8 @@ self_cmd() {
 	printf '%s' "$cmd"
 }
 
-# How a dry run's summary ends.
 dry_run_next() { info "To apply it, run the same command without --dry-run."; }
 
-# What a --destdir run leaves undone, said before a next step that needs the service running.
 staged_note() {
 	[[ $SYSTEM == 1 ]] || info "Staged with --destdir: nothing was started (see DEV.md, \"Deployment files\")."
 }
@@ -608,7 +603,6 @@ except ValueError:
 	printf 'http://%s:%s' "$host" "${port:-$default_port}"
 }
 
-# The agent installed on this host as an id=url pair, the form --nodes takes.
 local_node() {
 	local file id
 	file=$(p "$ETC/agent.toml")
@@ -616,7 +610,6 @@ local_node() {
 	printf '%s=%s' "${id:-$(hostname -s)}" "$(service_url "$file" 9750)"
 }
 
-# A [[nodes]] entry for a console.toml, as lines of the summary.
 node_entry() {
 	info "    [[nodes]]"
 	info "    id = \"${1%%=*}\""
@@ -723,7 +716,6 @@ install_agent() {
 }
 
 install_console() {
-	# A new console needs nodes to show. Say so before anything is installed.
 	if [[ -z $NODES && ! -f $(p "$ETC/console.toml") && ! -f $(p "$ETC/agent.toml") ]]; then
 		die "a new console needs nodes to show, and there is no agent on this host (no $(p "$ETC/agent.toml")).
   Install the agent here first:   $(self_cmd agent)

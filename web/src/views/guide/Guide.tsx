@@ -20,7 +20,6 @@ import './guide.css';
 const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 const countWord = (n: number) => COUNT[n] ?? String(n);
 
-/** Progress as a ring: the same mark in the strip, the sidebar entry and the phone chip. */
 export function GuideRing({ done, total, size = 22, stroke = 3.5 }: { done: number; total: number; size?: number; stroke?: number }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
@@ -73,7 +72,6 @@ function lead(guide: GuideData, stuck: string | undefined): string {
   return `${countWord(guide.total)} things Sparkline does. Each one opens the real page, in any order.`;
 }
 
-/** The guide on the overview. `items` is for tests that prove a row is one object in the table. */
 export function Guide({ items }: { items?: readonly GuideItem[] }) {
   const { stage, view, guide, ready } = useGuide(items);
   const left = useUi((s) => s.guideLeft);
@@ -112,7 +110,6 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
     to.focus();
   });
 
-  // Every row is done: the guide finishes itself and says so, once, quietly.
   const complete = stage !== 'finished' && ready && guide.total > 0 && guide.done === guide.total;
   useEffect(() => {
     if (complete) void finishGuide('complete');
@@ -197,7 +194,6 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
   );
 }
 
-/** The sidebar entry while the guide is unfinished: a plain count, and a way back to it from any page. */
 export function GuideEntry({ collapsed }: { collapsed: boolean }) {
   const { stage, guide } = useGuide();
   if (stage === 'finished') return null;

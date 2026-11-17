@@ -381,7 +381,7 @@ def test_a_node_is_new_until_its_first_sample_then_alerts_when_it_goes_offline_a
 
     console = ServerThread(create_app(cfg, tmp_path / "data"), console_port).start()
     try:
-        assert late()["first_seen"] == first_seen  # still down, and still a node this console knows
+        assert late()["first_seen"] == first_seen
         wait_for(lambda: len(offline_alerts()) == 2, 10, "node_offline alert after the restart")
     finally:
         console.stop()

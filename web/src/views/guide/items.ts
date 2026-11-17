@@ -14,7 +14,6 @@ import type { NodeState } from '../../lib/types';
 /** What the rows are derived from. Every field is something the console or a node reported: nothing here is stored
  *  by the guide except `seen` (Onboarding.seen on the console). */
 export interface GuideContext {
-  /** The cluster's nodes, as they are now. */
   nodes: readonly Pick<NodeState, 'node_id' | 'status' | 'first_seen'>[];
   /** Model servers the agents found: the node and the name the node's card gives it (its model, or its port). */
   servers: readonly { node: string; name: string }[];
@@ -147,7 +146,6 @@ export interface GuideRow {
   to: string | null;
 }
 
-/** A row as it is drawn, from the table and the cluster's state. */
 export function guideRow(item: GuideItem, ctx: GuideContext): GuideRow {
   return {
     item,

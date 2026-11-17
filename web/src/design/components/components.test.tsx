@@ -142,7 +142,6 @@ describe('StatusPill', () => {
     // An alert cannot make it Critical, and a lost console does not turn "never connected" into "not reporting".
     expect(nodeDisplayStatus('offline', 'critical', true, true)).toBe('setup');
     expect(nodeDisplayStatus('error', null, false, true)).toBe('setup');
-    // Its first sample makes it an ordinary node.
     expect(nodeDisplayStatus('online', null, true, false)).toBe('healthy');
     expect(nodeDisplayStatus('offline', null, true, false)).toBe('offline');
   });

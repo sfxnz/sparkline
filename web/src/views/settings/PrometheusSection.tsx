@@ -5,7 +5,6 @@ import { SettingRow } from './parts';
 
 export const PROMETHEUS_DOCS = 'https://github.com/sfxnz/sparkline#prometheus';
 
-/** The job for prometheus.yml, with this console's address as the target. */
 export function scrapeConfig(host: string, https: boolean): string {
   return [
     'scrape_configs:',

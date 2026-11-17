@@ -33,16 +33,13 @@ export function loadGuideFacts(): Promise<void> {
   return loading;
 }
 
-/** The person opened a row: the console remembers, so the guide is one line the next time, on any device. */
 export const markGuideItem = (id: string) => patchOnboarding({ seen: [id] });
 
-/** Put the guide away for good, by hand or because every row is done. */
 export function finishGuide(how: 'dismissed' | 'complete'): Promise<void> {
   useUi.setState({ guideLeft: how });
   return patchOnboarding({ finished: true });
 }
 
-/** Show every row or one line, in this browser. */
 export const setGuideOpen = (open: boolean) => { usePrefs.getState().set({ guideOpen: open }); };
 
 /** Bring the guide to the person: the overview scrolls to it (the caller navigates there). One line becomes every
@@ -53,7 +50,6 @@ export function wantGuide(): void {
   useUi.setState({ guideWanted: true, guideLeft: null });
 }
 
-/** Settings and the command palette: open a finished guide again, every row shown. */
 export function reopenGuide(): Promise<void> {
   setGuideOpen(true);
   useUi.setState({ guideWanted: true, guideLeft: null });

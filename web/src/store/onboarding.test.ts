@@ -74,7 +74,6 @@ describe('onboarding transport', () => {
     answers[1]?.(json(row));
     await back;
     expect(useCluster.getState().onboarding).toEqual(row);
-    // Settled: a change from another tab shows again.
     dispatch({ type: 'onboarding', onboarding: { ...row, seen: ['benchmarks'] } });
     expect(useCluster.getState().onboarding?.seen).toEqual(['benchmarks']);
   });

@@ -22,7 +22,6 @@ function Mark() {
   );
 }
 
-/** Console -> node, with a mark where the request stopped. Solid line: reached. Dotted: not reached. */
 function LinkPicture({ node }: { node: NodeState }) {
   const reach = reachOf(node.status);
   const Stop = reach === 'turned-away' ? Ban : Unplug;

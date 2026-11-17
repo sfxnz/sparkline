@@ -452,7 +452,6 @@
 .npsi--stale.npsi--stale * { color: var(--text-3); }
 .npsi--stale :is(svg, canvas) { opacity: 0.5; }
 
-/* A node that has never answered: its setup block in place of the tabs. */
 .node-setup { border-style: dashed; border-color: var(--separator-strong); }
 .node-setup .panel__body { padding-top: var(--space-5); }
 .node-setup__note { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); padding: 0 var(--space-1); }

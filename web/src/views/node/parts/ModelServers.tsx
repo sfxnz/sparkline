@@ -23,7 +23,6 @@ export function ModelServersPanel({ nodeId }: { nodeId: string }) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const { stale, hasData, waiting } = useFreshness(nodeId);
   const declared = notReported(info, 'llm');
-  // `<node page>#model-servers` (the getting-started guide) lands on this panel, not on the top of the page.
   useHashTarget('model-servers');
   if (!waiting && !hasData) return null;
   return (

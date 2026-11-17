@@ -33,10 +33,8 @@ export function loginErrorCopy(e: unknown): NonNullable<LoginError> {
   };
 }
 
-/** The command that prints the console token again, on the console host. */
 export const TOKEN_COMMAND = 'sudo grep ^token /etc/sparkline/console.toml';
 
-/** Where the token is: the installer's last lines, or one command. */
 function WhereIsTheToken({ id }: { id?: string }) {
   return (
     <div className="login__where" id={id}>
@@ -63,7 +61,6 @@ export function Login() {
   const hintId = useId();
   const whereId = useId();
 
-  /** One attempt, started by the form or by a sign-in link: on to the overview, or back to the form with why not. */
   const finish = (attempt: Promise<unknown>) =>
     attempt
       .then(

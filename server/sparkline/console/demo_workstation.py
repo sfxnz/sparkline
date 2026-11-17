@@ -96,7 +96,7 @@ class WorkstationModel:
         self.bench_windows: list[BenchWindow] = []
         self.disk_windows: list[list[float]] = []
 
-    calm_s = 0.0  # as DemoModel.calm_s
+    calm_s = 0.0
 
     def scen(self, t: float) -> float:
         return scenario_time((t - self.t0) * self.speed, self.calm_s)

@@ -1,4 +1,3 @@
-// The overview card of a node that has never answered: in the node's place in the grid, sized to what it says.
 import { m } from 'motion/react';
 import { Link } from 'wouter';
 import { paths } from '../../app/routes';

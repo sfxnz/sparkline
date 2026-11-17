@@ -3,7 +3,6 @@ import { prefersReducedMotion } from './motion';
 
 /** What a person does to move the page themselves. */
 const MOVES = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
-/** How long a section is held in place while the page around it settles. */
 const HOLD_MS = 2000;
 
 /**

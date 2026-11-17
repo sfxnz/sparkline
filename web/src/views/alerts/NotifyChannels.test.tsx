@@ -49,7 +49,6 @@ describe('NotifyChannels', () => {
     const snippet = screen.getByText(/^\[\[notify\]\]/, { selector: 'pre code' });
     expect(snippet).toHaveTextContent('kind = "ntfy"');
     expect(snippet).toHaveTextContent('url = "https://ntfy.sh/<your-topic>"');
-    // The snippet is in a box of its own that scrolls by keyboard, and it copies whole.
     expect(snippet.closest('pre')).toHaveAttribute('tabindex', '0');
     expect(screen.getByRole('button', { name: 'Copy notify table' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send test/ })).not.toBeInTheDocument();

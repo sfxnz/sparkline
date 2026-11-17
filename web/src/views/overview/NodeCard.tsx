@@ -76,7 +76,6 @@ export function NodeCard({ id, arriving = false }: { id: string; arriving?: bool
 
   const dim = freshness === 'stale' || freshness === 'down';
   const layout = memoryLayout(info);
-  // The moment a new node goes live: its values rise into place and its numbers count up. Nothing under reduced motion.
   const land = arriving && !prefersReducedMotion();
   const [landed, setLanded] = useState(false);
   if (land && freshness === 'live' && !landed) setLanded(true); // once: a later blip is a refresh, not an arrival
@@ -206,7 +205,6 @@ const sameWorkload = (a: WorkloadSeen, b: WorkloadSeen) => a === b || (typeof a 
 function Workload() {
   const { id, freshness, info } = useContext(Ctx);
   const w = useLatest(id, useMemo(() => workloadSelector(id, info), [id, info]), sameWorkload);
-  // The first connection to a new node: say where the console is looking.
   const reaching = useCluster((s) => { const n = s.nodes[id]; return isNewNode(n) && n?.status === 'connecting' ? agentAddress(n.url) : null; });
   if (reaching) return <span className="ov-card__workload num">Reaching {reaching}</span>;
   if (w && typeof w === 'object') return <>GPU processes <Unsupported gap={w} /></>;

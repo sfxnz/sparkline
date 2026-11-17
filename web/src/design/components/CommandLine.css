@@ -1,4 +1,3 @@
-/* A command or snippet to copy. The text wraps anywhere rather than hiding behind an ellipsis. */
 .cmd {
   display: flex;
   align-items: center;
