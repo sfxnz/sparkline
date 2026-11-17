@@ -737,12 +737,27 @@ class DemoModel:
         )
 
 
+# --demo-first-run, in scenario seconds: when each node but the last says hello, and how long the last one
+# refuses connections. A node's first sample, which turns it online, follows its hello by 1 s.
+FIRST_RUN_HELLO_S = (2.0, 7.0)
+FIRST_RUN_REFUSED_S = 44.0
+
+
+def first_run_script(i: int, n: int, t0: float, speed: float) -> tuple[float, bool]:
+    """For node ``i`` of ``n``: (when it first says hello, whether its port refuses connections till then)."""
+    last = i == n - 1
+    wait = FIRST_RUN_REFUSED_S if last else FIRST_RUN_HELLO_S[min(i, len(FIRST_RUN_HELLO_S) - 1)]
+    return t0 + wait / speed, last
+
+
 class DemoSource(NodeSource):
     """A simulated agent connection; failures are raised/withheld exactly where a real link would fail."""
 
     def __init__(self, model: DemoNode, listener: Listener):
         super().__init__(model.node_id, f"http://{model.lan_ip}:9750", listener)
         self.model = model
+        self.hello_at = 0.0  # no agent answers before this time: connecting takes until then, or is refused
+        self.refused = False
         self.seq = 0
         self.energy: dict[int, float] = {}
         self.last_power_w: dict[int, float] = {}
@@ -754,10 +769,18 @@ class DemoSource(NodeSource):
             errno.ECONNREFUSED, f"Connect call failed ('{self.model.lan_ip}', 9750)"
         )
 
+    def backoff_delay(self) -> float:
+        """The retry after a scripted first refusal comes when the refusal ends, not up to 30 s later."""
+        delay, wait = super().backoff_delay(), self.hello_at - time.time()
+        return min(delay, wait) if wait > 0 else delay
+
     async def session(self) -> None:
-        if self.model.link_state(time.time()) == "refused":
+        wait = self.hello_at - time.time()
+        if self.model.link_state(time.time()) == "refused" or (wait > 0 and self.refused):
             await asyncio.sleep(0.05)
             raise self._refused()
+        if wait > 0:
+            await asyncio.sleep(wait)
         self.got_hello(self.model.info)
         next_t = time.time()
         while True:

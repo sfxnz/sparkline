@@ -518,3 +518,28 @@ async def test_the_live_energy_counter_of_every_gpu_integrates_its_power(node, s
         assert gained > 0 and gained == pytest.approx(integral, abs=0.2), i
     if scenario_s:
         assert any(s.gpu[2].power_w is None for s in rest), "no sample fell inside the dropout"
+
+
+def test_the_first_run_demo_brings_up_two_nodes_in_turn_and_the_last_after_it_stops_refusing(tmp_path):
+    """At 10x: hellos at 0.2 s and 0.7 s, the last node refused until 4.4 s. A first sample follows by 1 s."""
+    cfg = ConsoleConfig(web_dist=tmp_path / "x")
+    t0 = time.time()
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True, demo_speed=10, demo_first_run=True)) as c:
+        rules = c.get("/api/v1/alerts/rules").json()
+        at_once = [{**r, "for_s": 0} if r["id"] == "node_offline" else r for r in rules]
+        assert c.put("/api/v1/alerts/rules", json=at_once).status_code == 200
+        live: dict[str, float] = {}
+        refused = None
+        while len(live) < 3 and time.time() < t0 + 30:
+            for n in c.get("/api/v1/cluster").json()["nodes"]:
+                if n["first_seen"] is not None:
+                    live.setdefault(n["node_id"], n["first_seen"] - t0)
+                elif n["status"] == "offline":
+                    refused = n
+            time.sleep(0.05)
+        assert list(live) == ["spark1", "spark2", "spark3"], live
+        assert 1.2 <= live["spark1"] <= live["spark2"] < 5.4 <= live["spark3"] < 15, live
+        assert live["spark2"] >= 1.7, live
+        assert refused is not None and refused["node_id"] == "spark3"
+        assert refused["error"]["cause"].startswith("Connection refused at ")
+        assert c.get("/api/v1/events", params={"node": "spark3"}).json() == []

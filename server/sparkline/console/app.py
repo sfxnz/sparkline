@@ -46,7 +46,7 @@ from .bench_routes import bench_router
 from .bench_store import BenchStore
 from .cluster import VERSION, Cluster
 from .config import ConsoleConfig
-from .demo import DemoSource, demo_history
+from .demo import DemoSource, demo_history, first_run_script
 from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
 from .hub import Hub
@@ -156,13 +156,14 @@ def create_app(
     demo_speed: float = 1.0,
     demo_empty_bench: bool = False,
     fleet: str = "dgx",
+    demo_first_run: bool = False,
 ) -> FastAPI:
     data_dir.mkdir(parents=True, exist_ok=True)
     store = Store(data_dir / "console.sqlite")
     auth_enabled = bool(cfg.token) or not demo
     t0 = time.time()
     if demo:
-        onboarding = OnboardingStore.demo(store, FLEETS[fleet], t0, first_run=False, sign_in=auth_enabled)
+        onboarding = OnboardingStore.demo(store, FLEETS[fleet], t0, demo_first_run, sign_in=auth_enabled)
     else:  # before bind_sessions_to_token: until then, only a store an earlier start used has the token row
         onboarding = OnboardingStore.open(store, [n.id for n in cfg.nodes], t0)
     if store.bind_sessions_to_token(cfg.token):
@@ -171,8 +172,12 @@ def create_app(
     notifier = Notifier(cfg.notify)
     cluster = Cluster(store, hub, cfg.settings, demo=demo, notify=notifier.publish, onboarding=onboarding)
     if demo:
-        for make in FLEETS[fleet].values():
-            cluster.add_source(DemoSource(make(t0, demo_speed), cluster))
+        makes = list(FLEETS[fleet].values())
+        for i, make in enumerate(makes):
+            src = DemoSource(make(t0, demo_speed), cluster)
+            if demo_first_run:
+                src.hello_at, src.refused = first_run_script(i, len(makes), t0, demo_speed)
+            cluster.add_source(src)
     else:
         for n in cfg.nodes:
             cluster.add_source(AgentClient(n.id, n.url, cluster, cfg.agent_token))

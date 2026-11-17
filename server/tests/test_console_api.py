@@ -22,14 +22,14 @@ TOKEN = "s3cret-browser-token"
 SAME = {"Origin": "http://testserver"}
 
 
-def make(tmp_path, demo=False, token=TOKEN, dist=None, nodes=()):
+def make(tmp_path, demo=False, token=TOKEN, dist=None, first_run=False, nodes=()):
     cfg = ConsoleConfig(
         token=token,
         agent_token="a",
         web_dist=dist or tmp_path / "missing-dist",
         nodes=[{"id": n, "url": "http://127.0.0.1:1"} for n in nodes],  # nothing listens there
     )
-    return create_app(cfg, tmp_path / "data", demo=demo)
+    return create_app(cfg, tmp_path / "data", demo=demo, demo_first_run=first_run)
 
 
 @pytest.fixture
@@ -642,3 +642,23 @@ def test_the_demo_starts_finished_with_every_node_already_seen(tmp_path, token):
         assert before <= row["started"] <= time.time()
         assert row == {"started": row["started"], "finished": row["started"], "seen": []}
         assert [n["first_seen"] for n in state["nodes"]] == [row["started"]] * 3
+
+
+def test_the_first_run_demo_starts_as_a_new_install_whatever_the_last_demo_left(tmp_path):
+    with TestClient(make(tmp_path, demo=True, token="")) as c:
+        assert c.put(ONBOARDING, json={"seen": ["fit"]}).json()["seen"] == ["fit"]
+    with TestClient(make(tmp_path, demo=True, token="", first_run=True)) as c:
+        state = c.get("/api/v1/cluster").json()
+        row = state["onboarding"]
+        # without a token nobody can sign in, so the start stands in for the first sign-in: the guide opens
+        assert row == {**NEW, "started": row["started"]} and row["started"] is not None
+        assert c.get(ME).json()["first_run"] is False
+        assert [(n["status"], n["first_seen"]) for n in state["nodes"]] == [("connecting", None)] * 3
+    with TestClient(make(tmp_path, demo=True, first_run=True)) as c:  # with a token: the first-run sign-in
+        assert c.get(ME).json()["first_run"] is True and cluster_state(c)["onboarding"] == NEW
+        assert c.post(LOGIN, json={"token": TOKEN}).status_code == 200
+        assert c.get(ME).json()["first_run"] is False
+    with TestClient(make(tmp_path, demo=True, token="")) as c:
+        state = c.get("/api/v1/cluster").json()
+        assert state["onboarding"]["finished"] is not None and state["onboarding"]["seen"] == []
+        assert all(n["first_seen"] is not None for n in state["nodes"])
