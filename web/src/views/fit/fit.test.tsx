@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FitRequest, FitResponse, ModelFacts } from '../../lib/types';
 import Fit from '../Fit';
-import { EMPTY_DRAFT, filledFrom, fromLookup, maxContextOf, parseCount, parseSize, toRequest, type Draft } from './model';
+import { EMPTY_DRAFT, fromLookup, maxContextOf, parseCount, parseSize, readFrom, toRequest, type Draft } from './model';
 
 const GIB = 1024 ** 3;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -197,7 +197,7 @@ describe('Will it fit', () => {
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/big-index{Enter}');
     expect(await screen.findByRole('alert')).toHaveTextContent('too large for the lookup to read');
     expect(screen.getByRole('alert')).toHaveTextContent('is 24.0 MiB. Enter the model facts by hand.');
-    expect(screen.getByText('Partly filled in from some/big-index.')).toBeInTheDocument();
+    expect(screen.getByText('Shape read from some/big-index. The size is typed by hand.')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('36');
     expect(screen.getByText('This model supports up to 40,960 tokens.')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
@@ -254,7 +254,7 @@ describe('Will it fit', () => {
     expect(screen.getByRole('status', { name: 'Weights' })).toHaveTextContent('11.2 GiB');
     expect(screen.getByRole('status', { name: 'Weights' })).toHaveAccessibleDescription(/total of the repo's weight files.*could not read the repo's index/);
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
-    expect(await screen.findByRole('region', { name: 'Result' })).toHaveTextContent(/total of the repo's weight files/);
+    expect(await screen.findByRole('region', { name: 'Result' })).toHaveTextContent(/read from some\/sharded: the total of its weight files, index not read/);
     expect(sent(spy).facts.weights_upper_bound).toBe(true);
 
     await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
@@ -263,7 +263,7 @@ describe('Will it fit', () => {
     expect(screen.getByRole('status', { name: 'Weights' })).not.toHaveAccessibleDescription(/total of the repo's weight files/);
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     await screen.findByText(/Qwen\/Qwen3-8B at 32,768 tokens/);
-    expect(screen.getByRole('region', { name: 'Result' })).not.toHaveTextContent(/total of the repo's weight files/);
+    expect(screen.getByRole('region', { name: 'Result' })).not.toHaveTextContent(/the total of its weight files/);
   });
 
   it('says what the size covers and what it leaves out, on the form and beside the verdicts', async () => {
@@ -280,7 +280,8 @@ describe('Will it fit', () => {
 
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     const result = within(await screen.findByRole('region', { name: 'Result' }));
-    expect(result.getByText("this repo's own weight files")).toBeInTheDocument();
+    expect(result.getByText('read from Qwen/Qwen3-8B: its own weight files')).toBeInTheDocument();
+    expect(result.getByText('shape read from Qwen/Qwen3-8B')).toBeInTheDocument();
     expect(result.getByText(/Every verdict below counts Qwen\/Qwen3-8B's own weight files and nothing else/)).toBeInTheDocument();
     expect(result.getByText(notCounted, { exact: false })).toBeInTheDocument();
   });
@@ -297,7 +298,49 @@ describe('Will it fit', () => {
     const result = within(await screen.findByRole('region', { name: 'Result' }));
     expect(result.getByText(/This model at 32,768 tokens of context, bf16 KV cache, from facts typed by hand/)).toBeInTheDocument();
     expect(result.getByText('typed by hand')).toBeInTheDocument();
+    expect(result.getByText('shape typed by hand')).toBeInTheDocument();
     expect(result.getByText(/The console did not read the model and cannot check them/)).toBeInTheDocument();
+  });
+
+  // The fifth verifier looked Qwen/Qwen3-8B up, changed Head size and pressed Estimate. The result called
+  // the size the console had read "typed by hand" and dropped the sentence on what that size leaves out.
+  it('keeps a looked-up size as the lookup\'s, with what it leaves out, when the shape is retyped', async () => {
+    const user = userEvent.setup();
+    const spy = fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+    await user.clear(screen.getByRole('textbox', { name: 'Head size' }));
+    await user.type(screen.getByRole('textbox', { name: 'Head size' }), '129');
+    expect(screen.getByText('Size read from Qwen/Qwen3-8B. The shape is typed by hand.')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Weights' })).toHaveTextContent('15.3 GiB');
+
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    const result = within(await screen.findByRole('region', { name: 'Result' }));
+    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, head_dim: 129 });
+    expect(result.getByText('read from Qwen/Qwen3-8B: its own weight files')).toBeInTheDocument();
+    expect(result.getByText('shape typed by hand')).toBeInTheDocument();
+    expect(result.getByText(/Every verdict below counts Qwen\/Qwen3-8B's own weight files and nothing else/)).toBeInTheDocument();
+    expect(result.getByText(/A second model the repo loads, a draft model's target and the base model under an adapter are not counted/)).toBeInTheDocument();
+    expect(result.getByText(/The shape was typed on the form, and the console cannot check it/)).toBeInTheDocument();
+    expect(result.queryByText(/The console did not read the model/)).not.toBeInTheDocument();
+    expect(result.queryByText(/from facts typed by hand/)).not.toBeInTheDocument();
+  });
+
+  it('marks a typed size as typed and keeps a looked-up shape as the lookup\'s', async () => {
+    const user = userEvent.setup();
+    fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/big-index{Enter}');
+    await screen.findByText('Shape read from some/big-index. The size is typed by hand.');
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '433');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    const result = within(await screen.findByRole('region', { name: 'Result' }));
+    expect(result.getByText('typed by hand')).toBeInTheDocument();
+    expect(result.getByText('shape read from some/big-index')).toBeInTheDocument();
+    expect(result.getByText(/built from a size typed on the form, which the console cannot check\. The shape was read from some\/big-index/)).toBeInTheDocument();
+    expect(result.queryByText(/The console did not read the model/)).not.toBeInTheDocument();
+    expect(result.queryByText(/are not counted/)).not.toBeInTheDocument();
   });
 
   it('does not leave one repo\'s size beside another repo\'s shape', async () => {
@@ -308,7 +351,7 @@ describe('Will it fit', () => {
     await screen.findByText('Filled in from Qwen/Qwen3-8B.');
     await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/big-index{Enter}');
-    await screen.findByText('Partly filled in from some/big-index.');
+    await screen.findByText('Shape read from some/big-index. The size is typed by hand.');
     expect(screen.queryByRole('status', { name: 'Weights' })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
 
@@ -435,13 +478,27 @@ describe('fit form model', () => {
     const read = fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { ...QWEN, weights_bytes: 7 });
     expect(read.weights).toEqual({ from: 'lookup', repo: 'Qwen/Qwen3-8B', bytes: 7, upperBound: false });
     expect(read.shape).toMatchObject({ from: 'lookup', repo: 'Qwen/Qwen3-8B' });
-    expect(filledFrom(read)).toEqual({ repo: 'Qwen/Qwen3-8B', complete: true });
+    expect(readFrom(read)).toEqual({ size: 'Qwen/Qwen3-8B', shape: 'Qwen/Qwen3-8B' });
     // A size read from one repo and a shape read from another cannot both be on the form: the only way to
     // put a value there is a lookup, and a lookup writes both fields.
     const next = fromLookup(read, 'some/big-index', SHAPE);
-    expect(filledFrom(next)).toEqual({ repo: 'some/big-index', complete: false });
+    expect(readFrom(next)).toEqual({ size: null, shape: 'some/big-index' });
     expect(next.weights).toEqual(EMPTY_DRAFT.weights);
     expect(maxContextOf(next)).toBe(40960);
+  });
+
+  it('lets each part answer for where it came from, so retyping one leaves the other a lookup\'s', () => {
+    const read = fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', QWEN);
+    const shapeTyped: Draft = { ...read, shape: { from: 'hand', layers: '36', kvHeads: '8', headDim: '129' } };
+    expect(readFrom(shapeTyped)).toEqual({ size: 'Qwen/Qwen3-8B', shape: null });
+    const sizeTyped: Draft = { ...read, weights: { from: 'hand', size: '16', unit: 'GiB' } };
+    expect(readFrom(sizeTyped)).toEqual({ size: null, shape: 'Qwen/Qwen3-8B' });
+    expect(readFrom(EMPTY_DRAFT)).toEqual({ size: null, shape: null });
+    // The request names the repo only when every fact in it is that repo's.
+    for (const draft of [shapeTyped, sizeTyped]) {
+      const parsed = toRequest(draft);
+      expect(parsed.ok && parsed.request.facts.repo).toBeNull();
+    }
   });
 
   it('sends a typed size as bytes', () => {

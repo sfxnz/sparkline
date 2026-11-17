@@ -65,11 +65,19 @@ export function fromLookup(draft: Draft, repo: string, read: ModelFacts | ModelS
   };
 }
 
-/** The repo whose lookup filled the form in, and whether it filled all of it. Null once nothing on it is a lookup's. */
-export function filledFrom({ weights, shape }: Draft): { repo: string; complete: boolean } | null {
-  if (weights.from === 'lookup') return { repo: weights.repo, complete: shape.from === 'lookup' };
-  return shape.from === 'lookup' ? { repo: shape.repo, complete: false } : null;
+/**
+ * The repo each part of the model was read from, or null for a part typed by hand. Each part answers for
+ * itself: retyping the shape does not make a size the console read a typed one, and the other way round.
+ */
+export interface ReadFrom {
+  size: string | null;
+  shape: string | null;
 }
+
+export const readFrom = ({ weights, shape }: Draft): ReadFrom => ({
+  size: weights.from === 'lookup' ? weights.repo : null,
+  shape: shape.from === 'lookup' ? shape.repo : null,
+});
 
 /** The longest context the looked-up model supports, when a lookup read the shape. */
 export const maxContextOf = (draft: Draft) => (draft.shape.from === 'lookup' ? draft.shape.maxContext : null);
@@ -114,10 +122,11 @@ export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { o
   const w = draft.weights;
   const typed = w.from === 'hand' ? parseSize(w.size, w.unit) : null;
   if (w.from === 'hand' && typed === null) errors.size = 'Enter a size above 0, for example 9.98';
-  const filled = filledFrom(draft);
+  const from = readFrom(draft);
   const request: FitRequest = {
     facts: {
-      repo: filled?.complete ? filled.repo : null,
+      // Both parts come from one lookup when both are a lookup's, because a lookup replaces both.
+      repo: from.shape !== null ? from.size : null,
       weights_bytes: w.from === 'lookup' ? w.bytes : (typed ?? 0),
       weights_upper_bound: w.from === 'lookup' && w.upperBound,
       num_layers: need('layers', draft.shape.layers),

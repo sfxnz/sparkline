@@ -10,16 +10,23 @@ import type { FitRequest, FitResponse, KvDtype, NodeFit, Problem } from '../lib/
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
-import { budgetText, EMPTY_DRAFT, filledFrom, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, maxContextOf, rangeText, shapeOf, SIZE_UNITS, toRequest, VERDICTS, type Draft, type SizeUnit } from './fit/model';
+import { budgetText, EMPTY_DRAFT, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, maxContextOf, rangeText, readFrom, shapeOf, SIZE_UNITS, toRequest, VERDICTS, type Draft, type ReadFrom, type SizeUnit } from './fit/model';
 import './fit/fit.css';
 import './views.css';
+
+/** Where the numbers on the form came from, part by part. Null when both were typed. */
+function sourceNote({ size, shape }: ReadFrom): string | null {
+  if (size !== null && shape !== null) return `Filled in from ${size}.`;
+  if (size !== null) return `Size read from ${size}. The shape is typed by hand.`;
+  return shape !== null ? `Shape read from ${shape}. The size is typed by hand.` : null;
+}
 
 /** What a size a lookup filled in covers, and what it leaves out. Said wherever the number is shown. */
 const SCOPE = "This is the size of this repo's own weight files.";
 const NOT_COUNTED = "A second model the repo loads, a draft model's target and the base model under an adapter are not counted: a server loads those as well, and the lookup cannot see them.";
 
 type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem };
-type Run = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; request: FitRequest; response: FitResponse };
+type Run = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; from: ReadFrom; request: FitRequest; response: FitResponse };
 
 export default function Fit() {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -39,7 +46,7 @@ export default function Fit() {
   const repo = draft.repo.trim();
   const weights = draft.weights;
   const shape = draft.shape;
-  const filled = filledFrom(draft);
+  const from = readFrom(draft);
   const context = parsed.ok ? parsed.request.context_tokens : null;
   const maxContext = maxContextOf(draft);
 
@@ -64,7 +71,7 @@ export default function Fit() {
     if (!parsed.ok || run.status === 'loading') return;
     setRun({ status: 'loading' });
     try {
-      setRun({ status: 'done', request: parsed.request, response: await api.fitEstimate(parsed.request) });
+      setRun({ status: 'done', from, request: parsed.request, response: await api.fitEstimate(parsed.request) });
     } catch (err) {
       setRun({ status: 'error', problem: problemOf(err, 'estimate the fit') });
     }
@@ -95,7 +102,7 @@ export default function Fit() {
                 {lookup.status === 'loading' ? 'Looking up…' : 'Look up'}
               </Button>
             </div>
-            <p className="fit-note" role="status">{filled ? `${filled.complete ? 'Filled in' : 'Partly filled in'} from ${filled.repo}.` : null}</p>
+            <p className="fit-note" role="status">{sourceNote(from)}</p>
           </Field>
           {lookup.status === 'error' ? <div className="fit-wide"><ProblemBanner problem={lookup.problem} /></div> : null}
 
@@ -164,7 +171,7 @@ export default function Fit() {
       </Panel>
 
       {run.status === 'error' ? <ProblemBanner problem={run.problem} /> : null}
-      {run.status === 'done' ? <Result request={run.request} response={run.response} /> : null}
+      {run.status === 'done' ? <Result from={run.from} request={run.request} response={run.response} /> : null}
 
       <p className="fit-scope t-footnote">
         The total is a range because activations and the compute graph add 10 to 20 % on top of weights and KV cache. The KV cache here is every layer at full width, so
@@ -203,25 +210,32 @@ const COLUMNS: readonly Column<NodeFit>[] = [
   { id: 'verdict', header: 'Verdict', render: (n) => <StatusPill status={VERDICTS[n.verdict].status} label={VERDICTS[n.verdict].label} size="sm" /> },
 ];
 
-function Result({ request, response }: { request: FitRequest; response: FitResponse }) {
+/** The sentence above the verdicts: what they count, part by part, and which part the console cannot check. */
+function verdictScope({ size, shape }: ReadFrom): string {
+  if (size !== null) return `Every verdict below counts ${size}'s own weight files and nothing else. ${NOT_COUNTED}${shape === null ? ' The shape was typed on the form, and the console cannot check it.' : ''}`;
+  if (shape !== null) return `Every verdict below is built from a size typed on the form, which the console cannot check. The shape was read from ${shape}.`;
+  return 'Every verdict below is built from the size and the shape typed on the form. The console did not read the model and cannot check them.';
+}
+
+function Result({ from, request, response }: { from: ReadFrom; request: FitRequest; response: FitResponse }) {
   const { estimate, nodes } = response;
-  const repo = request.facts.repo;
-  const what = `${repo ?? 'This model'} at ${request.context_tokens.toLocaleString('en')} tokens of context, ${request.kv_dtype} KV cache`;
-  const typed = repo === null;
+  const what = `${request.facts.repo ?? 'This model'} at ${request.context_tokens.toLocaleString('en')} tokens of context, ${request.kv_dtype} KV cache`;
+  const allTyped = from.size === null && from.shape === null;
   return (
-    <Panel title="Result" subtitle={`${what}${typed ? ', from facts typed by hand' : ''}. Free memory is each node's latest sample.`}>
+    <Panel title="Result" subtitle={`${what}${allTyped ? ', from facts typed by hand' : ''}. Free memory is each node's latest sample.`}>
       <dl className="fit-sums">
         <div>
           <dt>Weights</dt>
           <dd className="num">{formatBytes(estimate.weights_bytes)}</dd>
           <dd className="fit-sums__detail">
-            {typed ? 'typed by hand' : request.facts.weights_upper_bound ? "the total of the repo's weight files, index not read" : "this repo's own weight files"}
+            {from.size === null ? 'typed by hand' : `read from ${from.size}: ${request.facts.weights_upper_bound ? 'the total of its weight files, index not read' : 'its own weight files'}`}
           </dd>
         </div>
         <div>
           <dt>KV cache</dt>
           <dd className="num">{formatBytes(estimate.kv_bytes)}</dd>
           <dd className="fit-sums__detail">{formatBytes(estimate.kv_bytes_per_token)} per token</dd>
+          <dd className="fit-sums__detail">{from.shape === null ? 'shape typed by hand' : `shape read from ${from.shape}`}</dd>
         </div>
         <div>
           <dt>Needs in total</dt>
@@ -229,11 +243,7 @@ function Result({ request, response }: { request: FitRequest; response: FitRespo
           <dd className="fit-sums__detail">with 10 to 20 % for activations</dd>
         </div>
       </dl>
-      <p className="fit-verdict-scope">
-        {typed
-          ? 'Every verdict below is built from the size and the shape typed on the form. The console did not read the model and cannot check them.'
-          : `Every verdict below counts ${repo}'s own weight files and nothing else. ${NOT_COUNTED}`}
-      </p>
+      <p className="fit-verdict-scope">{verdictScope(from)}</p>
       <Table caption="Whether the model fits on each node" columns={COLUMNS} rows={nodes} rowKey={(n) => n.node_id} empty="This console has no nodes." />
       {hasNvidiaUnifiedMemory(nodes) ? (
         <div className="fit-warning">
