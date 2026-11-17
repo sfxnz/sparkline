@@ -111,6 +111,8 @@ class Endpoint:
             raise ValueError("url must not hold a user name or password; put the credential in token")
         if parts.fragment:
             raise ValueError("url must not hold a # fragment")
+        if port == 0:
+            raise ValueError("url must not name port 0; leave the port out, or give one from 1 to 65535")
         host = (parts.hostname or "").lower()
         ip = _literal(host)
         if ip is None and not _HOSTNAME.fullmatch(host):

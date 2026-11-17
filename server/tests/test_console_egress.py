@@ -387,6 +387,8 @@ def test_address_policy(scheme, ip, allowed):
         (f"https://hooks example/{CANARY}", {}, "host name"),
         (f"https://hooks.example:99999/{CANARY}", {}, "not a valid URL"),
         (f"https://[::1/{CANARY}", {}, "not a valid URL"),
+        (f"https://hooks.example:0/{CANARY}", {}, "port 0"),
+        (f"http://{PRIVATE}:0/{CANARY}", {}, "port 0"),
         (f"http://{PUBLIC}/{CANARY}", {}, "private address"),
         (f"http://[{PUBLIC_V6}]/{CANARY}", {}, "private address"),
         (f"https://0.0.0.0/{CANARY}", {}, "address a server can have"),
