@@ -142,10 +142,12 @@ def test_a_confirmed_change_reaches_the_nodes_agent(env, verb):
     assert requests(env) == [f"{ONE_CLICK}.{verb}"]
 
 
-@pytest.mark.parametrize("body", [{}, {"confirm": False}, {"confirm": None}, {"confirm": "no"}])
-def test_a_change_without_confirm_true_is_refused(env, body):
-    r = act(env, **body)
-    assert r.status_code in (400, 422), r.text
+@pytest.mark.parametrize("confirm", [False, None, "no", "yes", "true", 1, 1.0, [True], {"confirm": True}])
+def test_only_json_true_confirms_a_change(env, confirm):
+    for body in ({"confirm": confirm}, {}):
+        r = act(env, **body)
+        assert r.status_code == 400, r.text
+        assert r.json()["problem"]["message"] == "Confirmation required"
     assert requests(env) == []
 
 

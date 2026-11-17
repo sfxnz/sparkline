@@ -42,7 +42,9 @@ class RecBackend(Protocol):
 
 class RecAction(BaseModel):
     node: str
-    confirm: bool = False  # must be true; the UI only sets it from the confirmation dialog
+    # Must be JSON true, which the UI only sends from the confirmation dialog. Typed as object so that
+    # "yes" or 1 is not coerced to true: anything but true is answered with "Confirmation required".
+    confirm: object = False
 
 
 class AgentRecs:
@@ -250,7 +252,7 @@ def recommend_router(cluster: Cluster, backend: RecBackend, dependencies: list) 
                     fix="Add it under [[nodes]] in /etc/sparkline/console.toml",
                 ),
             )
-        if not body.confirm:
+        if body.confirm is not True:
             raise RecError(
                 400,
                 Problem(
