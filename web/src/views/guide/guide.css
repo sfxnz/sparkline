@@ -42,10 +42,11 @@
 .guide-tile__icon { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: var(--radius-sm); background: var(--fill-2); border: var(--hairline) solid var(--separator); color: var(--text-1); }
 .guide-tile__icon svg { width: 1rem; height: 1rem; }
 .guide-tile__text { display: grid; gap: 2px; min-width: 0; }
-.guide-tile__title { display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--space-2); font-size: var(--fs-callout); line-height: var(--lh-callout); font-weight: 600; letter-spacing: var(--ls-callout); }
+/* Room on the right for the arrow, which sits outside the wrapping so it never takes a line of its own. */
+.guide-tile__title { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--space-2); padding-right: 22px; font-size: var(--fs-callout); line-height: var(--lh-callout); font-weight: 600; letter-spacing: var(--ls-callout); }
 .guide-tile__blurb { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); text-wrap: pretty; }
 .guide-tile__blurb code { font-size: 0.92em; padding: 0 0.3em; }
-.guide-tile__go { flex: none; width: 14px; height: 14px; margin-left: auto; color: var(--text-3); opacity: 0; transform: translateX(-3px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.guide-tile__go { position: absolute; right: 0; top: calc((var(--lh-callout) - 14px) / 2); width: 14px; height: 14px; color: var(--text-3); opacity: 0; transform: translateX(-3px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .guide-tile:hover .guide-tile__go, .guide-tile:focus-visible .guide-tile__go { opacity: 1; transform: none; }
 @media (hover: none) { .guide-tile__go { opacity: 1; transform: none; } }
 /* A fact from the cluster's own state, beside the title. */

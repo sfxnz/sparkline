@@ -73,6 +73,19 @@ async function signInByLink(page: Page) {
   await expect(page).toHaveURL(`${BASE}/`);
 }
 
+/** `selector` starts in the first strip of screen under the sticky toolbar, and is still there once the page has settled. */
+async function expectJustUnderToolbar(page: Page, selector: string) {
+  const gap = () => page.evaluate((sel) => {
+    const bar = document.querySelector('.toolbar')?.getBoundingClientRect().bottom ?? 0;
+    const top = document.querySelector(sel)?.getBoundingClientRect().top ?? -999;
+    return Math.round(top - bar);
+  }, selector);
+  const near = (n: number) => n >= 0 && n <= 48;
+  await expect.poll(async () => near(await gap()), { message: `${selector} under the toolbar` }).toBe(true);
+  await page.waitForTimeout(1200);
+  expect(near(await gap()), `${selector} still under the toolbar: ${String(await gap())} px`).toBe(true);
+}
+
 const setupCard = (page: Page) => page.getByRole('region', { name: 'Node spark3, not connected yet' });
 const guidePanel = (page: Page) => page.getByRole('region', { name: 'Getting started', exact: true });
 const guideStrip = (page: Page) => page.getByRole('region', { name: /^Getting started, \d of \d done$/ });
@@ -206,17 +219,24 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await chip.click();
   await expect(guidePanel(page)).toBeInViewport();
   await expect(guidePanel(page)).toBeFocused();
+  // Taller than the screen: it starts at its title, under the toolbar.
+  await expectJustUnderToolbar(page, '#getting-started');
 
   // Open an item, come back: one line that fits the phone, and the chip still counts.
   await guidePanel(page).getByRole('link', { name: /^Alerts on your phone/ }).click();
   await expect(page).toHaveURL(`${BASE}/alerts#notifications`);
   await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
+  // The section it names is at the top of the screen, and stays there while the rest of the page loads above it.
+  await expectJustUnderToolbar(page, '#notifications');
   await page.goto(`${BASE}/`);
   await expect(guideStrip(page)).toBeVisible();
   await expect(guideStrip(page).getByRole('button', { name: 'Show all' })).toBeVisible();
   expect(await noSidewaysScroll(page)).toBe(true);
   await guideStrip(page).getByRole('button', { name: 'Show all' }).click();
   await expect(guidePanel(page).getByRole('link')).toHaveCount(5);
+  await guidePanel(page).getByRole('link', { name: /^Prometheus export/ }).click();
+  await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
+  await expectJustUnderToolbar(page, '#prometheus');
 });
 
 test('the main path with a keyboard only', async ({ page }) => {

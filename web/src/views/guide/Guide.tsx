@@ -7,7 +7,7 @@ import { Link } from 'wouter';
 import { Button, IconButton } from '../../design/components/Button';
 import { InlineCode } from '../../design/components/InlineCode';
 import { Kbd } from '../../design/components/Kbd';
-import { prefersReducedMotion } from '../../design/motion';
+import { bringIntoView } from '../../design/useHashTarget';
 import { needsSetup } from '../../lib/onboarding';
 import { isApple } from '../../lib/shortcuts';
 import { useCluster } from '../../store/cluster';
@@ -78,15 +78,19 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
 
   // Asked for from the sidebar, Settings or the palette: come into view and take focus, once.
   // A frame later: whatever asked (a dialog closing, a page change) has finished moving focus and scroll by then.
+  const held = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!wanted || !root.current) return;
     const frame = requestAnimationFrame(() => {
       useUi.setState({ guideWanted: false });
-      root.current?.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-      root.current?.focus({ preventScroll: true });
+      if (!root.current) return;
+      held.current?.();
+      held.current = bringIntoView(root.current, 'nearest');
+      root.current.focus({ preventScroll: true });
     });
     return () => { cancelAnimationFrame(frame); };
   }, [wanted, view]);
+  useEffect(() => () => { held.current?.(); }, []);
 
   // Every row is done: the guide finishes itself and says so, once, quietly.
   const complete = stage !== 'finished' && ready && guide.total > 0 && guide.done === guide.total;
