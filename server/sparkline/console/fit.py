@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from collections.abc import Iterator
 from typing import Annotated, Literal, NamedTuple, NewType
 
 import httpx
@@ -229,10 +230,10 @@ WEIGHTS_FILE = "model.safetensors"
 INDEX_FILE = "model.safetensors.index.json"
 ADAPTER_FILE = "adapter_config.json"
 
-# A config.json key whose value names where a loader reads part of the weights from: vLLM's Ultravox reads
-# text_model_id and audio_model_id, and the original LLaVA code reads mm_vision_tower. `_name_or_path` is not
-# one of these: it records the repo a model was made from, and no loader reads weights from it.
-WEIGHT_POINTER = re.compile(r"[a-z]+_model_id|base_model_name_or_path|mm_vision_tower")
+# A key whose value records where a model was made from. No loader reads weights from it.
+PROVENANCE_KEY = "_name_or_path"
+# A key of `auto_map`, which names a repo transformers imports model code from, never weights.
+AUTO_MAP_KEY = re.compile(r"Auto[A-Za-z]*")
 
 
 def file_sizes(repo: RepoId, info: object) -> dict[str, int] | Problem:
@@ -480,32 +481,71 @@ def read_config(repo: RepoId, answer: _Json | Problem) -> dict[str, object] | Pr
         )
     return _problem(
         problem.message,
-        f"{problem.cause}. Without the repo's config.json the lookup cannot tell whether a server also "
-        "loads weights from another repo, so it fills in no size either",
+        f"{problem.cause}. Without the repo's config.json the lookup has neither the model's shape nor any "
+        "sign that the model names another repo, so it fills in no size either",
         problem.fix,
     )
 
 
-def points_elsewhere(repo: RepoId, config: dict[str, object]) -> Problem | None:
-    """Where ``config.json`` says a loader reads part of the weights from, at any depth, or None."""
-    named: dict[str, str] = {}
-    nodes: list[object] = [config]
-    while nodes:
-        node = nodes.pop()
+def config_strings(config: dict[str, object]) -> Iterator[tuple[tuple[str, ...], str]]:
+    """Every string in a decoded ``config.json``, with the dict keys above it.
+
+    A list does not add to the path, so a string in ``mm_vision_tower_aux_list`` is reported under that
+    key. Iterative, so a config nested deeply enough to pass ``json.loads`` cannot exhaust the stack here.
+    """
+    stack: list[tuple[object, tuple[str, ...]]] = [(config, ())]
+    while stack:
+        node, path = stack.pop()
         if isinstance(node, dict):
-            for key, value in node.items():
-                if isinstance(value, str) and value.strip() and WEIGHT_POINTER.fullmatch(key):
-                    named[key] = value
-                elif isinstance(value, dict | list):
-                    nodes.append(value)
+            stack.extend((value, (*path, key)) for key, value in node.items())
         elif isinstance(node, list):
-            nodes.extend(node)
+            stack.extend((value, path) for value in node)
+        elif isinstance(node, str):
+            yield path, node
+
+
+def names_another_repo(repo: RepoId, path: tuple[str, ...], value: str) -> bool:
+    """Whether this ``config.json`` string names a Hugging Face repo other than the one looked up.
+
+    A repo id is ``owner/name``, as ``parse_repo_id`` spells it. Three kinds of value are not another repo,
+    each for a reason, and nothing else is exempt:
+
+    - the repo being looked up, which is not another repo;
+    - a value under ``_name_or_path`` at any depth: the key records where a model was made from, and no
+      loader reads weights from any config.json key (round 5 read every weight source in vLLM,
+      transformers and peft; loader_paths.out). The contract exempts the top-level key, and the key means
+      the same thing in a sub-config;
+    - an ``auto_map`` entry: transformers imports model code from there, never weights. A repo's own code
+      can load whatever it likes, the lookup never reads code, and a repo whose code sits in its own
+      modeling_*.py gets a size, so where that code lives changes nothing the lookup can see.
+    """
+    value = value.strip()
+    if not re.fullmatch(REPO_ID_PATTERN, value) or value.lower() == repo.lower():
+        return False
+    if path[-1] == PROVENANCE_KEY:
+        return False
+    return not (len(path) > 1 and path[-2] == "auto_map" and AUTO_MAP_KEY.fullmatch(path[-1]))
+
+
+def points_elsewhere(repo: RepoId, config: dict[str, object]) -> Problem | None:
+    """Why the lookup will not size a repo whose ``config.json`` names a model outside it, or None.
+
+    Only that the name is there, never that a server reads it: no loader reads a weight path out of
+    config.json today, the repo's own code can, and the lookup reads no code.
+    """
+    named = {
+        path[-1]: value.strip()
+        for path, value in config_strings(config)
+        if path and names_another_repo(repo, path, value)
+    }
     if not named:
         return None
+    where = ", ".join(f"{value} in {key}" for key, value in sorted(named.items()))
     return _problem(
-        f"{repo} loads part of its weights from another repo",
-        f"Its config.json names {', '.join(f'{v} in {k}' for k, v in sorted(named.items()))}, so a server "
-        "loads those weights too and the size of this repo's own files is not what it needs",
+        f"The config.json of {repo} names a model outside the repo",
+        f"It names {where}, and the lookup cannot tell whether a server loads weights from there",
+        f"{MANUAL_FIX}: the total of every weight file a server loads, which is this repo's own files plus "
+        f"those of {_listed(sorted(set(named.values())))}",
     )
 
 

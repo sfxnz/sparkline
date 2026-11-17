@@ -412,29 +412,59 @@ SPEECH_CONFIG = {**QWEN_CONFIG, "text_model_id": "some-org/some-70b-model"}
         pytest.param(
             {**QWEN_CONFIG, "text_config": {"audio_model_id": "some-org/a-speech-model"}}, id="nested"
         ),
-        # The id does not have to be a repo id: the config still says the weights are somewhere else.
-        pytest.param({**QWEN_CONFIG, "text_model_id": "/model/model/a-70b-model"}, id="a-local-path"),
+        # The keys the three-pattern rule missed, and the five low numbers they let through.
+        pytest.param({**QWEN_CONFIG, "llama_path": "some-org/a-70b-model"}, id="llama_path"),
+        pytest.param({**QWEN_CONFIG, "base_model": "some-org/a-target-model"}, id="a-draft-models-target"),
+        pytest.param(
+            {**QWEN_CONFIG, "audio_tokenizer_name_or_path": "some-org/an-audio-tokenizer"},
+            id="a-second-repo-this-repos-own-code-loads",
+        ),
+        pytest.param(
+            {**QWEN_CONFIG, "mm_vision_tower_aux_list": ["some-org/a-vision-model"]}, id="in-a-list"),
+        pytest.param({**QWEN_CONFIG, "model_name": "some-org/a-vision-model"}, id="model_name"),
+        pytest.param({**QWEN_CONFIG, "pretrained_asr": "some-org/an-asr-model"}, id="any-other-key"),
+        # A local path with two segments has the shape of a repo id, and says the same thing.
+        pytest.param({**QWEN_CONFIG, "text_model_id": "models/a-70b-model"}, id="a-local-path"),
     ],
 )
-async def test_a_repo_whose_config_names_another_repo_for_weights_gets_no_size(config):
+async def test_a_repo_whose_config_names_a_model_outside_it_gets_no_size(config):
     hf = FakeHuggingFace(public_repo(info=SPEECH_INFO, config=config))
     failure = await hf.lookup()
     assert failure.found.weights_bytes is None, failure
-    assert "another repo" in failure.problem.message
+    assert "names a model outside the repo" in failure.problem.message
     assert "by hand" in failure.problem.fix
 
 
-async def test_the_repo_a_config_names_is_named_in_the_refusal():
+async def test_the_refusal_names_the_model_the_key_and_says_what_the_lookup_cannot_tell():
     failure = await FakeHuggingFace(public_repo(info=SPEECH_INFO, config=SPEECH_CONFIG)).lookup()
-    assert "some-org/some-70b-model" in failure.problem.cause
-    assert "text_model_id" in failure.problem.cause
+    assert failure.problem.cause == (
+        "It names some-org/some-70b-model in text_model_id, and the lookup cannot tell whether a server "
+        "loads weights from there"
+    )
+    # Clause 5: the hint says to add the other model's size, not to add up this repo's Files tab.
+    assert "plus those of some-org/some-70b-model" in failure.problem.fix
 
 
 @pytest.mark.parametrize(
-    "key", ["_name_or_path", "base_model", "tokenizer_id", "model_type", "quantization_config"]
+    "config",
+    [
+        # The repo a model was made from, which no loader reads weights from, at the top level and under it.
+        pytest.param({"_name_or_path": "some-org/a-model"}, id="provenance"),
+        pytest.param({"text_config": {"_name_or_path": "some-org/a-model"}}, id="provenance-nested"),
+        # Model code, which transformers imports from there. A repo's own modeling_*.py is no different.
+        pytest.param(
+            {"auto_map": {"AutoConfig": "some-org/a-model--configuration_x.XConfig"}}, id="auto_map"),
+        pytest.param({"auto_map": {"AutoTokenizer": "some-org/a-tokenizer"}}, id="auto_map-tokenizer"),
+        # The repo being looked up is not another repo.
+        pytest.param({"base_model": "Qwen/Qwen3-8B"}, id="this-repo-itself"),
+        pytest.param({"base_model": "qwen/qwen3-8b"}, id="this-repo-in-another-case"),
+        # Not the shape of a repo id.
+        pytest.param({"chat_template": "a/b/c"}, id="three-segments"),
+        pytest.param({"dtype": "bfloat16"}, id="no-slash"),
+    ],
 )
-async def test_a_config_key_no_loader_reads_weights_from_still_gets_a_size(key):
-    facts = await FakeHuggingFace(public_repo(config={**QWEN_CONFIG, key: "some-org/a-model"})).lookup()
+async def test_a_config_string_that_is_not_another_repo_still_gets_a_size(config):
+    facts = await FakeHuggingFace(public_repo(config={**QWEN_CONFIG, **config})).lookup()
     assert isinstance(facts, ModelFacts), facts
 
 
@@ -451,7 +481,7 @@ async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():
     failure = await hf.lookup()
     assert failure.found.weights_bytes is None, failure
     assert failure.found.weights_upper_bound is False
-    assert "another repo" in failure.problem.message
+    assert "names a model outside the repo" in failure.problem.message
 
 
 @pytest.mark.parametrize(
