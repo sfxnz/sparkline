@@ -13,9 +13,12 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   20 % on top for activations, so the total is a range) and compares it with what each node has free in its
   latest sample: available memory minus 4 GiB on a unified-memory node, or the free memory of the emptiest
   GPU on a node with dedicated GPU memory. Each node gets a verdict: Fits, Tight, Does not fit or Unknown.
-  Look up reads the size of a public repo's safetensors weight files and its `config.json` from
-  huggingface.co, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it is stored. The same facts can
-  be typed by hand, with the parameter count at 32, 16, 8 or 4 bits per weight. New endpoints
+  Look up reads a public repo from huggingface.co. The weights are the size of the files that the repo's
+  `model.safetensors.index.json` names, or of its `model.safetensors` when it has no index, so a 4-bit AWQ,
+  GPTQ, bitsandbytes or MLX repo counts as it is stored. The model's shape comes from its `config.json`.
+  When the lookup cannot tell which files a server loads, for example because the index is over 1 MiB, it
+  shows no size, says why and fills in the part it read. The same facts can be typed by hand, with the
+  weights as the size of the weight files in GB or GiB and not as a parameter count. New endpoints
   `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new `console.toml` key `hf_lookup`
   (default `true`) turns the lookup off.
 

@@ -157,9 +157,13 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
 - **Will it fit?** Before you download a model: what it needs at a context length (weights, KV cache, plus
   10 to 20 % for activations, so a range and not one number) against what each node has free right now, with
   a verdict per node (Fits, Tight, Does not fit, Unknown). Look a public safetensors repo up on Hugging Face,
-  or type the parameter count, layers, KV heads and head size by hand. A lookup takes the weights from the
-  size of the repo's safetensors files, so a 4-bit AWQ, GPTQ or bitsandbytes repo counts as it is stored. A
-  count typed by hand is sized at 32, 16, 8 or 4 bits per weight. A unified-memory node offers its
+  or type the size of its weight files, layers, KV heads and head size by hand. A lookup sizes the files that
+  the repo's `model.safetensors.index.json` names, or its `model.safetensors` when it has no index, so a
+  4-bit AWQ, GPTQ or bitsandbytes repo counts as it is stored. When it cannot tell which files a server
+  loads, it shows no size and says why: an index over 1 MiB, an index that names files the repo lacks, or
+  neither an index nor a `model.safetensors`. It still fills in the part it read. By hand the weights are a
+  size in GB or GiB, as the repo's Files tab lists them, and not a parameter count: a quantised model keeps
+  some layers at 16 bits, so a count times its bits comes out too small. A unified-memory node offers its
   available memory minus 4 GiB. A node with dedicated GPU memory offers the free memory of its emptiest GPU,
   so the verdict is for a model on one GPU. On a GB10, vLLM's `--gpu-memory-utilization` is not a hard cap,
   and the page says so. Not modelled: GGUF files, sliding-window attention layers, a model split across
@@ -408,9 +412,11 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   console. The web app shows it as plain text, never as HTML or Markdown. tool-eval-bench's tools are mocks:
   nothing the model asks for is executed.
 - **Hugging Face lookup, only on request.** The console contacts `https://huggingface.co` when a signed-in user
-  presses Look up on the Will it fit? page, and at no other time. A lookup that succeeds sends three GET
-  requests: one for the repo's file list and two for its `config.json`, which Hugging Face answers with a
-  redirect to a cache path on the same host. The repo id must match `owner/name`, the host is fixed,
+  presses Look up on the Will it fit? page, and at no other time. A lookup sends at most five GET requests:
+  one for the repo's file list, two for its `model.safetensors.index.json` and two for its `config.json`.
+  Each of those two files takes two requests, because Hugging Face answers the first with a redirect to a
+  cache path on the same host. A repo with no index, or with one over 1 MiB, takes at most three, because
+  the index is not asked for. The repo id must match `owner/name`, the host is fixed,
   a redirect is followed only while it stays on `https://huggingface.co`, each response is read up to 1 MiB,
   and no token or cookie of yours is sent. Hugging Face sees the console host's address and the repo id.
   `hf_lookup = false` in `console.toml` turns it off.
