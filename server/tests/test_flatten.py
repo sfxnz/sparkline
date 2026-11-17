@@ -85,9 +85,9 @@ def test_a_model_server_flattens_only_the_readings_it_has():
     sample = Sample.model_validate_json((WEB_FIXTURES / "sample.json").read_text())
     f = flatten(sample)
     assert f["llm.8000.up"] == 1 and f["llm.8000.gen_tps"] == 212.4
-    assert "ttft_p50_s" in sample.llm[0].reports and "llm.8000.ttft_p50_s" not in f  # idle, not 0
-    assert "llm.8000.kv_cache_pct" not in f  # not reported by this server
-    assert f["llm.8000.itl_p50_s"] == 0.021  # a field from a newer agent keeps its history
+    assert "ttft_p50_s" in sample.llm[0].reports and "llm.8000.ttft_p50_s" not in f
+    assert "llm.8000.kv_cache_pct" not in f
+    assert f["llm.8000.itl_p50_s"] == 0.021
     assert {k: v for k, v in f.items() if k.startswith("llm.9931.")} == {"llm.9931.up": 0.0}
 
 

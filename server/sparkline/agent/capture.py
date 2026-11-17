@@ -319,7 +319,7 @@ def traced(src: Sources) -> tuple[Sources, Tape]:
         "ethtool": ethtool,
         "docker": docker,
         "which": which,
-        "http": refuse_http,  # a recording holds hardware readings, never a model server's replies
+        "http": refuse_http,
     }
     untraced = sorted({f.name for f in dataclasses.fields(src)} - set(readings))
     if untraced:

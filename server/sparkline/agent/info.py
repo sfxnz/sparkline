@@ -128,8 +128,6 @@ class Collectors:
         return self.gpu.shared_total if self.gpu else None
 
     def start(self) -> None:
-        """Start what runs beside the sampling tick: the model-server poller. Building the collectors
-        starts nothing, so tests and sparkline-capture never reach a model server."""
         if self.llm:
             self.llm.start()
 

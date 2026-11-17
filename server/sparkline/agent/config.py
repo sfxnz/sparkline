@@ -25,10 +25,8 @@ def default_data_dir() -> str:
 
 @dataclass(frozen=True)
 class Target:
-    """A model server listed under ``[[model_servers]]``."""
-
     port: int
-    api_key: str | None = field(default=None, repr=False)  # sent only to this port on this node
+    api_key: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -70,7 +68,6 @@ class AgentConfig:
         self.targets()
 
     def targets(self) -> list[Target]:
-        """The ``[[model_servers]]`` tables. An error names a key, never an API key's value."""
         if not isinstance(self.model_servers, list) or not all(
             isinstance(t, dict) for t in self.model_servers
         ):

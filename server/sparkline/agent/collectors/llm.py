@@ -43,10 +43,8 @@ log = logging.getLogger(__name__)
 
 POLL_EVERY_S = 2.0
 FIND_EVERY_S = 5.0
-FORGET_AFTER_S = 600.0  # a discovered server that stays down this long leaves the list
-# Each ask of a socket that accepts and stays silent holds the poller for HTTP_TIMEOUT_S, so every server
-# on the node misses a poll. One silence may be a server's busy moment. Three in a row end the asking.
-SILENT_ASKS = 3
+FORGET_AFTER_S = 600.0
+IDENTIFY_TIMEOUTS_BEFORE_REJECT = 3
 MODELS_MAX = 32
 TEXT_MAX = 128
 
@@ -64,12 +62,10 @@ UP_STATES: tuple[ServerState, ...] = ("ready", "sleeping")
 
 @dataclass(frozen=True)
 class Identity:
-    """What one identification learned. Fixed for the life of a listening socket."""
-
     software: str | None
     models: tuple[LoadedModel, ...]
-    metrics_path: str | None  # None: it serves no Prometheus text; state and models still show
-    problem: str | None  # why readings are missing, phrased as the fix
+    metrics_path: str | None
+    problem: str | None
 
 
 class Adapter(Protocol):
@@ -91,7 +87,7 @@ class Adapter(Protocol):
 
 
 def _url(at: Listener, path: str) -> str:
-    host = f"[{at.host}]" if ":" in at.host else at.host
+    host = f"[{at.connect_host}]" if ":" in at.connect_host else at.connect_host
     return f"http://{host}:{at.port}{path}"
 
 
@@ -100,8 +96,6 @@ def _clean(text: object, drop: str = r"[^\x20-\x7e]") -> str:
 
 
 def _listed(reply: HttpReply) -> tuple[str, tuple[LoadedModel, ...]] | None:
-    """An OpenAI-style model list -> (owned_by, models). None: the reply is not one. Every string in it
-    is the server's own and goes to every console session, so it is cut and stripped here."""
     try:
         data = json.loads(reply.body)["data"]
         entries = [m for m in data if isinstance(m["id"], str)][:MODELS_MAX]
@@ -124,9 +118,6 @@ def _series(reply: HttpReply) -> dict[str, list[Series]]:
 
 
 class PrometheusAdapter:
-    """Servers that speak the OpenAI API and expose Prometheus text: vLLM, SGLang, llama.cpp, NIM,
-    TensorRT-LLM, and any server that uses the same metric names under its own prefix."""
-
     name = "prometheus"
     default_ports = frozenset({8000, 8080, 9931, 30000})
 
@@ -201,25 +192,20 @@ class PrometheusAdapter:
         )
 
 
-ADAPTERS: tuple[Adapter, ...] = (PrometheusAdapter(),)  # in order: the first to claim a socket keeps it
+ADAPTERS: tuple[Adapter, ...] = (PrometheusAdapter(),)
 
 
 @dataclass
 class Tracked:
-    """One server. Only the poller thread touches it."""
-
     at: Listener
     adapter: Adapter
     ident: Identity
     window: Window
     last: ModelServerSample
-    down_since: float | None = None  # monotonic
+    down_since: float | None = None
 
 
 def join(s: ModelServerSample, hints: Hints) -> ModelServerSample:
-    """The server with the process that holds its port: from ``--port`` in a command line, else from the
-    container Docker publishes the port for. A server that reports no memory of its own gets the GPU
-    memory of that process. With no match the pid stays unknown."""
     hint = hints.by_port.get(s.port) or (hints.by_container.get(s.container) if s.container else None)
     if hint is None:
         return s
@@ -251,13 +237,13 @@ class ModelServerCollector:
         self._default_ports = frozenset(p for a in adapters for p in a.default_ports)
         self._snapshot: tuple[ModelServerSample, ...] = ()
         self._hints = NO_HINTS
-        self._rows: list[ProcSample] | None = None  # the process rows _hints was built from
+        self._rows: list[ProcSample] | None = None
         self._error: str | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._tracked: dict[int, Tracked] = {}
-        self._rejected: set[tuple[int, int | None]] = set()  # sockets that are no model server
-        self._silent: dict[tuple[int, int | None], int] = {}  # socket -> unanswered asks in a row
+        self._rejected: set[tuple[int, int | None]] = set()
+        self._identify_timeouts: dict[tuple[int, int | None], int] = {}
         self._listening: dict[int, Listener] = {}
         self._published: dict[int, str] = {}
         self._found_at = self._docker_at = float("-inf")
@@ -302,15 +288,12 @@ class ModelServerCollector:
                 self.poll_round(started)
                 self._error = None
             except Exception as e:
-                # The class and where it was raised, never the message: it could quote a request header.
                 self._error = f"{type(e).__name__} while polling model servers"
                 where = "".join(traceback.format_tb(e.__traceback__))
                 log.debug("model server poll failed: %s\n%s", type(e).__name__, where)
             self._stop.wait(max(0.0, POLL_EVERY_S - (time.monotonic() - started)))
 
     def poll_round(self, now: float) -> None:
-        """One round of the poller, ``now`` in monotonic seconds: look for new servers when that is due,
-        poll each tracked one, publish the result."""
         hints = self._hints
         if now - self._found_at >= FIND_EVERY_S:
             self._found_at = now
@@ -367,21 +350,23 @@ class ModelServerCollector:
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
                 self._published = {}
                 log.debug("docker port lookup failed: %s", type(e).__name__)
-        # A port that only a process or Docker names is asked when that process holds GPU memory. A
-        # database started with --port, or published by its container, is then never sent a request.
-        on_gpu = {name for name, hint in hints.by_container.items() if hint.gpu_mem}
+        # A database started with --port, or published by its container, holds no GPU memory, so it is
+        # never sent a request.
+        gpu_containers = {name for name, hint in hints.by_container.items() if hint.gpu_mem}
+        gpu_argv_ports = frozenset(port for port, hint in hints.by_port.items() if hint.gpu_mem)
+        gpu_docker_ports = frozenset(p for p, name in self._published.items() if name in gpu_containers)
         found = candidates(
             self._listeners(),
             self._default_ports,
-            frozenset(port for port, hint in hints.by_port.items() if hint.gpu_mem),
-            frozenset(port for port, name in self._published.items() if name in on_gpu),
+            gpu_argv_ports,
+            gpu_docker_ports,
             self._target_ports,
             self._discover,
         )
         self._listening = {li.port: li for li in found}
         sockets = {(li.port, li.inode) for li in found}
         self._rejected &= sockets
-        self._silent = {key: n for key, n in self._silent.items() if key in sockets}
+        self._identify_timeouts = {key: n for key, n in self._identify_timeouts.items() if key in sockets}
         for at in found:
             tracked = self._tracked.get(at.port)
             if (tracked is None or tracked.at != at) and (at.port, at.inode) not in self._rejected:
@@ -396,14 +381,14 @@ class ModelServerCollector:
             except NotHttp:
                 break
             except TimeoutError:
-                self._silent[key] = self._silent.get(key, 0) + 1
-                if self._silent[key] < SILENT_ASKS:
+                self._identify_timeouts[key] = self._identify_timeouts.get(key, 0) + 1
+                if self._identify_timeouts[key] < IDENTIFY_TIMEOUTS_BEFORE_REJECT:
                     return
                 break
             except OSError:
                 # A port Docker publishes resets every connection until the server in its container
                 # listens, so a failed connection settles nothing and the socket is asked again.
-                self._silent.pop(key, None)
+                self._identify_timeouts.pop(key, None)
                 return
             if ident is not None:
                 first = ModelServerSample(

@@ -162,7 +162,6 @@ class ProcsCollector:
         self._names_t = -DOCKER_TTL_S
         self._cid: dict[tuple[int, int], str | None] = {}  # (pid, starttime) -> container id
         self._users: dict[int, str | None] = {}
-        # The last refresh, for the model-server join: its rows, and each row's command line before the cut.
         self.rows: list[ProcSample] = []
         self.cmdlines: dict[int, str] = {}
 

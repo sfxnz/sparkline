@@ -87,7 +87,7 @@ HTTP_MAX_BYTES = 8 << 20
 
 class HttpReply(NamedTuple):
     status: int
-    body: bytes  # cut at HTTP_MAX_BYTES
+    body: bytes
 
 
 class NotHttp(ConnectionError):

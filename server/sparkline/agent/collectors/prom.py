@@ -18,7 +18,7 @@ LabelSet = tuple[tuple[str, str], ...]
 
 
 class Series(NamedTuple):
-    name: str  # as exposed: "vllm:time_to_first_token_seconds_bucket"
+    name: str
     labels: LabelSet
     value: float
 
@@ -30,8 +30,6 @@ _UNESCAPED = {"n": "\n"}
 
 
 def parse_exposition(text: str) -> dict[str, list[Series]]:
-    """Prometheus text format 0.0.4 -> name -> series. Comments, malformed lines and non-finite values
-    are skipped, so nothing downstream checks for NaN."""
     out: dict[str, list[Series]] = {}
     for line in text.splitlines():
         if not line or line[0] == "#":
@@ -55,8 +53,8 @@ def parse_exposition(text: str) -> dict[str, list[Series]]:
 
 
 class Source(NamedTuple):
-    suffix: str  # the metric name after the namespace
-    where: LabelSet = ()  # only series carrying every one of these labels count
+    suffix: str
+    where: LabelSet = ()
 
 
 RuleKind = Literal["gauge", "rate", "quantile"]
@@ -64,12 +62,12 @@ RuleKind = Literal["gauge", "rate", "quantile"]
 
 @dataclass(frozen=True)
 class Rule:
-    field: str  # an LlmField
+    field: str
     kind: RuleKind
-    sources: tuple[Source, ...]  # tried in order; the first one present wins, so mirrors never double count
+    sources: tuple[Source, ...]
     agg: Literal["sum", "max"] = "sum"  # across label sets (vLLM engine=, one KV pool per stream)
     scale: float = 1.0
-    q: float = 0.0  # quantile rules only
+    q: float = 0.0
 
 
 def _named(*suffixes: str) -> tuple[Source, ...]:
@@ -113,7 +111,6 @@ START_GAUGE = "process_start_time_seconds"
 
 
 def _matching(series: Mapping[str, list[Series]], ns: str, rule: Rule) -> list[Series]:
-    """The series of the rule's first source this exposition has under ``ns``."""
     tail = "_bucket" if rule.kind == "quantile" else ""
     for src in rule.sources:
         found = [s for s in series.get(ns + src.suffix + tail, ()) if set(src.where) <= set(s.labels)]
@@ -123,9 +120,6 @@ def _matching(series: Mapping[str, list[Series]], ns: str, rule: Rule) -> list[S
 
 
 def pick_namespace(series: Mapping[str, list[Series]]) -> str | None:
-    """The namespace under which the most FIELD_RULES match: a colon prefix ("vllm:"), a first underscore
-    token ("trtllm_") or "" (bare names). None when no rule matches under any: not a model server's
-    exposition, which makes this the fingerprint too."""
     candidates = {""}
     for name in series:
         head, colon, _ = name.partition(":")
@@ -144,7 +138,7 @@ def _asleep(s: Series) -> bool:
     return s.value == 0 if ("sleep_state", "awake") in s.labels else s.value > 0
 
 
-Buckets = tuple[tuple[float, float], ...]  # (le, cumulative count), ascending, +Inf last
+Buckets = tuple[tuple[float, float], ...]
 
 
 def _buckets(found: list[Series]) -> Buckets | None:
@@ -160,15 +154,13 @@ def _buckets(found: list[Series]) -> Buckets | None:
 
 @dataclass(frozen=True)
 class Scrape:
-    """One poll, reduced to what the rules need."""
-
-    t: float  # monotonic seconds
-    epoch: tuple[object, ...]  # (process start time, server_info instance): a change means a restart
-    gauges: Mapping[str, float]  # field -> aggregated value, scaled
-    counters: Mapping[str, float]  # field -> summed counter
-    histograms: Mapping[str, Buckets]  # field -> buckets summed across label sets
-    present: frozenset[str]  # fields this exposition has a source for
-    info: Mapping[str, str]  # labels of the server's *_info gauge: version, model, instance
+    t: float
+    epoch: tuple[object, ...]
+    gauges: Mapping[str, float]
+    counters: Mapping[str, float]
+    histograms: Mapping[str, Buckets]
+    present: frozenset[str]
+    info: Mapping[str, str]
     sleeping: bool
     started_ts: float | None
 
@@ -214,7 +206,7 @@ RATE_WINDOW_S = 10.0
 QUANTILE_WINDOW_S = 60.0
 
 
-def _went_down(new: Scrape, old: Scrape) -> bool:
+def _was_reset(new: Scrape, old: Scrape) -> bool:
     if any(new.counters[f] < old.counters[f] for f in new.counters.keys() & old.counters.keys()):
         return True
     for f in new.histograms.keys() & old.histograms.keys():
@@ -226,9 +218,6 @@ def _went_down(new: Scrape, old: Scrape) -> bool:
 
 @dataclass
 class Window:
-    """The recent scrapes of one server, all from one server process. A restart empties it, so a rate
-    or a quantile is missing for one poll and never negative or inflated."""
-
     scrapes: deque[Scrape] = field(default_factory=deque)
 
     def push(self, s: Scrape) -> None:
@@ -236,15 +225,13 @@ class Window:
             last = self.scrapes[-1]
             if s.t <= last.t:
                 return
-            if s.epoch != last.epoch or _went_down(s, last):
+            if s.epoch != last.epoch or _was_reset(s, last):
                 self.scrapes.clear()
         self.scrapes.append(s)
         while self.scrapes[0].t < s.t - QUANTILE_WINDOW_S:
             self.scrapes.popleft()
 
     def derive(self) -> dict[str, float]:
-        """field -> reading. A field with nothing to say now is left out: a rate with one scrape in its
-        window, a quantile when no request landed in the last minute."""
         if not self.scrapes:
             return {}
         new = self.scrapes[-1]

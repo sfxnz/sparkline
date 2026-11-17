@@ -498,15 +498,10 @@ class DemoModel:
         )
 
     def _llm(self, t: float, b: float, active: float, gpu_mem: int) -> list[ModelServerSample]:
-        """One card per rendering state. spark1: a server with its own metric prefix that exports only
-        requests and token counters, so KV cache and first-token time read "not reported". spark2: none
-        (rank 1 of the pair listens on no port). spark3: vLLM with every reading, memory from its process,
-        and a restart every 10 min from 225 s: 20 s down, then one poll with no rates."""
         if self.node_id == "spark2":
             return []
         j = lambda key: _h(self.node_id, key, int(t))  # noqa: E731
         running = round(8 * b * active)
-        # Each request generates more slowly as more of them share the GPU.
         gen = running * (38 - 1.2 * running) * (1 + 0.03 * j("gen"))
         values = {
             "up": 1.0,
@@ -556,7 +551,7 @@ class DemoModel:
             del values["gen_tps"], values["prompt_tps"]
         else:
             values["preempt_per_s"] = 0.5 if values["waiting"] > 2 else 0.0
-            if running:  # idle: no request in the last minute, so no first-token time
+            if running:
                 p50 = 0.16 + 0.9 * b * b
                 values |= {
                     "ttft_p50_s": round(p50, 3),

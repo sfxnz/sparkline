@@ -446,7 +446,6 @@ const sameServers = (a: readonly ModelServerSample[], b: readonly ModelServerSam
   a.length === b.length && a.every((x, i) => x.port === b[i]?.port && serverTitle(x) === serverTitle(b[i]) && serverLine(x) === serverLine(b[i]));
 const SERVER_LINES = 2;
 
-/** One line per model server: what it serves and how busy it is. Nothing when the node runs none. */
 function ModelServers() {
   const { id } = useContext(Ctx);
   const servers = useLatest(id, selectServers, sameServers);

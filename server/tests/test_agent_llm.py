@@ -1,5 +1,3 @@
-"""The model-server collector, driven one poll round at a time against a fake HTTP source."""
-
 from __future__ import annotations
 
 import contextlib
@@ -66,7 +64,6 @@ class FakeHttp:
 
 
 def listen(root: Path, sockets: dict[int, int]) -> None:
-    """Write a listen table: port -> inode, every socket bound to every IPv4 address."""
     rows = [
         f"   {i}: 00000000:{port:04X} 00000000:0000 0A 00000000:00000000 00:00000000 00000000 0 0 {inode} 1"
         for i, (port, inode) in enumerate(sockets.items())
@@ -84,7 +81,7 @@ def collector(
     containers: list[dict] | None = None,
 ) -> ModelServerCollector:
     src = gb10(fs=RootFs(root), http=http, docker=lambda path: containers or [])
-    return ModelServerCollector(src, procs, targets, discover)  # type: ignore[arg-type]
+    return ModelServerCollector(src, procs, targets, discover)
 
 
 def acmeserve(**more: Route) -> FakeHttp:
@@ -130,7 +127,7 @@ def test_a_server_on_a_default_port_is_found_with_no_configuration(tmp_path):
         "prompt_tps": 0,
         "preempt_per_s": 0,
     }
-    assert set(s.reports) - set(s.values) == {"ttft_p50_s", "ttft_p95_s"}  # idle: nothing to say, not 0
+    assert set(s.reports) - set(s.values) == {"ttft_p50_s", "ttft_p95_s"}
     assert http.asked()[0] == "/v1/models"
     assert all(url.startswith(BASE + "/") for url, _ in http.calls), "port 22 is named by nothing"
 
@@ -548,7 +545,6 @@ def test_a_bad_model_server_table_fails_the_load_without_quoting_the_key(tmp_pat
 
 @pytest.fixture
 def local_server() -> Iterator[tuple[str, list[dict[str, str]]]]:
-    """A throwaway HTTP server on loopback and the headers of each request it got."""
     seen: list[dict[str, str]] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -563,7 +559,7 @@ def local_server() -> Iterator[tuple[str, list[dict[str, str]]]]:
                 self.send_header("Location", "/metrics")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            with contextlib.suppress(OSError):  # the client of /hang has left by now
+            with contextlib.suppress(OSError):
                 self.wfile.write(body)
 
         def log_message(self, *args: object) -> None:
@@ -584,7 +580,7 @@ def test_the_live_request_stays_on_this_node_and_keeps_the_key_out_of_the_log(
     base, seen = local_server
     caplog.set_level(logging.DEBUG)
     for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
-        monkeypatch.setenv(name, "http://127.0.0.1:9")  # a proxy that refuses every connection
+        monkeypatch.setenv(name, "http://127.0.0.1:9")
     reply = live_http(f"{base}/metrics", {"Authorization": f"Bearer {KEY}"})
     assert (reply.status, reply.body) == (200, b"acmeserve:num_requests_running 2\n")
     assert seen[0]["authorization"] == f"Bearer {KEY}"

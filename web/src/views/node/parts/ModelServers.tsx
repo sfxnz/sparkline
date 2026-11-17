@@ -17,7 +17,6 @@ const selectServers = (s: Sample | null) => s?.llm ?? null;
 const MEM_FROM: Record<string, string> = { server: 'Reported by the server', process: 'GPU memory of its process' };
 const tokens = new Intl.NumberFormat('en-GB');
 
-/** The model servers the agent found on this node's listening ports, with the reason when there is none to show. */
 export function ModelServersPanel({ nodeId }: { nodeId: string }) {
   const servers = useLatest(nodeId, selectServers);
   const info = useCluster((s) => s.nodes[nodeId]?.info);

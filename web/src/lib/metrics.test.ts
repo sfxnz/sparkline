@@ -31,7 +31,7 @@ describe('flatten', () => {
     expect(s.llm?.[0]?.reports).toContain('ttft_p50_s');
     expect(got.has('llm.8000.ttft_p50_s')).toBe(false);
     expect(got.has('llm.8000.kv_cache_pct')).toBe(false);
-    expect(got.get('llm.8000.itl_p50_s')).toBe(0.021); // a field from a newer agent keeps its history
+    expect(got.get('llm.8000.itl_p50_s')).toBe(0.021);
   });
 
   it('writes no llm key for a sample from an agent that predates model servers', () => {

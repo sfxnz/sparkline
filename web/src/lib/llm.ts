@@ -1,9 +1,7 @@
-// Model servers: the one table and the one reader the UI uses for a server's readings.
 import type { NotReported } from './capabilities';
 import { bytesParts, percentParts, text, type Formatter } from './format';
 import type { ModelServerSample, ServerState } from './types';
 
-/** The ports the agent asks without being told (PrometheusAdapter.default_ports), for the empty state. */
 export const DEFAULT_PORTS = [8000, 8080, 9931, 30000] as const;
 
 export const LLM_FIELDS = ['running', 'waiting', 'gen_tps', 'prompt_tps', 'ttft_p50_s', 'ttft_p95_s', 'kv_cache_pct', 'preempt_per_s', 'mem_bytes'] as const;
@@ -16,9 +14,7 @@ const secondsParts: Formatter = (s, unit) => (unit === 'ms' || (!unit && Math.ab
 interface FieldSpec {
   label: string;
   format: Formatter;
-  /** Why a server that reports the field has no value for it now. */
   empty: string;
-  /** What the server would have to export, for the "not reported" tooltip. */
   needs: string;
 }
 
@@ -45,8 +41,6 @@ const NOT_ANSWERING: Partial<Record<ServerState, string>> = {
 
 export type Reading = { kind: 'value'; value: number } | { kind: 'empty'; why: string } | { kind: 'unreported'; gap: NotReported };
 
-/** The only way a component reads a server's field, so a value the server does not report can never become 0 at a
- *  call site. A server that is down or loading has no readings, whatever its last ones were. */
 export function reading(server: ModelServerSample, field: LlmField): Reading {
   const quiet = NOT_ANSWERING[server.state];
   if (quiet) return { kind: 'empty', why: quiet };
@@ -57,7 +51,6 @@ export function reading(server: ModelServerSample, field: LlmField): Reading {
   return { kind: 'unreported', gap: { kind: 'hardware', label: 'Not reported by this server', detail: `${who} exports no ${FIELD_SPECS[field].needs}.` } };
 }
 
-/** "example-model", "3 models", or "Port 8000" when the server lists none. */
 export function serverTitle(server: ModelServerSample): string {
   const [first, ...rest] = server.models;
   if (!first) return `Port ${String(server.port)}`;
@@ -67,7 +60,6 @@ export function serverTitle(server: ModelServerSample): string {
 export const STATE_LABEL: Record<ServerState, string> = { ready: 'Ready', loading: 'Loading', sleeping: 'Asleep', down: 'Down' };
 export const SERVER_PILL = { ready: 'healthy', loading: 'connecting', sleeping: 'stale', down: 'error' } as const satisfies Record<ServerState, string>;
 
-/** One line for a node card: "2 running · 1 waiting · 142.0 tok/s", or the state when the server is not serving. */
 export function serverLine(server: ModelServerSample): string {
   if (server.state !== 'ready') return STATE_LABEL[server.state];
   const parts: string[] = [];

@@ -114,7 +114,7 @@ def test_mirrored_series_count_once():
 def test_generation_rate_reads_the_counter_that_moves_while_tokens_are_produced():
     live = 'acmeserve:scheduler_tokens_total{mode="decode"} 102577'
     mid_stream = RECORDED.replace(live, 'acmeserve:scheduler_tokens_total{mode="decode"} 102977')
-    assert "acmeserve:generation_tokens_total 102834" in mid_stream  # counted only when a request ends
+    assert "acmeserve:generation_tokens_total 102834" in mid_stream
     assert readings(RECORDED, mid_stream)["gen_tps"] == 200.0
 
 
@@ -173,8 +173,6 @@ def test_an_idle_server_has_a_rate_of_zero_and_no_first_token_time():
 
 
 def with_first_tokens(text: str, at_most_half_a_second: int, at_most_five: int) -> str:
-    """The recorded exposition after more requests, by how long their first token took: 0.25 to 0.5 s and
-    2.5 to 5 s."""
     out = []
     for line in text.splitlines():
         if line.startswith("acmeserve:time_to_first_token_seconds_bucket"):
@@ -270,7 +268,7 @@ def test_histogram_quantile_follows_prometheus():
     assert histogram_quantile(0.5, buckets) == pytest.approx(0.75)
     assert histogram_quantile(0.25, buckets) == pytest.approx(0.5)
     assert histogram_quantile(0.125, buckets) == pytest.approx(0.3)
-    assert histogram_quantile(0.95, buckets) == 1.0  # the rank is in +Inf: the highest finite bound
+    assert histogram_quantile(0.95, buckets) == 1.0
     first_bucket_starts_at_zero = ((0.5, 4.0), (math.inf, 4.0))
     assert histogram_quantile(0.5, first_bucket_starts_at_zero) == pytest.approx(0.25)
     assert histogram_quantile(0.5, ((0.5, 0.0), (math.inf, 0.0))) is None

@@ -14,9 +14,9 @@ from .procs import container_names
 
 
 class Listener(NamedTuple):
-    host: str  # the address to connect to: the bound one, or loopback for a socket bound to every address
+    connect_host: str
     port: int
-    inode: int | None  # identifies this listening socket, so a restarted server reads as a new one
+    inode: int | None
 
 
 def _connect_host(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str:
@@ -49,8 +49,8 @@ def parse_proc_net_tcp(text: str) -> list[Listener]:
 class ProcHint(NamedTuple):
     pid: int
     container: str | None
-    gpu_mem: int | None  # of the process, or of every process in its container
-    trt: bool  # its arguments name trtllm-serve
+    gpu_mem: int | None
+    trt: bool
 
 
 class Hints(NamedTuple):
@@ -64,9 +64,6 @@ _TRT_ARG = re.compile(r"(?:^|[\s/])trtllm-serve(?=\s|$)")
 
 
 def hints_from_procs(rows: Sequence[ProcSample], cmdlines: Mapping[int, str]) -> Hints:
-    """``cmdlines`` holds each row's whole command line: a server's ``--port`` often sits past the cut of
-    ``ProcSample.cmdline``, behind a long model path. Of two rows naming one port (tensor-parallel ranks),
-    the one holding more GPU memory is the server."""
     in_container: dict[str, list[ProcSample]] = {}
     for r in rows:
         if r.container:
@@ -89,7 +86,6 @@ def hints_from_procs(rows: Sequence[ProcSample], cmdlines: Mapping[int, str]) ->
 
 
 def published_ports(containers: list[dict]) -> dict[int, str]:
-    """Docker /containers/json -> published TCP port -> container name, as process rows name it."""
     names = container_names(containers)
     out: dict[int, str] = {}
     for c in containers:
@@ -100,23 +96,19 @@ def published_ports(containers: list[dict]) -> dict[int, str]:
 
 
 def candidates(
-    listeners: list[Listener] | None,  # None: this platform has no listen table to read
+    listeners: list[Listener] | None,
     default_ports: frozenset[int],
     argv_ports: frozenset[int],
     docker_ports: frozenset[int],
     target_ports: frozenset[int],
     discover: bool,
 ) -> list[Listener]:
-    """The sockets worth one identification request, one per port. A port is a candidate only when
-    something names it (a server's default port, a ``--port`` argument, a Docker published port, or
-    agent.toml) and it is listening. Every host is loopback or an address this node listens on, so a
-    request can only reach this node. With no listen table, a refused connection is the answer."""
     if listeners is None:
         ports = target_ports | (default_ports | argv_ports if discover else frozenset())
         return [Listener("127.0.0.1", p, None) for p in sorted(ports)]
     named = target_ports | (default_ports | argv_ports | docker_ports if discover else frozenset())
     best: dict[int, Listener] = {}
-    for found in sorted(listeners, key=lambda li: (":" in li.host, li.host != "127.0.0.1")):
+    for found in sorted(listeners, key=lambda li: (":" in li.connect_host, li.connect_host != "127.0.0.1")):
         if found.port in named:
             best.setdefault(found.port, found)
     return [best[p] for p in sorted(best)]
