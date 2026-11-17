@@ -495,7 +495,8 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   `console.toml` (mode 0640, root:sparkline), beside the tokens, and never reach `console.sqlite`, the API,
   the web app, an error message or the log, even at `--log-level debug`. The browser sees a channel's name,
   kind, host and last result. What leaves your LAN is the text of the alert: its title and detail, which
-  name the node and the measured value. The `webhook` kind also sends the rule id and the metric key.
+  name the node and the measured value, and for a node that went offline the LAN address and port of its
+  agent (`host:port`). The `webhook` kind also sends the rule id and the metric key.
   Nothing notifies you when the console itself is down, or when it cannot reach the service.
 - **systemd sandboxing.** Both services run as the unprivileged `sparkline` user, with no capabilities,
   `NoNewPrivileges`, a read-only filesystem except their state directory (`ProtectSystem=strict`), a private
