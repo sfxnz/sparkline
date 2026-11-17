@@ -1,0 +1,34 @@
+# HELP sglang:num_running_reqs The number of running requests.
+# TYPE sglang:num_running_reqs gauge
+sglang:num_running_reqs{model_name="Qwen/Qwen3-8B"} 2.0
+# HELP sglang:num_queue_reqs The number of requests in the waiting queue.
+# TYPE sglang:num_queue_reqs gauge
+sglang:num_queue_reqs{model_name="Qwen/Qwen3-8B"} 5.0
+# HELP sglang:token_usage The token usage.
+# TYPE sglang:token_usage gauge
+sglang:token_usage{model_name="Qwen/Qwen3-8B"} 0.28
+# HELP sglang:kv_used_tokens Tokens held in the KV cache.
+# TYPE sglang:kv_used_tokens gauge
+sglang:kv_used_tokens{model_name="Qwen/Qwen3-8B"} 9175.0
+# HELP sglang:gen_throughput The generation throughput (token/s).
+# TYPE sglang:gen_throughput gauge
+sglang:gen_throughput{model_name="Qwen/Qwen3-8B"} 88.2
+# HELP sglang:cache_hit_rate The prefix cache hit rate.
+# TYPE sglang:cache_hit_rate gauge
+sglang:cache_hit_rate{model_name="Qwen/Qwen3-8B"} 0.075
+# HELP sglang:prompt_tokens_total Number of prefill tokens processed.
+# TYPE sglang:prompt_tokens_total counter
+sglang:prompt_tokens_total{model_name="Qwen/Qwen3-8B"} 8128902.0
+# HELP sglang:generation_tokens_total Number of generation tokens processed.
+# TYPE sglang:generation_tokens_total counter
+sglang:generation_tokens_total{model_name="Qwen/Qwen3-8B"} 7557572.0
+# HELP sglang:weight_memory_usage_gb Memory the model weights hold, in GB.
+# TYPE sglang:weight_memory_usage_gb gauge
+sglang:weight_memory_usage_gb{model_name="Qwen/Qwen3-8B"} 15.3
+# HELP sglang:time_to_first_token_seconds Histogram of time to first token in seconds.
+# TYPE sglang:time_to_first_token_seconds histogram
+sglang:time_to_first_token_seconds_bucket{le="0.1",model_name="Qwen/Qwen3-8B"} 100.0
+sglang:time_to_first_token_seconds_bucket{le="1.0",model_name="Qwen/Qwen3-8B"} 900.0
+sglang:time_to_first_token_seconds_bucket{le="+Inf",model_name="Qwen/Qwen3-8B"} 1000.0
+sglang:time_to_first_token_seconds_count{model_name="Qwen/Qwen3-8B"} 1000.0
+sglang:time_to_first_token_seconds_sum{model_name="Qwen/Qwen3-8B"} 512.0

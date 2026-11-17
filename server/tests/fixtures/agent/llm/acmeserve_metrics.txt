@@ -1,0 +1,291 @@
+# HELP acmeserve:requests_running Requests in prefill or decode.
+# TYPE acmeserve:requests_running gauge
+acmeserve:requests_running 0
+# HELP acmeserve:requests_waiting Requests queued or held until a lane is free.
+# TYPE acmeserve:requests_waiting gauge
+acmeserve:requests_waiting 0
+# HELP acmeserve:generation_tokens_running Generated tokens held by live streams.
+# TYPE acmeserve:generation_tokens_running gauge
+acmeserve:generation_tokens_running 0
+# HELP acmeserve:prompt_tokens_total Prompt tokens of finished requests.
+# TYPE acmeserve:prompt_tokens_total counter
+acmeserve:prompt_tokens_total 1243290
+# HELP acmeserve:prompt_cache_budget_bytes Startup budget for retained prompt states.
+# TYPE acmeserve:prompt_cache_budget_bytes gauge
+acmeserve:prompt_cache_budget_bytes 1735788288
+# HELP acmeserve:prompt_cache_minimum_state_bytes Smallest planned retained state, with the family's admission rounding.
+# TYPE acmeserve:prompt_cache_minimum_state_bytes gauge
+acmeserve:prompt_cache_minimum_state_bytes 176160768
+# HELP acmeserve:prompt_cache_can_keep_state Startup budget holds at least one planned state; not current occupancy.
+# TYPE acmeserve:prompt_cache_can_keep_state gauge
+acmeserve:prompt_cache_can_keep_state 1
+# HELP acmeserve:generation_tokens_total Generated tokens of finished requests.
+# TYPE acmeserve:generation_tokens_total counter
+acmeserve:generation_tokens_total 102834
+# HELP acmeserve:kv_cache_usage_ratio Tokens in a stream cache divided by that stream's context window.
+# TYPE acmeserve:kv_cache_usage_ratio gauge
+acmeserve:kv_cache_usage_ratio{pool="0"} 0
+# HELP acmeserve:mtp_drafted_total Draft tokens verified on finished requests.
+# TYPE acmeserve:mtp_drafted_total counter
+acmeserve:mtp_drafted_total 131743
+# HELP acmeserve:mtp_accepted_total Draft tokens kept on finished requests.
+# TYPE acmeserve:mtp_accepted_total counter
+acmeserve:mtp_accepted_total 56225
+# HELP acmeserve:request_latency_seconds Seconds from arrival to the reply leaving.
+# TYPE acmeserve:request_latency_seconds histogram
+acmeserve:request_latency_seconds_bucket{le="0.01"} 0
+acmeserve:request_latency_seconds_bucket{le="0.05"} 0
+acmeserve:request_latency_seconds_bucket{le="0.1"} 0
+acmeserve:request_latency_seconds_bucket{le="0.25"} 2
+acmeserve:request_latency_seconds_bucket{le="0.5"} 2
+acmeserve:request_latency_seconds_bucket{le="1"} 5
+acmeserve:request_latency_seconds_bucket{le="2.5"} 8
+acmeserve:request_latency_seconds_bucket{le="5"} 40
+acmeserve:request_latency_seconds_bucket{le="10"} 47
+acmeserve:request_latency_seconds_bucket{le="30"} 87
+acmeserve:request_latency_seconds_bucket{le="60"} 161
+acmeserve:request_latency_seconds_bucket{le="120"} 256
+acmeserve:request_latency_seconds_bucket{le="300"} 256
+acmeserve:request_latency_seconds_bucket{le="+Inf"} 257
+acmeserve:request_latency_seconds_sum 11686.257402
+acmeserve:request_latency_seconds_count 257
+# HELP acmeserve:time_to_first_token_seconds Seconds from arrival to the first generated token.
+# TYPE acmeserve:time_to_first_token_seconds histogram
+acmeserve:time_to_first_token_seconds_bucket{le="0.01"} 0
+acmeserve:time_to_first_token_seconds_bucket{le="0.05"} 0
+acmeserve:time_to_first_token_seconds_bucket{le="0.1"} 0
+acmeserve:time_to_first_token_seconds_bucket{le="0.25"} 55
+acmeserve:time_to_first_token_seconds_bucket{le="0.5"} 95
+acmeserve:time_to_first_token_seconds_bucket{le="1"} 169
+acmeserve:time_to_first_token_seconds_bucket{le="2.5"} 215
+acmeserve:time_to_first_token_seconds_bucket{le="5"} 247
+acmeserve:time_to_first_token_seconds_bucket{le="10"} 253
+acmeserve:time_to_first_token_seconds_bucket{le="30"} 255
+acmeserve:time_to_first_token_seconds_bucket{le="60"} 256
+acmeserve:time_to_first_token_seconds_bucket{le="120"} 256
+acmeserve:time_to_first_token_seconds_bucket{le="300"} 256
+acmeserve:time_to_first_token_seconds_bucket{le="+Inf"} 257
+acmeserve:time_to_first_token_seconds_sum 1621.224526
+acmeserve:time_to_first_token_seconds_count 257
+# HELP acmeserve:request_decode_seconds Seconds a finished request spent decoding. Its sum over generation_tokens_total is the decode rate.
+# TYPE acmeserve:request_decode_seconds histogram
+acmeserve:request_decode_seconds_bucket{le="0.01"} 27
+acmeserve:request_decode_seconds_bucket{le="0.05"} 42
+acmeserve:request_decode_seconds_bucket{le="0.1"} 44
+acmeserve:request_decode_seconds_bucket{le="0.25"} 44
+acmeserve:request_decode_seconds_bucket{le="0.5"} 48
+acmeserve:request_decode_seconds_bucket{le="1"} 50
+acmeserve:request_decode_seconds_bucket{le="2.5"} 50
+acmeserve:request_decode_seconds_bucket{le="5"} 50
+acmeserve:request_decode_seconds_bucket{le="10"} 51
+acmeserve:request_decode_seconds_bucket{le="30"} 89
+acmeserve:request_decode_seconds_bucket{le="60"} 167
+acmeserve:request_decode_seconds_bucket{le="120"} 257
+acmeserve:request_decode_seconds_bucket{le="300"} 257
+acmeserve:request_decode_seconds_bucket{le="+Inf"} 257
+acmeserve:request_decode_seconds_sum 10065.032876
+acmeserve:request_decode_seconds_count 257
+# HELP acmeserve:request_time_per_output_token_seconds Seconds from the first generated token to the last, divided by the tokens less one.
+# TYPE acmeserve:request_time_per_output_token_seconds histogram
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.0025"} 0
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.005"} 0
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.0075"} 0
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.01"} 0
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.015"} 0
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.02"} 1
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.025"} 5
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.03"} 20
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.04"} 23
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.05"} 38
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.075"} 57
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.1"} 95
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.15"} 212
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.2"} 215
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.3"} 215
+acmeserve:request_time_per_output_token_seconds_bucket{le="0.5"} 215
+acmeserve:request_time_per_output_token_seconds_bucket{le="1"} 215
+acmeserve:request_time_per_output_token_seconds_bucket{le="+Inf"} 215
+acmeserve:request_time_per_output_token_seconds_sum 20.773556
+acmeserve:request_time_per_output_token_seconds_count 215
+# HELP acmeserve:decode_rounds_total Decode rounds used by finished requests.
+# TYPE acmeserve:decode_rounds_total counter
+acmeserve:decode_rounds_total 46375
+# HELP acmeserve:request_prefill_seconds Seconds a finished request's prompt pass took.
+# TYPE acmeserve:request_prefill_seconds histogram
+acmeserve:request_prefill_seconds_bucket{le="0.01"} 0
+acmeserve:request_prefill_seconds_bucket{le="0.05"} 0
+acmeserve:request_prefill_seconds_bucket{le="0.1"} 0
+acmeserve:request_prefill_seconds_bucket{le="0.25"} 91
+acmeserve:request_prefill_seconds_bucket{le="0.5"} 124
+acmeserve:request_prefill_seconds_bucket{le="1"} 183
+acmeserve:request_prefill_seconds_bucket{le="2.5"} 215
+acmeserve:request_prefill_seconds_bucket{le="5"} 247
+acmeserve:request_prefill_seconds_bucket{le="10"} 253
+acmeserve:request_prefill_seconds_bucket{le="30"} 255
+acmeserve:request_prefill_seconds_bucket{le="60"} 256
+acmeserve:request_prefill_seconds_bucket{le="120"} 256
+acmeserve:request_prefill_seconds_bucket{le="300"} 256
+acmeserve:request_prefill_seconds_bucket{le="+Inf"} 257
+acmeserve:request_prefill_seconds_sum 1592.889978
+acmeserve:request_prefill_seconds_count 257
+# HELP acmeserve:process_resident_bytes Current resident set (VmRSS); device memory is not in it, so it is not a physical footprint (Linux).
+# TYPE acmeserve:process_resident_bytes gauge
+acmeserve:process_resident_bytes 928862208
+# HELP acmeserve:process_resident_anon_bytes Current resident anonymous memory (RssAnon): heap, stacks and private maps (Linux).
+# TYPE acmeserve:process_resident_anon_bytes gauge
+acmeserve:process_resident_anon_bytes 52379648
+# HELP acmeserve:process_resident_file_bytes Current resident file-backed memory (RssFile): the binary, libraries and mapped files (Linux).
+# TYPE acmeserve:process_resident_file_bytes gauge
+acmeserve:process_resident_file_bytes 122716160
+# HELP acmeserve:process_resident_shmem_bytes Current resident shared memory (RssShmem): System V shared memory, tmpfs maps and shared anonymous maps (Linux).
+# TYPE acmeserve:process_resident_shmem_bytes gauge
+acmeserve:process_resident_shmem_bytes 753766400
+# HELP acmeserve:process_resident_peak_bytes Kernel lifetime peak resident set (VmHWM); never reset by health (Linux).
+# TYPE acmeserve:process_resident_peak_bytes gauge
+acmeserve:process_resident_peak_bytes 10159820800
+# HELP acmeserve:device_memory_bytes Device memory the engine holds now: weights, caches and live streams; only where the backend counts it (CUDA).
+# TYPE acmeserve:device_memory_bytes gauge
+acmeserve:device_memory_bytes 108943095160
+# HELP acmeserve:device_memory_peak_bytes The most device memory the engine has held since start or the last /health?reset_peak=1.
+# TYPE acmeserve:device_memory_peak_bytes gauge
+acmeserve:device_memory_peak_bytes 109181646200
+# HELP acmeserve:pinned_memory_bytes Pinned host memory the engine holds now: staging buffers and windows; only where the backend counts it (CUDA).
+# TYPE acmeserve:pinned_memory_bytes gauge
+acmeserve:pinned_memory_bytes 22756992
+# HELP acmeserve:num_requests_running Requests in prefill or decode. A mirror of acmeserve:requests_running.
+# TYPE acmeserve:num_requests_running gauge
+acmeserve:num_requests_running 0
+# HELP acmeserve:num_requests_waiting Requests queued or held until a lane is free. A mirror of acmeserve:requests_waiting.
+# TYPE acmeserve:num_requests_waiting gauge
+acmeserve:num_requests_waiting 0
+# HELP acmeserve:kv_cache_usage_perc A stream's cache occupancy under vLLM's name; same streams and ratios as acmeserve:kv_cache_usage_ratio.
+# TYPE acmeserve:kv_cache_usage_perc gauge
+acmeserve:kv_cache_usage_perc{stream="0"} 0
+# HELP acmeserve:spec_decode_num_draft_tokens_total Draft tokens verified on finished requests, this server's single draft counter.
+# TYPE acmeserve:spec_decode_num_draft_tokens_total counter
+acmeserve:spec_decode_num_draft_tokens_total 131743
+# HELP acmeserve:spec_decode_num_accepted_tokens_total Draft tokens kept on finished requests.
+# TYPE acmeserve:spec_decode_num_accepted_tokens_total counter
+acmeserve:spec_decode_num_accepted_tokens_total 56225
+# HELP acmeserve:e2e_request_latency_seconds Seconds from arrival to the reply leaving, under vLLM's name.
+# TYPE acmeserve:e2e_request_latency_seconds histogram
+acmeserve:e2e_request_latency_seconds_bucket{le="0.01"} 0
+acmeserve:e2e_request_latency_seconds_bucket{le="0.05"} 0
+acmeserve:e2e_request_latency_seconds_bucket{le="0.1"} 0
+acmeserve:e2e_request_latency_seconds_bucket{le="0.25"} 2
+acmeserve:e2e_request_latency_seconds_bucket{le="0.5"} 2
+acmeserve:e2e_request_latency_seconds_bucket{le="1"} 5
+acmeserve:e2e_request_latency_seconds_bucket{le="2.5"} 8
+acmeserve:e2e_request_latency_seconds_bucket{le="5"} 40
+acmeserve:e2e_request_latency_seconds_bucket{le="10"} 47
+acmeserve:e2e_request_latency_seconds_bucket{le="30"} 87
+acmeserve:e2e_request_latency_seconds_bucket{le="60"} 161
+acmeserve:e2e_request_latency_seconds_bucket{le="120"} 256
+acmeserve:e2e_request_latency_seconds_bucket{le="300"} 256
+acmeserve:e2e_request_latency_seconds_bucket{le="+Inf"} 257
+acmeserve:e2e_request_latency_seconds_sum 11686.257402
+acmeserve:e2e_request_latency_seconds_count 257
+# HELP acmeserve:request_decode_time_seconds Seconds a finished request spent decoding, under vLLM's name.
+# TYPE acmeserve:request_decode_time_seconds histogram
+acmeserve:request_decode_time_seconds_bucket{le="0.01"} 27
+acmeserve:request_decode_time_seconds_bucket{le="0.05"} 42
+acmeserve:request_decode_time_seconds_bucket{le="0.1"} 44
+acmeserve:request_decode_time_seconds_bucket{le="0.25"} 44
+acmeserve:request_decode_time_seconds_bucket{le="0.5"} 48
+acmeserve:request_decode_time_seconds_bucket{le="1"} 50
+acmeserve:request_decode_time_seconds_bucket{le="2.5"} 50
+acmeserve:request_decode_time_seconds_bucket{le="5"} 50
+acmeserve:request_decode_time_seconds_bucket{le="10"} 51
+acmeserve:request_decode_time_seconds_bucket{le="30"} 89
+acmeserve:request_decode_time_seconds_bucket{le="60"} 167
+acmeserve:request_decode_time_seconds_bucket{le="120"} 257
+acmeserve:request_decode_time_seconds_bucket{le="300"} 257
+acmeserve:request_decode_time_seconds_bucket{le="+Inf"} 257
+acmeserve:request_decode_time_seconds_sum 10065.032876
+acmeserve:request_decode_time_seconds_count 257
+# HELP acmeserve:request_prefill_time_seconds Seconds a finished request's prompt pass took, under vLLM's name.
+# TYPE acmeserve:request_prefill_time_seconds histogram
+acmeserve:request_prefill_time_seconds_bucket{le="0.01"} 0
+acmeserve:request_prefill_time_seconds_bucket{le="0.05"} 0
+acmeserve:request_prefill_time_seconds_bucket{le="0.1"} 0
+acmeserve:request_prefill_time_seconds_bucket{le="0.25"} 91
+acmeserve:request_prefill_time_seconds_bucket{le="0.5"} 124
+acmeserve:request_prefill_time_seconds_bucket{le="1"} 183
+acmeserve:request_prefill_time_seconds_bucket{le="2.5"} 215
+acmeserve:request_prefill_time_seconds_bucket{le="5"} 247
+acmeserve:request_prefill_time_seconds_bucket{le="10"} 253
+acmeserve:request_prefill_time_seconds_bucket{le="30"} 255
+acmeserve:request_prefill_time_seconds_bucket{le="60"} 256
+acmeserve:request_prefill_time_seconds_bucket{le="120"} 256
+acmeserve:request_prefill_time_seconds_bucket{le="300"} 256
+acmeserve:request_prefill_time_seconds_bucket{le="+Inf"} 257
+acmeserve:request_prefill_time_seconds_sum 1592.889978
+acmeserve:request_prefill_time_seconds_count 257
+# HELP acmeserve:client_disconnections_total Requests a client left before the reply left the server.
+# TYPE acmeserve:client_disconnections_total counter
+acmeserve:client_disconnections_total 0
+# HELP acmeserve:preemptions_total Requests that had to give a lane up to a later one.
+# TYPE acmeserve:preemptions_total counter
+acmeserve:preemptions_total 0
+# HELP acmeserve:server_info This server: its served model, backend, release and process instance; always 1.
+# TYPE acmeserve:server_info gauge
+acmeserve:server_info{model="example-model",backend="cuda",version="1.2.5",instance="0123456789abcdef0123456789abcdef"} 1
+# HELP acmeserve:process_start_time_seconds Unix time the server process started.
+# TYPE acmeserve:process_start_time_seconds gauge
+acmeserve:process_start_time_seconds 1794251153
+# HELP acmeserve:engine_parked 1 while the idle unload has closed the engine: no engine value is shown then.
+# TYPE acmeserve:engine_parked gauge
+acmeserve:engine_parked 0
+# HELP acmeserve:lanes Lanes the engine serves at once.
+# TYPE acmeserve:lanes gauge
+acmeserve:lanes 8
+# HELP acmeserve:http_requests_active Model requests from the end of their headers to the end of their reply, by route group.
+# TYPE acmeserve:http_requests_active gauge
+acmeserve:http_requests_active{route="chat_completions"} 0
+acmeserve:http_requests_active{route="completions"} 0
+acmeserve:http_requests_active{route="responses"} 0
+acmeserve:http_requests_active{route="messages"} 0
+acmeserve:http_requests_active{route="embeddings"} 0
+acmeserve:http_requests_active{route="speech"} 0
+acmeserve:http_requests_active{route="other"} 0
+# HELP acmeserve:waiting_prompt_tokens Prompt tokens of the queued requests, before any kept prefix restores part of them.
+# TYPE acmeserve:waiting_prompt_tokens gauge
+acmeserve:waiting_prompt_tokens 0
+# HELP acmeserve:filling_prompt_tokens_left Prompt tokens still to prefill in the foreground passes filling now.
+# TYPE acmeserve:filling_prompt_tokens_left gauge
+acmeserve:filling_prompt_tokens_left 0
+# HELP acmeserve:requests_started_total Requests the engine accepted into its queue.
+# TYPE acmeserve:requests_started_total counter
+acmeserve:requests_started_total 257
+# HELP acmeserve:requests_requeued_total Admitted requests that lost their lane for memory before a first token and queued again.
+# TYPE acmeserve:requests_requeued_total counter
+acmeserve:requests_requeued_total 0
+# HELP acmeserve:background_yields_total Background prompt passes that gave their lane up because foreground work arrived.
+# TYPE acmeserve:background_yields_total counter
+acmeserve:background_yields_total 0
+# HELP acmeserve:scheduler_tokens_total Tokens the engine computed, restored or committed, by mode, as the work happened.
+# TYPE acmeserve:scheduler_tokens_total counter
+acmeserve:scheduler_tokens_total{mode="prefill_compute"} 1235098
+acmeserve:scheduler_tokens_total{mode="prefill_cache"} 8192
+acmeserve:scheduler_tokens_total{mode="decode"} 102577
+# HELP acmeserve:prefill_busy_seconds_total Engine seconds in prompt calls whose work was counted in prefill_compute.
+# TYPE acmeserve:prefill_busy_seconds_total counter
+acmeserve:prefill_busy_seconds_total 1528.830601035
+# HELP acmeserve:kv_capacity_mode How the engine holds KV state: a window a lane, one page pool, or both; always 1.
+# TYPE acmeserve:kv_capacity_mode gauge
+acmeserve:kv_capacity_mode{mode="paged"} 1
+# HELP acmeserve:lanes_free Lanes with no admitted request.
+# TYPE acmeserve:lanes_free gauge
+acmeserve:lanes_free 8
+# HELP acmeserve:kv_pool_capacity_tokens Tokens the page pool holds, at page granularity.
+# TYPE acmeserve:kv_pool_capacity_tokens gauge
+acmeserve:kv_pool_capacity_tokens{pool="main"} 1185280
+# HELP acmeserve:kv_pool_available_tokens Tokens of free pages not promised to a stream.
+# TYPE acmeserve:kv_pool_available_tokens gauge
+acmeserve:kv_pool_available_tokens{pool="main"} 138752
+# HELP acmeserve:kv_pool_reclaimable_tokens Tokens of pages only the prompt store holds, which eviction can free.
+# TYPE acmeserve:kv_pool_reclaimable_tokens gauge
+acmeserve:kv_pool_reclaimable_tokens{pool="main"} 1046528
+# HELP acmeserve:kv_pool_promised_tokens Tokens of pages reserved for a stream and not yet taken.
+# TYPE acmeserve:kv_pool_promised_tokens gauge
+acmeserve:kv_pool_promised_tokens{pool="main"} 0
