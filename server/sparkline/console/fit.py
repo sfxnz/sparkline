@@ -34,18 +34,37 @@ _REPO_PART = r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}"
 REPO_ID_PATTERN = rf"^{_REPO_PART}/{_REPO_PART}$"
 
 
-class ModelFacts(BaseModel):
+class ModelShape(BaseModel):
+    """What sizes the KV cache. A lookup reads it from ``config.json``."""
+
     # Strict, so that JSON true is not read as 1 byte or 1 layer.
     model_config = ConfigDict(strict=True)
 
-    repo: str | None = None  # set when the facts came from a lookup
-    # The size of the weight files a server loads. A parameter count cannot give it: a quantised repo keeps
-    # some layers at 16 bits, and Hugging Face counts packed 4-bit weights as the weights they unpack to.
-    weights_bytes: int = Field(gt=0)
     num_layers: int = Field(gt=0)
     num_kv_heads: int = Field(gt=0)
     head_dim: int = Field(gt=0)
     max_context: int | None = Field(default=None, gt=0)
+
+
+class ModelFacts(ModelShape):
+    repo: str | None = None  # set when the facts came from a lookup
+    # The size of the weight files a server loads. A parameter count cannot give it: a quantised repo keeps
+    # some layers at 16 bits, and Hugging Face counts packed 4-bit weights as the weights they unpack to.
+    weights_bytes: int = Field(gt=0)
+
+
+class Found(BaseModel):
+    """The part of the facts a refused lookup still read. The page fills it in and asks for the rest."""
+
+    weights_bytes: int | None = None
+    shape: ModelShape | None = None
+
+
+class LookupFailure(BaseModel):
+    """The body of a refused lookup."""
+
+    problem: Problem
+    found: Found = Found()
 
 
 class Estimate(BaseModel):
@@ -270,7 +289,7 @@ def _index_too_large(repo: RepoId, sizes: dict[str, int]) -> Problem:
         f"The weight index of {repo} is too large for the lookup to read",
         f"{INDEX_FILE} is {sizes[INDEX_FILE] / 2**20:.1f} MiB and the lookup reads at most "
         f"{MAX_RESPONSE_BYTES / 2**20:.1f} MiB of an answer, so it cannot tell which files a server loads",
-        f"{MANUAL_FIX}. The weights are at most {at_most} GB, the total of the repo's {len(files)} "
+        f"{MANUAL_FIX}: the weights are at most {at_most} GB, the total of the repo's {len(files)} "
         ".safetensors files",
     )
 
@@ -283,8 +302,8 @@ _SHAPE_KEYS = {
 }
 
 
-def parse_facts(repo: RepoId, weights: int, config: object) -> ModelFacts | Problem:
-    """The size of the repo's weights and its ``config.json`` as decoded JSON."""
+def parse_shape(repo: RepoId, config: object) -> ModelShape | Problem:
+    """The model's shape, from the repo's ``config.json`` as decoded JSON."""
     if not isinstance(config, dict):
         return _problem(f"The config.json of {repo} is not a JSON object", f"It is a {type(config).__name__}")
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
@@ -292,10 +311,8 @@ def parse_facts(repo: RepoId, weights: int, config: object) -> ModelFacts | Prob
     if head_dim is None and isinstance(heads, int) and isinstance(hidden, int) and heads > 0:
         head_dim = hidden // heads
     try:
-        return ModelFacts.model_validate(
+        return ModelShape.model_validate(
             {
-                "repo": repo,
-                "weights_bytes": weights,
                 "num_layers": config.get("num_hidden_layers"),
                 "num_kv_heads": config.get("num_key_value_heads", heads),
                 "head_dim": head_dim,
@@ -361,8 +378,8 @@ async def _get_hf_json(
     return _problem("Hugging Face kept redirecting the lookup", f"More than {MAX_REDIRECTS} redirects")
 
 
-async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | Problem:
-    """Read the size of a public repo's weights and its architecture."""
+async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | LookupFailure:
+    """Read the size of a public repo's weights and its shape. Each is read even when the other is not."""
     # Hugging Face answers 401 for a repo that does not exist and for a private one alike.
     absent = _problem(
         f"Hugging Face has no public model {repo}",
@@ -375,10 +392,10 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | P
         client, f"/api/models/{repo}?expand[]=siblings&blobs=true", {401: absent, 403: absent, 404: absent}
     )
     if isinstance(info, Problem):
-        return info
+        return LookupFailure(problem=info)
     sizes = file_sizes(repo, info.value)
     if isinstance(sizes, Problem):
-        return sizes
+        return LookupFailure(problem=sizes)
     gated = _problem(
         f"{repo} is gated on Hugging Face",
         "Its files are only served to accounts that accepted the model's terms",
@@ -392,12 +409,16 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | P
     else:
         index = await _get_hf_json(client, f"/{repo}/resolve/main/{INDEX_FILE}", {401: gated, 403: gated})
         weights = index if isinstance(index, Problem) else indexed_weights(repo, sizes, index.value)
-    if isinstance(weights, Problem):
-        return weights
     no_config = _problem(f"{repo} has no config.json", "The estimator reads the model's shape from it")
     config = await _get_hf_json(
         client, f"/{repo}/resolve/main/config.json", {401: gated, 403: gated, 404: no_config}
     )
-    if isinstance(config, Problem):
-        return config
-    return parse_facts(repo, weights, config.value)
+    shape = config if isinstance(config, Problem) else parse_shape(repo, config.value)
+    found = Found(
+        weights_bytes=None if isinstance(weights, Problem) else weights,
+        shape=None if isinstance(shape, Problem) else shape,
+    )
+    if found.weights_bytes is not None and found.shape is not None:
+        return ModelFacts(repo=repo, weights_bytes=found.weights_bytes, **found.shape.model_dump())
+    problems = [part for part in (weights, shape) if isinstance(part, Problem)]
+    return LookupFailure(problem=problems[0], found=found)

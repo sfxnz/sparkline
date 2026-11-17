@@ -46,7 +46,16 @@ from .config import ConsoleConfig
 from .demo import DemoSource, demo_history
 from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
-from .fit import FitRequest, FitResponse, ModelFacts, estimate, fetch_facts, node_fit, parse_repo_id
+from .fit import (
+    FitRequest,
+    FitResponse,
+    LookupFailure,
+    ModelFacts,
+    estimate,
+    fetch_facts,
+    node_fit,
+    parse_repo_id,
+)
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
 from .store import SESSION_TTL_S, Store
@@ -558,8 +567,8 @@ def create_app(
                 await ws.close(code=1008)
 
     # -- will it fit ----------------------------------------------------------------------------------
-    @app.get("/api/v1/fit/lookup", dependencies=Auth)
-    async def fit_lookup(repo: str) -> ModelFacts:
+    @app.get("/api/v1/fit/lookup", dependencies=Auth, response_model=ModelFacts)
+    async def fit_lookup(repo: str) -> ModelFacts | JSONResponse:
         if not cfg.hf_lookup:
             raise ProblemError(
                 403,
@@ -576,8 +585,8 @@ def create_app(
                 "Correct the repo id, or enter the model facts by hand",
             )
         facts = await fetch_facts(http["c"], repo_id)
-        if isinstance(facts, Problem):
-            raise ProblemError(502, "", problem=facts)
+        if isinstance(facts, LookupFailure):
+            return JSONResponse(facts.model_dump(), status_code=502)
         return facts
 
     @app.post("/api/v1/fit/estimate", dependencies=Auth)

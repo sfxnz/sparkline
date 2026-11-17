@@ -498,15 +498,25 @@ export type WsMessage =
 
 export type KvDtype = 'fp16' | 'bf16' | 'fp8';
 
-export interface ModelFacts {
-  /** Set when the facts came from a Hugging Face lookup. */
-  repo: string | null;
-  /** From a lookup, the size of the repo's safetensors weight files. */
-  weights_bytes: number;
+/** What sizes the KV cache. A lookup reads it from config.json. */
+export interface ModelShape {
   num_layers: number;
   num_kv_heads: number;
   head_dim: number;
   max_context: number | null;
+}
+
+export interface ModelFacts extends ModelShape {
+  /** Set when the facts came from a Hugging Face lookup. */
+  repo: string | null;
+  /** The size of the weight files a server loads. */
+  weights_bytes: number;
+}
+
+/** The part of the facts a refused lookup still read, sent beside its problem. */
+export interface LookupFound {
+  weights_bytes: number | null;
+  shape: ModelShape | null;
 }
 
 export interface FitEstimate {

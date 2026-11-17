@@ -1,12 +1,10 @@
 import type { Status } from '../../design/components/StatusPill';
 import { DASH, formatBytes } from '../../lib/format';
-import type { FitEstimate, FitRequest, FitVerdict, KvDtype, ModelFacts, NodeBudget, NodeFit } from '../../lib/types';
+import { ApiError } from '../../lib/api';
+import type { FitEstimate, FitRequest, FitVerdict, KvDtype, LookupFound, NodeBudget, NodeFit } from '../../lib/types';
 
-/** The units a size is typed in. The two differ by 7 %, so each says where its numbers come from. */
-export const SIZE_UNITS = {
-  GB: { bytes: 1e9, label: 'GB (Hugging Face)' },
-  GiB: { bytes: 2 ** 30, label: 'GiB (du -h)' },
-} as const;
+/** Bytes in the units a size is typed in: GB as the Files tab of a Hugging Face repo lists sizes, GiB as this page shows them. */
+export const SIZE_UNITS = { GB: 1e9, GiB: 2 ** 30 } as const;
 export type SizeUnit = keyof typeof SIZE_UNITS;
 
 export const KV_DTYPES: readonly { value: KvDtype; label: string }[] = [
@@ -36,8 +34,8 @@ export interface Draft {
   headDim: string;
   context: string;
   kvDtype: KvDtype;
-  /** The lookup the model facts came from. Null once a fact is edited or when they were typed by hand. */
-  source: { repo: string; maxContext: number | null } | null;
+  /** The lookup the model facts came from, all of them or only a part. Null once a fact is edited or when they were typed by hand. */
+  source: { repo: string; maxContext: number | null; complete: boolean } | null;
 }
 
 export const EMPTY_DRAFT: Draft = {
@@ -51,15 +49,30 @@ export const EMPTY_DRAFT: Draft = {
   source: null,
 };
 
-export function fromFacts(draft: Draft, facts: ModelFacts): Draft {
+const EMPTY_SHAPE = { layers: EMPTY_DRAFT.layers, kvHeads: EMPTY_DRAFT.kvHeads, headDim: EMPTY_DRAFT.headDim };
+
+/**
+ * Fill the form with what a lookup of `repo` read. The part it could not read is emptied if an earlier lookup
+ * filled it, so one repo's size never sits beside another repo's shape. What was typed by hand stays.
+ */
+export function fromLookup(draft: Draft, repo: string, { weights_bytes: bytes, shape }: LookupFound): Draft {
+  if (bytes === null && shape === null) return draft;
   return {
     ...draft,
-    weights: { kind: 'files', bytes: facts.weights_bytes },
-    layers: String(facts.num_layers),
-    kvHeads: String(facts.num_kv_heads),
-    headDim: String(facts.head_dim),
-    source: facts.repo ? { repo: facts.repo, maxContext: facts.max_context } : null,
+    weights: bytes !== null ? { kind: 'files', bytes } : draft.weights.kind === 'files' ? EMPTY_DRAFT.weights : draft.weights,
+    ...(shape ? { layers: String(shape.num_layers), kvHeads: String(shape.num_kv_heads), headDim: String(shape.head_dim) } : draft.source ? EMPTY_SHAPE : {}),
+    source: { repo, maxContext: shape?.max_context ?? null, complete: bytes !== null && shape !== null },
   };
+}
+
+/** What a refused lookup still read, from the body of its error. */
+export function foundOf(err: unknown): LookupFound | null {
+  if (!(err instanceof ApiError)) return null;
+  try {
+    return (JSON.parse(err.body) as { found?: LookupFound }).found ?? null;
+  } catch {
+    return null;
+  }
 }
 
 const SUFFIX: Record<string, number> = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 };
@@ -76,7 +89,7 @@ export function parseCount(text: string): number | null {
 export function parseSize(text: string, unit: SizeUnit): number | null {
   const t = text.trim();
   if (!/^\d+(\.\d+)?$/.test(t)) return null;
-  const bytes = Math.round(Number(t) * SIZE_UNITS[unit].bytes);
+  const bytes = Math.round(Number(t) * SIZE_UNITS[unit]);
   return bytes > 0 && Number.isSafeInteger(bytes) ? bytes : null;
 }
 
@@ -94,7 +107,7 @@ export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { o
   if (w.kind === 'typed' && typed === null) errors.size = 'Enter a size above 0, for example 9.98';
   const request: FitRequest = {
     facts: {
-      repo: draft.source?.repo ?? null,
+      repo: draft.source?.complete ? draft.source.repo : null,
       weights_bytes: w.kind === 'files' ? w.bytes : (typed ?? 0),
       num_layers: need('layers', draft.layers),
       num_kv_heads: need('kvHeads', draft.kvHeads),

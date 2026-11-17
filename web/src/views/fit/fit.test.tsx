@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FitRequest, FitResponse, ModelFacts } from '../../lib/types';
 import Fit from '../Fit';
-import { EMPTY_DRAFT, fromFacts, parseCount, parseSize, toRequest } from './model';
+import { EMPTY_DRAFT, fromLookup, parseCount, parseSize, toRequest } from './model';
 
 const GIB = 1024 ** 3;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -257,7 +257,7 @@ describe('fit form model', () => {
 
   it('sends the size a lookup found as it came', () => {
     const facts = { ...QWEN, weights_bytes: 5_570_829_761 };
-    const parsed = toRequest(fromFacts(EMPTY_DRAFT, facts));
+    const parsed = toRequest(fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { weights_bytes: facts.weights_bytes, shape: facts }));
     expect(parsed.ok && parsed.request.facts).toEqual(facts);
   });
 
@@ -269,7 +269,7 @@ describe('fit form model', () => {
   });
 
   it('sends a typed size as bytes', () => {
-    const parsed = toRequest({ ...fromFacts(EMPTY_DRAFT, QWEN), weights: { kind: 'typed', size: '39.77', unit: 'GB' } });
+    const parsed = toRequest({ ...fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { weights_bytes: null, shape: QWEN }), weights: { kind: 'typed', size: '39.77', unit: 'GB' } });
     expect(parsed.ok && parsed.request.facts.weights_bytes).toBe(39_770_000_000);
   });
 });

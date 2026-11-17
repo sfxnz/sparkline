@@ -292,7 +292,7 @@ def test_weights_the_index_names_outside_the_usual_file_names_are_counted(sizes,
 async def test_an_index_too_large_to_read_is_refused_without_asking_for_it():
     shards = {f"model-0000{i}-of-00003.safetensors": 4_000_000_000 for i in (1, 2, 3)}
     hf = FakeHuggingFace(public_repo(info=repo_files({INDEX: fit.MAX_RESPONSE_BYTES + 1, **shards})))
-    problem = await hf.lookup()
+    problem = (await hf.lookup()).problem
     assert "too large" in problem.message
     assert "1.0 MiB" in problem.cause and "which files a server loads" in problem.cause
     assert "by hand" in problem.fix and "at most 12.0 GB" in problem.fix
@@ -373,7 +373,7 @@ def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
     ],
 )
 async def test_each_lookup_failure_is_a_problem_that_says_to_enter_the_facts_by_hand(routes, message):
-    problem = await FakeHuggingFace(routes).lookup()
+    problem = (await FakeHuggingFace(routes).lookup()).problem
     assert message in problem.message
     assert "nter the model facts by hand" in problem.fix
     assert "Input should be" not in problem.cause and "Field required" not in problem.cause
@@ -438,11 +438,13 @@ def test_lookup_route_sends_the_part_a_refused_lookup_read(tmp_path, hf):
 
 
 async def test_a_rate_limit_says_to_try_again_later():
-    assert "Try again in a few minutes" in (await FakeHuggingFace(refused(INFO_PATH, 429)).lookup()).fix
+    assert (
+        "Try again in a few minutes" in (await FakeHuggingFace(refused(INFO_PATH, 429)).lookup()).problem.fix
+    )
 
 
 async def test_a_config_without_the_model_shape_names_the_keys_it_lacks():
-    problem = await FakeHuggingFace(public_repo(config={"num_attention_heads": 16})).lookup()
+    problem = (await FakeHuggingFace(public_repo(config={"num_attention_heads": 16})).lookup()).problem
     assert "num_hidden_layers" in problem.cause and "head_dim, or hidden_size" in problem.cause
     assert "num_key_value_heads" not in problem.cause
 
@@ -453,14 +455,14 @@ async def test_a_config_without_the_model_shape_names_the_keys_it_lacks():
 )
 async def test_lookup_never_follows_a_redirect_off_huggingface_co(location):
     hf = FakeHuggingFace({**public_repo(), CONFIG_PATH: httpx.Response(302, headers={"location": location})})
-    problem = await hf.lookup()
+    problem = (await hf.lookup()).problem
     assert "another host" in problem.message
     assert set(hf.hosts) == {"https://huggingface.co"}
 
 
 async def test_lookup_gives_up_on_a_redirect_loop():
     hf = FakeHuggingFace({INFO_PATH: httpx.Response(307, headers={"location": INFO_PATH})})
-    assert "kept redirecting" in (await hf.lookup()).message
+    assert "kept redirecting" in (await hf.lookup()).problem.message
     assert len(hf.hosts) == fit.MAX_REDIRECTS + 1
 
 

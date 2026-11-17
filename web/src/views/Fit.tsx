@@ -10,7 +10,7 @@ import type { FitRequest, FitResponse, KvDtype, NodeFit, Problem } from '../lib/
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
-import { budgetText, EMPTY_DRAFT, fromFacts, hasNvidiaUnifiedMemory, KV_DTYPES, rangeText, SIZE_UNITS, toRequest, VERDICTS, type Draft, type SizeUnit } from './fit/model';
+import { budgetText, EMPTY_DRAFT, foundOf, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, rangeText, SIZE_UNITS, toRequest, VERDICTS, type Draft, type SizeUnit } from './fit/model';
 import './fit/fit.css';
 import './views.css';
 
@@ -36,9 +36,11 @@ export default function Fit() {
     setLookup({ status: 'loading' });
     try {
       const facts = await api.fitLookup(repo);
-      setDraft((d) => fromFacts(d, facts));
+      setDraft((d) => fromLookup(d, repo, { weights_bytes: facts.weights_bytes, shape: facts }));
       setLookup({ status: 'done' });
     } catch (e) {
+      const found = foundOf(e);
+      if (found) setDraft((d) => fromLookup(d, repo, found));
       setLookup({ status: 'error', problem: problemOf(e, 'look up the model') });
     }
   };
@@ -80,7 +82,7 @@ export default function Fit() {
                 {lookup.status === 'loading' ? 'Looking up…' : 'Look up'}
               </Button>
             </div>
-            <p className="fit-note" role="status">{draft.source ? `Filled in from ${draft.source.repo}.` : null}</p>
+            <p className="fit-note" role="status">{draft.source ? `${draft.source.complete ? 'Filled in' : 'Partly filled in'} from ${draft.source.repo}.` : null}</p>
           </Field>
           {lookup.status === 'error' ? <div className="fit-wide"><ProblemBanner problem={lookup.problem} /></div> : null}
 
@@ -100,7 +102,7 @@ export default function Fit() {
               <div className="fit-weights">
                 <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { editFact({ weights: { ...weights, size } }); }} error={errors.size} width="9rem" />
                 <Select aria-label="Unit of the size" value={weights.unit} onChange={(e) => { editFact({ weights: { ...weights, unit: e.target.value as SizeUnit } }); }}>
-                  {Object.entries(SIZE_UNITS).map(([unit, { label }]) => <option key={unit} value={unit}>{label}</option>)}
+                  {Object.keys(SIZE_UNITS).map((unit) => <option key={unit} value={unit}>{unit}</option>)}
                 </Select>
               </div>
             </Field>
