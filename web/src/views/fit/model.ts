@@ -2,12 +2,12 @@ import type { Status } from '../../design/components/StatusPill';
 import { DASH, formatBytes } from '../../lib/format';
 import type { FitEstimate, FitRequest, FitVerdict, KvDtype, ModelFacts, NodeBudget, NodeFit } from '../../lib/types';
 
-export const WEIGHT_BITS: readonly { value: number; label: string }[] = [
-  { value: 32, label: '32-bit (F32)' },
-  { value: 16, label: '16-bit (BF16, F16)' },
-  { value: 8, label: '8-bit (FP8, INT8)' },
-  { value: 4, label: '4-bit (AWQ, GPTQ, bitsandbytes)' },
-];
+/** The units a size is typed in. The two differ by 7 %, so each says where its numbers come from. */
+export const SIZE_UNITS = {
+  GB: { bytes: 1e9, label: 'GB (Hugging Face)' },
+  GiB: { bytes: 2 ** 30, label: 'GiB (du -h)' },
+} as const;
+export type SizeUnit = keyof typeof SIZE_UNITS;
 
 export const KV_DTYPES: readonly { value: KvDtype; label: string }[] = [
   { value: 'bf16', label: 'bf16 (2 bytes)' },
@@ -22,8 +22,11 @@ export const VERDICTS: Record<FitVerdict, { status: Status; label: string }> = {
   unknown: { status: 'unknown', label: 'Unknown' },
 };
 
-/** A lookup knows the size of the repo's weight files. By hand it is a parameter count and the bits each one is stored in. */
-type DraftWeights = { kind: 'files'; bytes: number } | { kind: 'params'; count: string; bits: number };
+/**
+ * The size of the model's weight files, read by a lookup or typed. A parameter count is not taken: a quantised
+ * model keeps some layers at 16 bits, so its files are larger than its count times its bits.
+ */
+type DraftWeights = { kind: 'files'; bytes: number } | { kind: 'typed'; size: string; unit: SizeUnit };
 
 export interface Draft {
   repo: string;
@@ -39,7 +42,7 @@ export interface Draft {
 
 export const EMPTY_DRAFT: Draft = {
   repo: '',
-  weights: { kind: 'params', count: '', bits: 16 },
+  weights: { kind: 'typed', size: '', unit: 'GB' },
   layers: '',
   kvHeads: '',
   headDim: '',
@@ -69,7 +72,15 @@ export function parseCount(text: string): number | null {
   return n > 0 && Number.isSafeInteger(n) ? n : null;
 }
 
-export type DraftErrors = Partial<Record<'layers' | 'kvHeads' | 'headDim' | 'context' | 'count', string>>;
+/** A size as typed, in bytes: a plain number above 0 such as "9.98". A unit in the text is refused, so it cannot disagree with the one chosen. */
+export function parseSize(text: string, unit: SizeUnit): number | null {
+  const t = text.trim();
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  const bytes = Math.round(Number(t) * SIZE_UNITS[unit].bytes);
+  return bytes > 0 && Number.isSafeInteger(bytes) ? bytes : null;
+}
+
+export type DraftErrors = Partial<Record<'layers' | 'kvHeads' | 'headDim' | 'context' | 'size', string>>;
 
 export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { ok: false; errors: DraftErrors } {
   const errors: DraftErrors = {};
@@ -79,10 +90,12 @@ export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { o
     return n ?? 0;
   };
   const w = draft.weights;
+  const typed = w.kind === 'typed' ? parseSize(w.size, w.unit) : null;
+  if (w.kind === 'typed' && typed === null) errors.size = 'Enter a size above 0, for example 9.98';
   const request: FitRequest = {
     facts: {
       repo: draft.source?.repo ?? null,
-      weights_bytes: w.kind === 'files' ? w.bytes : Math.ceil((need('count', w.count) * w.bits) / 8),
+      weights_bytes: w.kind === 'files' ? w.bytes : (typed ?? 0),
       num_layers: need('layers', draft.layers),
       num_kv_heads: need('kvHeads', draft.kvHeads),
       head_dim: need('headDim', draft.headDim),

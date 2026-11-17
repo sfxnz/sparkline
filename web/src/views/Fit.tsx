@@ -10,11 +10,11 @@ import type { FitRequest, FitResponse, KvDtype, NodeFit, Problem } from '../lib/
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
-import { budgetText, EMPTY_DRAFT, fromFacts, hasNvidiaUnifiedMemory, KV_DTYPES, rangeText, toRequest, VERDICTS, WEIGHT_BITS, type Draft } from './fit/model';
+import { budgetText, EMPTY_DRAFT, fromFacts, hasNvidiaUnifiedMemory, KV_DTYPES, rangeText, SIZE_UNITS, toRequest, VERDICTS, type Draft, type SizeUnit } from './fit/model';
 import './fit/fit.css';
 import './views.css';
 
-type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; repo: string };
+type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done' };
 type Run = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; request: FitRequest; response: FitResponse };
 
 export default function Fit() {
@@ -37,7 +37,7 @@ export default function Fit() {
     try {
       const facts = await api.fitLookup(repo);
       setDraft((d) => fromFacts(d, facts));
-      setLookup({ status: 'done', repo: facts.repo ?? repo });
+      setLookup({ status: 'done' });
     } catch (e) {
       setLookup({ status: 'error', problem: problemOf(e, 'look up the model') });
     }
@@ -80,27 +80,27 @@ export default function Fit() {
                 {lookup.status === 'loading' ? 'Looking up…' : 'Look up'}
               </Button>
             </div>
-            <p className="fit-note" role="status">{lookup.status === 'done' ? `Filled in from ${lookup.repo}.` : null}</p>
+            <p className="fit-note" role="status">{draft.source ? `Filled in from ${draft.source.repo}.` : null}</p>
           </Field>
           {lookup.status === 'error' ? <div className="fit-wide"><ProblemBanner problem={lookup.problem} /></div> : null}
 
           {weights.kind === 'files' ? (
-            <Field id="fit-weights" label="Weights" hint="The size of the repo's safetensors weight files, so quantised weights count as they are stored.">
+            <Field id="fit-weights" label="Weights" hint="The size of the weight files a server loads from this repo, so quantised weights count as they are stored.">
               <div className="fit-weights fit-weights--files">
                 <output id="fit-weights" className="num" aria-describedby="fit-weights-hint">{formatBytes(weights.bytes)}</output>
-                <Button size="sm" onClick={() => { editFact({ weights: EMPTY_DRAFT.weights }); }}>Enter a parameter count</Button>
+                <Button size="sm" onClick={() => { editFact({ weights: EMPTY_DRAFT.weights }); }}>Enter a size</Button>
               </div>
             </Field>
           ) : (
             <Field
-              id="fit-count"
-              label="Parameters"
-              hint={`A count such as 8190735360 or 8.19B, and the bits each weight is stored in.${weights.bits < 16 ? ' A quantised repo keeps some layers at 16 bits, so its files are larger than this.' : ''}`}
+              id="fit-size"
+              label="Weights"
+              hint="The total size of the model's weight files. On Hugging Face, add up the .safetensors files on the repo's Files tab, which lists them in GB. A parameter count gives too little for a quantised model."
             >
               <div className="fit-weights">
-                <NumberField id="fit-count" describedBy="fit-count-hint" value={weights.count} onChange={(count) => { editFact({ weights: { ...weights, count } }); }} error={errors.count} width="9rem" />
-                <Select aria-label="Bits per weight" value={weights.bits} onChange={(e) => { editFact({ weights: { ...weights, bits: Number(e.target.value) } }); }}>
-                  {WEIGHT_BITS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+                <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { editFact({ weights: { ...weights, size } }); }} error={errors.size} width="9rem" />
+                <Select aria-label="Unit of the size" value={weights.unit} onChange={(e) => { editFact({ weights: { ...weights, unit: e.target.value as SizeUnit } }); }}>
+                  {Object.entries(SIZE_UNITS).map(([unit, { label }]) => <option key={unit} value={unit}>{label}</option>)}
                 </Select>
               </div>
             </Field>
