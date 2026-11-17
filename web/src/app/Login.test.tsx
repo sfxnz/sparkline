@@ -28,11 +28,22 @@ describe('sign-in page', () => {
     show(true);
     expect(screen.getByRole('heading', { name: 'Welcome to Sparkline' })).toBeInTheDocument();
     expect(screen.getByText(/This console is new/)).toBeInTheDocument();
-    expect(screen.getByText('The installer printed it')).toBeInTheDocument();
     expect(screen.getByText(TOKEN_COMMAND)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Copy command' })).toBeInTheDocument();
     // The field is described by where the token is, so a screen reader hears it on focus.
-    expect(screen.getByLabelText('Console token')).toHaveAccessibleDescription(/The installer printed it/);
+    expect(screen.getByLabelText('Console token')).toHaveAccessibleDescription(/The token is on the console host\./);
+  });
+
+  it('says where the token is in words that hold however the console was installed', () => {
+    show(true);
+    const where = screen.getByText('The token is on the console host.').closest('p');
+    // With Docker Compose no installer ran and the token may be SPARKLINE_TOKEN; an installer whose output was
+    // not a terminal printed neither the token nor a link.
+    expect(where).toHaveTextContent(
+      'The token is on the console host. It is token in /etc/sparkline/console.toml, unless you set SPARKLINE_TOKEN yourself. '
+      + 'Run in a terminal, install.sh prints it too, with a link that signs you in without typing. This prints the one in the file:',
+    );
+    expect(where).not.toHaveTextContent(/printed it|its last lines|print it again/);
   });
 
   it('is the plain sign-in for a console someone has signed in to, with the same help one click away', async () => {

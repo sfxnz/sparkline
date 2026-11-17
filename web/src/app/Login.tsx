@@ -39,8 +39,9 @@ function WhereIsTheToken({ id }: { id?: string }) {
   return (
     <div className="login__where" id={id}>
       <p>
-        <strong>The installer printed it</strong> on its last lines, next to a link that signs you in without typing. To
-        print it again, run this on the console host:
+        <strong>The token is on the console host.</strong> It is <code>token</code> in <code>/etc/sparkline/console.toml</code>, unless
+        you set <code>SPARKLINE_TOKEN</code> yourself. Run in a terminal, <code>install.sh</code> prints it too, with a link that signs
+        you in without typing. This prints the one in the file:
       </p>
       <CommandLine text={TOKEN_COMMAND} compact />
     </div>
