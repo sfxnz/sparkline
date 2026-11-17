@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import time
+from collections.abc import Callable
 from importlib.metadata import version as pkg_version
 
 from pydantic import TypeAdapter
@@ -79,10 +80,18 @@ def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> li
 
 
 class Cluster:
-    def __init__(self, store: Store, hub: Hub, default_settings: ConsoleSettings, demo: bool = False):
+    def __init__(
+        self,
+        store: Store,
+        hub: Hub,
+        default_settings: ConsoleSettings,
+        demo: bool = False,
+        notify: Callable[[Event], None] = lambda ev: None,
+    ):
         self.store = store
         self.hub = hub
         self.demo = demo
+        self.notify = notify
         saved: ConsoleSettings | None = store.kv_read("settings", _saved_settings)
         self.settings = saved or default_settings
         metrics = _saved_rule_metrics(store, store.kv_read(RULE_METRICS_KEY, _METRICS.validate_python))
@@ -145,6 +154,7 @@ class Cluster:
     def add_event(self, ev: Event) -> Event:
         ev = self.store.add_event(ev)
         self.hub.broadcast({"type": "event", "event": ev.model_dump(mode="json")})
+        self.notify(ev)
         return ev
 
     def resolve_event(self, ev: Event, ts: float) -> None:

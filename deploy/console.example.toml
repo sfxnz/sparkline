@@ -20,6 +20,16 @@ agent_token = ""
 # offline_after_s = 30.0
 # regression_pct = 5.0
 
+# Alert notifications, one table per channel. kind: "ntfy", "discord", "slack" or "webhook".
+# The url is a credential: keep this file private. Reference: README.md, "Notifications".
+# [[notify]]
+# name = "phone"
+# kind = "ntfy"
+# url = "https://ntfy.sh/<your-topic>"
+# token = ""                  # ntfy and webhook only: sent as Authorization: Bearer
+# min_severity = "warning"    # "info", "warning" or "critical"
+# send_resolved = true        # also send when an alert clears
+
 [[nodes]]
 id = "spark1"
 url = "http://192.168.1.11:9750"   # the agent's LAN address

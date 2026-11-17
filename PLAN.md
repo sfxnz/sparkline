@@ -67,6 +67,7 @@ agent carries them. `README.md` documents installation.)
 | `GET /api/v1/history?node=&keys=a,b&from=&to=&points=600` → `HistoryResponse` | downsampled series (proxied to the agent) |
 | `GET /api/v1/live?node=&seconds=900` → `HistoryResponse` | the console's in-memory recent buffer (fast bootstrap) |
 | `GET/PUT /api/v1/alerts/rules`; `GET /api/v1/events?since=&limit=`; `POST /api/v1/events/{id}/ack` | alerts |
+| `GET /api/v1/notify/channels` → `NotifyChannelStatus[]` (name, kind, host, last delivery; never a URL or token); `POST /api/v1/notify/channels/{name}/test` → `NotifyChannelStatus` (200 with the failure in `last` when the test is not delivered) | notification channels from `[[notify]]` in `console.toml` |
 | `GET /api/v1/settings`, `PUT /api/v1/settings` (energy rate and currency, stale/offline thresholds, regression %) | settings |
 | `DELETE /api/v1/history?node=` (body `{confirm:"DELETE"}`) | clear history |
 | `GET /api/v1/bench/catalog`; `GET/POST /api/v1/bench/runs`; `GET /api/v1/bench/runs/{id}`; `POST …/{id}/cancel`; `DELETE …/{id}`; `GET …/{id}/export?format=json\|csv`; `PUT /api/v1/bench/baselines/{bench_id}` `{run_id}`; `GET /api/v1/bench/compare?ids=` | benchmarks |

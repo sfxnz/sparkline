@@ -34,6 +34,7 @@ from ..common.schema import (
     Event,
     HistoryResponse,
     NodeState,
+    NotifyChannelStatus,
     Problem,
 )
 from ..common.schema import Severity as SeverityT
@@ -48,6 +49,7 @@ from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
+from .notify import Notifier, NotifierStopped
 from .prometheus import render
 from .store import SESSION_TTL_S, Store
 
@@ -157,7 +159,8 @@ def create_app(
     if store.bind_sessions_to_token(cfg.token):
         log.warning("The console token changed: signed out every existing session")
     hub = Hub()
-    cluster = Cluster(store, hub, cfg.settings, demo=demo)
+    notifier = Notifier(cfg.notify)
+    cluster = Cluster(store, hub, cfg.settings, demo=demo, notify=notifier.publish)
     if demo:
         t0 = time.time()
         for make in FLEETS[fleet].values():
@@ -184,6 +187,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         http["c"] = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0))
+        notifier.start()
         await cluster.start()
         await bench.start()
         try:
@@ -191,6 +195,7 @@ def create_app(
         finally:
             await bench.stop()
             await cluster.stop()
+            await notifier.stop()
             await http["c"].aclose()
             store.close()
 
@@ -529,6 +534,26 @@ def create_app(
             raise ProblemError(422, "Invalid settings", str(e), "Correct the value and save again") from None
         cluster.update_settings(s)
         return s
+
+    # -- notifications --------------------------------------------------------------------------------
+    @app.get("/api/v1/notify/channels", dependencies=Auth)
+    async def notify_channels() -> list[NotifyChannelStatus]:
+        return notifier.status()
+
+    @app.post("/api/v1/notify/channels/{name}/test", dependencies=Auth)
+    async def notify_test(name: str) -> NotifyChannelStatus:
+        """A test that could not be delivered is still 200: the outcome is the row's ``last``."""
+        try:
+            return await notifier.test(name)
+        except KeyError:
+            raise ProblemError(
+                404,
+                f"No notification channel {name!r}",
+                "It is not in the console configuration",
+                "Add it as a [[notify]] table in /etc/sparkline/console.toml and restart the console",
+            ) from None
+        except NotifierStopped:
+            raise ProblemError(503, "The console is shutting down", "", "Try again once it is back") from None
 
     # -- live stream ----------------------------------------------------------------------------------
     @app.websocket("/api/v1/stream")
