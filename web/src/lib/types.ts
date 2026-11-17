@@ -296,6 +296,25 @@ export interface NodeState {
   error: Problem | null;
   info: NodeInfo | null;
   next_retry_ts: number | null;
+  /** When this console first received a sample from the node. null: it has never answered (a new node). Absent
+   *  from consoles before 0.3.0, whose nodes all count as seen. */
+  first_seen?: number | null;
+}
+
+/** First-run state, one per console (kv row "onboarding"). */
+export interface Onboarding {
+  /** First successful sign-in on this console. null: nobody has signed in. */
+  started: number | null;
+  /** The getting-started guide was completed or dismissed. Set: it never opens by itself again. */
+  finished: number | null;
+  /** Ids of the guide items the person opened. Sorted, unique. Ids this build does not know are ignored. */
+  seen: string[];
+}
+
+/** PUT /api/v1/onboarding. Merge semantics: `seen` adds ids, `finished` true stamps it once and false clears it. */
+export interface OnboardingPatch {
+  seen?: string[];
+  finished?: boolean;
 }
 
 export interface ConsoleSettings {
@@ -312,6 +331,8 @@ export interface ClusterState {
   demo: boolean;
   version: string;
   server_time: number;
+  /** Absent from consoles before 0.3.0: such an install was set up long ago, so its guide counts as finished. */
+  onboarding?: Onboarding;
 }
 
 export type Severity = 'info' | 'warning' | 'critical';
@@ -550,6 +571,11 @@ export interface SettingsMessage {
   type: 'settings';
   settings: ConsoleSettings;
 }
+/** The first-run state changed (PUT /api/v1/onboarding), so two tabs agree. */
+export interface OnboardingMessage {
+  type: 'onboarding';
+  onboarding: Onboarding;
+}
 export interface PingMessage {
   type: 'ping';
   ts: number;
@@ -562,4 +588,5 @@ export type WsMessage =
   | EventMessage
   | BenchMessage
   | SettingsMessage
+  | OnboardingMessage
   | PingMessage;

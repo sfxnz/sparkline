@@ -1,5 +1,5 @@
 // REST client for the console. Same-origin (dev/preview proxy /api to the console); auth is an HttpOnly cookie.
-import type { AlertRule, AlertRulesStatus, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, HistoryResponse, NodeState, NotifyChannelStatus, Problem, RunStatus } from './types';
+import type { AlertRule, AlertRulesStatus, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, HistoryResponse, NodeState, NotifyChannelStatus, Onboarding, OnboardingPatch, Problem, RunStatus } from './types';
 
 export type ApiErrorKind = 'unauthorized' | 'unreachable' | 'server' | 'client';
 
@@ -52,8 +52,8 @@ const query = (params: Record<string, string>) => new URLSearchParams(params).to
 
 export const api = {
   /** Always 200 from this console: `authenticated: false` when signed out (older consoles answered 401, which
-   *  throws ApiError('unauthorized')). */
-  me: () => request<{ authenticated?: boolean; auth_required?: boolean; demo?: boolean }>('/api/v1/auth/me'),
+   *  throws ApiError('unauthorized')). `first_run`: nobody has signed in to this console yet. */
+  me: () => request<{ authenticated?: boolean; auth_required?: boolean; demo?: boolean; first_run?: boolean }>('/api/v1/auth/me'),
   login: (token: string) => request<unknown>('/api/v1/auth/login', json({ token })),
   logout: () => request<unknown>('/api/v1/auth/logout', { method: 'POST' }),
   /** Ask the console to reconnect to a node now instead of waiting for its backoff. */
@@ -80,6 +80,8 @@ export const api = {
   testNotify: (name: string) => request<NotifyChannelStatus>(`/api/v1/notify/channels/${encodeURIComponent(name)}/test`, { method: 'POST' }),
   settings: () => request<ConsoleSettings>('/api/v1/settings'),
   putSettings: (s: ConsoleSettings) => request<ConsoleSettings>('/api/v1/settings', json(s, 'PUT')),
+  /** Merge a patch into the console's first-run state. The same patch twice gives the same row. */
+  updateOnboarding: (patch: OnboardingPatch) => request<Onboarding>('/api/v1/onboarding', json(patch, 'PUT')),
   /** Irreversible: deletes the node's stored history (the console requires the explicit confirm body). */
   clearHistory: (node: string) =>
     request<{ ok: boolean; demo?: boolean }>(`/api/v1/history?${query({ node })}`, json({ confirm: 'DELETE' }, 'DELETE')),

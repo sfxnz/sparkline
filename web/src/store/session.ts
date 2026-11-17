@@ -1,4 +1,5 @@
 // Bootstrap: auth check -> WebSocket -> dispatch messages into the stores.
+import { create } from 'zustand';
 import { ApiError, api, streamUrl } from '../lib/api';
 import { ReconnectingSocket, type AuthResult } from '../lib/ws';
 import type { WsMessage } from '../lib/types';
@@ -10,9 +11,13 @@ import { MAX_EVENTS, mergeEvents, useEvents } from './events';
 import { historyCache, seedLive } from './history';
 import { liveStore } from './live';
 
+/** What /auth/me last said about this console. `firstRun`: nobody has signed in to it yet. */
+export const useAuthInfo = create<{ firstRun: boolean }>()(() => ({ firstRun: false }));
+
 export async function checkAuth(): Promise<AuthResult> {
   try {
     const me = await api.me();
+    useAuthInfo.setState({ firstRun: me.first_run === true });
     return me.authenticated === false ? 'unauthorized' : 'ok';
   } catch (e) {
     if (e instanceof ApiError) return e.kind === 'unauthorized' ? 'unauthorized' : e.kind === 'unreachable' ? 'unreachable' : 'server';
@@ -49,6 +54,9 @@ export function dispatch(msg: WsMessage): void {
       break;
     case 'settings':
       useCluster.getState().setSettings(msg.settings);
+      break;
+    case 'onboarding':
+      useCluster.getState().setOnboarding(msg.onboarding);
       break;
     case 'ping':
       break;
