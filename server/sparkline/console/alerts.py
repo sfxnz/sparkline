@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import Literal
 
@@ -162,6 +162,9 @@ def _dur(s: float) -> str:
 class _State:
     start: float | None = None  # first ts of the current breach
     active: Event | None = None  # fired alert event (with id)
+    # An alert the previous run left open, until fresh data ends it or fires it again. It fires again rather
+    # than staying active, because the notice of the alert may have been dropped when the console stopped.
+    adopted: Event | None = None
 
 
 class AlertEngine:
@@ -182,26 +185,38 @@ class AlertEngine:
             rid = key[0]
             if new.get(rid) != old.get(rid):
                 st = self._st.pop(key)
-                if st.active:
-                    ev = st.active
-                    self._resolve(ev, now)
-                    self._add(
-                        Event(
-                            id=0,
-                            ts=now,
-                            node_id=ev.node_id,
-                            severity="info",
-                            kind="recovered",
-                            rule_id=rid,
-                            title=f"Resolved: {ev.title}",
-                            detail=(
-                                f"Closed because its rule was {'changed' if rid in new else 'removed'}"
-                                f" · was {ev.severity}"
-                            ),
-                            metric=ev.metric,
-                        )
-                    )
+                if ev := st.active or st.adopted:
+                    self._close(ev, now, f"its rule was {'changed' if rid in new else 'removed'}")
         self.rules = rules
+
+    def adopt(self, left_open: list[Event], nodes: Collection[str], now: float) -> None:
+        """Take over the alerts the previous run left open. One is ended here only when nothing will evaluate
+        it again: its node is no longer monitored, or its rule is gone or no longer covers the node."""
+        rules = {r.id: r for r in self.rules}
+        for ev in left_open:
+            node, r = ev.node_id or "", rules.get(ev.rule_id or "")
+            if node not in nodes:
+                self._close(ev, now, f"{node} is no longer monitored")
+            elif r is None or not self._applies(r, node):
+                self._close(ev, now, f"its rule was {'changed' if r else 'removed'}")
+            else:
+                self._st[(r.id, node, ev.metric or "")] = _State(adopted=ev)
+
+    def _close(self, ev: Event, now: float, why: str) -> None:
+        self._resolve(ev, now)
+        self._add(
+            Event(
+                id=0,
+                ts=now,
+                node_id=ev.node_id,
+                severity="info",
+                kind="recovered",
+                rule_id=ev.rule_id,
+                title=f"Resolved: {ev.title}",
+                detail=f"Closed because {why} · was {ev.severity}",
+                metric=ev.metric,
+            )
+        )
 
     def _applies(self, r: AlertRule, node: str) -> bool:
         return r.enabled and (r.nodes is None or node in r.nodes)
@@ -279,6 +294,8 @@ class AlertEngine:
         gpus: int = 1,
     ) -> None:
         st = self._st.setdefault((r.id, node, key), _State())
+        if st.adopted and clear:
+            st.active, st.adopted = st.adopted, None
         if st.active is None:
             if not breach:
                 st.start = None
@@ -288,6 +305,9 @@ class AlertEngine:
             if ts - st.start >= r.for_s:
                 gpu = _GPU_KEY.fullmatch(key)
                 title = f"{r.name} on {node}" + (f" · GPU {gpu[1]}" if gpu and gpus > 1 else "")
+                if st.adopted:
+                    self._resolve(st.adopted, ts)
+                    st.adopted = None
                 st.active = self._add(
                     Event(
                         id=0,
