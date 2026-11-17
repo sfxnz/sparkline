@@ -18,7 +18,7 @@ So the console may send a notification to a host that is not an agent, under the
 - **A channel editor in the web app.** It would store webhook URLs in `console.sqlite`, which the console treats as less private than `console.toml`, and it would let anyone with the console token aim the console at a host of their choice. The file is the boundary.
 - **`httpx.AsyncClient` with a check before the request.** The client resolves the name itself after the check, so it cannot pin the address. It also logs every request URL at INFO, which would write a Discord token to the journal.
 - **Apprise.** One dependency covers over 100 services. It sends through its own HTTP stack, where the console cannot pin the address or keep the URL out of a log, and `server/requirements.lock` is hash-pinned and kept small. Four kinds written against `Egress` cover ntfy, Discord, Slack and anything that takes a JSON webhook.
-- **A stored queue of notices.** After a restart the alert engine starts empty and fires again whatever still holds, so a stored queue would mostly deliver stale duplicates.
+- **A stored queue of notices.** After a restart the alert engine fires again whatever still holds, so a stored queue would mostly deliver stale duplicates.
 
 ## What this does not cover
 

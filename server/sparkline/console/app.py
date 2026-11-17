@@ -160,7 +160,7 @@ def create_app(
         log.warning("The console token changed: signed out every existing session")
     hub = Hub()
     notifier = Notifier(cfg.notify)
-    cluster = Cluster(store, hub, cfg.settings, demo=demo, notify=notifier.publish)
+    cluster = Cluster(store, hub, cfg.settings, demo=demo, notify=notifier.publish, adopt=notifier.adopt)
     if demo:
         t0 = time.time()
         for make in FLEETS[fleet].values():
