@@ -3,10 +3,16 @@ channel secret reaches a repr, an exception or a log (httpx.MockTransport and a 
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import logging
+import socket
 import ssl
+import subprocess
+import sys
+import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -278,6 +284,73 @@ async def test_a_send_that_outlasts_the_total_budget_is_a_timeout(monkeypatch):
     monkeypatch.setattr(module, "TOTAL_TIMEOUT_S", 0.01)
     egress = Egress(endpoint("https://hooks.example/x"), resolver=never, transport=recorder()[0])
     assert await failure_of(egress) == "timeout"
+
+
+def addrinfo(*ips: str) -> list[tuple]:
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 443)) for ip in ips]
+
+
+async def test_the_system_resolver_gives_each_address_once_in_order_and_its_failure_is_dns(monkeypatch):
+    transport, seen = recorder()
+    egress = Egress(endpoint("https://hooks.example/x"), transport=transport)
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **kw: addrinfo(PUBLIC, PUBLIC, PRIVATE))
+    await egress.post({})
+    assert [r.url.host for r in seen] == [PUBLIC]
+
+    def nxdomain(*args: object, **kwargs: object) -> list[tuple]:
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", nxdomain)
+    assert await failure_of(egress) == "dns"
+
+
+HANG_S = 10
+
+
+def test_a_resolver_that_hangs_does_not_keep_the_process_from_exiting():
+    script = f"""
+import asyncio, socket, time
+from pydantic import SecretStr
+from sparkline.console import egress
+
+def hang(*args, **kwargs):
+    time.sleep({HANG_S})
+    return []
+
+async def send():
+    try:
+        await egress.Egress(egress.Endpoint.parse(SecretStr("https://hooks.example/x"))).post({{}})
+    except egress.EgressError as e:
+        print(e.failure)
+
+socket.getaddrinfo = hang
+egress.TOTAL_TIMEOUT_S = 0.05
+asyncio.run(send())
+"""
+    began = time.monotonic()
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+    assert (done.returncode, done.stdout, done.stderr) == (0, "timeout\n", "")
+    assert time.monotonic() - began < HANG_S / 2
+
+
+def test_a_name_that_resolves_after_the_event_loop_closed_is_dropped_without_an_error(monkeypatch):
+    from sparkline.console import egress as module
+
+    release, threads, errors = threading.Event(), [], []
+
+    def late(*args: object, **kwargs: object) -> list[tuple]:
+        threads.append(threading.current_thread())
+        release.wait(HANG_S)
+        return addrinfo(PUBLIC)
+
+    monkeypatch.setattr(socket, "getaddrinfo", late)
+    monkeypatch.setattr(module, "TOTAL_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(threading, "excepthook", errors.append)
+    egress = Egress(endpoint("https://hooks.example/x"), transport=recorder()[0])
+    assert asyncio.run(failure_of(egress)) == "timeout"
+    release.set()
+    threads[0].join(HANG_S)
+    assert not threads[0].is_alive() and errors == []
 
 
 @pytest.mark.parametrize(

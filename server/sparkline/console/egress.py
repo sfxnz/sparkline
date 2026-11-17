@@ -11,12 +11,14 @@ proxies from the environment, which would connect somewhere other than the check
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ipaddress
 import json
 import logging
 import re
 import socket
 import ssl
+import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from contextvars import ContextVar
@@ -174,8 +176,32 @@ def _is_tls(exc: BaseException | None) -> bool:
 
 
 async def _getaddrinfo(host: str, port: int) -> list[str]:
-    infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    return list(dict.fromkeys(str(info[4][0]) for info in infos))
+    # In a daemon thread, not loop.getaddrinfo: that runs in the default executor, which asyncio.run joins
+    # at exit, so a resolver that hangs would hold the process long after Notifier.stop gave up.
+    loop = asyncio.get_running_loop()
+    answer: asyncio.Future[list[str]] = loop.create_future()
+
+    def hand_back(ips: list[str], error: BaseException | None) -> None:
+        if answer.done():  # the send timed out or was cancelled
+            return
+        if error is None:
+            answer.set_result(ips)
+        else:
+            answer.set_exception(error)
+
+    def resolve() -> None:
+        ips: list[str] = []
+        error: BaseException | None = None
+        try:
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            ips = list(dict.fromkeys(str(info[4][0]) for info in infos))
+        except Exception as e:  # noqa: BLE001
+            error = e
+        with contextlib.suppress(RuntimeError):  # the loop closed while the name was resolving
+            loop.call_soon_threadsafe(hand_back, ips, error)
+
+    threading.Thread(target=resolve, name="sparkline-egress-dns", daemon=True).start()
+    return await answer
 
 
 class Egress:
