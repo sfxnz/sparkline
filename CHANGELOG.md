@@ -50,13 +50,18 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   comes from the top level of that same `config.json`, and no size is filled in without it. An index over
   1 MiB is not read; when the repo's safetensors files are then one set of shards, the weights are their
   total, which a server never exceeds, and the page says so beside the number. Every other repo gets no
-  size and a refusal naming what the lookup found and what to add up by hand. A refusal over a second model
-  (a config string naming another repo, an adapter, a draft model's keys) fills in nothing and asks for the
-  size and for the shape of the model the server answers with. Any other refusal fills in the shape alone.
+  size and a refusal in two parts: what the lookup read, then one of two instructions that are the same
+  words for every repo. One asks for the size, the total of every weight file the server loads in every
+  folder of the repo and in any other repo. The other asks for the size and for the shape of the language
+  model that answers. A refusal never says what a server loads, what kind of model the repo is, or where a
+  number can be read. A refusal fills in the shape alone, or nothing: nothing after a sign of a second
+  model (a config string naming another repo, an `adapter_config.json`, a draft model's keys), and nothing
+  when no shape was read.
 
-  The same facts can be typed instead, as the total of every weight file a server loads, in GiB or GB and
+  The same facts can be typed instead, as the total of every weight file the server loads, in GiB or GB and
   never as a parameter count. A result says where the size and the shape each came from, read from the repo
-  or typed by hand. The KV cache is sized as every layer at full width, so it is too high for
+  or typed by hand. A lookup replaces the model on the form and takes an earlier result off the page. The
+  KV cache is sized as every layer at full width, so it is too high for
   sliding-window and latent-attention models, which the page says. New endpoints `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new
   `console.toml` key `hf_lookup` (default `true`) turns the lookup off.
 

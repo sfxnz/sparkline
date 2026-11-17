@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FitRequest, FitResponse, ModelFacts } from '../../lib/types';
 import Fit from '../Fit';
@@ -20,35 +20,39 @@ const RESPONSE: FitResponse = {
 };
 
 const SHAPE = { num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+// The two instructions a refusal ends with, as the console sends them.
+const SIZE_ASKED = 'the total of every weight file the server loads, in every folder of this repo and in any other repo';
+const ASK_SIZE = `Enter the size by hand: ${SIZE_ASKED}`;
+const ASK_BOTH = `Enter the size and the shape by hand. The size is ${SIZE_ASKED}. The shape is that of the language model that answers, not of a vision, audio or other part`;
 const REFUSED: Record<string, unknown> = {
   'some/big-index': {
-    problem: { message: 'The weight index of some/big-index is too large for the lookup to read', cause: 'model.safetensors.index.json is 24.0 MiB', fix: 'Enter the model facts by hand' },
+    problem: { message: 'The weight index of some/big-index is too large for the lookup to read', cause: 'model.safetensors.index.json is 24.0 MiB', fix: ASK_SIZE },
     shape: SHAPE,
   },
   'some/odd-config': {
-    problem: { message: 'Hugging Face does not describe some/odd-config in a way this estimator reads', cause: 'Its config.json has no whole number above 0 for num_hidden_layers at its top level', fix: 'Enter the model facts by hand' },
+    problem: { message: 'The config.json of some/odd-config holds no shape at its top level', cause: 'The lookup reads the top level only, and found no whole number above 0 there for num_hidden_layers', fix: ASK_BOTH },
     shape: null,
   },
   // A draft model. Its own config holds a whole shape (one layer), and the console sends none of it.
   'some/draft': {
     problem: {
-      message: 'The config.json of some/draft has the keys of a draft model',
-      cause: 'It has draft_vocab_size',
-      fix: "Enter the model facts by hand, both the size and the shape. The shape is the target model's, which is the model the server answers with",
+      message: "The config.json of some/draft has a key that a draft model's config has",
+      cause: 'It has draft_vocab_size. The lookup cannot tell whether the repo holds a draft model',
+      fix: ASK_BOTH,
     },
     shape: null,
   },
   // A refusal has no size. One that carries a size anyway, in the body the console sent before or in any
   // other, fills none in: a size with no shape beside it is one the console could not say covers the model.
   'some/size-in-a-refusal': {
-    problem: { message: 'Hugging Face does not describe some/size-in-a-refusal in a way this estimator reads', cause: 'Its config.json has no whole number above 0 for num_hidden_layers at its top level', fix: 'Enter the model facts by hand' },
+    problem: { message: 'The config.json of some/size-in-a-refusal holds no shape at its top level', cause: 'The lookup reads the top level only, and found no whole number above 0 there for num_hidden_layers', fix: ASK_BOTH },
     shape: null,
     weights_bytes: 9_980_000_000,
     found: { weights_bytes: 9_980_000_000, weights_upper_bound: false, shape: SHAPE },
   },
 };
 const NO_REPO = {
-  problem: { message: 'Hugging Face has no public model nope/nope', cause: 'The repo does not exist or is private', fix: 'Check the repo id, or enter the model facts by hand' },
+  problem: { message: 'Hugging Face has no public model nope/nope', cause: 'The repo does not exist or is private', fix: ASK_BOTH },
   shape: null,
 };
 
@@ -119,7 +123,9 @@ describe('Will it fit', () => {
 
     expect(screen.queryByRole('textbox', { name: 'Parameters' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Bits per weight' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Files tab on Hugging Face lists each \.safetensors file in GB/)).toBeInTheDocument();
+    // The hint asks for the same total a refusal asks for, and names no page to copy a number from.
+    expect(screen.getByText(/Type the total of every weight file the server loads, in every folder of the repo and in any other repo\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Files tab/)).not.toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Weights' }), '5.57');
     // The page shows sizes in GiB, so a size read off it and typed back is the same size.
     expect(screen.getByRole('combobox', { name: 'Unit of the size' })).toHaveValue('GiB');
@@ -185,7 +191,7 @@ describe('Will it fit', () => {
     await user.click(screen.getByRole('button', { name: 'Look up' }));
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Hugging Face has no public model nope/nope');
-    expect(alert).toHaveTextContent('enter the model facts by hand');
+    expect(alert).toHaveTextContent('Enter the size and the shape by hand.');
     expect(screen.getByRole('textbox', { name: 'Weights' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Look up' })).toBeEnabled();
   });
@@ -196,7 +202,7 @@ describe('Will it fit', () => {
     render(<Fit />);
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/big-index{Enter}');
     expect(await screen.findByRole('alert')).toHaveTextContent('too large for the lookup to read');
-    expect(screen.getByRole('alert')).toHaveTextContent('is 24.0 MiB. Enter the model facts by hand.');
+    expect(screen.getByRole('alert')).toHaveTextContent(`is 24.0 MiB. ${ASK_SIZE}.`);
     expect(screen.getByText('Shape read from some/big-index. The size is typed by hand.')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('36');
     expect(screen.getByText('This model supports up to 40,960 tokens.')).toBeInTheDocument();
@@ -217,7 +223,7 @@ describe('Will it fit', () => {
     fakeConsole();
     render(<Fit />);
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/size-in-a-refusal{Enter}');
-    expect(await screen.findByRole('alert')).toHaveTextContent('does not describe some/size-in-a-refusal');
+    expect(await screen.findByRole('alert')).toHaveTextContent('The config.json of some/size-in-a-refusal holds no shape');
     expect(screen.queryByRole('status', { name: 'Weights' })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
     expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
@@ -234,7 +240,7 @@ describe('Will it fit', () => {
     await screen.findByText('Filled in from Qwen/Qwen3-8B.');
     await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/draft{Enter}');
-    expect(await screen.findByRole('alert')).toHaveTextContent("both the size and the shape. The shape is the target model's");
+    expect(await screen.findByRole('alert')).toHaveTextContent(`${ASK_BOTH}.`);
     for (const field of ['Weights', 'Layers', 'KV heads', 'Head size']) expect(screen.getByRole('textbox', { name: field })).toHaveValue('');
     expect(screen.queryByText(/filled in from/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/This model supports up to/)).not.toBeInTheDocument();
@@ -271,7 +277,7 @@ describe('Will it fit', () => {
     fakeConsole();
     render(<Fit />);
     const notCounted = /A second model the repo loads, a draft model's target and the base model under an adapter are not counted/;
-    expect(screen.getByText(/Type the total of every weight file a server loads/)).toBeInTheDocument();
+    expect(screen.getByText(/Type the total of every weight file the server loads/)).toBeInTheDocument();
 
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
     await screen.findByText('Filled in from Qwen/Qwen3-8B.');
@@ -377,6 +383,51 @@ describe('Will it fit', () => {
     expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
     expect(screen.queryByText(/filled in from/)).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Context length' })).toHaveValue('32768');
+  });
+
+  // The sixth verifier's orders 03 and 10: a result built from typed numbers stayed on the page under a form
+  // that said "Filled in from <repo>" until Estimate was pressed again.
+  it.each([
+    ['answers', 'Qwen/Qwen3-8B', 'Filled in from Qwen/Qwen3-8B.'],
+    ['refuses and fills in the shape', 'some/big-index', 'Shape read from some/big-index. The size is typed by hand.'],
+    ['refuses and fills in nothing', 'some/odd-config', 'holds no shape at its top level'],
+  ])('takes the result off the page when a later lookup %s', async (_what, repo, shown) => {
+    const user = userEvent.setup();
+    fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '3.5');
+    await user.type(screen.getByRole('textbox', { name: 'Layers' }), '12');
+    await user.type(screen.getByRole('textbox', { name: 'KV heads' }), '4');
+    await user.type(screen.getByRole('textbox', { name: 'Head size' }), '64');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    await screen.findByRole('region', { name: 'Result' });
+
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), `${repo}{Enter}`);
+    await screen.findByText(shown, { exact: false });
+    expect(screen.queryByRole('region', { name: 'Result' })).not.toBeInTheDocument();
+  });
+
+  it('shows no result for an estimate that answers after a later lookup has replaced the model', async () => {
+    const user = userEvent.setup();
+    let answer: (response: Response) => void = () => {};
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) =>
+      init?.method === 'POST' ? new Promise<Response>((resolve) => { answer = resolve; }) : Promise.resolve(json(QWEN)),
+    );
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '3.5');
+    await user.type(screen.getByRole('textbox', { name: 'Layers' }), '12');
+    await user.type(screen.getByRole('textbox', { name: 'KV heads' }), '4');
+    await user.type(screen.getByRole('textbox', { name: 'Head size' }), '64');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+
+    await act(async () => {
+      answer(json(RESPONSE));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.queryByRole('region', { name: 'Result' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Estimate' })).toBeEnabled();
   });
 
   // The fourth verifier's orders 10, 15 and 16: a shape read from one repo stayed on the form under

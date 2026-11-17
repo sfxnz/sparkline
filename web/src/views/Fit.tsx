@@ -1,12 +1,12 @@
 import { Search } from 'lucide-react';
-import { useState, type ReactNode, type SyntheticEvent } from 'react';
+import { useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { Button } from '../design/components/Button';
 import { Panel } from '../design/components/Panel';
 import { StatusPill } from '../design/components/StatusPill';
 import { Table, type Column } from '../design/components/Table';
 import { api, problemOf } from '../lib/api';
 import { formatBytes } from '../lib/format';
-import type { FitRequest, FitResponse, KvDtype, NodeFit, Problem } from '../lib/types';
+import type { FitRequest, FitResponse, KvDtype, ModelFacts, ModelShape, NodeFit, Problem } from '../lib/types';
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
@@ -37,6 +37,9 @@ export default function Fit() {
   const [lookup, setLookup] = useState<Lookup>({ status: 'idle' });
   const [run, setRun] = useState<Run>({ status: 'idle' });
   const [submitted, setSubmitted] = useState(false);
+  // Counts the lookups that have answered. An estimate asked for before one of them is for a model the form
+  // no longer holds, so its answer is dropped.
+  const lookups = useRef(0);
   const parsed = toRequest(draft);
   const errors = submitted && !parsed.ok ? parsed.errors : {};
   const set = (patch: Partial<Draft>) => { setDraft((d) => ({ ...d, ...patch })); };
@@ -57,16 +60,20 @@ export default function Fit() {
   const lookUp = async () => {
     if (!repo || lookup.status === 'loading') return;
     setLookup({ status: 'loading' });
+    let read: ModelFacts | ModelShape | null;
     try {
-      const facts = await api.fitLookup(repo);
-      setDraft((d) => fromLookup(d, repo, facts));
+      read = await api.fitLookup(repo);
       setLookup({ status: 'idle' });
     } catch (e) {
       // A refusal fills in the shape it sends, and nothing when it sends none or the page cannot read its
       // answer at all: no earlier repo's numbers stay on a form that now names this one.
-      setDraft((d) => fromLookup(d, repo, shapeOf(e)));
+      read = shapeOf(e);
       setLookup({ status: 'error', problem: problemOf(e, 'look up the model') });
     }
+    setDraft((d) => fromLookup(d, repo, read));
+    // The result on the page was built from the model this lookup has just replaced, so it goes too.
+    lookups.current += 1;
+    setRun({ status: 'idle' });
   };
 
   const submit = async (e: SyntheticEvent) => {
@@ -74,11 +81,14 @@ export default function Fit() {
     setSubmitted(true);
     if (!parsed.ok || run.status === 'loading') return;
     setRun({ status: 'loading' });
+    const asked = lookups.current;
+    let answer: Run;
     try {
-      setRun({ status: 'done', from, request: parsed.request, response: await api.fitEstimate(parsed.request) });
+      answer = { status: 'done', from, request: parsed.request, response: await api.fitEstimate(parsed.request) };
     } catch (err) {
-      setRun({ status: 'error', problem: problemOf(err, 'estimate the fit') });
+      answer = { status: 'error', problem: problemOf(err, 'estimate the fit') };
     }
+    if (lookups.current === asked) setRun(answer);
   };
 
   return (
@@ -129,7 +139,7 @@ export default function Fit() {
             <Field
               id="fit-size"
               label="Weights"
-              hint="Type the total of every weight file a server loads, in the unit beside the box: this repo's own files, plus a second model it loads, a draft model's target or an adapter's base model. The repo's Files tab on Hugging Face lists each .safetensors file in GB, so switch the unit if you add those up. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
+              hint="Type the total of every weight file the server loads, in every folder of the repo and in any other repo. This page shows sizes in GiB, so switch the unit beside the box to type a size given in GB. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
             >
               <div className="fit-weights">
                 <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { typeSize({ size }); }} error={errors.size} width="9rem" />
@@ -139,7 +149,7 @@ export default function Fit() {
               </div>
             </Field>
           )}
-          <Field id="fit-layers" label="Layers" hint="num_hidden_layers in config.json.">
+          <Field id="fit-layers" label="Layers" hint="num_hidden_layers of the language model that answers, in its config.">
             <NumberField id="fit-layers" describedBy="fit-layers-hint" value={shape.layers} onChange={(layers) => { typeShape({ layers }); }} error={errors.layers} />
           </Field>
           <Field id="fit-kv-heads" label="KV heads" hint="num_key_value_heads, or num_attention_heads when the model has no grouped attention.">
