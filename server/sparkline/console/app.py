@@ -46,6 +46,7 @@ from .config import ConsoleConfig
 from .demo import DemoSource, demo_history
 from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
+from .fit import FitRequest, FitResponse, ModelFacts, estimate, fetch_facts, node_fit, parse_repo_id
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
 from .store import SESSION_TTL_S, Store
@@ -555,6 +556,35 @@ def create_app(
                 await ws.close(code=1013)
             elif client.kicked:
                 await ws.close(code=1008)
+
+    # -- will it fit ----------------------------------------------------------------------------------
+    @app.get("/api/v1/fit/lookup", dependencies=Auth)
+    async def fit_lookup(repo: str) -> ModelFacts:
+        if not cfg.hf_lookup:
+            raise ProblemError(
+                403,
+                "The Hugging Face lookup is turned off on this console",
+                "`hf_lookup = false` in the console configuration",
+                "Enter the model facts by hand",
+            )
+        repo_id = parse_repo_id(repo)
+        if repo_id is None:
+            raise ProblemError(
+                422,
+                "That is not a Hugging Face repo id",
+                "A repo id is owner/name, for example Qwen/Qwen3-8B",
+                "Correct the repo id, or enter the model facts by hand",
+            )
+        facts = await fetch_facts(http["c"], repo_id)
+        if isinstance(facts, Problem):
+            raise ProblemError(502, "", problem=facts)
+        return facts
+
+    @app.post("/api/v1/fit/estimate", dependencies=Auth)
+    async def fit_estimate(body: FitRequest) -> FitResponse:
+        est = estimate(body.facts, body.context_tokens, body.kv_dtype)
+        fits = [node_fit(src.state, src.latest_sample(), est) for src in cluster.sources.values()]
+        return FitResponse(estimate=est, nodes=fits)
 
     app.include_router(bench_router(bench, Auth))
 
