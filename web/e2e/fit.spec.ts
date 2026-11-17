@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-const QWEN = { repo: 'Qwen/Qwen3-8B', weights_bytes: 16_381_470_720, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+const QWEN = { repo: 'Qwen/Qwen3-8B', weights_bytes: 16_381_470_720, weights_upper_bound: false, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
 
 test('a looked-up model gets an estimate and a verdict for every node', async ({ page }) => {
   await page.route('**/api/v1/fit/lookup?*', (route) => route.fulfill({ json: QWEN }));
