@@ -340,7 +340,7 @@ def create_app(
             raise ProblemError(
                 401,
                 "Wrong token",
-                "The token does not match this console's token",
+                "The token does not match this console’s token",
                 "Copy `token` from /etc/sparkline/console.toml on the console host",
             )
         response.set_cookie(

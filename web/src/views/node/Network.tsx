@@ -77,13 +77,13 @@ function NetworkView({ node, info }: { node: string; info: NodeInfo }) {
   );
 }
 
-const RDMA_BYPASS = "RDMA traffic (NCCL, RoCE) bypasses the kernel, so the operating system's interface counters miss almost all of it.";
+const RDMA_BYPASS = "RDMA traffic (NCCL, RoCE) bypasses the kernel, so the operating system’s interface counters miss almost all of it.";
 
 function RdmaNote({ ifaces, noun }: { ifaces: readonly NetIfInfo[]; noun: string }) {
   const c = rdmaCounting(ifaces);
   if (c.kind === 'none') return null;
   const [note, tip] = c.kind === 'included'
-    ? ['Includes RDMA traffic', `${RDMA_BYPASS} Sparkline adds each ${noun} function's RDMA port counters, so these numbers include it.`]
+    ? ['Includes RDMA traffic', `${RDMA_BYPASS} Sparkline adds each ${noun} function’s RDMA port counters, so these numbers include it.`]
     : ['RDMA traffic not counted', `${RDMA_BYPASS} Sparkline has no RDMA counters for ${listNames(c.ifaces.map((n) => n.name))}, so their numbers leave it out.`];
   return (
     <>

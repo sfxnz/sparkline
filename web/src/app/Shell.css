@@ -167,6 +167,8 @@
 .toolbar__search > svg { width: 0.9375rem; height: 0.9375rem; }
 .toolbar__search > span:first-of-type { min-width: 72px; text-align: left; }
 .toolbar__kbd { display: inline-flex; gap: 3px; }
+/* A key hint says nothing where there is no keyboard: a device whose only pointer is a finger. */
+@media (hover: none) and (pointer: coarse) { .toolbar__kbd { display: none; } }
 
 .shell__content {
   flex: 1;

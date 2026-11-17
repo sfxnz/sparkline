@@ -58,6 +58,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ### Fixed
 
+- **Small screens.** The sign-in token field no longer makes iOS Safari zoom the page: its text is 16 px on
+  a small screen. A device with only a touch screen is not shown the "Ctrl K" hint beside Search.
 - **Alerts > Notifications on a phone.** With no channel configured, the card's text and its `[[notify]]`
   example were cut off on both sides on a narrow screen. The text now wraps, and the example scrolls inside
   its own box and has a copy button.

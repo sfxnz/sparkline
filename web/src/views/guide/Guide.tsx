@@ -127,7 +127,7 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
       <div className="guide-gone" role="status">
         <span>
           {left === 'complete' ? 'That is all of it. Getting started is put away.' : 'Getting started is put away.'} It stays in Settings and in Search
-          (<Kbd>{isApple() ? '⌘' : 'Ctrl'}</Kbd> <Kbd>K</Kbd>).
+          <span className="guide-gone__keys"> (<Kbd>{isApple() ? '⌘' : 'Ctrl'}</Kbd> <Kbd>K</Kbd>)</span>.
         </span>
         {left === 'dismissed' ? <Button ref={bringBack} size="sm" variant="ghost" onClick={() => { handTo.current = 'collapse'; void reopenGuide(); }}>Bring it back</Button> : null}
       </div>

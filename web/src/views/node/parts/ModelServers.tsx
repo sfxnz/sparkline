@@ -27,7 +27,7 @@ export function ModelServersPanel({ nodeId }: { nodeId: string }) {
   useHashTarget('model-servers');
   if (!waiting && !hasData) return null;
   return (
-    <Panel id="model-servers" title="Model servers" subtitle="Found on this node's listening ports, read every 2 s" busy={waiting || undefined}>
+    <Panel id="model-servers" title="Model servers" subtitle="Found on this node’s listening ports, read every 2 s" busy={waiting || undefined}>
       {waiting ? (
         <Skeleton height={56} radius={8} />
       ) : servers?.length ? (

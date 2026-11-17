@@ -30,6 +30,8 @@
 .login__field { position: relative; }
 .login__field-icon { position: absolute; left: 12px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
 .login__input { min-height: 2.75rem; padding: 0 44px 0 38px; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--fs-callout); letter-spacing: 0.02em; }
+/* iOS Safari zooms the page when a focused field's text is under 16 px. */
+@media (max-width: 640px) { .login__input { font-size: max(16px, var(--fs-callout)); } }
 .login__reveal { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
 .login__reveal:active:not(:disabled) { transform: translateY(-50%) scale(0.97); }
 .login__message { min-height: calc(2 * var(--lh-footnote)); margin: var(--space-2) 0 var(--space-5); }

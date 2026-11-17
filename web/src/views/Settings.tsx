@@ -64,7 +64,7 @@ function AppearanceSection() {
   return (
     <Panel title="Appearance" subtitle="How Sparkline looks in this browser. Saved here only.">
       <div className="set-rows">
-        <SettingRow id="set-theme" title="Theme" description="System follows your operating system's light or dark setting. Press T anywhere to switch.">
+        <SettingRow id="set-theme" title="Theme" description="System follows your operating system’s light or dark setting. Press T anywhere to switch.">
           <SegmentedControl label="Theme" options={THEMES} value={theme} onChange={(v) => { set({ theme: v }); }} />
         </SettingRow>
         <SettingRow id="set-transp" title="Reduce transparency" description="Replace translucent, blurred surfaces with solid ones. Also follows the system setting.">

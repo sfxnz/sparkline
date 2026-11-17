@@ -75,7 +75,7 @@ test('lazy chunks that fail to load leave the rest of the overview working', asy
   await expect.poll(() => aborted).toBe(2);
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   await expect(page.getByRole('link', { name: /^spark1\b.*open node details/ })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'GPU activity' })).toContainText("The GPU activity panel couldn't be displayed");
+  await expect(page.getByRole('region', { name: 'GPU activity' })).toContainText('The GPU activity panel couldn’t be displayed');
   await page.keyboard.press('Control+k');
   await expect(page.getByRole('combobox', { name: /Search views/ })).toHaveCount(0);
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();

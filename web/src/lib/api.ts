@@ -127,14 +127,14 @@ export function problemOf(err: unknown, what: string): Problem {
       /* not JSON: fall through */
     }
     if (err.kind === 'unreachable') {
-      return { message: `Couldn't ${what}`, cause: 'Sparkline is not reachable from this browser.', fix: 'Check that the console is running, then try again.' };
+      return { message: `Couldn’t ${what}`, cause: 'Sparkline is not reachable from this browser.', fix: 'Check that the console is running, then try again.' };
     }
     if (err.kind === 'unauthorized') {
-      return { message: `Couldn't ${what}`, cause: 'Your session has expired.', fix: 'Sign in again, then retry.' };
+      return { message: `Couldn’t ${what}`, cause: 'Your session has expired.', fix: 'Sign in again, then retry.' };
     }
-    return { message: `Couldn't ${what}`, cause: `HTTP ${err.status}: ${err.message.slice(0, 200)}`, fix: 'Try again. If it keeps failing, check the console log.' };
+    return { message: `Couldn’t ${what}`, cause: `HTTP ${err.status}: ${err.message.slice(0, 200)}`, fix: 'Try again. If it keeps failing, check the console log.' };
   }
-  return { message: `Couldn't ${what}`, cause: err instanceof Error ? err.message : String(err), fix: 'Try again.' };
+  return { message: `Couldn’t ${what}`, cause: err instanceof Error ? err.message : String(err), fix: 'Try again.' };
 }
 
 export function streamUrl(loc: Location = window.location): string {

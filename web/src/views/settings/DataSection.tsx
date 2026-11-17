@@ -42,7 +42,7 @@ export function DataSection() {
   };
 
   return (
-    <Panel title="Data" subtitle="Each node's agent keeps its own history on disk. Clearing it frees that space and resets charts for 5m–7d.">
+    <Panel title="Data" subtitle="Each node’s agent keeps its own history on disk. Clearing it frees that space and resets charts for 5m–7d.">
       <div className="set-rows">
         {order.length === 0 ? <p className="t-callout t-secondary">No nodes are configured yet.</p> : null}
         {order.map((id) => {

@@ -53,7 +53,7 @@ export function AboutSection() {
   };
 
   return (
-    <Panel title="About" subtitle="Versions reported by the console and each node's agent.">
+    <Panel title="About" subtitle="Versions reported by the console and each node’s agent.">
       <div className="set-rows">
         <SettingRow id="set-version" title="Sparkline" description={demo ? 'Running with simulated telemetry (sparkline --demo). Nothing here touches real hardware.' : 'Console and web app.'}>
           <span className="set-version">

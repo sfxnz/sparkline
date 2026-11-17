@@ -254,7 +254,7 @@ describe('ErrorBoundary', () => {
       return <p>recovered</p>;
     }
     render(<><ErrorBoundary what="The GPU panel"><Flaky /></ErrorBoundary><p>sibling ok</p></>);
-    expect(screen.getByText('The GPU panel couldn’t be displayed'.replace('’', "'"))).toBeInTheDocument();
+    expect(screen.getByText('The GPU panel couldn’t be displayed')).toBeInTheDocument();
     expect(screen.getByText('bad data')).toBeInTheDocument();
     expect(screen.getByText('sibling ok')).toBeInTheDocument();
     fail = false;

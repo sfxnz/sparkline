@@ -146,7 +146,7 @@ describe('RulesEditor after the console reset the rules', () => {
     );
     render(<RulesEditor />);
     expect(await screen.findByRole('textbox', { name: /Memory running low: threshold in GiB/ })).toHaveValue('8');
-    expect(screen.queryByText("Couldn't load the alert rules")).not.toBeInTheDocument();
+    expect(screen.queryByText('Couldn’t load the alert rules')).not.toBeInTheDocument();
     expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
   });
 
@@ -155,7 +155,7 @@ describe('RulesEditor after the console reset the rules', () => {
       Promise.resolve(url === '/api/v1/alerts/rules/status' ? json({ reset: false }) : json({ detail: 'Not Found' }, 404)),
     );
     render(<RulesEditor />);
-    expect(await screen.findByText("Couldn't load the alert rules")).toBeInTheDocument();
+    expect(await screen.findByText('Couldn’t load the alert rules')).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /Memory running low: threshold in GiB/ })).not.toBeInTheDocument();
   });
 });

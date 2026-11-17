@@ -24,7 +24,7 @@ export function HistoryUnavailable({ node, error, onRetry, offerLive = true }: {
         compact
         action={showLive ? <Button size="sm" variant="secondary" icon={<Radio />} onClick={() => { set({ timeRange: 'live' }); }}>Show live</Button> : undefined}
       >
-        History is stored on {node}&apos;s agent, which the console cannot reach right now.
+        History is stored on {node}’s agent, which the console cannot reach right now.
       </EmptyState>
     );
   }

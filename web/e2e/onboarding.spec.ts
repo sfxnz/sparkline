@@ -5,7 +5,7 @@
 // Each test starts its own console (--demo-first-run with a token) and serves the built app from it, because the
 // first-run script runs on the console's clock from the moment it starts: a console shared by the whole suite would
 // be past "connecting" before the first test opened a page. --demo-speed 0.5 gives the tests room: spark1 answers
-// about 6 s in, spark2 about 16 s, and spark3 refuses for the first 90 s.
+// about 6 s in, spark2 about 16 s, and spark3 refuses for the first 82 s.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -215,6 +215,8 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await expect(page.getByRole('heading', { name: 'Welcome to Sparkline' })).toBeVisible();
   await expect.poll(() => page.locator('.login__where .cmd__text').evaluate(shows, 'console.toml')).toBe(true);
   expect(await noSidewaysScroll(page)).toBe(true);
+  // iOS Safari zooms the page when a focused field's text is under 16 px.
+  expect(await page.getByLabel('Console token').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
 
   await signInByLink(page);
   await expect(page.getByRole('heading', { level: 2, name: /^Welcome to Sparkline\./ })).toBeVisible();
@@ -260,6 +262,28 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await expect(page).toHaveURL(/\/node\/spark\d#model-servers$/);
   await expect(page.getByRole('heading', { level: 2, name: 'Model servers' })).toBeFocused();
   await expectJustUnderToolbar(page, '#model-servers');
+});
+
+test('a touch screen is not shown a key to press', async ({ page, browser }) => {
+  const putAway = async (p: Page) => {
+    await signInByLink(p);
+    await guidePanel(p).getByRole('button', { name: 'Dismiss getting started' }).click();
+    const line = p.getByRole('status').filter({ hasText: 'Getting started is put away.' });
+    await expect(line).toBeVisible();
+    return (await line.locator('span').first().innerText()).replace(/\s+/g, ' ');
+  };
+  // With a keyboard: the hint is beside Search and in the line that says where the guide went.
+  expect(await putAway(page)).toBe('Getting started is put away. It stays in Settings and in Search (Ctrl K).');
+  await expect(page.locator('.toolbar__search kbd').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Bring it back' }).click();
+  await expect(guidePanel(page)).toBeVisible();
+
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const touch = await phone.newPage();
+  expect(await putAway(touch)).toBe('Getting started is put away. It stays in Settings and in Search.');
+  await expect(touch.locator('.toolbar__search')).toBeVisible();
+  await expect(touch.locator('.toolbar__search kbd').first()).toBeHidden();
+  await phone.close();
 });
 
 test('the main path with a keyboard only', async ({ page }) => {

@@ -261,7 +261,7 @@ FAILURES: dict[NotifyFailure, FailureSpec] = {
     "tls": FailureSpec(
         "retry",
         "The certificate of {host} did not verify.",
-        f"Check the host name and the service's certificate. {_RETRIED}",
+        f"Check the host name and the service’s certificate. {_RETRIED}",
     ),
     "timeout": FailureSpec("retry", "{host} did not answer in time.", _RETRIED),
     "server_error": FailureSpec("retry", "HTTP {status} from {host}.", f"The service is failing. {_RETRIED}"),

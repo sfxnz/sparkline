@@ -143,7 +143,7 @@ describe('Network tab', () => {
     expect(screen.getByRole('group', { name: 'Ports without a link' })).toHaveTextContent('ConnectX-7 port (no cable)');
     expect(screen.getByText('Includes RDMA traffic')).toBeInTheDocument();
     expect(counterNote()).toHaveAccessibleDescription(
-      "RDMA traffic (NCCL, RoCE) bypasses the kernel, so the operating system's interface counters miss almost all of it. Sparkline adds each ConnectX-7 function's RDMA port counters, so these numbers include it.",
+      "RDMA traffic (NCCL, RoCE) bypasses the kernel, so the operating system’s interface counters miss almost all of it. Sparkline adds each ConnectX-7 function’s RDMA port counters, so these numbers include it.",
     );
   });
 
@@ -153,7 +153,7 @@ describe('Network tab', () => {
     const { container } = render(<Network nodeId={NODE} />);
     expect(screen.getByRole('region', { name: 'Intel E810-C rail A to spark2' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Ports without a link' })).toHaveTextContent('Intel E810-C port (no cable)');
-    expect(counterNote()).toHaveAccessibleDescription(/each Intel E810-C function's RDMA port counters/);
+    expect(counterNote()).toHaveAccessibleDescription(/each Intel E810-C function’s RDMA port counters/);
     expect(container).not.toHaveTextContent(/ConnectX/);
   });
 
@@ -162,7 +162,7 @@ describe('Network tab', () => {
     push(sample());
     const { container } = render(<Network nodeId={NODE} />);
     expect(screen.getByRole('region', { name: 'Interconnect A to spark2' })).toBeInTheDocument();
-    expect(counterNote()).toHaveAccessibleDescription(/each interconnect function's RDMA port counters/);
+    expect(counterNote()).toHaveAccessibleDescription(/each interconnect function’s RDMA port counters/);
     expect(container).not.toHaveTextContent(/ConnectX/);
   });
 

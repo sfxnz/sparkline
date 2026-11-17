@@ -129,7 +129,7 @@ describe('sign-in errors', () => {
 
   it('still says something useful for a refusal with no problem body', () => {
     const copy = loginErrorCopy(new ApiError('client', 400, 'Bad Request', 'Bad Request'));
-    expect(copy.title).toBe("Couldn't sign in.");
+    expect(copy.title).toBe('Couldn’t sign in.');
     expect(copy.detail).toContain('HTTP 400');
   });
 });
