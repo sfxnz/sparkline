@@ -35,6 +35,13 @@ describe('Clear history', () => {
     await waitFor(() => { expect(screen.getByText('History cleared on spark1')).toBeInTheDocument(); });
     expect(fetchSpy).toHaveBeenCalledWith('/api/v1/history?node=spark1', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }));
   });
+
+  it('a node that has never answered is not called offline: it has no history yet', () => {
+    useCluster.setState({ order: ['spark3'], nodes: { spark3: { ...node('spark3', 'offline'), first_seen: null } } });
+    render(<DataSection />);
+    expect(screen.getByText('spark3 has not connected yet. It has no history to clear.')).toBeInTheDocument();
+    expect(screen.queryByText(/offline/)).not.toBeInTheDocument();
+  });
 });
 
 describe('About', () => {

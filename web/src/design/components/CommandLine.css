@@ -29,3 +29,8 @@
 /* Several lines: indentation is part of the text, so a line too long for the box scrolls inside it. */
 .cmd--block { align-items: flex-start; padding-top: var(--space-2); padding-bottom: var(--space-2); }
 .cmd--block .cmd__text { white-space: pre; overflow-x: auto; overflow-wrap: normal; border-radius: var(--radius-xs); }
+/* On a phone the button goes above the text, so the lines have the whole width before they scroll. */
+@media (max-width: 480px) {
+  .cmd--block { flex-direction: column-reverse; align-items: stretch; }
+  .cmd--block .btn { align-self: flex-end; }
+}

@@ -7,6 +7,7 @@ import type { Problem } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { historyCache } from '../../store/history';
 import { api, problemOf } from '../../lib/api';
+import { isNewNode } from '../../lib/onboarding';
 import { Banner, ProblemBanner } from '../alerts/parts/Banner';
 import { RETENTION } from './model';
 import { SettingRow } from './parts';
@@ -52,7 +53,7 @@ export function DataSection() {
               <SettingRow
                 id={`set-clear-${id}`}
                 title={id}
-                description={reachable ? `Stored history: ${RETENTION}.` : `${id} is ${st ?? 'not connected'}. Its history can be cleared once the agent is reachable.`}
+                description={reachable ? `Stored history: ${RETENTION}.` : isNewNode(nodes[id]) ? `${id} has not connected yet. It has no history to clear.` : `${id} is ${st ?? 'not connected'}. Its history can be cleared once the agent is reachable.`}
               >
                 <Button variant="destructive" size="sm" icon={<Trash2 />} disabled={!reachable || busy} onClick={() => { setResult(null); setTarget(id); }} aria-label={`Clear history for ${id}…`} aria-describedby={`set-clear-${id}-desc`}>
                   Clear history…
