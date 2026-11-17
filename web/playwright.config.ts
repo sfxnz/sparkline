@@ -6,6 +6,9 @@ const DEMO_PORT = Number(process.env.E2E_DEMO_PORT ?? 9702);
 const DEMO_DIR = '.e2e-demo'; // git-ignored; recreated on every run so acks and settings start clean
 const MIXED_PORT = Number(process.env.E2E_MIXED_PORT ?? 9703);
 const MIXED_DIR = '.e2e-mixed';
+// A fourth port, E2E_FIRSTRUN_PORT (default 9704), is used by e2e/onboarding.spec.ts, which starts a
+// --demo-first-run console per test: that demo's script runs from console start, so a server started here would
+// be past it before the first test opened a page.
 
 export default defineConfig({
   testDir: './e2e',
