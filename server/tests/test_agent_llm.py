@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -16,7 +17,7 @@ import pytest
 from platforms import gb10
 
 from sparkline.agent import sources
-from sparkline.agent.collectors.llm import FIND_EVERY_S, FORGET_AFTER_S, ModelServerCollector
+from sparkline.agent.collectors.llm import ADAPTERS, FIND_EVERY_S, FORGET_AFTER_S, ModelServerCollector
 from sparkline.agent.config import AgentConfig, Target, load_config
 from sparkline.agent.info import Collectors
 from sparkline.agent.sampler import Sampler
@@ -92,6 +93,13 @@ def acmeserve(**more: Route) -> FakeHttp:
 
 def servers(c: ModelServerCollector) -> list:
     return c.collect()["llm"]
+
+
+def test_the_web_empty_state_names_the_ports_the_agent_asks_unprompted():
+    web = Path(__file__).resolve().parents[2] / "web" / "src" / "lib" / "llm.ts"
+    m = re.search(r"DEFAULT_PORTS = \[([^\]]*)\] as const", web.read_text())
+    assert m, f"DEFAULT_PORTS not found in {web}"
+    assert {int(p) for p in m.group(1).split(",")} == {p for a in ADAPTERS for p in a.default_ports}
 
 
 def test_a_server_on_a_default_port_is_found_with_no_configuration(tmp_path):
