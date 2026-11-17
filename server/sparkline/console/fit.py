@@ -244,7 +244,7 @@ def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
     others = _safetensors(sizes)
     return _problem(
         f"{repo} has no {WEIGHTS_FILE} and no {INDEX_FILE} at its top level",
-        f"Its .safetensors files have other names ({', '.join(others[:3])}"
+        f"It holds other .safetensors files ({', '.join(others[:3])}"
         f"{f' and {len(others) - 3} more' if len(others) > 3 else ''}), and without an index the lookup "
         "cannot tell which of them a server loads"
         if others
