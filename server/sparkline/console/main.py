@@ -57,6 +57,10 @@ def main(argv: list[str] | None = None) -> None:
         from ..update import main as update
 
         sys.exit(update(argv[1:]))
+    if argv[:1] == ["tune"]:  # the root helper behind one-click recommendations, run by systemd
+        from ..tune import main as tune
+
+        sys.exit(tune(argv[1:]))
     p = argparse.ArgumentParser(
         prog="sparkline",
         description="Sparkline aggregator and web API",

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from sparkline.common.recommendations import BY_ID, CATALOG
 from sparkline.common.schema import RecMeasurement, RecMetric, Recommendation
+from sparkline.tune import REQUESTS, TUNES
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -48,3 +49,14 @@ def test_verified_is_derived_from_the_measurement_and_cannot_be_typed():
     )
     measured = claim.model_copy(update={"measurement": measurement})
     assert measured.model_dump()["verified"] is True
+
+
+def test_every_one_click_entry_has_a_root_action_and_nothing_else_does():
+    assert set(TUNES) == {r.id for r in CATALOG if r.one_click}
+    assert set(REQUESTS) == {f"{i}.{verb}" for i in TUNES for verb in ("apply", "undo")}
+
+
+def test_a_setting_that_a_reboot_forgets_is_reapplied_at_boot():
+    assert {i for i, t in TUNES.items() if t.reapply_at_boot} == {
+        r.id for r in CATALOG if r.one_click and r.persists == "until-reboot"
+    }
