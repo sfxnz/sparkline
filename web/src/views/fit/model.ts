@@ -1,7 +1,7 @@
 import type { Status } from '../../design/components/StatusPill';
 import { DASH, formatBytes } from '../../lib/format';
 import { ApiError } from '../../lib/api';
-import type { FitEstimate, FitRequest, FitVerdict, KvDtype, LookupFound, NodeBudget, NodeFit } from '../../lib/types';
+import type { FitEstimate, FitRequest, FitVerdict, KvDtype, LookupFailure, ModelFacts, ModelShape, NodeBudget, NodeFit } from '../../lib/types';
 
 /** Bytes in the units a size is typed in: GiB as this page shows sizes, GB as the Files tab of a Hugging Face repo lists them. */
 export const SIZE_UNITS = { GiB: 2 ** 30, GB: 1e9 } as const;
@@ -50,16 +50,17 @@ export const EMPTY_DRAFT: Draft = {
 };
 
 /**
- * Fill the form with what a lookup of `repo` read. Both the size and the shape are replaced by what this
- * lookup read, or by nothing: no value of an earlier lookup and nothing typed before can stay under the new
- * repo's name. The context length is the user's and is left alone.
+ * Fill the form with what a lookup of `repo` read: the whole model, the shape alone, or nothing. Both the
+ * size and the shape are replaced by what this lookup read, or by nothing: no value of an earlier lookup and
+ * nothing typed before can stay under the new repo's name. A size comes only with the shape it belongs to,
+ * because only a full answer holds one. The context length is the user's and is left alone.
  */
-export function fromLookup(draft: Draft, repo: string, { weights_bytes: bytes, weights_upper_bound: upperBound, shape }: LookupFound): Draft {
+export function fromLookup(draft: Draft, repo: string, read: ModelFacts | ModelShape | null): Draft {
   return {
     ...draft,
-    weights: bytes !== null ? { from: 'lookup', repo, bytes, upperBound } : EMPTY_DRAFT.weights,
-    shape: shape
-      ? { from: 'lookup', repo, layers: String(shape.num_layers), kvHeads: String(shape.num_kv_heads), headDim: String(shape.head_dim), maxContext: shape.max_context }
+    weights: read && 'weights_bytes' in read ? { from: 'lookup', repo, bytes: read.weights_bytes, upperBound: read.weights_upper_bound } : EMPTY_DRAFT.weights,
+    shape: read
+      ? { from: 'lookup', repo, layers: String(read.num_layers), kvHeads: String(read.num_kv_heads), headDim: String(read.head_dim), maxContext: read.max_context }
       : EMPTY_DRAFT.shape,
   };
 }
@@ -73,11 +74,11 @@ export function filledFrom({ weights, shape }: Draft): { repo: string; complete:
 /** The longest context the looked-up model supports, when a lookup read the shape. */
 export const maxContextOf = (draft: Draft) => (draft.shape.from === 'lookup' ? draft.shape.maxContext : null);
 
-/** What a refused lookup still read, from the body of its error. */
-export function foundOf(err: unknown): LookupFound | null {
+/** The shape a refused lookup still answers for, from the body of its error. Null when it sent none, or sent nothing the page reads. */
+export function shapeOf(err: unknown): ModelShape | null {
   if (!(err instanceof ApiError)) return null;
   try {
-    return (JSON.parse(err.body) as { found?: LookupFound }).found ?? null;
+    return (JSON.parse(err.body) as Partial<LookupFailure>).shape ?? null;
   } catch {
     return null;
   }

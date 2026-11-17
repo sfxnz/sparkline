@@ -16,7 +16,15 @@ from sparkline.console.app import create_app
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel
 from sparkline.console.demo_workstation import WorkstationModel
-from sparkline.console.fit import Estimate, ModelFacts, estimate, fetch_facts, node_budget, parse_repo_id
+from sparkline.console.fit import (
+    Estimate,
+    LookupFailure,
+    ModelFacts,
+    estimate,
+    fetch_facts,
+    node_budget,
+    parse_repo_id,
+)
 from sparkline.console.nodes import NodeSource
 
 GIB = 2**30
@@ -269,7 +277,7 @@ async def test_an_indexed_repo_weighs_the_files_its_index_names():
 async def test_an_indexed_repo_holding_a_safetensors_file_its_index_misses_is_refused(left_out, named):
     shards = {"model-00001-of-00002.safetensors": 3, "model-00002-of-00002.safetensors": 4}
     failure = await FakeHuggingFace(indexed_repo({**shards, **left_out}, *shards)).lookup()
-    assert failure.found.weights_bytes is None, failure
+    assert isinstance(failure, LookupFailure), failure
     assert "does not name every" in failure.problem.message
     assert named in failure.problem.cause
     assert "by hand" in failure.problem.fix
@@ -278,7 +286,7 @@ async def test_an_indexed_repo_holding_a_safetensors_file_its_index_misses_is_re
 async def test_a_repo_with_no_index_and_a_safetensors_file_in_a_subfolder_is_refused():
     files = {"config.json": 726, "model.safetensors": 7, "onnx/model.fp32.safetensors": 14}
     failure = await FakeHuggingFace(public_repo(info=repo_files(files))).lookup()
-    assert failure.found.weights_bytes is None, failure
+    assert isinstance(failure, LookupFailure), failure
     assert "onnx/model.fp32.safetensors" in failure.problem.cause
 
 
@@ -366,7 +374,7 @@ async def test_a_size_from_the_files_a_server_loads_is_not_called_an_upper_bound
 async def test_an_index_too_large_to_read_is_refused_unless_the_repo_holds_one_shard_family(sizes, at_most):
     hf = FakeHuggingFace(public_repo(info=repo_files({**OVER_THE_CAP, **sizes})))
     failure = await hf.lookup()
-    assert failure.found.weights_bytes is None
+    assert isinstance(failure, LookupFailure), failure
     assert "too large" in failure.problem.message
     assert "1.0 MiB" in failure.problem.cause and "which files a server loads" in failure.problem.cause
     assert "by hand" in failure.problem.fix and f"at most {at_most}" in failure.problem.fix
@@ -389,7 +397,7 @@ def test_a_repo_with_no_index_and_no_model_safetensors_is_refused_with_what_it_d
 async def test_a_file_list_that_names_one_file_twice_is_refused():
     info = {"siblings": [{"rfilename": "model.safetensors", "size": size} for size in (5_000_000_000, 1)]}
     failure = await FakeHuggingFace(public_repo(info=info)).lookup()
-    assert failure.found.weights_bytes is None, failure
+    assert isinstance(failure, LookupFailure), failure
     assert "twice" in failure.problem.message and "model.safetensors" in failure.problem.cause
 
 
@@ -400,6 +408,10 @@ def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
 # The repo's own weight file is small, and a server loads the rest from the repo its config names.
 SPEECH_INFO = repo_files({"config.json": 900, "model.safetensors": 1_365_000_000})
 SPEECH_CONFIG = {**QWEN_CONFIG, "text_model_id": "some-org/some-70b-model"}
+ADAPTER_INFO = repo_files(
+    {"config.json": 700, "adapter_config.json": 600, "model.safetensors": 4_987_796_928}
+)
+DRAFT_CONFIG = {**QWEN_CONFIG, "num_hidden_layers": 1, "draft_vocab_size": 32_000}
 
 
 @pytest.mark.parametrize(
@@ -431,7 +443,7 @@ SPEECH_CONFIG = {**QWEN_CONFIG, "text_model_id": "some-org/some-70b-model"}
 async def test_a_repo_whose_config_names_a_model_outside_it_gets_no_size(config):
     hf = FakeHuggingFace(public_repo(info=SPEECH_INFO, config=config))
     failure = await hf.lookup()
-    assert failure.found.weights_bytes is None, failure
+    assert isinstance(failure, LookupFailure), failure
     assert "names a model outside the repo" in failure.problem.message
     assert "by hand" in failure.problem.fix
 
@@ -443,7 +455,9 @@ async def test_the_refusal_names_the_model_the_key_and_says_what_the_lookup_cann
         "loads weights from there"
     )
     # Clause 5: the hint says to add the other model's size, not to add up this repo's Files tab.
-    assert "plus those of some-org/some-70b-model" in failure.problem.fix
+    assert (
+        "plus those of any model named there that the server loads as a separate model" in failure.problem.fix
+    )
 
 
 @pytest.mark.parametrize(
@@ -471,9 +485,8 @@ async def test_a_config_string_that_is_not_another_repo_still_gets_a_size(config
 
 
 async def test_an_adapter_gets_no_size_even_when_it_is_saved_as_model_safetensors():
-    files = {"config.json": 700, "adapter_config.json": 600, "model.safetensors": 4_987_796_928}
-    failure = await FakeHuggingFace(public_repo(info=repo_files(files))).lookup()
-    assert failure.found.weights_bytes is None, failure
+    failure = await FakeHuggingFace(public_repo(info=ADAPTER_INFO)).lookup()
+    assert isinstance(failure, LookupFailure), failure
     assert "adapter" in failure.problem.message
     assert "adapter_config.json" in failure.problem.cause
     # base_model_name_or_path in that file is null for a real LoRA, so the refusal does not say the file
@@ -499,7 +512,7 @@ async def test_a_draft_model_gets_no_size_even_when_it_names_no_target(config):
     failure = await FakeHuggingFace(
         public_repo(info=repo_files(files), config={**QWEN_CONFIG, **config})
     ).lookup()
-    assert failure.found.weights_bytes is None, failure
+    assert isinstance(failure, LookupFailure), failure
     assert "describes a second model the repo does not hold" in failure.problem.message
     assert next(iter(config)) in failure.problem.cause
     assert "the target model's" in failure.problem.fix
@@ -518,7 +531,7 @@ async def test_a_draft_model_gets_no_size_even_when_it_names_no_target(config):
 async def test_a_weight_file_in_another_format_takes_the_size_with_it(name):
     files = {"config.json": 726, "model.safetensors": 7, name: 5_000_000}
     failure = await FakeHuggingFace(public_repo(info=repo_files(files))).lookup()
-    assert failure.found.weights_bytes is None, failure
+    assert isinstance(failure, LookupFailure), failure
     assert "a format the lookup does not read" in failure.problem.message
     assert name in failure.problem.cause
     assert "by hand" in failure.problem.fix
@@ -546,8 +559,7 @@ async def test_a_copy_of_the_weights_or_training_state_leaves_the_size_alone(nam
 async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():
     hf = FakeHuggingFace(public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config=SPEECH_CONFIG))
     failure = await hf.lookup()
-    assert failure.found.weights_bytes is None, failure
-    assert failure.found.weights_upper_bound is False
+    assert isinstance(failure, LookupFailure), failure
     assert "names a model outside the repo" in failure.problem.message
 
 
@@ -563,7 +575,7 @@ async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():
 )
 async def test_a_config_the_lookup_cannot_read_takes_the_size_with_it(routes, message):
     failure = await FakeHuggingFace(routes).lookup()
-    assert failure.found.weights_bytes is None, failure
+    assert isinstance(failure, LookupFailure), failure
     assert message in failure.problem.message
     assert "another repo" in failure.problem.cause
 
@@ -572,19 +584,19 @@ async def test_a_config_read_but_not_understood_keeps_neither_the_shape_nor_the_
     # The shape and the sign that the model reaches outside the repo come from the same config.json, so a
     # size the lookup cannot pair with a shape is a size it cannot say the model's own files hold.
     failure = await FakeHuggingFace(public_repo(config={"num_attention_heads": 16})).lookup()
-    assert failure.found.weights_bytes is None, failure
-    assert failure.found.shape is None
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
     assert "does not describe" in failure.problem.message
 
 
 async def test_a_shape_read_without_a_size_is_still_filled_in():
     failure = await FakeHuggingFace(public_repo(info=repo_files({"model.Q4_K_M.gguf": 5}))).lookup()
-    assert failure.found.shape is not None and failure.found.weights_bytes is None
+    assert isinstance(failure, LookupFailure) and failure.shape is not None
 
 
 async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
     hf = FakeHuggingFace(indexed_repo({"model.safetensors": 5}, config=SPEECH_CONFIG))
-    assert (await hf.lookup()).found.weights_bytes is None
+    assert isinstance(await hf.lookup(), LookupFailure)
     assert INDEX_PATH not in hf.paths
 
 
@@ -657,67 +669,129 @@ async def test_each_lookup_failure_is_a_problem_that_says_to_enter_the_facts_by_
 
 QWEN_SHAPE = {"num_layers": 36, "num_kv_heads": 8, "head_dim": 128, "max_context": 40960}
 
+# Every one of these configs holds a whole shape at its top level, and the lookup read it.
+SECOND_MODEL = [
+    pytest.param(
+        public_repo(info=SPEECH_INFO, config=SPEECH_CONFIG), id="a-config-string-naming-another-repo"
+    ),
+    pytest.param(public_repo(info=ADAPTER_INFO), id="an-adapter"),
+    pytest.param(public_repo(config=DRAFT_CONFIG), id="a-draft-models-keys"),
+]
+
+
+@pytest.mark.parametrize("routes", SECOND_MODEL)
+async def test_a_refusal_over_a_second_model_fills_in_neither_a_size_nor_a_shape(routes):
+    # The fifth verifier typed the size a draft model's refusal asked for, kept the one layer the lookup
+    # had filled in from the draft's own config, and got Fits for a model that does not fit.
+    failure = await FakeHuggingFace(routes).lookup()
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.model_dump() == {"problem": failure.problem.model_dump(), "shape": None}
+    assert "both the size and the shape" in failure.problem.fix
+    assert "the model the server answers with" in failure.problem.fix
+
+
+@pytest.mark.parametrize("routes", SECOND_MODEL)
+def test_lookup_route_sends_nothing_to_fill_in_after_a_refusal_over_a_second_model(tmp_path, hf, routes):
+    hf.routes = routes
+    with TestClient(make(tmp_path)) as c:
+        r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
+    assert r.status_code == 502
+    assert r.json() == {"problem": r.json()["problem"], "shape": None}
+
 
 @pytest.mark.parametrize(
-    ("routes", "message", "found"),
+    ("routes", "message", "shape"),
     [
         pytest.param(
             public_repo(config={"num_attention_heads": 16}),
             "does not describe",
-            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
+            None,
             id="weights-sized-and-no-shape-in-the-config",
         ),
-        pytest.param(
-            refused(CONFIG_PATH, 401),
-            "is gated",
-            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
-            id="nothing-read-and-a-gated-config",
-        ),
+        pytest.param(refused(CONFIG_PATH, 401), "is gated", None, id="nothing-read-and-a-gated-config"),
         pytest.param(
             public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config={"num_attention_heads": 16}),
             "does not describe",
-            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
+            None,
             id="weights-bounded-and-no-shape-in-the-config",
-        ),
-        pytest.param(
-            public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS, "model.safetensors": 5})),
-            "too large",
-            {"weights_bytes": None, "weights_upper_bound": False, "shape": QWEN_SHAPE},
-            id="shape-read-and-an-index-too-large",
-        ),
-        pytest.param(
-            public_repo(info=repo_files({"model.Q4_K_M.gguf": 5})),
-            "no model.safetensors",
-            {"weights_bytes": None, "weights_upper_bound": False, "shape": QWEN_SHAPE},
-            id="shape-read-and-no-safetensors",
         ),
         pytest.param(
             public_repo(info=repo_files({"model.Q4_K_M.gguf": 5}), config={}),
             "no model.safetensors",
-            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
+            None,
             id="neither",
         ),
+        pytest.param(refused(INFO_PATH, 401), "no public model", None, id="no-repo"),
+        # A refusal over this repo's own files: the config it read is this model's, so its shape is too.
         pytest.param(
-            refused(INFO_PATH, 401),
-            "no public model",
-            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
-            id="no-repo",
+            public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS, "model.safetensors": 5})),
+            "too large",
+            QWEN_SHAPE,
+            id="an-index-too-large",
+        ),
+        pytest.param(
+            public_repo(info=repo_files({"model.Q4_K_M.gguf": 5})),
+            "no model.safetensors",
+            QWEN_SHAPE,
+            id="no-safetensors",
+        ),
+        pytest.param(
+            public_repo(info=repo_files({"model.safetensors": 5, "vision/model.safetensors": 5})),
+            "other safetensors files beside",
+            QWEN_SHAPE,
+            id="a-second-safetensors-file-and-no-index",
+        ),
+        pytest.param(
+            public_repo(info=repo_files({"model.safetensors": 5, "codec.pth": 5})),
+            "a format the lookup does not read",
+            QWEN_SHAPE,
+            id="a-weight-file-in-another-format",
+        ),
+        pytest.param(
+            indexed_repo({"model.safetensors": 5, "extra.safetensors": 5}, "model.safetensors"),
+            "does not name every",
+            QWEN_SHAPE,
+            id="a-safetensors-file-the-index-leaves-out",
+        ),
+        pytest.param(
+            indexed_repo({"model-00001-of-00002.safetensors": 5}, "model-00002-of-00002.safetensors"),
+            "does not hold",
+            QWEN_SHAPE,
+            id="an-index-naming-a-file-the-repo-lacks",
+        ),
+        pytest.param(
+            public_repo(repo_files({INDEX: 9, "model.safetensors": 5}), index={"metadata": {}}),
+            "weight index",
+            QWEN_SHAPE,
+            id="an-index-with-no-weight-map",
+        ),
+        pytest.param(
+            {**indexed_repo({"model.safetensors": 5}), INDEX_PATH: httpx.Response(401)},
+            "is gated",
+            QWEN_SHAPE,
+            id="a-gated-index",
+        ),
+        pytest.param(
+            public_repo(info=repo_files({"model.safetensors": 0})),
+            "are empty",
+            QWEN_SHAPE,
+            id="empty-weights",
         ),
     ],
 )
-async def test_a_refused_lookup_still_gives_the_part_it_read(routes, message, found):
+async def test_a_refusal_fills_in_the_shape_alone_and_only_when_it_is_this_models(routes, message, shape):
     failure = await FakeHuggingFace(routes).lookup()
     assert message in failure.problem.message
-    assert failure.found.model_dump() == found
+    assert failure.model_dump() == {"problem": failure.problem.model_dump(), "shape": shape}
 
 
-def test_lookup_route_sends_the_part_a_refused_lookup_read(tmp_path, hf):
+def test_lookup_route_sends_the_shape_a_refused_lookup_read(tmp_path, hf):
     hf.routes = public_repo(info=repo_files({"model.Q4_K_M.gguf": 5}))
     with TestClient(make(tmp_path)) as c:
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
     assert r.status_code == 502
     assert "no model.safetensors" in r.json()["problem"]["message"]
-    assert r.json()["found"] == {"weights_bytes": None, "weights_upper_bound": False, "shape": QWEN_SHAPE}
+    assert r.json()["shape"] == QWEN_SHAPE
 
 
 async def test_a_file_too_large_to_read_is_named_in_the_refusal():

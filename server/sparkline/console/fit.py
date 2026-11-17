@@ -10,7 +10,9 @@ weight files, and names the sign it found when it will not. The signs are: a str
 names another repo, a key in it that measures a model the repo does not hold, an ``adapter_config.json``, a
 ``.safetensors`` file the sizing leaves out, a weight file in another format whose name does not mark it as
 a copy or as training state, and a ``config.json`` it could not read at all. The model's shape comes from
-that same ``config.json``, and a size is never filled in without it.
+that same ``config.json``, and a size is never filled in without it. A refusal fills in the shape alone,
+and not even that after a sign of a second model (the first three above): the shape in the config may
+then be an adapter's, a draft's or one part's, not that of the model a server answers with.
 
 None of that proves the repo holds the whole model, and nothing here claims it does. A repo's own code can
 load a second model that no file the lookup reads names, a draft model whose config measures nothing is
@@ -45,6 +47,9 @@ MAX_RESPONSE_BYTES = 1 << 20
 MAX_REDIRECTS = 3
 MANUAL_FIX = "Enter the model facts by hand"
 OR_MANUAL_FIX = "or enter the model facts by hand"
+# After a sign of a second model the page fills in nothing, so the refusal asks for both parts.
+BOTH_BY_HAND = f"{MANUAL_FIX}, both the size and the shape"
+ANSWERING_MODEL = "the model the server answers with"
 
 RepoId = NewType("RepoId", str)
 _REPO_PART = r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}"
@@ -73,24 +78,17 @@ class ModelFacts(ModelShape):
     weights_upper_bound: bool = False
 
 
-class Found(BaseModel):
-    """The part of the facts a refused lookup still read. The page fills it in and asks for the rest.
+class LookupFailure(BaseModel):
+    """The body of a refused lookup: why, and the model's shape when the lookup still answers for it.
 
-    A size never comes without a shape. Both are read from the same ``config.json``, which is also the only
-    place the repo says that a server loads weights from somewhere else, so a size the lookup cannot pair
-    with a shape is a size it cannot say covers the model. ``found_by`` is the one way to build this.
+    It has no field for a size. A size comes only in a full answer, beside the shape it belongs to. The
+    shape is set only when the refusal is about this repo's own files. ``fetch_facts`` returns for a sign
+    of a second model before it reads a shape, so that refusal has none to send: the shape in the config
+    may be an adapter's, a draft's or one part's, and the page would put it under the served model's name.
     """
 
-    weights_bytes: int | None = None
-    weights_upper_bound: bool = False
-    shape: ModelShape | None = None
-
-
-class LookupFailure(BaseModel):
-    """The body of a refused lookup."""
-
     problem: Problem
-    found: Found = Found()
+    shape: ModelShape | None = None
 
 
 class Estimate(BaseModel):
@@ -536,15 +534,6 @@ class _Weights(NamedTuple):
     upper_bound: bool
 
 
-def found_by(weights: _Weights | Problem, shape: ModelShape | Problem) -> Found:
-    """What one lookup read, as the page fills it in. No size without the shape it belongs to."""
-    if isinstance(shape, Problem):
-        return Found()
-    if isinstance(weights, Problem):
-        return Found(shape=shape)
-    return Found(weights_bytes=weights.bytes, weights_upper_bound=weights.upper_bound, shape=shape)
-
-
 def read_config(repo: RepoId, answer: _Json | Problem) -> dict[str, object] | Problem:
     """The repo's ``config.json`` as an object, or why the lookup has none.
 
@@ -586,7 +575,8 @@ def drafts_for_another_model(repo: RepoId, config: dict[str, object]) -> Problem
         f"The config.json of {repo} describes a second model the repo does not hold",
         f"It has {_listed(keys)}, which measure another model. Keys like these are a draft model's record "
         "of the target it drafts for, and a server loads that target as well",
-        f"{MANUAL_FIX}: the total of this repo's weight files and the target model's",
+        f"{BOTH_BY_HAND}. The size is the total of this repo's weight files and the target model's. The "
+        f"shape is the target model's, which is {ANSWERING_MODEL}, and not this repo's own",
     )
 
 
@@ -647,9 +637,29 @@ def points_elsewhere(repo: RepoId, config: dict[str, object]) -> Problem | None:
     return _problem(
         f"The config.json of {repo} names a model outside the repo",
         f"It names {where}, and the lookup cannot tell whether a server loads weights from there",
-        f"{MANUAL_FIX}: the total of every weight file a server loads, which is this repo's own files plus "
-        f"those of {_listed(sorted(set(named.values())))}",
+        f"{BOTH_BY_HAND}. The size is the total of this repo's weight files, plus those of any model named "
+        f"there that the server loads as a separate model. The shape is that of {ANSWERING_MODEL}",
     )
+
+
+def second_model(repo: RepoId, sizes: dict[str, int], config: dict[str, object] | Problem) -> Problem | None:
+    """Why serving this repo involves a model the repo may not hold, or None when nothing read says so.
+
+    The signs are an ``adapter_config.json``, a ``config.json`` string that names another repo, and a
+    ``config.json`` key that measures another model. Any of them means the weights a server loads may
+    reach past this repo, and that the shape in this repo's config may not be the served model's.
+    """
+    if ADAPTER_FILE in sizes:
+        return _problem(
+            f"{repo} is an adapter, not a whole model",
+            f"It holds {ADAPTER_FILE}, which marks these weights as a layer trained on top of another "
+            "model, and a server loads that model as well",
+            f"{BOTH_BY_HAND}. The size is the total of this repo's weight files and the base model's. The "
+            f"shape is the base model's, which is {ANSWERING_MODEL}",
+        )
+    if isinstance(config, Problem):
+        return None
+    return points_elsewhere(repo, config) or drafts_for_another_model(repo, config)
 
 
 async def weights_of(
@@ -661,28 +671,17 @@ async def weights_of(
 ) -> _Weights | Problem:
     """The size of the weights a server loads from this repo, or why the lookup will not give one.
 
-    A size needs no sign that the model reaches outside the repo's own weight files: the repo's
-    ``config.json`` was read, names no model outside the repo and measures none, the repo is not an adapter,
+    ``fetch_facts`` calls this once ``second_model`` has found no sign of one. A size then needs the rest
+    of what says the model stays inside the repo's own weight files: the repo's ``config.json`` was read,
     every weight file in another format is a copy or training state, and the file rules place every
     ``.safetensors`` file in the repo. Without all of that the lookup gives no size, because every way a
     server loads weights from outside the files it sized ends in a number below what the server loads.
     """
-    if ADAPTER_FILE in sizes:
-        return _problem(
-            f"{repo} is an adapter, not a whole model",
-            f"It holds {ADAPTER_FILE}, which marks these weights as a layer trained on top of another "
-            "model, and a server loads that model as well",
-            f"{MANUAL_FIX}: the total of this repo's weight files and the base model's",
-        )
     if isinstance(config, Problem):
         return config
-    elsewhere = (
-        points_elsewhere(repo, config)
-        or drafts_for_another_model(repo, config)
-        or other_format_weights(repo, sizes)
-    )
-    if elsewhere is not None:
-        return elsewhere
+    other_format = other_format_weights(repo, sizes)
+    if other_format is not None:
+        return other_format
     if INDEX_FILE not in sizes:
         weights, upper_bound = unindexed_weights(repo, sizes), False
     # The file list gives the index's size, so an index over the cap is never asked for.
@@ -701,7 +700,11 @@ async def weights_of(
 
 
 async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | LookupFailure:
-    """Read the size of a public repo's weights and its shape. Each is read even when the other is not."""
+    """Read the size of a public repo's weights and its shape, or say why not and what was still read.
+
+    Three outcomes, and this function is the one place that decides between them: the size with the
+    shape, the shape alone, or nothing. A size never comes without a shape.
+    """
     # Hugging Face answers 401 for a repo that does not exist and for a private one alike.
     absent = _problem(
         f"Hugging Face has no public model {repo}",
@@ -735,15 +738,15 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
             f"The config.json of {repo}",
         ),
     )
+    second = second_model(repo, sizes, config)
+    if second is not None:
+        return LookupFailure(problem=second)
     shape = config if isinstance(config, Problem) else parse_shape(repo, config)
     weights = await weights_of(client, repo, sizes, config, gated)
-    found = found_by(weights, shape)
-    if found.weights_bytes is not None and found.shape is not None:
-        return ModelFacts(
-            repo=repo,
-            weights_bytes=found.weights_bytes,
-            weights_upper_bound=found.weights_upper_bound,
-            **found.shape.model_dump(),
-        )
-    problems = [part for part in (weights, shape) if isinstance(part, Problem)]
-    return LookupFailure(problem=problems[0], found=found)
+    if isinstance(shape, Problem):
+        return LookupFailure(problem=weights if isinstance(weights, Problem) else shape)
+    if isinstance(weights, Problem):
+        return LookupFailure(problem=weights, shape=shape)
+    return ModelFacts(
+        repo=repo, weights_bytes=weights.bytes, weights_upper_bound=weights.upper_bound, **shape.model_dump()
+    )

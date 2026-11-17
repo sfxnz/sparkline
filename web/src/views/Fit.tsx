@@ -10,16 +10,13 @@ import type { FitRequest, FitResponse, KvDtype, NodeFit, Problem } from '../lib/
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
-import { budgetText, EMPTY_DRAFT, filledFrom, foundOf, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, maxContextOf, rangeText, SIZE_UNITS, toRequest, VERDICTS, type Draft, type SizeUnit } from './fit/model';
+import { budgetText, EMPTY_DRAFT, filledFrom, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, maxContextOf, rangeText, shapeOf, SIZE_UNITS, toRequest, VERDICTS, type Draft, type SizeUnit } from './fit/model';
 import './fit/fit.css';
 import './views.css';
 
 /** What a size a lookup filled in covers, and what it leaves out. Said wherever the number is shown. */
 const SCOPE = "This is the size of this repo's own weight files.";
 const NOT_COUNTED = "A second model the repo loads, a draft model's target and the base model under an adapter are not counted: a server loads those as well, and the lookup cannot see them.";
-
-/** What a lookup read when the page cannot read its answer at all. */
-const NOTHING_READ = { weights_bytes: null, weights_upper_bound: false, shape: null };
 
 type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem };
 type Run = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; request: FitRequest; response: FitResponse };
@@ -51,12 +48,12 @@ export default function Fit() {
     setLookup({ status: 'loading' });
     try {
       const facts = await api.fitLookup(repo);
-      setDraft((d) => fromLookup(d, repo, { weights_bytes: facts.weights_bytes, weights_upper_bound: facts.weights_upper_bound, shape: facts }));
+      setDraft((d) => fromLookup(d, repo, facts));
       setLookup({ status: 'idle' });
     } catch (e) {
-      // A lookup the page cannot read the answer of read nothing, as far as the page knows, so it leaves
-      // nothing behind either: no earlier repo's numbers stay on a form that now names this one.
-      setDraft((d) => fromLookup(d, repo, foundOf(e) ?? NOTHING_READ));
+      // A refusal fills in the shape it sends, and nothing when it sends none or the page cannot read its
+      // answer at all: no earlier repo's numbers stay on a form that now names this one.
+      setDraft((d) => fromLookup(d, repo, shapeOf(e)));
       setLookup({ status: 'error', problem: problemOf(e, 'look up the model') });
     }
   };

@@ -70,7 +70,7 @@ agent carries them. `README.md` documents installation.)
 | `GET /api/v1/settings`, `PUT /api/v1/settings` (energy rate and currency, stale/offline thresholds, regression %) | settings |
 | `DELETE /api/v1/history?node=` (body `{confirm:"DELETE"}`) | clear history |
 | `GET /api/v1/bench/catalog`; `GET/POST /api/v1/bench/runs`; `GET /api/v1/bench/runs/{id}`; `POST …/{id}/cancel`; `DELETE …/{id}`; `GET …/{id}/export?format=json\|csv`; `PUT /api/v1/bench/baselines/{bench_id}` `{run_id}`; `GET /api/v1/bench/compare?ids=` | benchmarks |
-| `GET /api/v1/fit/lookup?repo=owner/name` → `ModelFacts` (read from huggingface.co), or 502 `{problem, found}` with the part it read; `POST /api/v1/fit/estimate` `{facts, context_tokens, kv_dtype}` → `{estimate, nodes}` | will it fit |
+| `GET /api/v1/fit/lookup?repo=owner/name` → `ModelFacts` (read from huggingface.co), or 502 `{problem, shape}`, where `shape` is the model's shape when the refusal still answers for it and `null` otherwise; `POST /api/v1/fit/estimate` `{facts, context_tokens, kv_dtype}` → `{estimate, nodes}` | will it fit |
 | `GET /healthz` (no auth) | liveness |
 
 The agent exposes the same shapes for a single node: `GET /api/v1/info`, `GET /api/v1/snapshot`, `WS /api/v1/stream`,

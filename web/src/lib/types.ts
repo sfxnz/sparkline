@@ -515,10 +515,10 @@ export interface ModelFacts extends ModelShape {
   weights_upper_bound: boolean;
 }
 
-/** The part of the facts a refused lookup still read, sent beside its problem. */
-export interface LookupFound {
-  weights_bytes: number | null;
-  weights_upper_bound: boolean;
+/** The body of a refused lookup. It has no size: a size comes only in a full answer, beside its shape. */
+export interface LookupFailure {
+  problem: Problem;
+  /** The model's shape, when the refusal is about this repo's own files. Null after a sign of a second model. */
   shape: ModelShape | null;
 }
 
