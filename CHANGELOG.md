@@ -7,6 +7,18 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+### Added
+
+- **Recommendations.** A new page lists four settings that DGX Spark owners recommend (a GPU clock cap, a
+  performance-core cap, booting without the desktop, and the firmware's Display Reserved Memory), each with
+  its sources, cost, undo and risks. Every node's agent reports whether each setting is applied, through
+  `GET /api/v1/recommendations`. No setting has been measured by Sparkline yet, and the page says so. See
+  [Recommendations](README.md#recommendations).
+- **One-click settings, on nodes that opt in.** `install.sh agent --enable-tune` installs a root helper that
+  can apply and undo three of those settings from a fixed list, and applies them again at boot. The agent
+  stays unprivileged. `POST /api/v1/recommendations/{id}/apply` and `/undo` on the console need
+  `confirm: true`. See [Security model](README.md#security-model).
+
 ## [0.2.0] - 2026-11-17
 
 ### Upgrading

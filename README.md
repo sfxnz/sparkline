@@ -161,6 +161,10 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   metadata. The LLM benchmark shows every concurrent stream as it generates and can sweep concurrency levels;
   the tool-calling evaluation shows each scenario's verdict as it finishes. Baselines, regression flags,
   side-by-side comparison, JSON/CSV export and a shareable summary card are included.
+- **Recommendations.** The settings DGX Spark owners recommend to each other for a cooler or roomier
+  machine, each with its sources, its cost, its undo and what could go wrong. Sparkline checks every node
+  and recommends a setting only where it is not applied yet. On a node that allows it, one click applies or
+  undoes a setting. See [Recommendations](#recommendations).
 - **Wall mode, command palette and keyboard shortcuts.** Dark and light themes that follow the system, with
   reduced-motion and reduced-transparency support.
 - **Demo mode** (`--demo`): three simulated nodes, including a thermal episode, a stalled stream and a node
@@ -177,6 +181,7 @@ access to PyPI for the Python dependencies.
 git clone https://github.com/sfxnz/sparkline.git && cd sparkline
 sudo ./install.sh agent                       # monitor-only
 sudo ./install.sh agent --enable-benchmarks   # also allow benchmarks (see Security model)
+sudo ./install.sh agent --enable-tune         # also allow one-click recommended settings (see Security model)
 ```
 
 The installer:
@@ -202,11 +207,12 @@ sudo --preserve-env=SPARKLINE_AGENT_TOKEN ./install.sh agent
 
 Re-running the installer is safe. It refreshes the code and units and restarts the service, and keeps the
 config and data. The flags describe the state you want: running it again without `--enable-benchmarks`
-turns benchmarks back off.
+turns benchmarks back off. The same holds for `--enable-tune`.
 
 | Option | Meaning |
 |---|---|
 | `--enable-benchmarks` | Allow benchmarks: Docker access for the agent and lifted CPU/memory caps. Asks for confirmation. |
+| `--enable-tune` | Allow the console to apply and undo the settings on the Recommendations tab: installs a root helper with a fixed list of settings. Asks for confirmation. |
 | `--nodes LIST` | Console: the agents to poll, as `id=url` pairs, e.g. `spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750`. |
 | `--peers LIST` | Agent: the far ends of the ConnectX-7 rails as `id=ip` pairs, e.g. `spark2=10.0.8.2,spark2=10.0.9.2`. Written to `peers` in a new config. |
 | `--agent-token TOKEN` | Use this token instead of generating one (or set `SPARKLINE_AGENT_TOKEN`). |
@@ -275,7 +281,7 @@ sudo sparkline update --this-host # update only this host
 
 `sparkline update` downloads the latest GitHub release, checks it against the release's `SHA256SUMS`, and runs
 that release's `install.sh` for each part that this host runs: the console first, then the agent. It keeps
-the config, the data, the install prefix and `--enable-benchmarks`. On the console host it then asks every
+the config, the data, the install prefix, `--enable-benchmarks` and `--enable-tune`. On the console host it then asks every
 node in `console.toml` whose agent is behind to update itself, all at once, waits up to 10 minutes, and
 prints one line per node:
 
@@ -498,6 +504,16 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   `--enable-benchmarks`, that adds less than benchmarks already allow. On a monitor-only node it is the first
   thing the agent token can make run as root, and all it can do is install the latest checksum-verified
   release now. The agent's own unit and sandbox are unchanged. It refuses while a benchmark is running.
+- **One-click settings run a fixed list as root, on nodes that opt in.** `--enable-tune` installs
+  `sparkline-tune.path`, `sparkline-tune.service` and `sparkline-tune-boot.service`. The agent stays
+  unprivileged. To apply or undo a setting it creates an empty file named after the setting, such as
+  `gpu-clock-cap.apply`, in `/var/lib/sparkline-agent/tune-requests/`. The root helper removes the file
+  without opening it and looks the whole name up in a table that ships in `/opt/sparkline`. Every command
+  and every value comes from that table. A request cannot add a command, an argument or a number. In 0.3.0
+  the table can cap the GPU clock at 2200 MHz, cap the performance cores at 3000 MHz, set the default boot
+  target, and undo each of those. With the flag, anyone who is signed in to the console, and anyone who
+  holds the agent token, can make those changes on that node. Without the flag the helper is not installed:
+  the tab still checks the node and shows the commands to type.
 - **Notifications leave the LAN only where you say.** Without a `[[notify]]` table the console sends no
   notification. With one, it sends alerts to the hosts in those tables, and to no other host:
   nothing in the API or the web app can add or change a channel. For every send the console resolves the
@@ -777,6 +793,38 @@ caveats.
 
 Each CX7 rail is its own PCIe Gen5 x4 link (~109 Gb/s of payload), but both rails share one 200 Gb/s port: run
 together they carry ~185 Gb/s, which is the ceiling NCCL reaches.
+
+## Recommendations
+
+The **Recommendations** page lists settings that DGX Spark owners recommend to each other. In 0.3.0 there are
+four.
+
+| Setting | What it changes | One click | Survives a reboot |
+|---|---|---|---|
+| Cap the GPU clock at 2200 MHz | `nvidia-smi -lgc 0,2200` | Yes | Sparkline applies it again at boot |
+| Cap the performance cores at 3000 MHz | `scaling_max_freq` of the ten fast cores | Yes | Sparkline applies it again at boot |
+| Boot without the desktop | `systemctl set-default multi-user.target` | Yes, from the next boot | Yes |
+| Set Display Reserved Memory to Auto | A firmware setting, then a reboot | No. The page shows the exact steps | Yes |
+
+Each setting shows its sources, the benefit and the cost that owners report, how to undo it, and what could
+go wrong. **No setting in 0.3.0 has been measured by Sparkline.** The page says so on every card, and shows
+the numbers only as owners' reports.
+[docs/recommendations/README.md](docs/recommendations/README.md) says what counts as a measurement and how to
+make one.
+
+**Each node is checked.** The agent reads, without root, whether a setting is applied on its node. A setting
+that is applied is not recommended for that node. The GPU driver does not report a clock cap, so the agent
+looks for Sparkline's own record or for an active systemd unit that runs `nvidia-smi -lgc`, and compares the
+live GPU clock with the cap. A cap that you typed by hand is not visible to the agent.
+
+**One click needs the node's consent.** Install the agent with `--enable-tune` to get the **Apply** and
+**Undo** buttons for that node. Every click asks for confirmation and lists the commands. Without the flag,
+the page shows the same commands for you to type. A setting that something other than Sparkline applied
+shows as applied, with no **Undo** button: undo it where it was set. [Security model](#security-model) says
+what the flag allows.
+
+`GET /api/v1/recommendations` returns the list and every node's state.
+`POST /api/v1/recommendations/{id}/apply` and `/undo` take `{"node": "...", "confirm": true}`.
 
 ## Keyboard shortcuts
 
