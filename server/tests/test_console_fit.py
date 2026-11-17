@@ -459,8 +459,9 @@ async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
             "no model.safetensors",
         ),
         (
+            # With no config.json the lookup gives no size either, so that refusal is the one it reports.
             {**refused(CONFIG_PATH, 404), INFO_PATH: httpx.Response(200, json=repo_files({}))},
-            "no model.safetensors",
+            "no config.json",
         ),
         (
             public_repo(info=repo_files({f"model-0000{i}-of-00002.safetensors": 5 for i in (1, 2)})),
@@ -522,8 +523,8 @@ QWEN_SHAPE = {"num_layers": 36, "num_kv_heads": 8, "head_dim": 128, "max_context
         pytest.param(
             refused(CONFIG_PATH, 401),
             "is gated",
-            {"weights_bytes": 16_381_470_720, "weights_upper_bound": False, "shape": None},
-            id="weights-sized-and-a-gated-config",
+            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
+            id="nothing-read-and-a-gated-config",
         ),
         pytest.param(
             public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config={"num_attention_heads": 16}),

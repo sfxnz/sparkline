@@ -213,6 +213,12 @@ class _WeightIndex(BaseModel):
 
 WEIGHTS_FILE = "model.safetensors"
 INDEX_FILE = "model.safetensors.index.json"
+ADAPTER_FILE = "adapter_config.json"
+
+# A config.json key whose value names where a loader reads part of the weights from: vLLM's Ultravox reads
+# text_model_id and audio_model_id, and the original LLaVA code reads mm_vision_tower. `_name_or_path` is not
+# one of these: it records the repo a model was made from, and no loader reads weights from it.
+WEIGHT_POINTER = re.compile(r"[a-z]+_model_id|base_model_name_or_path|mm_vision_tower")
 
 
 def file_sizes(repo: RepoId, info: object) -> dict[str, int] | Problem:
@@ -335,10 +341,8 @@ _SHAPE_KEYS = {
 }
 
 
-def parse_shape(repo: RepoId, config: object) -> ModelShape | Problem:
+def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Problem:
     """The model's shape, from the repo's ``config.json`` as decoded JSON."""
-    if not isinstance(config, dict):
-        return _problem(f"The config.json of {repo} is not a JSON object", f"It is a {type(config).__name__}")
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
     head_dim = config.get("head_dim")
     if head_dim is None and isinstance(heads, int) and isinstance(hidden, int) and heads > 0:
@@ -411,6 +415,93 @@ async def _get_hf_json(
     return _problem("Hugging Face kept redirecting the lookup", f"More than {MAX_REDIRECTS} redirects")
 
 
+class _Weights(NamedTuple):
+    bytes: int
+    upper_bound: bool
+
+
+def read_config(repo: RepoId, answer: _Json | Problem) -> dict[str, object] | Problem:
+    """The repo's ``config.json`` as an object, or why the lookup has none.
+
+    It is read twice over: for the model's shape, and because it is the only place the repo says that a
+    server loads weights from somewhere else. Without it neither is known.
+    """
+    if isinstance(answer, Problem):
+        problem = answer
+    elif isinstance(answer.value, dict):
+        return answer.value
+    else:
+        problem = _problem(
+            f"The config.json of {repo} is not a JSON object", f"It is a {type(answer.value).__name__}"
+        )
+    return _problem(
+        problem.message,
+        f"{problem.cause}. Without the repo's config.json the lookup cannot tell whether a server also "
+        "loads weights from another repo, so it fills in no size either",
+        problem.fix,
+    )
+
+
+def points_elsewhere(repo: RepoId, config: dict[str, object]) -> Problem | None:
+    """Where ``config.json`` says a loader reads part of the weights from, at any depth, or None."""
+    named: dict[str, str] = {}
+    nodes: list[object] = [config]
+    while nodes:
+        node = nodes.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(value, str) and value.strip() and WEIGHT_POINTER.fullmatch(key):
+                    named[key] = value
+                elif isinstance(value, dict | list):
+                    nodes.append(value)
+        elif isinstance(node, list):
+            nodes.extend(node)
+    if not named:
+        return None
+    return _problem(
+        f"{repo} loads part of its weights from another repo",
+        f"Its config.json names {', '.join(f'{v} in {k}' for k, v in sorted(named.items()))}, so a server "
+        "loads those weights too and the size of this repo's own files is not what it needs",
+    )
+
+
+async def weights_of(
+    client: httpx.AsyncClient,
+    repo: RepoId,
+    sizes: dict[str, int],
+    config: dict[str, object] | Problem,
+    gated: Problem,
+) -> _Weights | Problem:
+    """The size of the weights a server loads from this repo, or why the lookup will not give one.
+
+    A size needs evidence that these files are the whole model: the repo's ``config.json`` was read, it
+    names no other repo for weights, the repo is not an adapter, and the file rules place every weight file
+    in it. Without that evidence the lookup gives no size, because the ways a server loads weights from
+    outside a repo's own files all end in a number far below what it loads.
+    """
+    if ADAPTER_FILE in sizes:
+        return _problem(
+            f"{repo} is an adapter, not a whole model",
+            f"It holds {ADAPTER_FILE}, so a server loads the base model named there and puts these weights "
+            "on top of it",
+        )
+    if isinstance(config, Problem):
+        return config
+    elsewhere = points_elsewhere(repo, config)
+    if elsewhere is not None:
+        return elsewhere
+    if INDEX_FILE not in sizes:
+        weights, upper_bound = unindexed_weights(repo, sizes), False
+    # The file list gives the index's size, so an index over the cap is never asked for.
+    elif sizes[INDEX_FILE] > MAX_RESPONSE_BYTES:
+        weights, upper_bound = unread_index_weights(repo, sizes), True
+    else:
+        index = await _get_hf_json(client, f"/{repo}/resolve/main/{INDEX_FILE}", {401: gated, 403: gated})
+        weights = index if isinstance(index, Problem) else indexed_weights(repo, sizes, index.value)
+        upper_bound = False
+    return weights if isinstance(weights, Problem) else _Weights(weights, upper_bound)
+
+
 async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | LookupFailure:
     """Read the size of a public repo's weights and its shape. Each is read even when the other is not."""
     # Hugging Face answers 401 for a repo that does not exist and for a private one alike.
@@ -433,25 +524,18 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
         f"{repo} is gated on Hugging Face",
         "Its files are only served to accounts that accepted the model's terms",
     )
-    weights: int | Problem
-    upper_bound = False
-    if INDEX_FILE not in sizes:
-        weights = unindexed_weights(repo, sizes)
-    # The file list gives the index's size, so an index over the cap is never asked for.
-    elif sizes[INDEX_FILE] > MAX_RESPONSE_BYTES:
-        weights = unread_index_weights(repo, sizes)
-        upper_bound = not isinstance(weights, Problem)
-    else:
-        index = await _get_hf_json(client, f"/{repo}/resolve/main/{INDEX_FILE}", {401: gated, 403: gated})
-        weights = index if isinstance(index, Problem) else indexed_weights(repo, sizes, index.value)
     no_config = _problem(f"{repo} has no config.json", "The estimator reads the model's shape from it")
-    config = await _get_hf_json(
-        client, f"/{repo}/resolve/main/config.json", {401: gated, 403: gated, 404: no_config}
+    config = read_config(
+        repo,
+        await _get_hf_json(
+            client, f"/{repo}/resolve/main/config.json", {401: gated, 403: gated, 404: no_config}
+        ),
     )
-    shape = config if isinstance(config, Problem) else parse_shape(repo, config.value)
+    shape = config if isinstance(config, Problem) else parse_shape(repo, config)
+    weights = await weights_of(client, repo, sizes, config, gated)
     found = Found(
-        weights_bytes=None if isinstance(weights, Problem) else weights,
-        weights_upper_bound=upper_bound,
+        weights_bytes=None if isinstance(weights, Problem) else weights.bytes,
+        weights_upper_bound=not isinstance(weights, Problem) and weights.upper_bound,
         shape=None if isinstance(shape, Problem) else shape,
     )
     if found.weights_bytes is not None and found.shape is not None:
