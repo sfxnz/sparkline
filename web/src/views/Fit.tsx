@@ -10,14 +10,13 @@ import type { FitRequest, FitResponse, KvDtype, NodeFit, Problem } from '../lib/
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
-import { budgetText, EMPTY_DRAFT, fromFacts, hasGb10, KV_DTYPES, rangeText, toRequest, VERDICTS, WEIGHT_DTYPES, type Draft } from './fit/model';
+import { budgetText, EMPTY_DRAFT, fromFacts, hasNvidiaUnifiedMemory, KV_DTYPES, rangeText, toRequest, VERDICTS, WEIGHT_DTYPES, type Draft } from './fit/model';
 import './fit/fit.css';
 import './views.css';
 
 type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; repo: string };
 type Run = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; request: FitRequest; response: FitResponse };
 
-/** Will it fit: what a model needs at a context length, against what each node has free right now. */
 export default function Fit() {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [lookup, setLookup] = useState<Lookup>({ status: 'idle' });
@@ -26,8 +25,7 @@ export default function Fit() {
   const parsed = toRequest(draft);
   const errors = submitted && !parsed.ok ? parsed.errors : {};
   const set = (patch: Partial<Draft>) => { setDraft((d) => ({ ...d, ...patch })); };
-  /** A fact edited by hand is no longer the looked-up repo's. */
-  const setFact = (patch: Partial<Draft>) => { set({ ...patch, source: null }); };
+  const editFact = (patch: Partial<Draft>) => { set({ ...patch, source: null }); };
   const repo = draft.repo.trim();
   const context = parsed.ok ? parsed.request.context_tokens : null;
   const maxContext = draft.source?.maxContext ?? null;
@@ -92,24 +90,24 @@ export default function Fit() {
                   id={`fit-count-${i}`}
                   describedBy={i === 0 ? 'fit-count-0-hint' : undefined}
                   value={w.count}
-                  onChange={(count) => { setFact({ weights: draft.weights.map((x, j) => (j === i ? { ...x, count } : x)) }); }}
+                  onChange={(count) => { editFact({ weights: draft.weights.map((x, j) => (j === i ? { ...x, count } : x)) }); }}
                   error={errors[`count${i}`]}
                   width="9rem"
                 />
-                <Select aria-label={`Weight dtype${draft.weights.length > 1 ? ` ${i + 1}` : ''}`} value={w.dtype} onChange={(e) => { setFact({ weights: draft.weights.map((x, j) => (j === i ? { ...x, dtype: e.target.value } : x)) }); }}>
+                <Select aria-label={`Weight dtype${draft.weights.length > 1 ? ` ${i + 1}` : ''}`} value={w.dtype} onChange={(e) => { editFact({ weights: draft.weights.map((x, j) => (j === i ? { ...x, dtype: e.target.value } : x)) }); }}>
                   {WEIGHT_DTYPES.map((d) => <option key={d} value={d}>{d}</option>)}
                 </Select>
               </div>
             </Field>
           ))}
           <Field id="fit-layers" label="Layers" hint="num_hidden_layers in config.json.">
-            <NumberField id="fit-layers" describedBy="fit-layers-hint" value={draft.layers} onChange={(layers) => { setFact({ layers }); }} error={errors.layers} />
+            <NumberField id="fit-layers" describedBy="fit-layers-hint" value={draft.layers} onChange={(layers) => { editFact({ layers }); }} error={errors.layers} />
           </Field>
           <Field id="fit-kv-heads" label="KV heads" hint="num_key_value_heads, or num_attention_heads when the model has no grouped attention.">
-            <NumberField id="fit-kv-heads" describedBy="fit-kv-heads-hint" value={draft.kvHeads} onChange={(kvHeads) => { setFact({ kvHeads }); }} error={errors.kvHeads} />
+            <NumberField id="fit-kv-heads" describedBy="fit-kv-heads-hint" value={draft.kvHeads} onChange={(kvHeads) => { editFact({ kvHeads }); }} error={errors.kvHeads} />
           </Field>
           <Field id="fit-head-dim" label="Head size" hint="head_dim, or hidden_size divided by num_attention_heads.">
-            <NumberField id="fit-head-dim" describedBy="fit-head-dim-hint" value={draft.headDim} onChange={(headDim) => { setFact({ headDim }); }} error={errors.headDim} />
+            <NumberField id="fit-head-dim" describedBy="fit-head-dim-hint" value={draft.headDim} onChange={(headDim) => { editFact({ headDim }); }} error={errors.headDim} />
           </Field>
           <Field
             id="fit-context"
@@ -198,7 +196,7 @@ function Result({ request, response }: { request: FitRequest; response: FitRespo
         </div>
       </dl>
       <Table caption="Whether the model fits on each node" columns={COLUMNS} rows={nodes} rowKey={(n) => n.node_id} empty="This console has no nodes." />
-      {hasGb10(nodes) ? (
+      {hasNvidiaUnifiedMemory(nodes) ? (
         <div className="fit-warning">
           <Banner
             tone="warn"

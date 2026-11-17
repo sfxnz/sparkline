@@ -1,6 +1,3 @@
-"""Will it fit: the estimate, node budgets, verdicts, the Hugging Face lookup (faked at the HTTP transport)
-and the two routes."""
-
 from __future__ import annotations
 
 import json
@@ -42,7 +39,7 @@ def test_the_worked_example_qwen3_8b_at_32k_context():
     assert est.kv_bytes_per_token == 144 * 1024
     assert est.kv_bytes == 4.5 * GIB
     assert round(est.weights_bytes / GIB, 1) == 15.3
-    assert (est.total_low, est.total_high) == (23_334_639_820, 25_455_970_713)  # +10 % and +20 %
+    assert (est.total_low, est.total_high) == (23_334_639_820, 25_455_970_713)
 
 
 def test_weights_count_every_dtype_and_fp8_halves_the_kv_cache():
@@ -111,7 +108,7 @@ def test_no_budget_when_the_memory_collector_has_no_reading():
 )
 def test_verdict_compares_the_range_with_the_budget(available_gib, want):
     est = Estimate(weights_bytes=0, kv_bytes_per_token=0, kv_bytes=0, total_low=22 * GIB, total_high=30 * GIB)
-    assert fit.verdict(est, node_budget(*gb10(available_gib * GIB))) == want  # 4 GiB of headroom
+    assert fit.verdict(est, node_budget(*gb10(available_gib * GIB))) == want
 
 
 def test_verdict_is_unknown_without_a_budget():
@@ -121,9 +118,7 @@ def test_verdict_is_unknown_without_a_budget():
 # -- Hugging Face lookup ------------------------------------------------------------------------------
 
 
-class Hub:
-    """A fake huggingface.co: ``routes`` maps a path to (status, body or headers)."""
-
+class FakeHuggingFace:
     def __init__(self, routes: dict[str, httpx.Response | Exception]):
         self.routes = routes
         self.hosts: list[str] = []
@@ -159,17 +154,17 @@ def public_repo(info=QWEN_INFO, config=QWEN_CONFIG) -> dict[str, httpx.Response 
 
 
 async def test_lookup_reads_parameter_counts_and_the_model_shape():
-    hub = Hub(public_repo())
-    facts = await hub.lookup()
+    hf = FakeHuggingFace(public_repo())
+    facts = await hf.lookup()
     assert facts == QWEN.model_copy(update={"repo": "Qwen/Qwen3-8B", "max_context": 40960})
-    assert set(hub.hosts) == {"https://huggingface.co"}
+    assert set(hf.hosts) == {"https://huggingface.co"}
 
 
 async def test_lookup_falls_back_to_attention_heads_and_an_explicit_head_dim_wins():
     config = {"num_hidden_layers": 2, "num_attention_heads": 16, "hidden_size": 1024}
-    facts = await Hub(public_repo(config=config)).lookup()
+    facts = await FakeHuggingFace(public_repo(config=config)).lookup()
     assert (facts.num_kv_heads, facts.head_dim, facts.max_context) == (16, 64, None)
-    facts = await Hub(public_repo(config={**config, "head_dim": 256})).lookup()
+    facts = await FakeHuggingFace(public_repo(config={**config, "head_dim": 256})).lookup()
     assert facts.head_dim == 256
 
 
@@ -196,7 +191,7 @@ def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
     ],
 )
 async def test_each_lookup_failure_is_a_problem_that_says_to_enter_the_facts_by_hand(routes, message):
-    problem = await Hub(routes).lookup()
+    problem = await FakeHuggingFace(routes).lookup()
     assert message in problem.message
     assert "nter the model facts by hand" in problem.fix
 
@@ -206,16 +201,16 @@ async def test_each_lookup_failure_is_a_problem_that_says_to_enter_the_facts_by_
     ["https://cdn.example/config.json", "http://huggingface.co/x", "https://huggingface.co.example/x"],
 )
 async def test_lookup_never_follows_a_redirect_off_huggingface_co(location):
-    hub = Hub({**public_repo(), CONFIG_PATH: httpx.Response(302, headers={"location": location})})
-    problem = await hub.lookup()
+    hf = FakeHuggingFace({**public_repo(), CONFIG_PATH: httpx.Response(302, headers={"location": location})})
+    problem = await hf.lookup()
     assert "another host" in problem.message
-    assert set(hub.hosts) == {"https://huggingface.co"}
+    assert set(hf.hosts) == {"https://huggingface.co"}
 
 
 async def test_lookup_gives_up_on_a_redirect_loop():
-    hub = Hub({INFO_PATH: httpx.Response(307, headers={"location": INFO_PATH})})
-    assert "kept redirecting" in (await hub.lookup()).message
-    assert len(hub.hosts) == fit.MAX_REDIRECTS + 1
+    hf = FakeHuggingFace({INFO_PATH: httpx.Response(307, headers={"location": INFO_PATH})})
+    assert "kept redirecting" in (await hf.lookup()).message
+    assert len(hf.hosts) == fit.MAX_REDIRECTS + 1
 
 
 @pytest.mark.parametrize(
@@ -239,9 +234,8 @@ def make(tmp_path, **cfg):
 
 
 @pytest.fixture
-def hub(monkeypatch):
-    """The console's outbound HTTP client talks to a fake huggingface.co."""
-    fake = Hub(public_repo())
+def hf(monkeypatch):
+    fake = FakeHuggingFace(public_repo())
     real = httpx.AsyncClient
     monkeypatch.setattr(
         httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(fake.handle), **kw)
@@ -258,7 +252,7 @@ def body(**over):
     return {"facts": json.loads(QWEN.model_dump_json()), "context_tokens": 32768, "kv_dtype": "bf16"} | over
 
 
-def test_the_fit_routes_need_a_signed_in_user(tmp_path, hub):
+def test_the_fit_routes_need_a_signed_in_user(tmp_path, hf):
     with TestClient(make(tmp_path)) as c:
         assert c.get("/api/v1/fit/lookup?repo=Qwen/Qwen3-8B").status_code == 401
         assert c.post("/api/v1/fit/estimate", json=body()).status_code == 401
@@ -266,7 +260,7 @@ def test_the_fit_routes_need_a_signed_in_user(tmp_path, hub):
         assert c.post("/api/v1/fit/estimate", json=body(), headers=wrong).status_code == 401
         cross_site = {**BEARER, "Origin": "http://elsewhere.example"}
         assert c.post("/api/v1/fit/estimate", json=body(), headers=cross_site).status_code == 403
-    assert hub.hosts == []
+    assert hf.hosts == []
 
 
 def test_estimate_route_gives_the_range_and_a_verdict_per_node(tmp_path):
@@ -315,25 +309,25 @@ def test_estimate_route_refuses_facts_it_cannot_size(tmp_path):
             assert r.json()["problem"]["message"] == "Invalid request"
 
 
-def test_lookup_route_returns_the_facts(tmp_path, hub):
+def test_lookup_route_returns_the_facts(tmp_path, hf):
     with TestClient(make(tmp_path)) as c:
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
     assert r.status_code == 200
     assert ModelFacts.model_validate(r.json()) == QWEN.model_copy(
         update={"repo": "Qwen/Qwen3-8B", "max_context": 40960}
     )
-    assert len(hub.hosts) == 3 and hub.credentials == set()
+    assert len(hf.hosts) == 3 and hf.credentials == set()
 
 
-def test_lookup_route_reports_a_missing_repo_as_a_problem(tmp_path, hub):
-    hub.routes = refused(INFO_PATH, 401)
+def test_lookup_route_reports_a_missing_repo_as_a_problem(tmp_path, hf):
+    hf.routes = refused(INFO_PATH, 401)
     with TestClient(make(tmp_path)) as c:
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
     assert r.status_code == 502
     assert "by hand" in r.json()["problem"]["fix"]
 
 
-def test_lookup_route_makes_no_outbound_call_for_a_bad_repo_id_or_when_turned_off(tmp_path, hub):
+def test_lookup_route_makes_no_outbound_call_for_a_bad_repo_id_or_when_turned_off(tmp_path, hf):
     with TestClient(make(tmp_path)) as c:
         r = c.get("/api/v1/fit/lookup", params={"repo": "../../etc/passwd"}, headers=BEARER)
         assert r.status_code == 422 and "by hand" in r.json()["problem"]["fix"]
@@ -341,4 +335,4 @@ def test_lookup_route_makes_no_outbound_call_for_a_bad_repo_id_or_when_turned_of
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
         assert r.status_code == 403 and "by hand" in r.json()["problem"]["fix"]
         assert c.post("/api/v1/fit/estimate", json=body(), headers=BEARER).status_code == 200
-    assert hub.hosts == []
+    assert hf.hosts == []

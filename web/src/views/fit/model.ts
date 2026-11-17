@@ -18,7 +18,6 @@ export const VERDICTS: Record<FitVerdict, { status: Status; label: string }> = {
   unknown: { status: 'unknown', label: 'Unknown' },
 };
 
-/** The form as typed. Numbers stay text until Estimate, so a half-typed field is not an error yet. */
 export interface Draft {
   repo: string;
   weights: { dtype: string; count: string }[];
@@ -91,7 +90,6 @@ export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { o
 
 export const rangeText = (est: FitEstimate) => `${formatBytes(est.total_low)} to ${formatBytes(est.total_high)}`;
 
-/** How much a node can give a model, and where that number comes from. */
 export function budgetText(b: NodeBudget): { value: string; detail: string } {
   switch (b.kind) {
     case 'unified':
@@ -103,5 +101,4 @@ export function budgetText(b: NodeBudget): { value: string; detail: string } {
   }
 }
 
-/** A GB10 (DGX Spark): NVIDIA GPU on unified memory, where vLLM's memory fraction does not bound it. */
-export const hasGb10 = (nodes: readonly NodeFit[]) => nodes.some((n) => n.budget.kind === 'unified' && n.budget.gpu_vendor === 'nvidia');
+export const hasNvidiaUnifiedMemory = (nodes: readonly NodeFit[]) => nodes.some((n) => n.budget.kind === 'unified' && n.budget.gpu_vendor === 'nvidia');

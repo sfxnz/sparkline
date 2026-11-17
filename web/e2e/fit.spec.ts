@@ -1,5 +1,3 @@
-// "Will it fit?" against the demo console: the estimate and the per-node budgets are the console's own. Only the
-// Hugging Face lookup is stubbed, so the test never leaves this machine.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 

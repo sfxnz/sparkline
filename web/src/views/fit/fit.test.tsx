@@ -18,7 +18,6 @@ const RESPONSE: FitResponse = {
   ],
 };
 
-/** A console that knows Qwen/Qwen3-8B and answers every estimate with RESPONSE. */
 function fakeConsole(estimate: FitResponse = RESPONSE) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
     if (init?.method === 'POST') return Promise.resolve(json(estimate));

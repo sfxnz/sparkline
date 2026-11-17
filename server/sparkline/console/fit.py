@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from ..common.schema import NodeInfo, NodeState, Problem, Sample
 
-# Bytes per parameter, by safetensors dtype name.
 DTYPE_BYTES = {
     "F64": 8,
     "F32": 4,
@@ -33,12 +32,9 @@ DTYPE_BYTES = {
     "F8_E4M3": 1,
     "F8_E5M2": 1,
 }
-# Bytes per KV cache element.
 KV_DTYPE_BYTES = {"fp16": 2, "bf16": 2, "fp8": 1}
-# Activations and the compute graph come on top of weights and KV cache. Nobody can predict them exactly,
-# so the estimate is a range.
+KEY_AND_VALUE = 2
 OVERHEAD_PCT = (10, 20)
-# Kept free on a unified-memory node, where the model shares RAM with the OS and every other process.
 UNIFIED_HEADROOM_BYTES = 4 * 2**30
 
 HF_ORIGIN = "https://huggingface.co"
@@ -129,8 +125,8 @@ class FitResponse(BaseModel):
 
 def estimate(facts: ModelFacts, context_tokens: int, kv_dtype: str) -> Estimate:
     weights = sum(n * DTYPE_BYTES[dtype] for dtype, n in facts.params_by_dtype.items())
-    # One key and one value vector per KV head, per layer, per token.
-    per_token = 2 * facts.num_layers * facts.num_kv_heads * facts.head_dim * KV_DTYPE_BYTES[kv_dtype]
+    per_head = KEY_AND_VALUE * facts.head_dim * KV_DTYPE_BYTES[kv_dtype]
+    per_token = facts.num_layers * facts.num_kv_heads * per_head
     kv = per_token * context_tokens
     low, high = ((weights + kv) * (100 + pct) // 100 for pct in OVERHEAD_PCT)
     return Estimate(
@@ -143,7 +139,7 @@ def node_budget(info: NodeInfo | None, sample: Sample | None) -> NodeBudget:
         return UnknownBudget(reason="No sample from this node yet")
     dedicated = [g for g in info.gpus if g.memory != "unified"]
     if not dedicated:
-        if not sample.mem.total:  # the agent's placeholder when its memory collector has no reading
+        if not sample.mem.total:
             return UnknownBudget(reason="This node's agent has no memory reading")
         available = sample.mem.available
         return UnifiedBudget(
@@ -238,9 +234,9 @@ class _Json(NamedTuple):
     value: object
 
 
-async def _get_json(client: httpx.AsyncClient, path: str, refused: dict[int, Problem]) -> _Json | Problem:
-    """GET from huggingface.co only: a redirect is followed while it stays on that host, and the body is
-    read up to MAX_RESPONSE_BYTES. ``refused`` says what a non-200 status means for this path."""
+async def _get_hf_json(
+    client: httpx.AsyncClient, path: str, by_status: dict[int, Problem]
+) -> _Json | Problem:
     url = httpx.URL(HF_ORIGIN + path)
     try:
         for _ in range(MAX_REDIRECTS + 1):
@@ -254,7 +250,7 @@ async def _get_json(client: httpx.AsyncClient, path: str, refused: dict[int, Pro
                         )
                     continue
                 if r.status_code != 200:
-                    return refused.get(r.status_code) or _problem(
+                    return by_status.get(r.status_code) or _problem(
                         "Hugging Face could not answer the lookup",
                         f"HTTP {r.status_code} from {HF_ORIGIN}{path}",
                     )
@@ -279,27 +275,26 @@ async def _get_json(client: httpx.AsyncClient, path: str, refused: dict[int, Pro
 
 
 async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | Problem:
-    """Read a public repo's parameter counts and architecture. ``usedStorage`` is not used: it counts every
-    file in every revision."""
+    """Read a public repo's parameter counts and architecture."""
     # Hugging Face answers 401 for a repo that does not exist and for a private one alike.
     absent = _problem(
         f"Hugging Face has no public model {repo}",
         "The repo does not exist or is private",
         f"Check the repo id, {OR_MANUAL_FIX}",
     )
-    info = await _get_json(
+    info = await _get_hf_json(
         client, f"/api/models/{repo}?expand[]=safetensors", {401: absent, 403: absent, 404: absent}
     )
     if isinstance(info, Problem):
         return info
-    if not _params(info.value):  # a GGUF repo: say so before asking for a config.json it may not have
+    if not _params(info.value):
         return _no_safetensors(repo)
     gated = _problem(
         f"{repo} is gated on Hugging Face",
         "Its config.json is only served to accounts that accepted the model's terms",
     )
     no_config = _problem(f"{repo} has no config.json", "The estimator reads the model's shape from it")
-    config = await _get_json(
+    config = await _get_hf_json(
         client, f"/{repo}/resolve/main/config.json", {401: gated, 403: gated, 404: no_config}
     )
     if isinstance(config, Problem):
