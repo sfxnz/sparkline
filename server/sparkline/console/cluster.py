@@ -12,10 +12,21 @@ from importlib.metadata import version as pkg_version
 
 from pydantic import TypeAdapter
 
-from ..common.schema import AlertRule, ClusterState, ConsoleSettings, Event, NodeState, Problem, Sample
+from ..common.schema import (
+    AlertRule,
+    ClusterState,
+    ConsoleSettings,
+    Event,
+    NodeState,
+    Onboarding,
+    OnboardingPatch,
+    Problem,
+    Sample,
+)
 from .alerts import DEFAULT_RULES, AlertEngine
 from .hub import Hub
 from .nodes import NodeSource
+from .onboarding import OnboardingStore
 from .store import Store
 
 log = logging.getLogger("sparkline.console.cluster")
@@ -87,11 +98,13 @@ class Cluster:
         default_settings: ConsoleSettings,
         demo: bool = False,
         notify: Callable[[Event], None] = lambda ev: None,
+        onboarding: OnboardingStore | None = None,
     ):
         self.store = store
         self.hub = hub
         self.demo = demo
         self.notify = notify
+        self.onboarding = onboarding or OnboardingStore.open(store, [], time.time())
         saved: ConsoleSettings | None = store.kv_read("settings", _saved_settings)
         self.settings = saved or default_settings
         metrics = _saved_rule_metrics(store, store.kv_read(RULE_METRICS_KEY, _METRICS.validate_python))
@@ -104,6 +117,7 @@ class Cluster:
         self._tasks: list[asyncio.Task] = []
 
     def add_source(self, src: NodeSource) -> None:
+        src.state.first_seen = self.onboarding.first_seen.get(src.node_id)
         self.sources[src.node_id] = src
 
     # -- lifecycle ----------------------------------------------------------------------------------
@@ -125,6 +139,7 @@ class Cluster:
         return ClusterState(
             nodes=[s.state for s in self.sources.values()],
             settings=self.settings,
+            onboarding=self.onboarding.row,
             demo=self.demo,
             version=VERSION,
             server_time=time.time(),
@@ -139,6 +154,11 @@ class Cluster:
         self.store.kv_set("settings", s.model_dump())
         self.settings = s
         self.hub.broadcast({"type": "settings", "settings": s.model_dump(mode="json")})
+
+    def update_onboarding(self, patch: OnboardingPatch) -> Onboarding:
+        row = self.onboarding.patch(patch, time.time())
+        self.hub.broadcast({"type": "onboarding", "onboarding": row.model_dump(mode="json")})
+        return row
 
     def update_rules(self, rules: list[AlertRule]) -> None:
         self.store.kv_set_atomically(

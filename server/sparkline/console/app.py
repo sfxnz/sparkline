@@ -35,6 +35,8 @@ from ..common.schema import (
     HistoryResponse,
     NodeState,
     NotifyChannelStatus,
+    Onboarding,
+    OnboardingPatch,
     Problem,
 )
 from ..common.schema import Severity as SeverityT
@@ -50,6 +52,7 @@ from .demo_fleets import FLEETS
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
 from .notify import Notifier, NotifierStopped
+from .onboarding import OnboardingStore
 from .prometheus import render
 from .store import SESSION_TTL_S, Store
 
@@ -156,13 +159,18 @@ def create_app(
 ) -> FastAPI:
     data_dir.mkdir(parents=True, exist_ok=True)
     store = Store(data_dir / "console.sqlite")
+    auth_enabled = bool(cfg.token) or not demo
+    t0 = time.time()
+    if demo:
+        onboarding = OnboardingStore.demo(store, FLEETS[fleet], t0, first_run=False, sign_in=auth_enabled)
+    else:  # before bind_sessions_to_token: until then, only a store an earlier start used has the token row
+        onboarding = OnboardingStore.open(store, [n.id for n in cfg.nodes], t0)
     if store.bind_sessions_to_token(cfg.token):
         log.warning("The console token changed: signed out every existing session")
     hub = Hub()
     notifier = Notifier(cfg.notify)
-    cluster = Cluster(store, hub, cfg.settings, demo=demo, notify=notifier.publish)
+    cluster = Cluster(store, hub, cfg.settings, demo=demo, notify=notifier.publish, onboarding=onboarding)
     if demo:
-        t0 = time.time()
         for make in FLEETS[fleet].values():
             cluster.add_source(DemoSource(make(t0, demo_speed), cluster))
     else:
@@ -178,7 +186,6 @@ def create_app(
         bench = BenchManager(cluster, bench_store, DemoBench(cluster))
     else:
         bench = BenchManager(cluster, bench_store, AgentBackend(cluster, cfg.agent_token))
-    auth_enabled = bool(cfg.token) or not demo
     token = cfg.token.encode()
     metrics_token = cfg.metrics_token.encode()
     login_attempts: dict[str, deque[float]] = {}
@@ -332,6 +339,7 @@ def create_app(
             path="/",
             secure=request.url.scheme == "https",
         )
+        onboarding.signed_in(time.time())
         return {"ok": True, "auth_required": True}
 
     @app.post("/api/v1/auth/logout", dependencies=Auth)
@@ -351,7 +359,12 @@ def create_app(
         status, _ = authenticate(request)
         if status == 429:
             raise too_many()
-        return {"authenticated": status == 200, "auth_required": auth_enabled, "demo": demo}
+        return {
+            "authenticated": status == 200,
+            "auth_required": auth_enabled,
+            "demo": demo,
+            "first_run": auth_enabled and onboarding.row.started is None,  # nobody has signed in here yet
+        }
 
     # -- cluster / nodes ----------------------------------------------------------------------------
     def source(node: str) -> NodeSource:
@@ -534,6 +547,10 @@ def create_app(
             raise ProblemError(422, "Invalid settings", str(e), "Correct the value and save again") from None
         cluster.update_settings(s)
         return s
+
+    @app.put("/api/v1/onboarding", dependencies=Auth)
+    async def put_onboarding(patch: OnboardingPatch) -> Onboarding:
+        return cluster.update_onboarding(patch)
 
     # -- notifications --------------------------------------------------------------------------------
     @app.get("/api/v1/notify/channels", dependencies=Auth)

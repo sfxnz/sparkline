@@ -16,6 +16,7 @@ from ..common.schema import Event
 
 SESSION_TTL_S = 30 * 86400
 EVENT_RETENTION_S = 30 * 86400
+TOKEN_FP_KEY = "session_token_fp"  # every release writes it on its first start with a store
 
 log = logging.getLogger("sparkline.console.store")
 
@@ -77,11 +78,11 @@ class Store:
         """Sessions belong to the token that issued them: when the configured token changes (a leaked token
         was replaced), every existing session is deleted. Returns True when sessions were cleared."""
         fp = hashlib.sha256(b"sparkline-session-token\0" + token.encode()).hexdigest()
-        old = self.kv_get("session_token_fp")
+        old = self.kv_get(TOKEN_FP_KEY)
         if old == fp:
             return False
         self.db.execute("DELETE FROM sessions")
-        self.kv_set("session_token_fp", fp)
+        self.kv_set(TOKEN_FP_KEY, fp)
         return old is not None
 
     # -- kv -------------------------------------------------------------------------------------

@@ -358,6 +358,20 @@ class NodeState(BaseModel):
     error: Problem | None = None
     info: NodeInfo | None = None
     next_retry_ts: float | None = None
+    first_seen: float | None = None  # when this console first received a sample from the node. None: never
+
+
+class Onboarding(BaseModel):
+    """One per console: how far the person who set it up has come."""
+
+    started: float | None = None  # first successful sign-in on this console. None: nobody has signed in
+    finished: float | None = None  # the guide was completed or dismissed: it never opens by itself again
+    seen: list[str] = Field(default_factory=list)  # ids of guide items the person opened. Sorted, unique
+
+
+class OnboardingPatch(BaseModel):
+    seen: list[str] | None = None  # ids to add. Unknown ids are kept
+    finished: bool | None = None  # True stamps `finished` once. False clears it (the guide reopens)
 
 
 class ConsoleSettings(BaseModel):
@@ -371,6 +385,7 @@ class ConsoleSettings(BaseModel):
 class ClusterState(BaseModel):
     nodes: list[NodeState]
     settings: ConsoleSettings
+    onboarding: Onboarding
     demo: bool = False
     version: str
     server_time: float
