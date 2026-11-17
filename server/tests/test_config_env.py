@@ -170,7 +170,7 @@ def test_agent_cli_precedence(tmp_path, monkeypatch, no_server):
 
         def node_info(self, cfg):
             captured["cfg"] = cfg
-            return SimpleNamespace(agent_version="test")
+            return SimpleNamespace(agent_version="test", gpus=[])
 
         def start(self):
             captured["started"] = True

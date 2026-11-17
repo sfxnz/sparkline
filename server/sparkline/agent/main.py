@@ -13,8 +13,10 @@ import uvicorn
 
 from ..common import logsafe
 from ..common.netutil import resolve_bind
+from . import recommend
 from .app import create_app
 from .bench.runner import BenchRunner
+from .bench.specs import is_gb10
 from .config import load_config
 from .info import Collectors
 from .sampler import Sampler
@@ -94,14 +96,16 @@ def main(argv: list[str] | None = None) -> int:
             cfg.bench_dir,
             payload_device=cfg.bench_payload_device,
         )
+        # Test seam: a staged root, as for sparkline update.
+        root = Path(os.environ.get("SPARKLINE_UPDATE_ROOT") or "/")
         app = create_app(
             sampler,
             lambda: info,
             cfg.token,
             bench=bench,
             close=collectors.close,
-            # Test seam: a staged root, as for sparkline update.
-            update_root=Path(os.environ.get("SPARKLINE_UPDATE_ROOT") or "/"),
+            update_root=root,
+            machine=recommend.Host(root, is_gb10(info), lambda: recommend.gpu_clock(sampler.latest)),
         )
         log.info(
             "sparkline-agent %s node=%s listening on %s:%d, interval %d ms, data %s",
