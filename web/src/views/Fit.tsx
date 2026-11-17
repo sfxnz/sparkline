@@ -1,12 +1,12 @@
 import { Search } from 'lucide-react';
-import { useState, type ReactNode, type SyntheticEvent } from 'react';
+import { useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { Button } from '../design/components/Button';
 import { Panel } from '../design/components/Panel';
 import { StatusPill } from '../design/components/StatusPill';
 import { Table, type Column } from '../design/components/Table';
 import { api, problemOf } from '../lib/api';
 import { formatBytes } from '../lib/format';
-import type { FitRequest, FitResponse, KvDtype, NodeFit, Problem } from '../lib/types';
+import type { FitRequest, FitResponse, KvDtype, ModelFacts, ModelShape, NodeFit, Problem } from '../lib/types';
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
@@ -37,6 +37,9 @@ export default function Fit() {
   const [lookup, setLookup] = useState<Lookup>({ status: 'idle' });
   const [run, setRun] = useState<Run>({ status: 'idle' });
   const [submitted, setSubmitted] = useState(false);
+  // Counts the lookups that have answered. An estimate asked for before one of them is for a model the form
+  // no longer holds, so its answer is dropped.
+  const lookups = useRef(0);
   const parsed = toRequest(draft);
   const errors = submitted && !parsed.ok ? parsed.errors : {};
   const set = (patch: Partial<Draft>) => { setDraft((d) => ({ ...d, ...patch })); };
@@ -57,16 +60,20 @@ export default function Fit() {
   const lookUp = async () => {
     if (!repo || lookup.status === 'loading') return;
     setLookup({ status: 'loading' });
+    let read: ModelFacts | ModelShape | null;
     try {
-      const facts = await api.fitLookup(repo);
-      setDraft((d) => fromLookup(d, repo, facts));
+      read = await api.fitLookup(repo);
       setLookup({ status: 'idle' });
     } catch (e) {
       // A refusal fills in the shape it sends, and nothing when it sends none or the page cannot read its
       // answer at all: no earlier repo's numbers stay on a form that now names this one.
-      setDraft((d) => fromLookup(d, repo, shapeOf(e)));
+      read = shapeOf(e);
       setLookup({ status: 'error', problem: problemOf(e, 'look up the model') });
     }
+    setDraft((d) => fromLookup(d, repo, read));
+    // The result on the page was built from the model this lookup has just replaced, so it goes too.
+    lookups.current += 1;
+    setRun({ status: 'idle' });
   };
 
   const submit = async (e: SyntheticEvent) => {
@@ -74,11 +81,14 @@ export default function Fit() {
     setSubmitted(true);
     if (!parsed.ok || run.status === 'loading') return;
     setRun({ status: 'loading' });
+    const asked = lookups.current;
+    let answer: Run;
     try {
-      setRun({ status: 'done', from, request: parsed.request, response: await api.fitEstimate(parsed.request) });
+      answer = { status: 'done', from, request: parsed.request, response: await api.fitEstimate(parsed.request) };
     } catch (err) {
-      setRun({ status: 'error', problem: problemOf(err, 'estimate the fit') });
+      answer = { status: 'error', problem: problemOf(err, 'estimate the fit') };
     }
+    if (lookups.current === asked) setRun(answer);
   };
 
   return (
