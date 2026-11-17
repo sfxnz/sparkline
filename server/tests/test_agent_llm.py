@@ -451,7 +451,7 @@ def test_the_process_behind_the_port_gives_the_pid_the_container_and_memory_the_
     http = acmeserve(**{f"{other}/v1/models": models("vllm", "Qwen3-32B"), f"{other}/metrics": text(VLLM)})
     rows = [
         ProcSample(
-            pid=11, name="python", cmdline="serve.py --port 8000", rss=1, gpu_mem=9 << 30, container="tf"
+            pid=11, name="python", cmdline="serve.py --port 8000", rss=1, gpu_mem=9 << 30, container="serve"
         ),
         ProcSample(
             pid=12, name="python", cmdline="vllm worker", rss=1, gpu_mem=20 << 30, container="vllm-qwen3"
@@ -466,7 +466,7 @@ def test_the_process_behind_the_port_gives_the_pid_the_container_and_memory_the_
     c.collect()
     c.poll_round(0.0)
     reported, joined = servers(c)
-    assert (reported.pid, reported.container, reported.mem_source) == (11, "tf", "server")
+    assert (reported.pid, reported.container, reported.mem_source) == (11, "serve", "server")
     assert reported.values["mem_bytes"] == 68719476736
     assert (joined.pid, joined.container, joined.mem_source) == (12, "vllm-qwen3", "process")
     assert joined.values["mem_bytes"] == 24 << 30 and "mem_bytes" not in joined.reports
