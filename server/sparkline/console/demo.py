@@ -22,6 +22,7 @@ from typing import Literal, Protocol
 
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX, flatten
 from ..common.schema import (
+    LLM_FIELDS,
     CoreInfo,
     CpuSample,
     DiskInfo,
@@ -30,7 +31,9 @@ from ..common.schema import (
     GpuInfo,
     GpuSample,
     HistoryResponse,
+    LoadedModel,
     MemSample,
+    ModelServerSample,
     NetIfInfo,
     NetSample,
     NodeInfo,
@@ -491,8 +494,76 @@ class DemoModel:
             temps=temps,
             procs=self._procs(t, gpu_mem, util, b) if procs else None,
             errors=errors,
-            llm=[],
+            llm=self._llm(t, b, active, gpu_mem),
         )
+
+    def _llm(self, t: float, b: float, active: float, gpu_mem: int) -> list[ModelServerSample]:
+        """One card per rendering state. spark1: a server with its own metric prefix that exports only
+        requests and token counters, so KV cache and first-token time read "not reported". spark2: none
+        (rank 1 of the pair listens on no port). spark3: vLLM with every reading, memory from its process,
+        and a restart every 10 min from 225 s: 20 s down, then one poll with no rates."""
+        if self.node_id == "spark2":
+            return []
+        j = lambda key: _h(self.node_id, key, int(t))  # noqa: E731
+        running = round(8 * b * active)
+        # Each request generates more slowly as more of them share the GPU.
+        gen = running * (38 - 1.2 * running) * (1 + 0.03 * j("gen"))
+        values = {
+            "up": 1.0,
+            "running": float(running),
+            "waiting": float(round(max(0.0, b - 0.75) * 24 * active)),
+            "gen_tps": round(gen, 1),
+            "prompt_tps": round(gen * (8 + j("prompt")), 1),
+            "mem_bytes": float(gpu_mem),
+        }
+        if self.workload == "tp2":
+            return [
+                ModelServerSample(
+                    port=8000,
+                    adapter="prometheus",
+                    software="serve_stats",
+                    prefix="serve_stats:",
+                    models=[LoadedModel(name="DeepSeek-V4.1-Flash-EXL3", context_len=65536)],
+                    values=values,
+                    reports=["gen_tps", "prompt_tps", "running", "waiting"],
+                    mem_source="process",
+                    pid=48213,
+                    container="c5-2B-r0",
+                    started_ts=round(self.boot + 1260),
+                    scraped_ts=t,
+                )
+            ]
+        since_restart = (self.scen(t) - 225) % 600
+        server = ModelServerSample(
+            port=8001,
+            adapter="prometheus",
+            software="vLLM",
+            prefix="vllm:",
+            models=[LoadedModel(name="Qwen/Qwen3-32B", context_len=40960)],
+            reports=sorted(f for f in LLM_FIELDS if f not in ("up", "mem_bytes")),
+            mem_source="process",
+            pid=30544,
+            container="vllm-qwen3",
+            started_ts=round(self.boot + 900),
+            scraped_ts=t,
+        )
+        if self.scen(t) >= 225 and since_restart < 20:
+            server.state, server.values = "down", {"up": 0.0}
+            server.problem = "The server on port 8001 stopped listening"
+            return [server]
+        values |= {"kv_cache_pct": round(_clamp(9 * running + 2 * j("kv"), 0, 100), 1)}
+        if self.scen(t) >= 225 and since_restart < 22:
+            del values["gen_tps"], values["prompt_tps"]
+        else:
+            values["preempt_per_s"] = 0.5 if values["waiting"] > 2 else 0.0
+            if running:  # idle: no request in the last minute, so no first-token time
+                p50 = 0.16 + 0.9 * b * b
+                values |= {
+                    "ttft_p50_s": round(p50, 3),
+                    "ttft_p95_s": round(3.1 * p50 + 0.2 * values["waiting"], 3),
+                }
+        server.values = values
+        return [server]
 
     def _procs(self, t: float, gpu_mem: int, util: float, b: float) -> list[ProcSample]:
         j = lambda key: _h(self.node_id, key, int(t))  # noqa: E731

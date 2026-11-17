@@ -111,6 +111,7 @@ UNIT_PATTERNS: tuple[tuple[str, Unit], ...] = (
     ("fs.*.used", "gib"),
     ("fs.*.total", "gib"),
     ("fs.*.free", "gib"),
+    ("llm.*.mem_bytes", "gib"),
     ("*power_w", "watts"),
     ("*_mhz", "mhz"),
     ("*.mhz", "mhz"),
