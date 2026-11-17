@@ -137,6 +137,9 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
 
 - **Cluster overview.** Health of every node in one sentence, living node cards, total GPU utilisation, GPU
   power and today's energy, aggregate memory pressure, ConnectX-7 throughput between the nodes, recent events.
+- **First run.** A new console says where its token is at sign-in. A node that has not answered yet shows
+  what the console tried, the likely cause and the fix, and raises no alert. A short getting-started guide on
+  the overview opens each feature. Dismiss it and it stays in Settings and in Search.
 - **Node detail.** Tabs for GPU, unified memory, CPU, network, storage, thermals and power, and processes.
   Charts share a crosshair, support drag to zoom and double-click to reset, and have a time-range picker
   (Live, 5 m, 1 h, 24 h, 7 d). Every chart also has a text summary and a data-table view.
@@ -369,8 +372,11 @@ sample for this long is shown as stale), `offline_after_s` (30.0) and `regressio
 result worse than its baseline by more than this is flagged).
 
 Console flags: `--config`, `--bind`, `--port`, `--data-dir`, `--web-dist`, `--allow-public`, `--log-level`,
-`--demo`, `--demo-speed` (compress the demo's failure schedule) and `--demo-empty-bench` (demo without seeded
-benchmark history).
+`--demo`, `--demo-speed` (compress the demo's failure schedule), `--demo-empty-bench` (demo without seeded
+benchmark history) and `--demo-first-run` (demo of a new install: two nodes connect within seconds and the
+last one refuses connections for about 45 s. The clock starts with the console, so open the app straight
+away. With a `token` in `--config`, nobody has signed in yet and the sign-in page shows its first-run
+welcome).
 
 ### Notifications
 
@@ -635,7 +641,8 @@ sudo systemctl restart sparkline
 ```
 
 Write the same token, and nothing else, to a file that only Prometheus can read. Then add the job to
-`prometheus.yml`, with the console's address as the target:
+`prometheus.yml`, with the console's address as the target. **Settings > Prometheus** in the app shows the
+scrape address and this job with your console's address filled in, each with a copy button:
 
 ```yaml
 scrape_configs:

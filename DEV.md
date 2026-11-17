@@ -115,6 +115,11 @@ Before the first `npm run e2e`, install its browser once: `(cd web && npx playwr
 and a `vite preview` of the build proxying to it (port `E2E_PORT`, default 5180). Flow tests and axe checks run against
 that demo; a few chrome tests stub `/api` per test instead.
 
+`e2e/onboarding.spec.ts` starts a console of its own for each test (`--demo-first-run` with a throwaway token,
+port `E2E_FIRSTRUN_PORT`, default 9704, serving `web/dist`), because that demo's script runs from the moment
+the console starts. `E2E_MIXED_PORT` (default 9703) is the mixed demo. Set all four variables when the
+defaults are taken.
+
 ### Add a recorded platform from a tester's recording
 
 A tester attaches the `recording.tgz` that `sparkline-capture` writes

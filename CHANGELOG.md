@@ -7,6 +7,44 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+### Added
+
+- **One Spark is two commands.** `sudo ./install.sh console` with no `--nodes` shows the agent installed on
+  the same host. It reads the node id, the address and the agent token from that agent's config, so there
+  is nothing to edit.
+- **A sign-in link.** The console installer prints `http://<console>:9700/login#token=…` next to the token,
+  on an interactive terminal only. Opening it signs you in, and the app takes the token out of the address
+  bar before anything else reads the address. The token is in the part of the link that is never sent to the
+  console, so it reaches no log.
+- **A first-run sign-in.** A console that nobody has signed in to says so, and shows the command that prints
+  its token with a copy button. Afterwards the same help is under "Where is the token?". After too many wrong
+  tokens the page shows the console's own explanation and fix, where it used to show raw JSON.
+- **Nodes that have not answered yet.** A node the console has never heard from reads "Not connected yet" on
+  its card, its page, the sidebar, the wall and in Settings, in a neutral tone. Its card shows what the
+  console tried, the likely cause and the fix in full, with a copy button on each command, the time to the
+  next try and **Retry now**. The node's first reading arrives on the card in place.
+- **Getting started.** The overview of a new install carries a short guide: connect your nodes, get told
+  when something breaks, model servers, Prometheus and benchmarks. Each row opens the real page and shows
+  what the cluster already has. Once you open a row the guide becomes one line, and **Dismiss** puts it away
+  for every browser, because the console remembers it and not the browser. It ends by itself when every row is
+  done. **Settings > About** and "Open getting started" in Search bring it back. An install that
+  existed before this release never sees it.
+- **Settings > Prometheus** shows the scrape address and a `scrape_configs` job with your console's address
+  filled in, each with a copy button.
+- `GET /api/v1/auth/me` has `first_run`, the cluster state has `onboarding` and each node has `first_seen`.
+  `PUT /api/v1/onboarding` records an opened guide row, a dismissal or a reopening, and every open tab
+  follows through an `onboarding` message.
+- `--demo-first-run` runs the demo as a new install: two nodes connect within seconds and the last one
+  refuses connections for about 45 s.
+
+### Changed
+
+- A node that has never answered raises no "node offline" alert and sends no notification. It has never been
+  online, so there is nothing to recover from. After its first reading it is an ordinary node, and going
+  offline alerts as before.
+- Each installer ends with the one next step: the agent installer with the console command for that host,
+  and the console installer with the nodes it will show and the sign-in link.
+
 ## [0.2.0] - 2026-11-17
 
 ### Upgrading
