@@ -294,8 +294,8 @@ def other_format_weights(repo: RepoId, sizes: dict[str, int]) -> Problem | None:
         return None
     return _problem(
         f"{repo} holds a weight file in a format the lookup does not read",
-        f"{_listed(others)} sits in the repo beside its safetensors files, and the lookup cannot tell "
-        "whether a server loads it as well",
+        f"It holds {_listed(others)} beside the safetensors files the lookup sized, and the lookup cannot "
+        "tell whether a server loads those as well",
     )
 
 
