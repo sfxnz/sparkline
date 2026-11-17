@@ -7,15 +7,16 @@ no credentials, at most ``MAX_RESPONSE_BYTES`` read. The wire types are mirrored
 A lookup reads two files of a repo, its file list and its ``config.json``, and sometimes a third, its weight
 index. It fills in a size only when nothing it read is a sign that the model reaches outside the repo's own
 weight files, and names the sign it found when it will not. The signs are: a string in ``config.json`` that
-names another repo, an ``adapter_config.json``, a ``.safetensors`` file the sizing leaves out, a weight file
-in another format whose name does not mark it as a copy or as training state, and a ``config.json`` it could
-not read at all. The model's shape comes from that same ``config.json``, and a size is never filled in
-without it.
+names another repo, a key in it that measures a model the repo does not hold, an ``adapter_config.json``, a
+``.safetensors`` file the sizing leaves out, a weight file in another format whose name does not mark it as
+a copy or as training state, and a ``config.json`` it could not read at all. The model's shape comes from
+that same ``config.json``, and a size is never filled in without it.
 
 None of that proves the repo holds the whole model, and nothing here claims it does. A repo's own code can
-load a second model that no file the lookup reads names, a draft model is served beside a target the repo
-need not name, and ``subfolder=``, ``variant=`` and a LoRA flag are the caller's. So what the page fills in
-is the size of this repo's own weight files, and the form and the result say that beside the number.
+load a second model that no file the lookup reads names, a draft model whose config measures nothing is
+still served beside a target, and ``subfolder=``, ``variant=`` and a LoRA flag are the caller's. So what the
+page fills in is the size of this repo's own weight files, and the form and the result say that beside the
+number.
 
 Not modelled: GGUF repos, sliding-window attention, latent attention (the KV cache estimate is 25 times too
 high for DeepSeek-V3), splitting a model across GPUs, the AMD GTT limit and the macOS wired-memory limit.
