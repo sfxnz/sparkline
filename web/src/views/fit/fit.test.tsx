@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FitRequest, FitResponse, ModelFacts } from '../../lib/types';
 import Fit from '../Fit';
-import { EMPTY_DRAFT, fromLookup, parseCount, parseSize, toRequest } from './model';
+import { EMPTY_DRAFT, fromLookup, parseCount, parseSize, toRequest, type Draft } from './model';
 
 const GIB = 1024 ** 3;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -231,6 +231,23 @@ describe('Will it fit', () => {
     expect(screen.queryByText(/This model supports up to/)).not.toBeInTheDocument();
   });
 
+  it('holds no repo\'s size under another repo\'s name when a lookup reads nothing', async () => {
+    const user = userEvent.setup();
+    fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/odd-config{Enter}');
+    expect(await screen.findByRole('status', { name: 'Weights' })).toHaveTextContent('9.3 GiB');
+    await user.type(screen.getByRole('textbox', { name: 'Layers' }), '36');
+
+    await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'nope/nope{Enter}');
+    expect(await screen.findByRole('alert')).toHaveTextContent('no public model nope/nope');
+    expect(screen.queryByRole('status', { name: 'Weights' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
+    expect(screen.queryByText(/filled in from/)).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('36');
+  });
+
   it('says when the context is longer than the looked-up model supports', async () => {
     const user = userEvent.setup();
     fakeConsole();
@@ -289,6 +306,16 @@ describe('fit form model', () => {
     expect(parseSize(' 37 ', 'GiB')).toBe(37 * GIB);
     expect(parseSize('0.548', 'GB')).toBe(548_000_000);
     for (const bad of ['', '0', '0.0', '-3', '9,98', '9.98 GB', '1e3', '8.19B', 'abc', '99999999999']) expect(parseSize(bad, 'GB'), bad).toBeNull();
+  });
+
+  it('drops a lookup\'s values when the next lookup reads nothing, and keeps what was typed', () => {
+    const nothing = { weights_bytes: null, weights_upper_bound: false, shape: null };
+    const filled = fromLookup(EMPTY_DRAFT, 'some/odd-config', { weights_bytes: 9_980_000_000, weights_upper_bound: false, shape: null });
+    const after = fromLookup(filled, 'nope/nope', nothing);
+    expect(after.weights).toEqual(EMPTY_DRAFT.weights);
+    expect(after.source).toBeNull();
+    const typed: Draft = { ...EMPTY_DRAFT, layers: '36', weights: { kind: 'typed', size: '12', unit: 'GB' } };
+    expect(fromLookup(typed, 'nope/nope', nothing)).toEqual(typed);
   });
 
   it('sends a typed size as bytes', () => {

@@ -53,15 +53,15 @@ const EMPTY_SHAPE = { layers: EMPTY_DRAFT.layers, kvHeads: EMPTY_DRAFT.kvHeads, 
 
 /**
  * Fill the form with what a lookup of `repo` read. The part it could not read is emptied if an earlier lookup
- * filled it, so one repo's size never sits beside another repo's shape. What was typed by hand stays.
+ * filled it, so one repo's size never sits beside another repo's shape, and a lookup that read nothing leaves
+ * nothing of the lookup before it. What was typed by hand stays.
  */
 export function fromLookup(draft: Draft, repo: string, { weights_bytes: bytes, weights_upper_bound: upperBound, shape }: LookupFound): Draft {
-  if (bytes === null && shape === null) return draft;
   return {
     ...draft,
     weights: bytes !== null ? { kind: 'files', bytes, upperBound } : draft.weights.kind === 'files' ? EMPTY_DRAFT.weights : draft.weights,
     ...(shape ? { layers: String(shape.num_layers), kvHeads: String(shape.num_kv_heads), headDim: String(shape.head_dim) } : draft.source ? EMPTY_SHAPE : {}),
-    source: { repo, maxContext: shape?.max_context ?? null, complete: bytes !== null && shape !== null },
+    source: bytes === null && shape === null ? null : { repo, maxContext: shape?.max_context ?? null, complete: bytes !== null && shape !== null },
   };
 }
 
