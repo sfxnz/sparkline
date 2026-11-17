@@ -38,8 +38,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 - `GET /api/v1/auth/me` has `first_run`, the cluster state has `onboarding` and each node has `first_seen`.
   `PUT /api/v1/onboarding` records an opened guide row, a dismissal or a reopening, and every open tab
   follows through an `onboarding` message.
-- `--demo-first-run` runs the demo as a new install: two nodes connect within seconds and the last one
-  refuses connections at first and is live about 45 s in.
+- `--demo-first-run` runs the demo as a new install: no benchmark history and no events, two nodes connect
+  within seconds and the last one refuses connections at first and is live about 45 s in. The demo's
+  scripted failures start five minutes in.
 
 ### Changed
 

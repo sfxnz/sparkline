@@ -173,6 +173,9 @@ class Store:
         rows = self.db.execute(sql, [*args, limit]).fetchall()
         return [Event(**dict(zip(_EVENT_COLS, r, strict=True))) for r in rows]
 
+    def clear_events(self) -> None:
+        self.db.execute("DELETE FROM events")
+
     def prune(self) -> None:
         now = time.time()
         self.db.execute("DELETE FROM events WHERE ts < ?", (now - EVENT_RETENTION_S,))

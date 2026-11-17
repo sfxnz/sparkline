@@ -46,7 +46,7 @@ from .bench_routes import bench_router
 from .bench_store import BenchStore
 from .cluster import VERSION, Cluster
 from .config import ConsoleConfig
-from .demo import DemoSource, demo_history, first_run_script
+from .demo import FIRST_RUN_CALM_S, DemoSource, demo_history, first_run_script
 from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
 from .hub import Hub
@@ -164,6 +164,8 @@ def create_app(
     t0 = time.time()
     if demo:
         onboarding = OnboardingStore.demo(store, FLEETS[fleet], t0, demo_first_run, sign_in=auth_enabled)
+        if demo_first_run:  # a new install has no past: no events here, no benchmark runs below
+            store.clear_events()
     else:  # before bind_sessions_to_token: until then, only a store an earlier start used has the token row
         onboarding = OnboardingStore.open(store, [n.id for n in cfg.nodes], t0)
     if store.bind_sessions_to_token(cfg.token):
@@ -185,13 +187,14 @@ def create_app(
             src = DemoSource(make(t0, demo_speed), cluster)
             if demo_first_run:
                 src.hello_at, src.refused = first_run_script(i, len(makes), t0, demo_speed)
+                src.model.calm_s = FIRST_RUN_CALM_S
             cluster.add_source(src)
     else:
         for n in cfg.nodes:
             cluster.add_source(AgentClient(n.id, n.url, cluster, cfg.agent_token))
     bench_store = BenchStore(store.db)
     if demo:
-        if demo_empty_bench:  # demo DB only: show the empty benchmark state
+        if demo_empty_bench or demo_first_run:  # demo DB only: show the empty benchmark state
             bench_store.clear()
         else:
             models = {nid: cast(DemoSource, src).model for nid, src in cluster.sources.items()}

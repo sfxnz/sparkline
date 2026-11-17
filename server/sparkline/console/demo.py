@@ -7,7 +7,8 @@ and synthesized history share one model. Scripted failures run on "scenario time
           from 240 s
   spark3: from 150 s, every 150 s: stops sending 20 s (stale) -> refused 40 s (offline) -> reconnects
 The first minute is calm (a newcomer first sees a healthy cluster), then the episodes come one at a time, all
-within about four minutes so a short demo still shows each of them.
+within about four minutes so a short demo still shows each of them. --demo-first-run holds the whole script
+still for its first FIRST_RUN_CALM_S, so a new install is not met by a failure (see DemoModel.scen).
 """
 
 from __future__ import annotations
@@ -165,8 +166,15 @@ def bench_load(windows: list[BenchWindow], t: float, gpu: int) -> tuple[float, f
     return load, heat
 
 
+def scenario_time(elapsed: float, calm_s: float) -> float:
+    """Scenario time ``elapsed`` scenario seconds after t0, with the script held at its start for ``calm_s``.
+    Nothing is scripted at 0, so the hold is calm. Time before t0 (history) is unchanged."""
+    return elapsed if elapsed < 0 else max(0.0, elapsed - calm_s)
+
+
 class DemoNode(Protocol):
     node_id: str
+    calm_s: float
     lan_ip: str
     info: NodeInfo
     bench_windows: list[BenchWindow]
@@ -200,8 +208,10 @@ class DemoModel:
         self.disk_windows: list[list[float]] = []
 
     # -- scenario ------------------------------------------------------------------------------------
+    calm_s = 0.0  # the script holds still for this many scenario seconds after t0 (--demo-first-run)
+
     def scen(self, t: float) -> float:
-        return (t - self.t0) * self.speed
+        return scenario_time((t - self.t0) * self.speed, self.calm_s)
 
     def link_state(self, t: float) -> str:
         """'ok' | 'stall' (connected, no samples) | 'refused' (agent down)."""
@@ -742,6 +752,9 @@ class DemoModel:
 # is found by the console's next try, at most BACKOFF_NEW_CAP_S after it stops refusing: live at 42 to 47 s.
 FIRST_RUN_HELLO_S = (2.0, 7.0)
 FIRST_RUN_REFUSED_S = 41.0
+# How long the scripted failures are held back: the first one (spark1's thermal episode) starts 5 min in, more
+# than 4 min after the last node arrived.
+FIRST_RUN_CALM_S = 240.0
 
 
 def first_run_script(i: int, n: int, t0: float, speed: float) -> tuple[float, bool]:

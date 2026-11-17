@@ -19,7 +19,7 @@ from sparkline.common.throttle import POWER_CAP_BIT
 from sparkline.console.app import create_app
 from sparkline.console.cluster import Cluster
 from sparkline.console.config import ConsoleConfig
-from sparkline.console.demo import DemoModel, DemoSource, demo_history
+from sparkline.console.demo import FIRST_RUN_CALM_S, DemoModel, DemoSource, demo_history
 from sparkline.console.demo_fleets import FLEETS
 from sparkline.console.demo_workstation import POWER_DROPOUT_S
 from sparkline.console.hub import Hub
@@ -544,3 +544,49 @@ def test_the_first_run_demo_brings_up_two_nodes_in_turn_and_the_last_after_it_st
         assert refused is not None and refused["node_id"] == "spark3"
         assert refused["error"]["cause"].startswith("Connection refused at ")
         assert c.get("/api/v1/events", params={"node": "spark3"}).json() == []
+
+
+def test_the_first_run_demo_starts_with_no_benchmark_history_and_no_events(tmp_path):
+    """A new install has no past, whatever an earlier demo left in the same data directory."""
+    cfg = ConsoleConfig(web_dist=tmp_path / "x")
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True)) as c:
+        assert c.get("/api/v1/bench/runs").json(), "the ordinary demo seeds benchmark runs"
+        assert c.get("/api/v1/events").json(), "the ordinary demo seeds an event"
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True, demo_first_run=True)) as c:
+        assert c.get("/api/v1/bench/runs").json() == []
+        assert c.get("/api/v1/events").json() == []
+
+
+@pytest.mark.parametrize("fleet", ["dgx", "mixed"])
+def test_the_first_run_demo_holds_every_scripted_failure_back_until_well_after_the_last_node(tmp_path, fleet):
+    """The last node is live by 47 s. The first failure the ordinary demo scripts is at 60 s (spark1's thermal
+    episode); in a first run it is 4 min later, and the others follow in their usual order."""
+    cfg = ConsoleConfig(web_dist=tmp_path / "x")
+    app = create_app(cfg, tmp_path / "data", demo=True, fleet=fleet, demo_first_run=True)
+    models = {nid: src.model for nid, src in app.state.cluster.sources.items()}
+    t0 = models["spark1"].t0
+
+    def failing(t: float) -> list[str]:
+        out = [f"{nid} {m.link_state(t)}" for nid, m in models.items() if m.link_state(t) != "ok"]
+        out += [f"{nid} hot" for nid, m in models.items() if m.thermal(t) > 0]
+        if models["spark2"].storage_error(t):
+            out.append("spark2 storage")
+        out += [
+            f"{nid} server down"
+            for nid, m in models.items()
+            for server in m.sample_at(t).llm or []
+            if server.state == "down"
+        ]
+        return out
+
+    quiet_until = FIRST_RUN_CALM_S + 60
+    assert quiet_until >= 47 + 240
+    assert [(s, failing(t0 + s)) for s in range(0, int(quiet_until)) if failing(t0 + s)] == []
+    # Then the script runs as it always does, shifted: thermal, spark2's stall, spark3 going offline.
+    assert "spark1 hot" in failing(t0 + FIRST_RUN_CALM_S + 60 + 20)
+    assert "spark2 stall" in failing(t0 + FIRST_RUN_CALM_S + 124)
+    assert "spark3 refused" in failing(t0 + FIRST_RUN_CALM_S + 60 + 115)
+    # The ordinary demo is unchanged.
+    plain = DemoModel("spark1", t0)
+    assert plain.thermal(t0 + 80) > 0 and plain.scen(t0 + 80) == 80 and plain.scen(t0 - 500) == -500
+    assert models["spark1"].scen(t0 - 500) == -500
