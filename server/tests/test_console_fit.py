@@ -259,14 +259,14 @@ async def test_an_indexed_repo_weighs_the_files_its_index_names():
     ("left_out", "named"),
     [
         # vLLM's Kimi-Audio loads a subfolder of the repo it serves as a second weight source.
-        pytest.param({"whisper-large-v3/model.safetensors": 3}, "whisper-large-v3/model.safetensors", id="a-subfolder"),
+        pytest.param({"whisper-large-v3/model.safetensors": 3}, "whisper-large-v3/model", id="a-subfolder"),
         # vLLM's d3 and clef models load a file of their own beside the index's, by name.
         pytest.param({"readout.safetensors": 1}, "readout.safetensors", id="a-file-beside-them"),
-        pytest.param({"original/model.safetensors": 7}, "original/model.safetensors", id="a-copy-of-the-model"),
-        pytest.param({"model.safetensors": 7}, "model.safetensors", id="a-single-file-the-index-does-not-name"),
+        pytest.param({"original/model.safetensors": 7}, "original/model", id="a-copy-of-the-model"),
+        pytest.param({"model.safetensors": 7}, "model.safetensors", id="a-single-file-not-named"),
     ],
 )
-async def test_an_indexed_repo_that_holds_a_safetensors_file_its_index_does_not_name_is_refused(left_out, named):
+async def test_an_indexed_repo_holding_a_safetensors_file_its_index_misses_is_refused(left_out, named):
     shards = {"model-00001-of-00002.safetensors": 3, "model-00002-of-00002.safetensors": 4}
     failure = await FakeHuggingFace(indexed_repo({**shards, **left_out}, *shards)).lookup()
     assert failure.found.weights_bytes is None, failure

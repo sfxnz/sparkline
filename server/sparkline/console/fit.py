@@ -247,14 +247,19 @@ def _listed(names: list[str]) -> str:
     return f"{', '.join(names[:3])}{f' and {len(names) - 3} more' if len(names) > 3 else ''}"
 
 
+def _left_out(sizes: dict[str, int], named: set[str]) -> list[str]:
+    """The repo's safetensors files, at any depth, that ``named`` leaves out."""
+    return sorted(set(_safetensors(sizes)) - named)
+
+
 def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
     """The size of the weights a server loads from a repo with no index: its ``model.safetensors``.
 
-    With no index, servers differ on other safetensors files at the top level: one loads only
-    ``model.safetensors``, another loads every one of them. So a repo that holds any is refused. Files in
-    subfolders are read by neither, so they are not counted.
+    Only when that is the one safetensors file in the repo. Any other is a second candidate for the
+    weights: with no index some servers load every top-level file, and a model class can load a subfolder
+    of the repo it serves (vLLM's kimi_audio reads ``whisper-large-v3/``).
     """
-    others = [name for name in _safetensors(sizes) if name != WEIGHTS_FILE]
+    others = _left_out(sizes, {WEIGHTS_FILE})
     if WEIGHTS_FILE not in sizes:
         return _problem(
             f"{repo} has no {WEIGHTS_FILE} and no {INDEX_FILE} at its top level",
@@ -263,12 +268,10 @@ def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
             if others
             else "It holds no .safetensors files. GGUF, PyTorch .bin and other formats are not read",
         )
-    beside = [name for name in others if "/" not in name]
-    if beside:
+    if others:
         return _problem(
             f"{repo} holds other safetensors files beside its {WEIGHTS_FILE}, and no index",
-            f"Without an index some servers load only {WEIGHTS_FILE} and some load every .safetensors file "
-            f"at the top level ({_listed(beside)})",
+            f"The lookup cannot tell whether a server loads only {WEIGHTS_FILE} or {_listed(others)} as well",
         )
     return _total(repo, sizes, {WEIGHTS_FILE})
 
@@ -276,8 +279,9 @@ def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
 def indexed_weights(repo: RepoId, sizes: dict[str, int], index: object) -> int | Problem:
     """The size of the files the repo's index names, from ``model.safetensors.index.json`` as decoded JSON.
 
-    The index maps every tensor to the file that holds it, so its files are the ones a server loads. File
-    names do not say this: an index can name several shard families and files under any name.
+    The index maps every tensor of the model it describes to the file that holds it, so its files are ones
+    a server loads. File names do not say this: an index can name several shard families and files under any
+    name. It does not say that nothing else is loaded, so a safetensors file it leaves out is refused.
     """
     try:
         names = set(_WeightIndex.model_validate(index, strict=True).weight_map.values())
@@ -293,11 +297,12 @@ def indexed_weights(repo: RepoId, sizes: dict[str, int], index: object) -> int |
             f"{missing[0]}{f' and {len(missing) - 1} more' if len(missing) > 1 else ''} in {INDEX_FILE}, "
             "so a server cannot load the repo as it is",
         )
-    if WEIGHTS_FILE in sizes and WEIGHTS_FILE not in names:
+    others = _left_out(sizes, names)
+    if others:
         return _problem(
-            f"{repo} holds two sets of safetensors weights",
-            f"It has {WEIGHTS_FILE}, and an index that names other files. Some loaders read the first and "
-            "some the second",
+            f"The weight index of {repo} does not name every safetensors file in the repo",
+            f"It names {len(names)}, and the lookup cannot tell whether a server loads {_listed(others)} "
+            "as well, as it does for a model whose weights sit partly in a subfolder",
         )
     return _total(repo, sizes, names)
 
