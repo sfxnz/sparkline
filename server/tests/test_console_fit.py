@@ -303,7 +303,7 @@ def test_a_repo_with_no_index_and_no_model_safetensors_is_refused_with_what_it_d
     repo = parse_repo_id("an-owner/a-model")
     shards = fit.unindexed_weights(repo, {f"model-0000{i}-of-00002.safetensors": 5 for i in (1, 2)})
     assert "no model.safetensors and no model.safetensors.index.json" in shards.message
-    assert "2 .safetensors files" in shards.cause and "model-00001-of-00002.safetensors" in shards.cause
+    assert "model-00001-of-00002.safetensors, model-00002-of-00002.safetensors)" in shards.cause
     nested = fit.unindexed_weights(
         repo, {"unet/diffusion_pytorch_model.safetensors": 5, "model_index.json": 1}
     )
