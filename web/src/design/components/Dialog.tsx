@@ -100,6 +100,8 @@ interface ConfirmProps {
   title: string;
   /** What will happen, stated plainly, one item per line. */
   consequences: string[];
+  /** More to read before confirming, when it is long or needs structure (commands, a list). It scrolls. */
+  details?: ReactNode;
   confirmLabel: string;
   destructive?: boolean;
   /** When set, the user must type this phrase before the confirm button enables. */
@@ -108,7 +110,7 @@ interface ConfirmProps {
 }
 
 /** Confirmation for heavy or destructive actions. Focus starts on Cancel so Enter never confirms by accident. */
-export function ConfirmDialog({ open, onCancel, onConfirm, title, consequences, confirmLabel, destructive, confirmPhrase, busy }: ConfirmProps) {
+export function ConfirmDialog({ open, onCancel, onConfirm, title, consequences, details, confirmLabel, destructive, confirmPhrase, busy }: ConfirmProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [typed, setTyped] = useState('');
   const phraseId = useId();
@@ -147,13 +149,18 @@ export function ConfirmDialog({ open, onCancel, onConfirm, title, consequences, 
         </>
       }
     >
-      {confirmPhrase ? (
-        <div className="dialog__phrase">
-          <label htmlFor={phraseId}>
-            Type <code>{confirmPhrase}</code> to confirm
-          </label>
-          <input id={phraseId} className="input" value={typed} onChange={(e) => { setTyped(e.target.value); }} autoComplete="off" spellCheck={false} />
-        </div>
+      {details || confirmPhrase ? (
+        <>
+          {details}
+          {confirmPhrase ? (
+            <div className="dialog__phrase">
+              <label htmlFor={phraseId}>
+                Type <code>{confirmPhrase}</code> to confirm
+              </label>
+              <input id={phraseId} className="input" value={typed} onChange={(e) => { setTyped(e.target.value); }} autoComplete="off" spellCheck={false} />
+            </div>
+          ) : null}
+        </>
       ) : null}
     </Dialog>
   );
