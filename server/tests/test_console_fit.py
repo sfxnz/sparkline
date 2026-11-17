@@ -474,6 +474,48 @@ async def test_an_adapter_gets_no_size_even_when_it_is_saved_as_model_safetensor
     assert failure.found.weights_bytes is None, failure
     assert "adapter" in failure.problem.message
     assert "adapter_config.json" in failure.problem.cause
+    # base_model_name_or_path in that file is null for a real LoRA, so the refusal does not say the file
+    # names the base model, only that there is one.
+    assert "named there" not in failure.problem.cause
+    assert "the base model's" in failure.problem.fix
+
+
+# A weight file in a format the lookup never reads, by whether its name marks it as a copy or as training
+# state. The names come from the census in .audit/evidence/D/round-6/census_formats.out.
+@pytest.mark.parametrize(
+    "name",
+    [
+        "codec.pth", "head.pt", "projector_final.pt", "cross_layer_info.pt", "static_query_weights.pt",
+        "probe/000000__de.npz", "prepared/abc/inductor.bin", "vision_tower/pytorch_model.safetensors.pt",
+        "checkpoint.pt", "model.ckpt.index.pt", "speaker/model.pth",
+    ],
+)  # fmt: skip
+async def test_a_weight_file_in_another_format_takes_the_size_with_it(name):
+    files = {"config.json": 726, "model.safetensors": 7, name: 5_000_000}
+    failure = await FakeHuggingFace(public_repo(info=repo_files(files))).lookup()
+    assert failure.found.weights_bytes is None, failure
+    assert "a format the lookup does not read" in failure.problem.message
+    assert name in failure.problem.cause
+    assert "by hand" in failure.problem.fix
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "pytorch_model.bin", "pytorch_model-00001-of-00003.bin", "model.ckpt",
+        "consolidated.00.pth", "consolidated.pth", "consolidated.01.pt",
+        "original/consolidated.00/consolidated-00001-of-00008.pth",
+        "openvino_model.bin", "openvino/openvino_model_qint8_quantized.bin", "ct2_int8/model.bin",
+        "ggml-model-f16.bin", "ggml/ggml-model-q5_k.bin", "model.Q4_K_M.gguf", "gguf/mmproj-BF16.gguf",
+        "nemo/weights/common.pt", "onnx/model.pt", "coreml/weights/weight.bin",
+        "training_args.bin", "optimizer.pt", "scheduler.pt", "rng_state_3.pth", "scaler.pt",
+    ],
+)  # fmt: skip
+async def test_a_copy_of_the_weights_or_training_state_leaves_the_size_alone(name):
+    files = {"config.json": 726, "model.safetensors": 7, name: 5_000_000}
+    facts = await FakeHuggingFace(public_repo(info=repo_files(files))).lookup()
+    assert isinstance(facts, ModelFacts), facts
+    assert facts.weights_bytes == 7
 
 
 async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():

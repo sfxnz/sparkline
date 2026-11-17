@@ -236,6 +236,64 @@ PROVENANCE_KEY = "_name_or_path"
 AUTO_MAP_KEY = re.compile(r"Auto[A-Za-z]*")
 
 
+# A weight file in a format the lookup never reads. A server that loads one of these beside the
+# safetensors loads more than the lookup sized, so the repo gets no size unless every such file is a copy
+# of the same weights or training state. The three lists below are a census of the 10,274 cached file lists
+# (.audit/evidence/D/round-6/census_formats.out, priced in price_formats.out): they keep 115 of the 129
+# full answers that hold such a file, and 0 of the 796 popular repos and 0 of the 100-repo sample lose one.
+OTHER_FORMATS = (".bin", ".pt", ".pth", ".ckpt", ".gguf", ".npz")
+# A top-level folder that holds the same model built for another runtime, so its weight files are copies.
+ALT_RUNTIME_DIR = re.compile(
+    r"(onnx|openvino|coreml|metal|mlx|ggml|gguf|tf|flax|original|llama-cpp|llamafile|ct2|ctranslate2"
+    r"|tensorrt|trt|rknn|nemo)(_[A-Za-z0-9._-]+)?",
+    re.IGNORECASE,
+)
+# A file name, its digits folded to N, that marks a copy of the same weights in another format.
+COPY_NAMES = frozenset({
+    "pytorch_model.bin", "pytorch_model-N-of-N.bin", "model.ckpt",
+    "consolidated.pt", "consolidated.pth", "consolidated.N.pt", "consolidated.N.pth",
+    "consolidated-N-of-N.pth",
+    "openvino_model.bin", "openvino_model_qintN_quantized.bin",
+})  # fmt: skip
+COPY_NAME_PATTERN = re.compile(r"ggml-model.*\.bin")
+# A file name, its digits folded to N, that marks training state. No server loads it to serve the model.
+TRAINING_NAMES = frozenset({
+    "training_args.bin", "training_state.pt", "trainer_state.pt",
+    "optimizer.bin", "optimizer.pt", "optimizer_state_dict.pt",
+    "scheduler.bin", "scheduler.pt", "scheduler_state_dict.pt",
+    "scaler.pt", "rng_state.pth", "rng_state_N.pth",
+})  # fmt: skip
+
+
+def is_copy_or_training_state(name: str) -> bool:
+    """Whether this file's name marks it as a copy of the same weights, or as training state."""
+    # vLLM's Flint loads *.gguf instead of a repo's safetensors, never beside them (round 5 read the
+    # loaders; loader_paths.out), so a GGUF file is the same model in llama.cpp's format.
+    if name.lower().endswith(".gguf"):
+        return True
+    folder, _, base = name.rpartition("/")
+    if folder and ALT_RUNTIME_DIR.fullmatch(folder.split("/")[0]):
+        return True
+    folded = re.sub(r"\d+", "N", base)
+    return folded in COPY_NAMES or folded in TRAINING_NAMES or bool(COPY_NAME_PATTERN.fullmatch(folded))
+
+
+def other_format_weights(repo: RepoId, sizes: dict[str, int]) -> Problem | None:
+    """Why the lookup will not size a repo holding a weight file it never reads, or None."""
+    others = sorted(
+        name
+        for name in sizes
+        if name.lower().endswith(OTHER_FORMATS) and not is_copy_or_training_state(name)
+    )
+    if not others:
+        return None
+    return _problem(
+        f"{repo} holds a weight file in a format the lookup does not read",
+        f"{_listed(others)} sits in the repo beside its safetensors files, and the lookup cannot tell "
+        "whether a server loads it as well",
+    )
+
+
 def file_sizes(repo: RepoId, info: object) -> dict[str, int] | Problem:
     """Every file in the repo and its size, from the repo's ``/api/models`` answer as decoded JSON."""
     try:
@@ -558,20 +616,22 @@ async def weights_of(
 ) -> _Weights | Problem:
     """The size of the weights a server loads from this repo, or why the lookup will not give one.
 
-    A size needs evidence that these files are the whole model: the repo's ``config.json`` was read, it
-    names no other repo for weights, the repo is not an adapter, and the file rules place every weight file
-    in it. Without that evidence the lookup gives no size, because the ways a server loads weights from
-    outside a repo's own files all end in a number far below what it loads.
+    A size needs no sign that the model reaches outside the repo's own weight files: the repo's
+    ``config.json`` was read and names no model outside the repo, the repo is not an adapter, every weight
+    file in another format is a copy or training state, and the file rules place every ``.safetensors``
+    file in the repo. Without all of that the lookup gives no size, because every way a server loads
+    weights from outside the files it sized ends in a number below what the server loads.
     """
     if ADAPTER_FILE in sizes:
         return _problem(
             f"{repo} is an adapter, not a whole model",
-            f"It holds {ADAPTER_FILE}, so a server loads the base model named there and puts these weights "
-            "on top of it",
+            f"It holds {ADAPTER_FILE}, which marks these weights as a layer trained on top of another "
+            "model, and a server loads that model as well",
+            f"{MANUAL_FIX}: the total of this repo's weight files and the base model's",
         )
     if isinstance(config, Problem):
         return config
-    elsewhere = points_elsewhere(repo, config)
+    elsewhere = points_elsewhere(repo, config) or other_format_weights(repo, sizes)
     if elsewhere is not None:
         return elsewhere
     if INDEX_FILE not in sizes:
