@@ -142,9 +142,12 @@ _FORMAT: dict[Unit, Callable[[float], str]] = {
 }
 
 
+def unit_of(key: str) -> Unit:
+    return next((u for pattern, u in UNIT_PATTERNS if fnmatch.fnmatchcase(key, pattern)), "plain")
+
+
 def fmt_value(key: str, v: float) -> str:
-    unit: Unit = next((u for pattern, u in UNIT_PATTERNS if fnmatch.fnmatchcase(key, pattern)), "plain")
-    return _FORMAT[unit](v)
+    return _FORMAT[unit_of(key)](v)
 
 
 def _sentence(titles: list[str]) -> str:
