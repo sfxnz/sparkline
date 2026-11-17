@@ -82,6 +82,13 @@ most expensive collector), and `procs` is `null` on the ticks in between. NVMe a
 port state and rate are read every 10 s, because each read is a command to the device. The ticks in between carry
 the last reading. The RDMA state is also read again on any tick where the link state disagrees with it.
 
+`Sample.llm` lists the model servers the agent found on the node, one `ModelServerSample` per port. It is `null`
+from an agent that predates it or has it turned off, and `[]` when it looked and found none. A server's readings are
+in `values` (field → number, `up` always present) and `reports` names the fields the server can report: a field in
+`reports` and not in `values` has nothing to say now, and a field in neither is not reported by that server. A
+missing reading is never 0. The agent polls the servers from a thread of its own, so a slow server never delays a
+sample.
+
 ### Flattened metric keys (history, alerts, charts)
 `gpu0.util gpu0.sm_mhz gpu0.temp_c gpu0.power_w gpu0.energy_j gpu0.throttle_mask gpu0.power_capped_pct`
 `mem.used mem.available mem.gpu mem.anon mem.cache mem.shmem mem.kernel mem.swap_used mem.psi_some mem.psi_full`
@@ -89,6 +96,9 @@ the last reading. The RDMA state is also read again on any tick where the link s
 `net.{ifname}.rx_bps net.{ifname}.tx_bps net.{ifname}.errors net.{ifname}.drops`
 `disk.{dev}.read_bps disk.{dev}.write_bps disk.{dev}.read_iops disk.{dev}.write_iops disk.{dev}.busy_pct`
 `fs.{mountkey}.used` (`/` → `root`, `/data` → `data`), `temp.{sensor_id}`
+`llm.{port}.up llm.{port}.running llm.{port}.waiting llm.{port}.gen_tps llm.{port}.prompt_tps llm.{port}.ttft_p50_s`
+`llm.{port}.ttft_p95_s llm.{port}.kv_cache_pct llm.{port}.preempt_per_s llm.{port}.mem_bytes` (only the readings
+the server has; `up` is 1 while it answers and 0 once it stops)
 
 Rollups store avg/min/max per key per bucket. `energy_j` stores the last value, so kWh over a range is last − first
 (counter resets are handled).
@@ -103,6 +113,7 @@ Rollups store avg/min/max per key per bucket. `energy_j` stores the last value, 
 | Network | CX7 rails A/B: link state, RDMA state/rate, rx/tx throughput (netdev bytes + RDMA port counters per rail; the port-wide PHY counters would count both rails), errors/discards (port-wide PHY counters attributed once, to rail A); LAN rx/tx | — |
 | Storage | NVMe read/write B/s, IOPS, busy %, capacity per mount, NVMe temps | — |
 | Thermals/power | all hwmon sensors grouped (SoC ACPI zones, NVMe, NIC ASIC), GPU temp, GPU power + energy kWh/£ | fans, whole-system power |
+| Model servers | per server found on the node: up/loading/asleep/down, loaded model and context length, requests running/waiting, generation and prompt tokens/s, time to first token p50/p95, KV cache %, preemptions/s, memory held | per server: whatever it does not export ("not reported by this server") |
 | Processes | top by GPU mem / RSS / CPU; container name (docker cgroup → name), model name (HF path / `--model` heuristics) | per-process GPU util when NVML returns no samples |
 | Alerts | thresholds (GPU temp, throttling, memory pressure/available, node offline, disk full, CX7 link down, NVMe temp) + timeline | — |
 

@@ -140,6 +140,9 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
 - **GPU (GB10).** Utilisation, SM and graphics clocks against their maximum, temperature against the
   slowdown and shutdown thresholds, power, energy, P-state, throttle reasons in plain English, the share of
   time spent power or thermal capped, and GPU memory per process.
+- **Model servers.** Each node's summary lists the model servers running on it, found with no setup: up or
+  down, the loaded model, requests running and waiting, tokens per second, time to first token, KV cache use
+  and memory held. See [Model servers](#model-servers).
 - **Unified memory.** The headline memory story, because the CPU and GPU share it: used, available,
   GPU-allocated, process memory, page cache, shared, kernel, swap and PSI pressure.
 - **CPU.** A per-core heatmap with the 10 Cortex-X925 performance cores and the 10 Cortex-A725 efficiency
@@ -320,6 +323,8 @@ Restart the service after editing: `sudo systemctl restart sparkline-agent` (or 
 | `peers` | `{}` | Far ends of the ConnectX-7 rails, so the link can be named. Example: `{ spark2 = ["10.0.8.2", "10.0.9.2"] }` |
 | `include_virtual` | `false` | Also show virtual and Wi-Fi interfaces (docker0, tailscale0, ...). |
 | `allow_public` | `false` | Allow binding a public address or 0.0.0.0. Avoid. |
+| `model_server_discovery` | `true` | Ask this node's usual model-server ports what they serve. `false` leaves only the ports under `[[model_servers]]`. See [Model servers](#model-servers). |
+| `[[model_servers]]` | none | One table per server to read whatever port it is on: `port` (required) and `api_key` (optional, sent as a bearer token to that port on this node only). Tables go at the end of the file. |
 | `bench_image` | `nvcr.io/nvidia/pytorch:26.07-py3` | Container image for GPU benchmarks. It must already be pulled. |
 | `bench_work_dir` | `<data_dir>/bench-work` | Scratch for benchmark files. Keep it on the NVMe drive. Outside the data dir, it also needs a `ReadWritePaths=` drop-in. |
 | `bench_payload_device` | `"cuda"` | `"cpu"` runs the GPU payloads on the CPU at tiny sizes: a code-path smoke test whose results are flagged and never compared. |
@@ -448,6 +453,55 @@ yet.
 
 On ConnectX-7, inter-node traffic is RDMA and bypasses the kernel interface counters. Each rail's throughput
 is therefore its netdev bytes plus its RDMA port counters (`port_rcv_data` / `port_xmit_data`).
+
+## Model servers
+
+The agent looks for model servers on its own node and reads them every 2 seconds. A server on a usual port
+needs no configuration.
+
+**Which ports are asked.** The agent reads the node's listening TCP sockets from `/proc/net/tcp` and
+`/proc/net/tcp6`, and asks a socket only when something names its port:
+
+- a default port: 8000 (vLLM, NIM, TensorRT-LLM), 8080 and 9931 (llama.cpp, old and new default) and 30000
+  (SGLang);
+- `--port N` in the arguments of a running process;
+- a port Docker publishes for a container;
+- a port under `[[model_servers]]` in `agent.toml`.
+
+Nothing else is asked, and no port is scanned. Requests go only to this node's own addresses, follow no
+redirect and ignore proxy settings.
+
+**What is asked.** One `GET /v1/models` per listening socket tells the agent whether the port is a model
+server and which model it serves. After that it reads only the server's Prometheus metrics (`/metrics` or
+`/v1/metrics`; on TensorRT-LLM only `/prometheus/metrics`, because reading its `/metrics` clears it), or
+`/health` when the server has no metrics. It sends no prompt and loads no model. A server that restarts is a
+new socket and is asked again.
+
+**What is shown.** vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM, and any server that exports the same metric
+names under its own prefix. A value the server does not export reads "Not reported by this server". llama.cpp
+serves metrics only with `--metrics` and SGLang only with `--enable-metrics`; without the flag the server is
+listed with its model and a note naming the flag. Ollama, LM Studio and mlx_lm are not read yet. Memory held
+is the server's own figure when it exports one, otherwise the GPU memory of the process (or of every process
+in its container) whose arguments name the port.
+
+Each reading is also a history and alert key: `llm.<port>.up`, `.running`, `.waiting`, `.gen_tps`,
+`.prompt_tps`, `.ttft_p50_s`, `.ttft_p95_s`, `.kv_cache_pct`, `.preempt_per_s` and `.mem_bytes`.
+
+**Another port, or an API key.** List the server at the end of `agent.toml` and restart the agent:
+
+```toml
+[[model_servers]]
+port = 8123
+api_key = "the key the server was started with"   # optional
+```
+
+The key is sent only to that port on this node. It is never part of a sample, a log line or an error.
+
+**Turning it off.** `model_server_discovery = false` stops the agent asking any port you did not list. With
+no `[[model_servers]]` either, it asks nothing. Do this on a node with a llama.cpp server that should stay
+asleep: it is not confirmed whether `GET /v1/models` wakes a sleeping llama.cpp model. llama.cpp's
+documentation says `/health`, `/props`, `/models` and `/metrics` do not wake it, and does not mention
+`/v1/models`.
 
 ## Benchmarks
 
