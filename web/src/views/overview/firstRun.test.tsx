@@ -187,4 +187,13 @@ describe('a node that cannot be reached on a first run', () => {
     expect(screen.queryByRole('tablist')).toBeNull();
     expect(screen.getByText(/This page fills in by itself when spark1 answers/)).toBeInTheDocument();
   });
+
+  it('does not follow a rejected token’s fix with "nothing else needs doing"', () => {
+    useCluster.getState().setHello(cluster([rejected('spark2')]));
+    render(<Router hook={memoryLocation({ path: '/node/spark2' }).hook}><Route path="/node/:id/:tab?" component={Node} /></Router>);
+    expect(screen.getByRole('region', { name: 'spark2 is not connected yet' })).toBeInTheDocument();
+    // The agent answered and said no: the fix is what needs doing, and the card already says what it brings.
+    expect(screen.getByText(/It goes live once the fix above is done/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Nothing else needs doing/);
+  });
 });

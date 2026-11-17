@@ -18,7 +18,7 @@ import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
 import { nicHeading, nicModel } from '../lib/interconnect';
 import { memoryLayout } from '../lib/memoryLayout';
-import { needsSetup } from '../lib/onboarding';
+import { needsSetup, reachOf } from '../lib/onboarding';
 import { sentence } from '../lib/gpu';
 import { gpuHeadline } from '../lib/platform';
 import type { NodeInfo, NodeState } from '../lib/types';
@@ -61,7 +61,8 @@ export default function Node() {
         <Panel className="node-setup" material="thin" label={`${id} is not connected yet`}>
           <NodeSetup node={setup} headingLevel={2} />
         </Panel>
-        <p className="node-setup__note">This page fills in by itself when {id} answers. Nothing else needs doing here.</p>
+        {/* An agent that answered and said no stays that way until the fix is done, and the card says so. */}
+        {reachOf(setup.status) === 'turned-away' ? null : <p className="node-setup__note">This page fills in by itself when {id} answers. Nothing else needs doing here.</p>}
       </div>
     );
   }
