@@ -70,6 +70,7 @@ agent carries them. `README.md` documents installation.)
 | `GET /api/v1/settings`, `PUT /api/v1/settings` (energy rate and currency, stale/offline thresholds, regression %) | settings |
 | `DELETE /api/v1/history?node=` (body `{confirm:"DELETE"}`) | clear history |
 | `GET /api/v1/bench/catalog`; `GET/POST /api/v1/bench/runs`; `GET /api/v1/bench/runs/{id}`; `POST …/{id}/cancel`; `DELETE …/{id}`; `GET …/{id}/export?format=json\|csv`; `PUT /api/v1/bench/baselines/{bench_id}` `{run_id}`; `GET /api/v1/bench/compare?ids=` | benchmarks |
+| `GET /metrics` (Bearer console token or `metrics_token`) → Prometheus text format 0.0.4 | every online node's latest sample as `sparkline_*` series; `sparkline_node_up` for every node |
 | `GET /healthz` (no auth) | liveness |
 
 The agent exposes the same shapes for a single node: `GET /api/v1/info`, `GET /api/v1/snapshot`, `WS /api/v1/stream`,

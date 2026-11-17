@@ -63,7 +63,7 @@ Other Linux machines, with or without an NVIDIA GPU, run the agent too, but Spar
 
 | Port | From → to | Used for |
 |---|---|---|
-| 9700/tcp | browser → console | The web app and its API |
+| 9700/tcp | browser → console | The web app and its API. Prometheus scrapes `/metrics` on the same port. |
 | 9750/tcp | console → each agent | Telemetry and benchmark control |
 | 29620/tcp | node ↔ node | The NCCL all-reduce benchmark only |
 | 18515/tcp | node ↔ node | The RDMA benchmark only |
@@ -151,6 +151,8 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   the normal interface counters), and errors and drops for both ConnectX-7 rails, plus LAN throughput.
 - **Alerts.** Editable thresholds (GPU temperature, throttling, memory, node offline, link down, disk full,
   NVMe temperature) and an event timeline with acknowledgement.
+- **Prometheus.** `GET /metrics` on the console exports every node's readings as `sparkline_*` series in
+  base units, for the Prometheus and Grafana you already run. See [Prometheus](#prometheus).
 - **Benchmarks.** Nine whitelisted, parameter-validated jobs, from GEMM TFLOPS to a 30-minute thermal soak
   and a tool-calling evaluation of your served model. Each one states its duration and impact up front, asks
   for confirmation, shows live telemetry while it runs, cancels cleanly, and saves results with full
@@ -341,6 +343,7 @@ process list shows command-line arguments to every user.
 | `port` | `9700` | |
 | `token` | `""` | What you type on the sign-in screen, at least 16 characters. Required except in `--demo` (and with no token, the demo has no sign-in). Changing it and restarting signs every browser out. |
 | `agent_token` | `""` | Must equal `token` in every node's `agent.toml` (at least 16 characters). |
+| `metrics_token` | `""` | Opens `GET /metrics` and nothing else (at least 16 characters). Give it to Prometheus instead of `token`. Empty: only `token` opens `/metrics`. See [Prometheus](#prometheus). |
 | `data_dir` | `/var/lib/sparkline` if writable, else `~/.local/share/sparkline` | `console.sqlite`: events, settings, benchmark results, sessions. `--demo` uses a `demo/` subdirectory, so simulated data never mixes with real data. |
 | `web_dist` | `<repo>/web/dist` | The built web app. The installer sets `/opt/sparkline/web/dist`. |
 | `[[nodes]]` | none | One table per agent: `id = "spark1"`, `url = "http://192.168.1.11:9750"`. |
@@ -383,6 +386,11 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   are limited to 10 per minute per client IP, on the console and on each agent. State-changing requests
   whose `Origin` doesn't match the console are rejected. Sessions belong to the token that issued them:
   change `token` and restart the console, and every existing session is signed out.
+- **Prometheus scrapes.** `GET /metrics` answers only a request that carries `token` or `metrics_token` as a
+  bearer token, or a signed-in browser. `metrics_token` opens no other route, and a wrong token counts
+  toward the same limit of 10 per minute. The response holds every node's readings, the names of its
+  interfaces, disks, mounts and sensors, and each model server's port, software, version and loaded model
+  names. It holds no process, command line, token, event or benchmark result.
 - **Browser hardening.** Every console response carries a Content-Security-Policy (scripts, styles,
   connections and images from the console only; no framing), `X-Frame-Options: DENY`,
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`.
@@ -518,6 +526,81 @@ no `[[model_servers]]` either, it asks nothing. Do this on a node with a llama.c
 asleep: it is not confirmed whether `GET /v1/models` wakes a sleeping llama.cpp model. llama.cpp's
 documentation says `/health`, `/props`, `/models` and `/metrics` do not wake it, and does not mention
 `/v1/models`.
+
+## Prometheus
+
+The console serves each node's latest sample at `GET /metrics`, in Prometheus text format 0.0.4. Scrape it
+to keep Sparkline's numbers in your own Prometheus for as long as you like, next to everything else.
+
+**Set it up.** Generate a token, set it as `metrics_token` in `console.toml` and restart the console:
+
+```sh
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+sudoedit /etc/sparkline/console.toml          # metrics_token = "<the token>"
+sudo systemctl restart sparkline
+```
+
+Write the same token, and nothing else, to a file that only Prometheus can read. Then add the job to
+`prometheus.yml`, with the console's address as the target:
+
+```yaml
+scrape_configs:
+  - job_name: sparkline
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["192.168.1.11:9700"]
+    authorization:
+      credentials_file: /etc/prometheus/sparkline-metrics-token
+```
+
+To see what Prometheus gets:
+
+```sh
+curl -H "Authorization: Bearer $(sudo cat /etc/prometheus/sparkline-metrics-token)" http://192.168.1.11:9700/metrics
+```
+
+`metrics_token` opens `/metrics` and no other route, so the Prometheus host never holds the token that
+signs in to the console. The console token opens `/metrics` too. Without a valid token the answer is 401.
+
+**Names and units.** Every series starts with `sparkline_` and has a `node` label, the node's `[[nodes]]`
+id. Values are in base units: `_bytes`, `_seconds`, `_celsius`, `_watts`, `_hertz` and `_ratio`. A ratio
+runs from 0 to 1, so the 81 % GPU utilisation in the app is 0.81 here. A rate that the agent already
+computes is a gauge named `_per_second`. The one counter is `sparkline_gpu_energy_joules_total`.
+`rate(sparkline_gpu_energy_joules_total[5m])` is the average power in watts, and
+`increase(sparkline_gpu_energy_joules_total[1d]) / 3.6e6` is a day's energy in kWh.
+
+| Series | Other labels |
+|---|---|
+| `sparkline_node_up`, `sparkline_node_last_sample_timestamp_seconds` | |
+| `sparkline_gpu_utilization_ratio`, `sparkline_gpu_temperature_celsius`, `sparkline_gpu_power_watts`, `sparkline_gpu_energy_joules_total`, `sparkline_gpu_sm_clock_hertz`, `sparkline_gpu_throttle_mask`, `sparkline_gpu_power_capped_ratio`, `sparkline_gpu_thermal_capped_ratio`, `sparkline_gpu_vram_used_bytes`, `sparkline_gpu_shared_memory_used_bytes` | `gpu`: the GPU index |
+| `sparkline_memory_used_bytes`, `sparkline_memory_available_bytes`, `sparkline_memory_used_ratio`, `sparkline_memory_gpu_bytes`, `sparkline_memory_anon_bytes`, `sparkline_memory_cache_bytes`, `sparkline_memory_shmem_bytes`, `sparkline_memory_kernel_bytes`, `sparkline_memory_other_bytes`, `sparkline_memory_swap_used_bytes`, `sparkline_memory_pressure_some_ratio`, `sparkline_memory_pressure_full_ratio` | |
+| `sparkline_cpu_utilization_ratio`, `sparkline_cpu_performance_cores_utilization_ratio`, `sparkline_cpu_efficiency_cores_utilization_ratio`, `sparkline_cpu_pressure_some_ratio`, `sparkline_cpu_temperature_celsius`, `sparkline_load1`, `sparkline_load5`, `sparkline_load15` | |
+| `sparkline_cpu_core_utilization_ratio`, `sparkline_cpu_core_frequency_hertz` | `core`: the core number |
+| `sparkline_network_receive_bytes_per_second`, `sparkline_network_transmit_bytes_per_second`, `sparkline_network_up` | `iface`: the interface name |
+| `sparkline_disk_read_bytes_per_second`, `sparkline_disk_write_bytes_per_second`, `sparkline_disk_reads_per_second`, `sparkline_disk_writes_per_second`, `sparkline_disk_busy_ratio` | `disk`: the device name |
+| `sparkline_filesystem_used_bytes`, `sparkline_filesystem_size_bytes`, `sparkline_filesystem_free_bytes`, `sparkline_filesystem_used_ratio` | `fs`: the mount, written as in alert rules (`/` is `root`, `/data/models` is `data_models`) |
+| `sparkline_sensor_temperature_celsius` | `sensor`: the hwmon sensor id, such as `nvme.composite` |
+| `sparkline_model_server_up`, `sparkline_model_server_requests_running`, `sparkline_model_server_requests_waiting`, `sparkline_model_server_generation_tokens_per_second`, `sparkline_model_server_prompt_tokens_per_second`, `sparkline_model_server_time_to_first_token_p50_seconds`, `sparkline_model_server_time_to_first_token_p95_seconds`, `sparkline_model_server_kv_cache_usage_ratio`, `sparkline_model_server_preemptions_per_second`, `sparkline_model_server_memory_bytes` | `port`: the server's port on the node |
+| `sparkline_model_server_info` (always 1) | `port`, `software`, `version`, `model`: one series per loaded model |
+
+Each `# HELP` line in the response says what its series measures.
+
+**What a node that is down looks like.** `sparkline_node_up` is 1 while the node is online, and 0 in every
+other state: connecting, stale, offline and error. A node that is not online exports only
+`sparkline_node_up` and `sparkline_node_last_sample_timestamp_seconds`, so its other series go stale in
+Prometheus and do not repeat the last reading. A node is stale after `stale_after_s` (5 s) without a
+sample, so give an alert on `sparkline_node_up == 0` a `for:` of a minute or more. A reading that a node or
+a model server does not report has no series. It is never 0.
+
+**What is not exported.**
+
+- The GPU totals of a node (`gpu.util`, `gpu.temp_c`, `gpu.power_w`, `gpu.mem_used`). Aggregate the per-GPU
+  series, for example `sum by (node) (sparkline_gpu_power_watts)`.
+- Network errors and drops. The agent counts them per sample interval, so a scrape every 15 s would miss
+  most of them.
+- A model-server reading that comes from an agent newer than the console, because the console does not know
+  its unit.
+- Processes, events, alert rules and benchmark results.
 
 ## Benchmarks
 

@@ -38,7 +38,15 @@ from sparkline.console.app import LOGIN_LIMIT, create_app
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo_fleets import FLEETS
 from sparkline.console.nodes import NodeSource
-from sparkline.console.prometheus import NOT_EXPORTED, family_for, render
+from sparkline.console.prometheus import (
+    EXPORTED,
+    MODEL_SERVER_INFO,
+    NODE_LAST_SAMPLE,
+    NODE_UP,
+    NOT_EXPORTED,
+    family_for,
+    render,
+)
 
 REPO = Path(__file__).parents[2]
 T0 = 1_791_000_000.0
@@ -368,6 +376,12 @@ def test_a_model_server_gets_one_info_series_per_loaded_model_and_one_when_it_na
         (n, ("port", "8001")),
     }
     assert got["sparkline_model_server_up", (n, ("port", "8001"))] == 0
+
+
+def test_the_readme_lists_exactly_the_families_the_console_exports():
+    exported = {f.name for f in (NODE_UP, NODE_LAST_SAMPLE, MODEL_SERVER_INFO, *EXPORTED.values())}
+    documented = set(re.findall(r"`(sparkline_[a-z0-9_]+)`", (REPO / "README.md").read_text()))
+    assert documented == exported
 
 
 TOKEN = "s3cret-browser-token"
