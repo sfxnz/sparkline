@@ -18,6 +18,9 @@ import './views.css';
 const SCOPE = "This is the size of this repo's own weight files.";
 const NOT_COUNTED = "A second model the repo loads, a draft model's target and the base model under an adapter are not counted: a server loads those as well, and the lookup cannot see them.";
 
+/** What a lookup read when the page cannot read its answer at all. */
+const NOTHING_READ = { weights_bytes: null, weights_upper_bound: false, shape: null };
+
 type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem };
 type Run = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; request: FitRequest; response: FitResponse };
 
@@ -51,8 +54,9 @@ export default function Fit() {
       setDraft((d) => fromLookup(d, repo, { weights_bytes: facts.weights_bytes, weights_upper_bound: facts.weights_upper_bound, shape: facts }));
       setLookup({ status: 'idle' });
     } catch (e) {
-      const found = foundOf(e);
-      if (found) setDraft((d) => fromLookup(d, repo, found));
+      // A lookup the page cannot read the answer of read nothing, as far as the page knows, so it leaves
+      // nothing behind either: no earlier repo's numbers stay on a form that now names this one.
+      setDraft((d) => fromLookup(d, repo, foundOf(e) ?? NOTHING_READ));
       setLookup({ status: 'error', problem: problemOf(e, 'look up the model') });
     }
   };

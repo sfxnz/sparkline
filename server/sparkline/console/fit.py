@@ -1,18 +1,24 @@
 """Will it fit: estimate a model's memory at a context length and compare it with each node's free memory.
 
-The estimate and the budgets are pure functions. The only IO is ``fetch_facts``, which reads a public
-Hugging Face repo when the user asks for a lookup. The wire types are mirrored in web/src/lib/types.ts.
+The estimate and the budgets are pure functions. Every outbound request goes through ``_get_hf_json``, which
+``fetch_facts`` and ``weights_of`` call and nothing else in the module does: a GET to ``HF_ORIGIN``, no body,
+no credentials, at most ``MAX_RESPONSE_BYTES`` read. The wire types are mirrored in web/src/lib/types.ts.
 
-A lookup gives a size only where the repo's own weight files are the whole model, and says why when it
-cannot tell. Servers load weights the repo's files do not hold in ways a lookup cannot see from them: vLLM's
-Ultravox loads the repos named in ``text_model_id`` and ``audio_model_id``, its kimi_audio loads a subfolder
-of the repo it serves, its d3 and clef models load one file beside the index's by name, and transformers
-swaps a repo holding ``adapter_config.json`` for the base model named there. The first, the fourth and any
-left-over safetensors file are visible in the two files a lookup reads, and each of them refuses the size.
-A file beside the index in a format the lookup does not read is not, and nor is a loader argument.
+A lookup reads two files of a repo, its file list and its ``config.json``, and sometimes a third, its weight
+index. It fills in a size only when nothing it read is a sign that the model reaches outside the repo's own
+weight files, and names the sign it found when it will not. The signs are: a string in ``config.json`` that
+names another repo, an ``adapter_config.json``, a ``.safetensors`` file the sizing leaves out, a weight file
+in another format whose name does not mark it as a copy or as training state, and a ``config.json`` it could
+not read at all. The model's shape comes from that same ``config.json``, and a size is never filled in
+without it.
 
-Not modelled: GGUF repos, sliding-window attention layers, splitting a model across GPUs, the AMD GTT limit
-and the macOS wired-memory limit.
+None of that proves the repo holds the whole model, and nothing here claims it does. A repo's own code can
+load a second model that no file the lookup reads names, a draft model is served beside a target the repo
+need not name, and ``subfolder=``, ``variant=`` and a LoRA flag are the caller's. So what the page fills in
+is the size of this repo's own weight files, and the form and the result say that beside the number.
+
+Not modelled: GGUF repos, sliding-window attention, latent attention (the KV cache estimate is 25 times too
+high for DeepSeek-V3), splitting a model across GPUs, the AMD GTT limit and the macOS wired-memory limit.
 """
 
 from __future__ import annotations

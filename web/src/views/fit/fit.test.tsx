@@ -149,6 +149,23 @@ describe('Will it fit', () => {
     expect(sent(spy).facts.weights_bytes).toBe(2.5 * GIB);
   });
 
+  it('leaves nothing of an earlier repo on the form when it cannot read the answer at all', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      const repo = new URL(url as string, 'http://console').searchParams.get('repo') ?? '';
+      return Promise.resolve(repo === 'Qwen/Qwen3-8B' ? json(QWEN) : new Response('<html>502</html>', { status: 502 }));
+    });
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+    await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/broken-gateway{Enter}');
+    await screen.findByRole('alert');
+    expect(screen.queryByText(/filled in from/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
+  });
+
   it('explains a failed lookup and still lets the facts be typed', async () => {
     const user = userEvent.setup();
     fakeConsole();
