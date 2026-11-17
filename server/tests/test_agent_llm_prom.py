@@ -1,7 +1,8 @@
 """Model-server expositions -> canonical readings.
 
-acmeserve_metrics.txt is recorded from a live server. The vLLM, SGLang and llama.cpp files are written
-from the metric names in each project's documentation and source, not recorded from a running server.
+acmeserve_metrics.txt is written by hand in the shape of a server that puts vLLM's metric names under
+its own prefix. The vLLM, SGLang and llama.cpp files are written from the metric names in each project's
+documentation and source. No file is recorded from a running server.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from sparkline.agent.collectors.prom import (
 from sparkline.common.schema import LLM_FIELDS
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent" / "llm"
-RECORDED = (FIXTURES / "acmeserve_metrics.txt").read_text()
+ACMESERVE = (FIXTURES / "acmeserve_metrics.txt").read_text()
 FROM_DOCUMENTATION = {
     name: (FIXTURES / f"{name}_metrics.txt").read_text() for name in ("vllm", "sglang", "llamacpp")
 }
@@ -70,14 +71,14 @@ def test_the_parser_reads_labels_escapes_and_timestamps_and_skips_what_is_not_a_
 @pytest.mark.parametrize(
     ("text", "namespace"),
     [
-        (RECORDED, "acmeserve:"),
+        (ACMESERVE, "acmeserve:"),
         (FROM_DOCUMENTATION["vllm"], "vllm:"),
         (FROM_DOCUMENTATION["sglang"], "sglang:"),
         (FROM_DOCUMENTATION["llamacpp"], "llamacpp:"),
         ("trtllm_num_requests_running 1\ntrtllm_kv_cache_utilization 0.5\n", "trtllm_"),
         ("num_requests_running 1\ngpu_cache_usage_perc 0.5\n", ""),
     ],
-    ids=["recorded", "vllm", "sglang", "llamacpp", "tensorrt-llm", "bare-names"],
+    ids=["acmeserve", "vllm", "sglang", "llamacpp", "tensorrt-llm", "bare-names"],
 )
 def test_the_namespace_is_the_prefix_under_which_the_rules_match(text, namespace):
     assert pick_namespace(parse_exposition(text)) == namespace
@@ -95,27 +96,27 @@ def test_a_name_is_matched_whole_after_the_namespace_never_by_its_ending():
     assert pick_namespace(parse_exposition(lookalikes)) is None
 
 
-def test_the_recorded_server_reports_every_field_and_its_identity():
-    s = scrape(RECORDED)
+def test_a_server_with_its_own_prefix_reports_every_field_and_its_identity():
+    s = scrape(ACMESERVE)
     assert s.present == frozenset(LLM_FIELDS) - {"up"}
-    assert s.gauges == {"running": 0, "waiting": 0, "kv_cache_pct": 0, "mem_bytes": 108943095160}
-    assert s.counters == {"gen_tps": 102577, "prompt_tps": 1243290, "preempt_per_s": 0}
-    assert (s.info["version"], s.info["model"]) == ("1.2.5", "example-model")
-    assert s.started_ts == 1794251153 and s.sleeping is False
+    assert s.gauges == {"running": 2, "waiting": 1, "kv_cache_pct": 50, "mem_bytes": 68719476736}
+    assert s.counters == {"gen_tps": 21000, "prompt_tps": 400000, "preempt_per_s": 3}
+    assert (s.info["version"], s.info["model"]) == ("0.0.0", "example-model")
+    assert s.started_ts == 1700000000 and s.sleeping is False
 
 
 def test_mirrored_series_count_once():
-    doubled = RECORDED.replace("acmeserve:requests_running 0", "acmeserve:requests_running 4").replace(
-        "acmeserve:num_requests_running 0", "acmeserve:num_requests_running 4"
+    doubled = ACMESERVE.replace("acmeserve:requests_running 2", "acmeserve:requests_running 4").replace(
+        "acmeserve:num_requests_running 2", "acmeserve:num_requests_running 4"
     )
     assert scrape(doubled).gauges["running"] == 4
 
 
 def test_generation_rate_reads_the_counter_that_moves_while_tokens_are_produced():
-    live = 'acmeserve:scheduler_tokens_total{mode="decode"} 102577'
-    mid_stream = RECORDED.replace(live, 'acmeserve:scheduler_tokens_total{mode="decode"} 102977')
-    assert "acmeserve:generation_tokens_total 102834" in mid_stream
-    assert readings(RECORDED, mid_stream)["gen_tps"] == 200.0
+    live = 'acmeserve:scheduler_tokens_total{mode="decode"} 21000'
+    mid_stream = ACMESERVE.replace(live, 'acmeserve:scheduler_tokens_total{mode="decode"} 21400')
+    assert "acmeserve:generation_tokens_total 20000" in mid_stream
+    assert readings(ACMESERVE, mid_stream)["gen_tps"] == 200.0
 
 
 def test_generation_rate_falls_back_to_the_finished_request_counter():
@@ -147,7 +148,7 @@ def test_vllm_is_asleep_when_its_awake_series_is_zero():
         .replace('sleep_state="weights_offloaded"} 0.0', 'sleep_state="weights_offloaded"} 1.0')
     )
     assert scrape(asleep).sleeping is True
-    assert scrape(RECORDED.replace("acmeserve:engine_parked 0", "acmeserve:engine_parked 1")).sleeping
+    assert scrape(ACMESERVE.replace("acmeserve:engine_parked 0", "acmeserve:engine_parked 1")).sleeping
 
 
 def test_sglang_reads_its_own_names_and_reports_no_memory_or_preemption():
@@ -163,11 +164,11 @@ def test_llamacpp_reports_no_kv_cache_first_token_time_or_memory():
 
 
 def test_one_scrape_gives_gauges_and_no_rate_or_quantile():
-    assert readings(RECORDED) == {"running": 0, "waiting": 0, "kv_cache_pct": 0, "mem_bytes": 108943095160}
+    assert readings(ACMESERVE) == {"running": 2, "waiting": 1, "kv_cache_pct": 50, "mem_bytes": 68719476736}
 
 
 def test_an_idle_server_has_a_rate_of_zero_and_no_first_token_time():
-    got = readings(RECORDED, RECORDED, RECORDED)
+    got = readings(ACMESERVE, ACMESERVE, ACMESERVE)
     assert (got["gen_tps"], got["prompt_tps"], got["preempt_per_s"]) == (0, 0, 0)
     assert "ttft_p50_s" not in got and "ttft_p95_s" not in got
 
@@ -187,13 +188,13 @@ def with_first_tokens(text: str, at_most_half_a_second: int, at_most_five: int) 
 
 
 def test_first_token_quantiles_come_from_the_requests_of_the_last_minute_only():
-    got = readings(RECORDED, with_first_tokens(RECORDED, 90, 10))
+    got = readings(ACMESERVE, with_first_tokens(ACMESERVE, 90, 10))
     assert got["ttft_p50_s"] == pytest.approx(0.25 + 0.25 * 50 / 90, abs=1e-4)
     assert got["ttft_p95_s"] == pytest.approx(2.5 + 2.5 * 5 / 10, abs=1e-4)
 
     window = Window()
-    window.push(scrape(RECORDED, 0.0))
-    busy = with_first_tokens(RECORDED, 90, 10)
+    window.push(scrape(ACMESERVE, 0.0))
+    busy = with_first_tokens(ACMESERVE, 90, 10)
     window.push(scrape(busy, 2.0))
     window.push(scrape(busy, 70.0))
     assert "ttft_p50_s" not in window.derive()
@@ -201,8 +202,8 @@ def test_first_token_quantiles_come_from_the_requests_of_the_last_minute_only():
 
 def test_a_rate_covers_the_last_ten_seconds():
     def at(tokens: int) -> str:
-        return RECORDED.replace(
-            "acmeserve:prompt_tokens_total 1243290", f"acmeserve:prompt_tokens_total {tokens}"
+        return ACMESERVE.replace(
+            "acmeserve:prompt_tokens_total 400000", f"acmeserve:prompt_tokens_total {tokens}"
         )
 
     window = Window()
@@ -212,15 +213,15 @@ def test_a_rate_covers_the_last_ten_seconds():
 
 
 def test_a_restart_the_server_reports_clears_rates_for_one_poll():
-    restarted = RECORDED.replace(
-        "process_start_time_seconds 1794251153", "process_start_time_seconds 1794260000"
+    restarted = ACMESERVE.replace(
+        "process_start_time_seconds 1700000000", "process_start_time_seconds 1700009000"
     )
     window = Window()
-    window.push(scrape(RECORDED, 0.0))
-    window.push(scrape(RECORDED, 2.0))
+    window.push(scrape(ACMESERVE, 0.0))
+    window.push(scrape(ACMESERVE, 2.0))
     assert "gen_tps" in window.derive()
     window.push(scrape(restarted, 4.0))
-    assert "gen_tps" not in window.derive() and window.derive()["running"] == 0
+    assert "gen_tps" not in window.derive() and window.derive()["running"] == 2
     window.push(scrape(restarted, 6.0))
     assert window.derive()["gen_tps"] == 0
 
@@ -228,24 +229,24 @@ def test_a_restart_the_server_reports_clears_rates_for_one_poll():
 @pytest.mark.parametrize(
     ("before", "after"),
     [
-        ("acmeserve:prompt_tokens_total 1243290", "acmeserve:prompt_tokens_total 12"),
+        ("acmeserve:prompt_tokens_total 400000", "acmeserve:prompt_tokens_total 12"),
         (
-            'acmeserve:time_to_first_token_seconds_bucket{le="+Inf"} 257',
+            'acmeserve:time_to_first_token_seconds_bucket{le="+Inf"} 40',
             'acmeserve:time_to_first_token_seconds_bucket{le="+Inf"} 3',
         ),
         (
-            'acmeserve:time_to_first_token_seconds_bucket{le="0.25"} 55',
-            'acmeserve:time_to_first_token_seconds_bucket{le="0.2"} 55',
+            'acmeserve:time_to_first_token_seconds_bucket{le="0.25"} 10',
+            'acmeserve:time_to_first_token_seconds_bucket{le="0.2"} 10',
         ),
     ],
     ids=["counter-went-down", "bucket-went-down", "bucket-bounds-changed"],
 )
 def test_a_restart_the_server_does_not_report_is_seen_in_its_counters(before, after):
-    assert before in RECORDED
-    reset = RECORDED.replace(before, after)
+    assert before in ACMESERVE
+    reset = ACMESERVE.replace(before, after)
     window = Window()
-    window.push(scrape(RECORDED, 0.0))
-    window.push(scrape(RECORDED, 2.0))
+    window.push(scrape(ACMESERVE, 0.0))
+    window.push(scrape(ACMESERVE, 2.0))
     window.push(scrape(reset, 4.0))
     got = window.derive()
     assert not {"gen_tps", "prompt_tps", "ttft_p50_s"} & set(got)
@@ -255,11 +256,11 @@ def test_a_restart_the_server_does_not_report_is_seen_in_its_counters(before, af
 
 def test_pushing_a_scrape_that_is_not_newer_changes_nothing():
     window = Window()
-    window.push(scrape(RECORDED, 0.0))
-    window.push(scrape(RECORDED, 2.0))
+    window.push(scrape(ACMESERVE, 0.0))
+    window.push(scrape(ACMESERVE, 2.0))
     before = list(window.scrapes)
-    window.push(scrape(RECORDED, 2.0))
-    window.push(scrape(RECORDED, 1.0))
+    window.push(scrape(ACMESERVE, 2.0))
+    window.push(scrape(ACMESERVE, 1.0))
     assert list(window.scrapes) == before
 
 
