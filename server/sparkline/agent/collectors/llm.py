@@ -127,7 +127,8 @@ def _listed(reply: HttpReply) -> tuple[str, tuple[LoadedModel, ...]] | None:
     models = []
     for m in entries:
         meta = m.get("meta") if isinstance(m.get("meta"), dict) else {}
-        sizes = (m.get("max_model_len"), m.get("context_length"), meta.get("n_ctx_train"))
+        # llama.cpp: n_ctx is what one request can use, n_ctx_train what the model was trained with.
+        sizes = (m.get("max_model_len"), m.get("context_length"), meta.get("n_ctx"), meta.get("n_ctx_train"))
         context = next((v for v in sizes if isinstance(v, int) and not isinstance(v, bool) and v > 0), None)
         name = m["id"].rstrip("/")
         name = os.path.basename(name) if name.startswith(("/", ".", "~")) else name
