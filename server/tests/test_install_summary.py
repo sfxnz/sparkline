@@ -141,7 +141,9 @@ def test_the_first_agent_ends_with_the_console_command_then_the_other_nodes(host
         "    More than one Spark? Install the agent on the others before the console, with this"
     )
     assert others == following + 3
-    assert f"      Agent token:  (not printed: stdout is not a terminal) sudo grep ^token {host.stage}" in out
+    # Off a terminal the token is not printed: the label says so, with the command on the next line, aligned.
+    token = lines.index("      Agent token:  not printed, because this output is not a terminal. To read it:")
+    assert lines[token + 1] == f"                    sudo grep ^token {host.stage}/etc/sparkline/agent.toml"
     assert lines[-1] == f"      {console} --nodes {node}=http://127.0.0.1:9829,<id>=<URL>"
 
 
@@ -192,7 +194,9 @@ def test_off_a_terminal_the_console_prints_no_token_and_says_where_it_is(host: H
     console = host.config("console.toml")
     assert console["token"] not in out and console["agent_token"] not in out
     assert "/login" not in out
-    assert f"    Console token:  (not printed: stdout is not a terminal) sudo grep ^token {host.stage}" in out
+    lines = ending(out)
+    token = lines.index("    Console token:  not printed, because this output is not a terminal. To read it:")
+    assert lines[token + 1] == f"                    sudo grep ^token {host.stage}/etc/sparkline/console.toml"
     assert ending(out)[-2:] == [
         "    Next: open http://127.0.0.1:9828 and sign in with the console token.",
         f"    You should see {node}, live.",
@@ -220,7 +224,14 @@ def test_a_rerun_on_an_existing_install_stays_short(host: Host) -> None:
         "    Listening on:  http://127.0.0.1:9829",
         "    Benchmarks:    off (monitor-only). Re-run with --enable-benchmarks to allow them.",
     ]
-    assert ending(host.install_on_a_terminal("console")) == ["    Open:           http://127.0.0.1:9828"]
+    # The console says where it is, under the label the first install used, and how to sign in. No token.
+    rerun = host.install_on_a_terminal("console")
+    assert ending(rerun) == [
+        "    Console:        http://127.0.0.1:9828",
+        "    Sign in:        with the console token, which is unchanged "
+        f"(sudo grep ^token {host.stage}/etc/sparkline/console.toml)",
+    ]
+    assert host.config("console.toml")["token"] not in rerun
 
 
 def test_a_dry_run_shows_the_node_and_no_token_and_says_how_to_apply_it(host: Host) -> None:

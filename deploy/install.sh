@@ -181,22 +181,24 @@ print(v if isinstance(v, (str, int)) else "")
 PYEOF
 }
 
-# A token for the final summary: shown on an interactive terminal only, so it never lands in a `| tee` log or a
-# CI transcript; otherwise where to read it.
+# A token line of the final summary. The token is shown on an interactive terminal only, so it never lands in a
+# `| tee` log or a CI transcript; elsewhere the line says so, and the command that reads it is on a line of its
+# own, under where the token would be.
 TTY_OUT=0
-[[ -t 1 ]] && TTY_OUT=1 # tested here: show_secret runs inside $(...), where stdout is a pipe
-show_secret() {
-	local value=$1 file=$2 key=$3
+[[ -t 1 ]] && TTY_OUT=1
+token_line() {
+	local label=$1 file=$2 key=$3
 	if [[ $TTY_OUT == 1 ]]; then
-		printf '%s' "$value"
+		info "$label$(toml_get "$file" "$key")"
 	else
-		printf '(not printed: stdout is not a terminal) sudo grep ^%s %s' "$key" "$file"
+		info "${label}not printed, because this output is not a terminal. To read it:"
+		info "$(printf '%*s' "${#label}" '')sudo grep ^$key $file"
 	fi
 }
 
 # The console URL that signs in: the console token rides in the fragment, which a browser never sends to a
-# server. Read from the config here, so the token is never on a command line. Printed only where show_secret
-# would print the token.
+# server. Read from the config here, so the token is never on a command line. Printed only where token_line
+# prints the token.
 signin_link() {
 	"$PY" - "$1" "$2" <<'PYEOF'
 import sys, tomllib
@@ -712,7 +714,7 @@ install_agent() {
 		echo
 		info "More than one Spark? Install the agent on the others before the console, with this"
 		info "node's agent token. Pass it through the environment, because sudo logs command lines:"
-		info "  Agent token:  $(show_secret "$(toml_get "$file" token)" "$file" token)"
+		token_line "  Agent token:  " "$file" token
 		info "  read -rs SPARKLINE_AGENT_TOKEN && export SPARKLINE_AGENT_TOKEN    # paste it, press Enter"
 		info "  sudo --preserve-env=SPARKLINE_AGENT_TOKEN ./install.sh agent"
 		info "Each one ends with its id=URL pair. Then install the console here with every pair:"
@@ -750,7 +752,8 @@ install_console() {
 	url=$(service_url "$file" 9700)
 	wait_healthy sparkline.service "$url"
 	if [[ $CONFIG_KEPT == 1 ]]; then
-		info "Open:           $url"
+		info "Console:        $url"
+		info "Sign in:        with the console token, which is unchanged (sudo grep ^token $file)"
 		return 0
 	fi
 	IFS=',' read -r -a pairs <<<"$NODES"
@@ -763,14 +766,14 @@ install_console() {
 		label=""
 	done
 	info "Console:        $url"
-	info "Console token:  $(show_secret "$(toml_get "$file" token)" "$file" token)"
+	token_line "Console token:  " "$file" token
 	staged_note
 	if [[ $GENERATED_AGENT_TOKEN == 1 ]]; then
 		cmd=$(self_cmd console)
 		echo
 		info "Before you sign in: the agents refuse this console until they share its agent token."
 		info "A new one was generated, because none was passed in or found on this host:"
-		info "  Agent token:  $(show_secret "$(toml_get "$file" agent_token)" "$file" agent_token)"
+		token_line "  Agent token:  " "$file" agent_token
 		info "On every node, set it as token in $ETC/agent.toml and restart sparkline-agent. Or, if the"
 		info "agents already share a token, delete $file and re-run this with theirs:"
 		info "  read -rs SPARKLINE_AGENT_TOKEN && export SPARKLINE_AGENT_TOKEN    # paste it, press Enter"

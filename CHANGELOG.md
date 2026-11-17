@@ -47,7 +47,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   online, so there is nothing to recover from. After its first reading it is an ordinary node, and going
   offline alerts as before.
 - Each installer ends with the one next step: the agent installer with the console command for that host,
-  and the console installer with the nodes it will show and the sign-in link.
+  and the console installer with the nodes it will show and the sign-in link. Re-running the console
+  installer ends with the console's address and how to sign in. Where the output is not a terminal, a token
+  line says so, with the command that reads the token on a line of its own.
 - The console tries a node that has never answered every 5 s at most, so starting its agent shows on the
   page within seconds. A node that has answered before is tried up to 30 s apart, as before.
 - The fix for "Agent unreachable" on a refused connection says what to run: the command that starts the
