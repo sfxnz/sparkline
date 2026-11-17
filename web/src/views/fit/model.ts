@@ -54,9 +54,9 @@ export const EMPTY_DRAFT: Draft = {
  * lookup read, or by nothing: no value of an earlier lookup and nothing typed before can stay under the new
  * repo's name. The context length is the user's and is left alone.
  */
-export function fromLookup(_draft: Draft, repo: string, { weights_bytes: bytes, weights_upper_bound: upperBound, shape }: LookupFound): Draft {
+export function fromLookup(draft: Draft, repo: string, { weights_bytes: bytes, weights_upper_bound: upperBound, shape }: LookupFound): Draft {
   return {
-    ..._draft,
+    ...draft,
     weights: bytes !== null ? { from: 'lookup', repo, bytes, upperBound } : EMPTY_DRAFT.weights,
     shape: shape
       ? { from: 'lookup', repo, layers: String(shape.num_layers), kvHeads: String(shape.num_kv_heads), headDim: String(shape.head_dim), maxContext: shape.max_context }
@@ -65,10 +65,9 @@ export function fromLookup(_draft: Draft, repo: string, { weights_bytes: bytes, 
 }
 
 /** The repo whose lookup filled the form in, and whether it filled all of it. Null once nothing on it is a lookup's. */
-export function filledFrom(draft: Draft): { repo: string; complete: boolean } | null {
-  const read = [draft.weights, draft.shape].filter((part) => part.from === 'lookup');
-  if (read.length === 0) return null;
-  return { repo: (read[0] as { repo: string }).repo, complete: read.length === 2 };
+export function filledFrom({ weights, shape }: Draft): { repo: string; complete: boolean } | null {
+  if (weights.from === 'lookup') return { repo: weights.repo, complete: shape.from === 'lookup' };
+  return shape.from === 'lookup' ? { repo: shape.repo, complete: false } : null;
 }
 
 /** The longest context the looked-up model supports, when a lookup read the shape. */
