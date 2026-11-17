@@ -161,6 +161,7 @@ describe('Will it fit', () => {
     render(<Fit />);
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/big-index{Enter}');
     expect(await screen.findByRole('alert')).toHaveTextContent('too large for the lookup to read');
+    expect(screen.getByRole('alert')).toHaveTextContent('is 24.0 MiB. Enter the model facts by hand.');
     expect(screen.getByText('Partly filled in from some/big-index.')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('36');
     expect(screen.getByText('This model supports up to 40,960 tokens.')).toBeInTheDocument();

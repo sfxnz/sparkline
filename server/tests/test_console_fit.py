@@ -537,7 +537,10 @@ async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
         ({INFO_PATH: httpx.ConnectError("Name or service not known")}, "Could not reach huggingface.co"),
         ({INFO_PATH: httpx.Response(200, content=b"<html>")}, "not JSON"),
         ({INFO_PATH: httpx.Response(200, content=b"[" * 200_000)}, "not JSON"),
-        ({INFO_PATH: httpx.Response(200, content=b" " * (fit.MAX_RESPONSE_BYTES + 1))}, "more data"),
+        (
+            {INFO_PATH: httpx.Response(200, content=b" " * (fit.MAX_RESPONSE_BYTES + 1))},
+            "file list of Qwen/Qwen3-8B is larger",
+        ),
     ],
 )
 async def test_each_lookup_failure_is_a_problem_that_says_to_enter_the_facts_by_hand(routes, message):
@@ -610,6 +613,13 @@ def test_lookup_route_sends_the_part_a_refused_lookup_read(tmp_path, hf):
     assert r.status_code == 502
     assert "does not describe" in r.json()["problem"]["message"]
     assert r.json()["found"] == {"weights_bytes": 16_381_470_720, "weights_upper_bound": False, "shape": None}
+
+
+async def test_a_file_too_large_to_read_is_named_in_the_refusal():
+    too_big = httpx.Response(200, content=b" " * (fit.MAX_RESPONSE_BYTES + 1))
+    problem = (await FakeHuggingFace({**public_repo(), CACHED_PATH: too_big}).lookup()).problem
+    assert problem.message == "The config.json of Qwen/Qwen3-8B is larger than the lookup reads"
+    assert "at most 1.0 MiB" in problem.cause
 
 
 async def test_a_rate_limit_says_to_try_again_later():

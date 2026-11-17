@@ -381,8 +381,9 @@ class _Json(NamedTuple):
 
 
 async def _get_hf_json(
-    client: httpx.AsyncClient, path: str, by_status: dict[int, Problem]
+    client: httpx.AsyncClient, path: str, by_status: dict[int, Problem], what: str = "The answer"
 ) -> _Json | Problem:
+    """One file of a repo as decoded JSON, or why not. ``what`` names the file in a problem about its size."""
     url = httpx.URL(HF_ORIGIN + path)
     try:
         for _ in range(MAX_REDIRECTS + 1):
@@ -411,8 +412,9 @@ async def _get_hf_json(
                     body += chunk
                     if len(body) > MAX_RESPONSE_BYTES:
                         return _problem(
-                            "Hugging Face sent more data than a model description needs",
-                            f"More than {MAX_RESPONSE_BYTES} bytes from {HF_ORIGIN}{path}",
+                            f"{what} is larger than the lookup reads",
+                            f"The lookup reads at most {MAX_RESPONSE_BYTES / 2**20:.1f} MiB of an answer, "
+                            f"and {HF_ORIGIN}{path} sent more",
                         )
                 return _Json(json.loads(body))
     except httpx.HTTPError as e:
@@ -508,7 +510,12 @@ async def weights_of(
     elif sizes[INDEX_FILE] > MAX_RESPONSE_BYTES:
         weights, upper_bound = unread_index_weights(repo, sizes), True
     else:
-        index = await _get_hf_json(client, f"/{repo}/resolve/main/{INDEX_FILE}", {401: gated, 403: gated})
+        index = await _get_hf_json(
+            client,
+            f"/{repo}/resolve/main/{INDEX_FILE}",
+            {401: gated, 403: gated},
+            f"The weight index of {repo}",
+        )
         weights = index if isinstance(index, Problem) else indexed_weights(repo, sizes, index.value)
         upper_bound = False
     return weights if isinstance(weights, Problem) else _Weights(weights, upper_bound)
@@ -525,7 +532,10 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
     # expand[]=siblings keeps the answer to the file list. Without it the model card comes too, which is
     # a third of the response cap for some repos.
     info = await _get_hf_json(
-        client, f"/api/models/{repo}?expand[]=siblings&blobs=true", {401: absent, 403: absent, 404: absent}
+        client,
+        f"/api/models/{repo}?expand[]=siblings&blobs=true",
+        {401: absent, 403: absent, 404: absent},
+        f"The file list of {repo}",
     )
     if isinstance(info, Problem):
         return LookupFailure(problem=info)
@@ -540,7 +550,10 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
     config = read_config(
         repo,
         await _get_hf_json(
-            client, f"/{repo}/resolve/main/config.json", {401: gated, 403: gated, 404: no_config}
+            client,
+            f"/{repo}/resolve/main/config.json",
+            {401: gated, 403: gated, 404: no_config},
+            f"The config.json of {repo}",
         ),
     )
     shape = config if isinstance(config, Problem) else parse_shape(repo, config)
