@@ -148,6 +148,20 @@ def test_gpu_cap_is_read_from_every_way_a_unit_can_write_it(m: Machine, exec_sta
     assert m.read("gpu-clock-cap") == ("applied", detail, False)
 
 
+def test_another_units_cap_above_the_recommended_one_is_not_applied(m: Machine) -> None:
+    m.unit("loose.service", "[Service]\nExecStart=/usr/bin/nvidia-smi -lgc 0,3003\n")
+    m.clock = 2190.0  # idle: the clock itself contradicts nothing
+    assert m.read("gpu-clock-cap") == (
+        "not-applied",
+        "loose.service caps the GPU clock at 3003 MHz, which is above the recommended cap of 2200 MHz",
+        False,
+    )
+    m.unit("loose.service", "[Service]\nExecStart=/usr/bin/nvidia-smi -lgc 0,2201\n")
+    assert m.read("gpu-clock-cap")[0] == "not-applied"
+    m.unit("loose.service", "[Service]\nExecStart=/usr/bin/nvidia-smi -lgc 0,2200\n")
+    assert m.read("gpu-clock-cap") == ("applied", "Capped at 2200 MHz by loose.service", False)
+
+
 @pytest.mark.parametrize(
     "unit",
     [

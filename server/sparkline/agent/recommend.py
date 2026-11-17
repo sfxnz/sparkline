@@ -146,6 +146,11 @@ def gpu_clock_cap(h: Host) -> Reading:
     by, cap = found
     if cap is None:
         return "applied", f"Capped by {by}, which takes the limit from a variable"
+    if cap > GPU_CLOCK_CAP_MHZ:  # another unit's: Sparkline's own cap is the recommended one
+        return "not-applied", (
+            f"{by} caps the GPU clock at {cap} MHz, which is above the recommended cap of "
+            f"{GPU_CLOCK_CAP_MHZ} MHz"
+        )
     clock = h.gpu_clock_mhz()
     if clock is not None and clock > cap + CLOCK_MARGIN_MHZ:
         return "not-applied", (
