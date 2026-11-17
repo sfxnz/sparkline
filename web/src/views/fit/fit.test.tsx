@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FitRequest, FitResponse, ModelFacts } from '../../lib/types';
 import Fit from '../Fit';
-import { EMPTY_DRAFT, fromLookup, parseCount, parseSize, toRequest, type Draft } from './model';
+import { EMPTY_DRAFT, filledFrom, fromLookup, maxContextOf, parseCount, parseSize, toRequest, type Draft } from './model';
 
 const GIB = 1024 ** 3;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -26,7 +26,13 @@ const REFUSED: Record<string, unknown> = {
     found: { weights_bytes: null, weights_upper_bound: false, shape: SHAPE },
   },
   'some/odd-config': {
-    problem: { message: 'Hugging Face does not describe some/odd-config in a way this estimator reads', cause: 'Its config.json has no whole number above 0 for num_hidden_layers', fix: 'Enter the model facts by hand' },
+    problem: { message: 'Hugging Face does not describe some/odd-config in a way this estimator reads', cause: 'Its config.json has no whole number above 0 for num_hidden_layers at its top level', fix: 'Enter the model facts by hand' },
+    found: { weights_bytes: null, weights_upper_bound: false, shape: null },
+  },
+  // A size with no shape beside it. The console stopped sending this, because a size it cannot pair with a
+  // shape is a size it cannot say covers the model, and the page must still hold no earlier shape beside one.
+  'some/size-only': {
+    problem: { message: 'Hugging Face does not describe some/size-only in a way this estimator reads', cause: 'Its config.json has no whole number above 0 for num_hidden_layers at its top level', fix: 'Enter the model facts by hand' },
     found: { weights_bytes: 9_980_000_000, weights_upper_bound: false, shape: null },
   },
 };
@@ -172,7 +178,9 @@ describe('Will it fit', () => {
     await user.type(screen.getByRole('textbox', { name: 'Weights' }), '464.9');
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     await screen.findByRole('region', { name: 'Result' });
-    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, weights_bytes: 464_900_000_000 });
+    // The shape is still the one the lookup read, so the context it supports goes with it. Only the repo
+    // drops out: a typed size is not the repo's, so the numbers no longer stand under the repo's name.
+    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, weights_bytes: 464_900_000_000 });
     expect(screen.getByText(/This model at 32,768 tokens/)).toBeInTheDocument();
   });
 
@@ -180,9 +188,9 @@ describe('Will it fit', () => {
     const user = userEvent.setup();
     const spy = fakeConsole();
     render(<Fit />);
-    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/odd-config{Enter}');
-    expect(await screen.findByRole('alert')).toHaveTextContent('does not describe some/odd-config');
-    expect(screen.getByText('Partly filled in from some/odd-config.')).toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/size-only{Enter}');
+    expect(await screen.findByRole('alert')).toHaveTextContent('does not describe some/size-only');
+    expect(screen.getByText('Partly filled in from some/size-only.')).toBeInTheDocument();
     expect(screen.getByRole('status', { name: 'Weights' })).toHaveTextContent('9.3 GiB');
     expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
 
@@ -228,27 +236,54 @@ describe('Will it fit', () => {
     expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
 
     await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
-    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/odd-config{Enter}');
-    await screen.findByText('Partly filled in from some/odd-config.');
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/size-only{Enter}');
+    await screen.findByText('Partly filled in from some/size-only.');
     expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
     expect(screen.queryByText(/This model supports up to/)).not.toBeInTheDocument();
   });
 
-  it('holds no repo\'s size under another repo\'s name when a lookup reads nothing', async () => {
+  it('leaves nothing on the form when a lookup reads nothing, typed values included', async () => {
     const user = userEvent.setup();
     fakeConsole();
     render(<Fit />);
-    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/odd-config{Enter}');
-    expect(await screen.findByRole('status', { name: 'Weights' })).toHaveTextContent('9.3 GiB');
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '12.5');
     await user.type(screen.getByRole('textbox', { name: 'Layers' }), '36');
 
-    await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'nope/nope{Enter}');
     expect(await screen.findByRole('alert')).toHaveTextContent('no public model nope/nope');
-    expect(screen.queryByRole('status', { name: 'Weights' })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
     expect(screen.queryByText(/filled in from/)).not.toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('36');
+    expect(screen.getByRole('textbox', { name: 'Context length' })).toHaveValue('32768');
+  });
+
+  // The fourth verifier's orders 10, 15 and 16: a shape read from one repo stayed on the form under
+  // another repo's name once the source marker had been cleared by hand, and the verdict flipped with it.
+  it.each([
+    ['the size is cleared with Enter a size', async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(await screen.findByRole('button', { name: 'Enter a size' }));
+    }],
+    ['a shape field is corrected by hand', async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.type(await screen.findByRole('textbox', { name: 'Head size' }), '0');
+    }],
+  ])('keeps no shape from an earlier repo after %s', async (_name, edit) => {
+    const user = userEvent.setup();
+    const spy = fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+    await edit(user);
+
+    await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/size-only{Enter}');
+    await screen.findByRole('alert');
+    expect(screen.getByText('Partly filled in from some/size-only.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'KV heads' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'Head size' })).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    expect(screen.getAllByText('Enter a whole number above 0')).toHaveLength(3);
+    expect(spy.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
   });
 
   it('says when the context is longer than the looked-up model supports', async () => {
@@ -286,7 +321,7 @@ describe('Will it fit', () => {
     await user.type(screen.getByRole('textbox', { name: 'Weights' }), '16.5');
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     await screen.findByRole('region', { name: 'Result' });
-    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, weights_bytes: 16_500_000_000 });
+    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, weights_bytes: 16_500_000_000 });
   });
 });
 
@@ -312,18 +347,29 @@ describe('fit form model', () => {
     for (const bad of ['', '0', '0.0', '-3', '9,98', '9.98 GB', '1e3', '8.19B', 'abc', '99999999999']) expect(parseSize(bad, 'GB'), bad).toBeNull();
   });
 
-  it('drops a lookup\'s values when the next lookup reads nothing, and keeps what was typed', () => {
+  it('leaves a lookup that read nothing with nothing of the form, and keeps the context length', () => {
     const nothing = { weights_bytes: null, weights_upper_bound: false, shape: null };
-    const filled = fromLookup(EMPTY_DRAFT, 'some/odd-config', { weights_bytes: 9_980_000_000, weights_upper_bound: false, shape: null });
-    const after = fromLookup(filled, 'nope/nope', nothing);
-    expect(after.weights).toEqual(EMPTY_DRAFT.weights);
-    expect(after.source).toBeNull();
-    const typed: Draft = { ...EMPTY_DRAFT, layers: '36', weights: { kind: 'typed', size: '12', unit: 'GB' } };
-    expect(fromLookup(typed, 'nope/nope', nothing)).toEqual(typed);
+    const filled = fromLookup(EMPTY_DRAFT, 'some/size-only', { weights_bytes: 9_980_000_000, weights_upper_bound: false, shape: null });
+    expect(fromLookup(filled, 'nope/nope', nothing)).toEqual(EMPTY_DRAFT);
+    const typed: Draft = { ...EMPTY_DRAFT, context: '8192', shape: { from: 'hand', layers: '36', kvHeads: '8', headDim: '128' }, weights: { from: 'hand', size: '12', unit: 'GB' } };
+    expect(fromLookup(typed, 'nope/nope', nothing)).toEqual({ ...EMPTY_DRAFT, context: '8192' });
+  });
+
+  it('holds no size or shape that does not carry the repo it was read from', () => {
+    const read = fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { weights_bytes: 7, weights_upper_bound: false, shape: QWEN });
+    expect(read.weights).toEqual({ from: 'lookup', repo: 'Qwen/Qwen3-8B', bytes: 7, upperBound: false });
+    expect(read.shape).toMatchObject({ from: 'lookup', repo: 'Qwen/Qwen3-8B' });
+    expect(filledFrom(read)).toEqual({ repo: 'Qwen/Qwen3-8B', complete: true });
+    // A size read from one repo and a shape read from another cannot both be on the form: the only way to
+    // put a value there is a lookup, and a lookup writes both fields.
+    const next = fromLookup(read, 'some/size-only', { weights_bytes: 9, weights_upper_bound: false, shape: null });
+    expect(filledFrom(next)).toEqual({ repo: 'some/size-only', complete: false });
+    expect(next.shape).toEqual(EMPTY_DRAFT.shape);
+    expect(maxContextOf(next)).toBeNull();
   });
 
   it('sends a typed size as bytes', () => {
-    const parsed = toRequest({ ...fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { weights_bytes: null, weights_upper_bound: false, shape: QWEN }), weights: { kind: 'typed', size: '39.77', unit: 'GB' } });
+    const parsed = toRequest({ ...fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { weights_bytes: null, weights_upper_bound: false, shape: QWEN }), weights: { from: 'hand', size: '39.77', unit: 'GB' } });
     expect(parsed.ok && parsed.request.facts.weights_bytes).toBe(39_770_000_000);
   });
 });

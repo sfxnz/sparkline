@@ -10,7 +10,7 @@ import type { FitRequest, FitResponse, KvDtype, NodeFit, Problem } from '../lib/
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
-import { budgetText, EMPTY_DRAFT, foundOf, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, rangeText, SIZE_UNITS, toRequest, VERDICTS, type Draft, type SizeUnit } from './fit/model';
+import { budgetText, EMPTY_DRAFT, filledFrom, foundOf, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, maxContextOf, rangeText, SIZE_UNITS, toRequest, VERDICTS, type Draft, type SizeUnit } from './fit/model';
 import './fit/fit.css';
 import './views.css';
 
@@ -25,11 +25,19 @@ export default function Fit() {
   const parsed = toRequest(draft);
   const errors = submitted && !parsed.ok ? parsed.errors : {};
   const set = (patch: Partial<Draft>) => { setDraft((d) => ({ ...d, ...patch })); };
-  const editFact = (patch: Partial<Draft>) => { set({ ...patch, source: null }); };
+  // A fact the user types is the user's, so it is held with no repo on it and the form stops naming one.
+  const typeShape = (patch: Partial<{ layers: string; kvHeads: string; headDim: string }>) => {
+    setDraft((d) => ({ ...d, shape: { from: 'hand', layers: d.shape.layers, kvHeads: d.shape.kvHeads, headDim: d.shape.headDim, ...patch } }));
+  };
+  const typeSize = (patch: Partial<{ size: string; unit: SizeUnit }>) => {
+    setDraft((d) => ({ ...d, weights: { ...(d.weights.from === 'hand' ? d.weights : EMPTY_DRAFT.weights), ...patch } }));
+  };
   const repo = draft.repo.trim();
   const weights = draft.weights;
+  const shape = draft.shape;
+  const filled = filledFrom(draft);
   const context = parsed.ok ? parsed.request.context_tokens : null;
-  const maxContext = draft.source?.maxContext ?? null;
+  const maxContext = maxContextOf(draft);
 
   const lookUp = async () => {
     if (!repo || lookup.status === 'loading') return;
@@ -82,11 +90,11 @@ export default function Fit() {
                 {lookup.status === 'loading' ? 'Looking up…' : 'Look up'}
               </Button>
             </div>
-            <p className="fit-note" role="status">{draft.source ? `${draft.source.complete ? 'Filled in' : 'Partly filled in'} from ${draft.source.repo}.` : null}</p>
+            <p className="fit-note" role="status">{filled ? `${filled.complete ? 'Filled in' : 'Partly filled in'} from ${filled.repo}.` : null}</p>
           </Field>
           {lookup.status === 'error' ? <div className="fit-wide"><ProblemBanner problem={lookup.problem} /></div> : null}
 
-          {weights.kind === 'files' ? (
+          {weights.from === 'lookup' ? (
             <Field
               id="fit-weights"
               label="Weights"
@@ -98,7 +106,7 @@ export default function Fit() {
             >
               <div className="fit-weights fit-weights--files">
                 <output id="fit-weights" className="num" aria-describedby="fit-weights-hint">{formatBytes(weights.bytes)}</output>
-                <Button size="sm" onClick={() => { editFact({ weights: EMPTY_DRAFT.weights }); }}>Enter a size</Button>
+                <Button size="sm" onClick={() => { set({ weights: EMPTY_DRAFT.weights }); }}>Enter a size</Button>
               </div>
             </Field>
           ) : (
@@ -108,21 +116,21 @@ export default function Fit() {
               hint="The total size of the model's weight files, in the unit beside the box. The repo's Files tab on Hugging Face lists each .safetensors file in GB, so switch the unit if you add those up. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
             >
               <div className="fit-weights">
-                <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { editFact({ weights: { ...weights, size } }); }} error={errors.size} width="9rem" />
-                <Select aria-label="Unit of the size" value={weights.unit} onChange={(e) => { editFact({ weights: { ...weights, unit: e.target.value as SizeUnit } }); }}>
+                <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { typeSize({ size }); }} error={errors.size} width="9rem" />
+                <Select aria-label="Unit of the size" value={weights.unit} onChange={(e) => { typeSize({ unit: e.target.value as SizeUnit }); }}>
                   {Object.keys(SIZE_UNITS).map((unit) => <option key={unit} value={unit}>{unit}</option>)}
                 </Select>
               </div>
             </Field>
           )}
           <Field id="fit-layers" label="Layers" hint="num_hidden_layers in config.json.">
-            <NumberField id="fit-layers" describedBy="fit-layers-hint" value={draft.layers} onChange={(layers) => { editFact({ layers }); }} error={errors.layers} />
+            <NumberField id="fit-layers" describedBy="fit-layers-hint" value={shape.layers} onChange={(layers) => { typeShape({ layers }); }} error={errors.layers} />
           </Field>
           <Field id="fit-kv-heads" label="KV heads" hint="num_key_value_heads, or num_attention_heads when the model has no grouped attention.">
-            <NumberField id="fit-kv-heads" describedBy="fit-kv-heads-hint" value={draft.kvHeads} onChange={(kvHeads) => { editFact({ kvHeads }); }} error={errors.kvHeads} />
+            <NumberField id="fit-kv-heads" describedBy="fit-kv-heads-hint" value={shape.kvHeads} onChange={(kvHeads) => { typeShape({ kvHeads }); }} error={errors.kvHeads} />
           </Field>
           <Field id="fit-head-dim" label="Head size" hint="head_dim, or hidden_size divided by num_attention_heads.">
-            <NumberField id="fit-head-dim" describedBy="fit-head-dim-hint" value={draft.headDim} onChange={(headDim) => { editFact({ headDim }); }} error={errors.headDim} />
+            <NumberField id="fit-head-dim" describedBy="fit-head-dim-hint" value={shape.headDim} onChange={(headDim) => { typeShape({ headDim }); }} error={errors.headDim} />
           </Field>
           <Field
             id="fit-context"

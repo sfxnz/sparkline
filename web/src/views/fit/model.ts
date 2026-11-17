@@ -21,49 +21,58 @@ export const VERDICTS: Record<FitVerdict, { status: Status; label: string }> = {
 };
 
 /**
- * The size of the model's weight files, read by a lookup or typed. A parameter count is not taken: a quantised
- * model keeps some layers at 16 bits, so its files are larger than its count times its bits.
+ * The size of the model's weight files. A size a lookup read carries the repo it was read from, so it cannot
+ * exist apart from that repo: nothing holds a `repo` to put beside a size the user typed. A parameter count is
+ * not a size: a quantised model keeps some layers at 16 bits, so its files are larger than its count times its
+ * bits.
  */
-type DraftWeights = { kind: 'files'; bytes: number; upperBound: boolean } | { kind: 'typed'; size: string; unit: SizeUnit };
+export type DraftWeights = { from: 'lookup'; repo: string; bytes: number; upperBound: boolean } | { from: 'hand'; size: string; unit: SizeUnit };
+
+/** What sizes the KV cache, under the same rule: a shape a lookup read carries its repo, a typed one has none. */
+export type DraftShape =
+  | { from: 'lookup'; repo: string; layers: string; kvHeads: string; headDim: string; maxContext: number | null }
+  | { from: 'hand'; layers: string; kvHeads: string; headDim: string };
 
 export interface Draft {
   repo: string;
   weights: DraftWeights;
-  layers: string;
-  kvHeads: string;
-  headDim: string;
+  shape: DraftShape;
   context: string;
   kvDtype: KvDtype;
-  /** The lookup the model facts came from, all of them or only a part. Null once a fact is edited or when they were typed by hand. */
-  source: { repo: string; maxContext: number | null; complete: boolean } | null;
 }
 
 export const EMPTY_DRAFT: Draft = {
   repo: '',
-  weights: { kind: 'typed', size: '', unit: 'GiB' },
-  layers: '',
-  kvHeads: '',
-  headDim: '',
+  weights: { from: 'hand', size: '', unit: 'GiB' },
+  shape: { from: 'hand', layers: '', kvHeads: '', headDim: '' },
   context: '32768',
   kvDtype: 'bf16',
-  source: null,
 };
 
-const EMPTY_SHAPE = { layers: EMPTY_DRAFT.layers, kvHeads: EMPTY_DRAFT.kvHeads, headDim: EMPTY_DRAFT.headDim };
-
 /**
- * Fill the form with what a lookup of `repo` read. The part it could not read is emptied if an earlier lookup
- * filled it, so one repo's size never sits beside another repo's shape, and a lookup that read nothing leaves
- * nothing of the lookup before it. What was typed by hand stays.
+ * Fill the form with what a lookup of `repo` read. Both the size and the shape are replaced by what this
+ * lookup read, or by nothing: no value of an earlier lookup and nothing typed before can stay under the new
+ * repo's name. The context length is the user's and is left alone.
  */
-export function fromLookup(draft: Draft, repo: string, { weights_bytes: bytes, weights_upper_bound: upperBound, shape }: LookupFound): Draft {
+export function fromLookup(_draft: Draft, repo: string, { weights_bytes: bytes, weights_upper_bound: upperBound, shape }: LookupFound): Draft {
   return {
-    ...draft,
-    weights: bytes !== null ? { kind: 'files', bytes, upperBound } : draft.weights.kind === 'files' ? EMPTY_DRAFT.weights : draft.weights,
-    ...(shape ? { layers: String(shape.num_layers), kvHeads: String(shape.num_kv_heads), headDim: String(shape.head_dim) } : draft.source ? EMPTY_SHAPE : {}),
-    source: bytes === null && shape === null ? null : { repo, maxContext: shape?.max_context ?? null, complete: bytes !== null && shape !== null },
+    ..._draft,
+    weights: bytes !== null ? { from: 'lookup', repo, bytes, upperBound } : EMPTY_DRAFT.weights,
+    shape: shape
+      ? { from: 'lookup', repo, layers: String(shape.num_layers), kvHeads: String(shape.num_kv_heads), headDim: String(shape.head_dim), maxContext: shape.max_context }
+      : EMPTY_DRAFT.shape,
   };
 }
+
+/** The repo whose lookup filled the form in, and whether it filled all of it. Null once nothing on it is a lookup's. */
+export function filledFrom(draft: Draft): { repo: string; complete: boolean } | null {
+  const read = [draft.weights, draft.shape].filter((part) => part.from === 'lookup');
+  if (read.length === 0) return null;
+  return { repo: (read[0] as { repo: string }).repo, complete: read.length === 2 };
+}
+
+/** The longest context the looked-up model supports, when a lookup read the shape. */
+export const maxContextOf = (draft: Draft) => (draft.shape.from === 'lookup' ? draft.shape.maxContext : null);
 
 /** What a refused lookup still read, from the body of its error. */
 export function foundOf(err: unknown): LookupFound | null {
@@ -103,17 +112,18 @@ export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { o
     return n ?? 0;
   };
   const w = draft.weights;
-  const typed = w.kind === 'typed' ? parseSize(w.size, w.unit) : null;
-  if (w.kind === 'typed' && typed === null) errors.size = 'Enter a size above 0, for example 9.98';
+  const typed = w.from === 'hand' ? parseSize(w.size, w.unit) : null;
+  if (w.from === 'hand' && typed === null) errors.size = 'Enter a size above 0, for example 9.98';
+  const filled = filledFrom(draft);
   const request: FitRequest = {
     facts: {
-      repo: draft.source?.complete ? draft.source.repo : null,
-      weights_bytes: w.kind === 'files' ? w.bytes : (typed ?? 0),
-      weights_upper_bound: w.kind === 'files' && w.upperBound,
-      num_layers: need('layers', draft.layers),
-      num_kv_heads: need('kvHeads', draft.kvHeads),
-      head_dim: need('headDim', draft.headDim),
-      max_context: draft.source?.maxContext ?? null,
+      repo: filled?.complete ? filled.repo : null,
+      weights_bytes: w.from === 'lookup' ? w.bytes : (typed ?? 0),
+      weights_upper_bound: w.from === 'lookup' && w.upperBound,
+      num_layers: need('layers', draft.shape.layers),
+      num_kv_heads: need('kvHeads', draft.shape.kvHeads),
+      head_dim: need('headDim', draft.shape.headDim),
+      max_context: maxContextOf(draft),
     },
     context_tokens: need('context', draft.context),
     kv_dtype: draft.kvDtype,
