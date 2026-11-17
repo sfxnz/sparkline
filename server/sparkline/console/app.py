@@ -34,6 +34,7 @@ from ..common.schema import (
     Event,
     HistoryResponse,
     NodeState,
+    NotifyChannelStatus,
     Problem,
 )
 from ..common.schema import Severity as SeverityT
@@ -48,6 +49,9 @@ from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
+from .notify import Notifier, NotifierStopped
+from .prometheus import render
+from .recommend import AgentRecs, DemoRecs, RecBackend, recommend_router
 from .store import SESSION_TTL_S, Store
 
 log = logging.getLogger("sparkline.console.app")
@@ -156,7 +160,8 @@ def create_app(
     if store.bind_sessions_to_token(cfg.token):
         log.warning("The console token changed: signed out every existing session")
     hub = Hub()
-    cluster = Cluster(store, hub, cfg.settings, demo=demo)
+    notifier = Notifier(cfg.notify)
+    cluster = Cluster(store, hub, cfg.settings, demo=demo, notify=notifier.publish)
     if demo:
         t0 = time.time()
         for make in FLEETS[fleet].values():
@@ -176,12 +181,14 @@ def create_app(
         bench = BenchManager(cluster, bench_store, AgentBackend(cluster, cfg.agent_token))
     auth_enabled = bool(cfg.token) or not demo
     token = cfg.token.encode()
+    metrics_token = cfg.metrics_token.encode()
     login_attempts: dict[str, deque[float]] = {}
     http: dict[str, httpx.AsyncClient] = {}
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         http["c"] = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0))
+        notifier.start()
         await cluster.start()
         await bench.start()
         try:
@@ -189,6 +196,7 @@ def create_app(
         finally:
             await bench.stop()
             await cluster.stop()
+            await notifier.stop()
             await http["c"].aclose()
             store.close()
 
@@ -287,6 +295,14 @@ def create_app(
             )
 
     Auth = [Depends(require_auth)]
+
+    async def require_scrape_auth(request: Request) -> None:
+        """GET /metrics: the metrics token, tried under the same attempt limit, or whatever opens the API."""
+        h = request.headers.get("authorization", "")
+        sent = h[7:].strip().encode() if h[:7].lower() == "bearer " else b""
+        scrape_only = bool(metrics_token) and hmac.compare_digest(sent, metrics_token)
+        if not (scrape_only and len(attempts(request)) < LOGIN_LIMIT):
+            await require_auth(request)
 
     @app.get("/healthz")
     async def healthz() -> dict:
@@ -520,6 +536,26 @@ def create_app(
         cluster.update_settings(s)
         return s
 
+    # -- notifications --------------------------------------------------------------------------------
+    @app.get("/api/v1/notify/channels", dependencies=Auth)
+    async def notify_channels() -> list[NotifyChannelStatus]:
+        return notifier.status()
+
+    @app.post("/api/v1/notify/channels/{name}/test", dependencies=Auth)
+    async def notify_test(name: str) -> NotifyChannelStatus:
+        """A test that could not be delivered is still 200: the outcome is the row's ``last``."""
+        try:
+            return await notifier.test(name)
+        except KeyError:
+            raise ProblemError(
+                404,
+                f"No notification channel {name!r}",
+                "It is not in the console configuration",
+                "Add it as a [[notify]] table in /etc/sparkline/console.toml and restart the console",
+            ) from None
+        except NotifierStopped:
+            raise ProblemError(503, "The console is shutting down", "", "Try again once it is back") from None
+
     # -- live stream ----------------------------------------------------------------------------------
     @app.websocket("/api/v1/stream")
     async def stream(ws: WebSocket) -> None:
@@ -557,6 +593,13 @@ def create_app(
                 await ws.close(code=1008)
 
     app.include_router(bench_router(bench, Auth))
+    recs: RecBackend = DemoRecs(cluster) if demo else AgentRecs(cluster, cfg.agent_token, lambda: http["c"])
+    app.include_router(recommend_router(cluster, recs, Auth))
+
+    @app.get("/metrics", dependencies=[Depends(require_scrape_auth)])
+    async def metrics() -> Response:
+        text = render((src.state for src in cluster.sources.values()), cluster.latest_samples())
+        return Response(text, media_type="text/plain; version=0.0.4; charset=utf-8")
 
     # -- static web app (registered last: catch-all) -----------------------------------------------
     @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)

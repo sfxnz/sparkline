@@ -63,7 +63,7 @@ Other Linux machines, with or without an NVIDIA GPU, run the agent too, but Spar
 
 | Port | From → to | Used for |
 |---|---|---|
-| 9700/tcp | browser → console | The web app and its API |
+| 9700/tcp | browser → console | The web app and its API. Prometheus scrapes `/metrics` on the same port. |
 | 9750/tcp | console → each agent | Telemetry and benchmark control |
 | 29620/tcp | node ↔ node | The NCCL all-reduce benchmark only |
 | 18515/tcp | node ↔ node | The RDMA benchmark only |
@@ -140,6 +140,9 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
 - **GPU (GB10).** Utilisation, SM and graphics clocks against their maximum, temperature against the
   slowdown and shutdown thresholds, power, energy, P-state, throttle reasons in plain English, the share of
   time spent power or thermal capped, and GPU memory per process.
+- **Model servers.** Each node's summary lists the model servers running on it, found with no setup: up or
+  down, the loaded model, requests running and waiting, tokens per second, time to first token, KV cache use
+  and memory held. See [Model servers](#model-servers).
 - **Unified memory.** The headline memory story, because the CPU and GPU share it: used, available,
   GPU-allocated, process memory, page cache, shared, kernel, swap and PSI pressure.
 - **CPU.** A per-core heatmap with the 10 Cortex-X925 performance cores and the 10 Cortex-A725 efficiency
@@ -148,12 +151,20 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   the normal interface counters), and errors and drops for both ConnectX-7 rails, plus LAN throughput.
 - **Alerts.** Editable thresholds (GPU temperature, throttling, memory, node offline, link down, disk full,
   NVMe temperature) and an event timeline with acknowledgement.
+- **Notifications.** Alerts and their recoveries go to ntfy, Discord, Slack or any JSON webhook, so you hear
+  about a node that dies, overheats or fills up when no browser is open. See [Notifications](#notifications).
+- **Prometheus.** `GET /metrics` on the console exports every node's readings as `sparkline_*` series in
+  base units, for the Prometheus and Grafana you already run. See [Prometheus](#prometheus).
 - **Benchmarks.** Nine whitelisted, parameter-validated jobs, from GEMM TFLOPS to a 30-minute thermal soak
   and a tool-calling evaluation of your served model. Each one states its duration and impact up front, asks
   for confirmation, shows live telemetry while it runs, cancels cleanly, and saves results with full
   metadata. The LLM benchmark shows every concurrent stream as it generates and can sweep concurrency levels;
   the tool-calling evaluation shows each scenario's verdict as it finishes. Baselines, regression flags,
   side-by-side comparison, JSON/CSV export and a shareable summary card are included.
+- **Recommendations.** The settings DGX Spark owners recommend to each other for a cooler or roomier
+  machine, each with its sources, its cost, its undo and what could go wrong. Sparkline checks every node
+  and recommends a setting only where it is not applied yet. On a node that allows it, one click applies or
+  undoes a setting. See [Recommendations](#recommendations).
 - **Wall mode, command palette and keyboard shortcuts.** Dark and light themes that follow the system, with
   reduced-motion and reduced-transparency support.
 - **Demo mode** (`--demo`): three simulated nodes, including a thermal episode, a stalled stream and a node
@@ -170,6 +181,8 @@ access to PyPI for the Python dependencies.
 git clone https://github.com/sfxnz/sparkline.git && cd sparkline
 sudo ./install.sh agent                       # monitor-only
 sudo ./install.sh agent --enable-benchmarks   # also allow benchmarks (see Security model)
+sudo ./install.sh agent --enable-tune         # also allow one-click recommended settings (see Security model)
+sudo ./install.sh agent --enable-benchmarks --enable-tune   # both
 ```
 
 The installer:
@@ -195,11 +208,12 @@ sudo --preserve-env=SPARKLINE_AGENT_TOKEN ./install.sh agent
 
 Re-running the installer is safe. It refreshes the code and units and restarts the service, and keeps the
 config and data. The flags describe the state you want: running it again without `--enable-benchmarks`
-turns benchmarks back off.
+turns benchmarks back off. The same holds for `--enable-tune`.
 
 | Option | Meaning |
 |---|---|
 | `--enable-benchmarks` | Allow benchmarks: Docker access for the agent and lifted CPU/memory caps. Asks for confirmation. |
+| `--enable-tune` | Allow the console to apply and undo the settings on the Recommendations tab: installs a root helper with a fixed list of settings. Asks for confirmation. |
 | `--nodes LIST` | Console: the agents to poll, as `id=url` pairs, e.g. `spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750`. |
 | `--peers LIST` | Agent: the far ends of the ConnectX-7 rails as `id=ip` pairs, e.g. `spark2=10.0.8.2,spark2=10.0.9.2`. Written to `peers` in a new config. |
 | `--agent-token TOKEN` | Use this token instead of generating one (or set `SPARKLINE_AGENT_TOKEN`). |
@@ -268,7 +282,7 @@ sudo sparkline update --this-host # update only this host
 
 `sparkline update` downloads the latest GitHub release, checks it against the release's `SHA256SUMS`, and runs
 that release's `install.sh` for each part that this host runs: the console first, then the agent. It keeps
-the config, the data, the install prefix and `--enable-benchmarks`. On the console host it then asks every
+the config, the data, the install prefix, `--enable-benchmarks` and `--enable-tune`. On the console host it then asks every
 node in `console.toml` whose agent is behind to update itself, all at once, waits up to 10 minutes, and
 prints one line per node:
 
@@ -320,6 +334,8 @@ Restart the service after editing: `sudo systemctl restart sparkline-agent` (or 
 | `peers` | `{}` | Far ends of the ConnectX-7 rails, so the link can be named. Example: `{ spark2 = ["10.0.8.2", "10.0.9.2"] }` |
 | `include_virtual` | `false` | Also show virtual and Wi-Fi interfaces (docker0, tailscale0, ...). |
 | `allow_public` | `false` | Allow binding a public address or 0.0.0.0. Avoid. |
+| `model_server_discovery` | `true` | Ask this node's usual model-server ports what they serve. `false` leaves only the ports under `[[model_servers]]`. See [Model servers](#model-servers). |
+| `[[model_servers]]` | none | One table per server to read whatever port it is on: `port` (required) and `api_key` (optional, sent as a bearer token to that port on this node only). Tables go at the end of the file. |
 | `bench_image` | `nvcr.io/nvidia/pytorch:26.07-py3` | Container image for GPU benchmarks. It must already be pulled. |
 | `bench_work_dir` | `<data_dir>/bench-work` | Scratch for benchmark files. Keep it on the NVMe drive. Outside the data dir, it also needs a `ReadWritePaths=` drop-in. |
 | `bench_payload_device` | `"cuda"` | `"cpu"` runs the GPU payloads on the CPU at tiny sizes: a code-path smoke test whose results are flagged and never compared. |
@@ -336,11 +352,13 @@ process list shows command-line arguments to every user.
 | `port` | `9700` | |
 | `token` | `""` | What you type on the sign-in screen, at least 16 characters. Required except in `--demo` (and with no token, the demo has no sign-in). Changing it and restarting signs every browser out. |
 | `agent_token` | `""` | Must equal `token` in every node's `agent.toml` (at least 16 characters). |
+| `metrics_token` | `""` | Opens `GET /metrics` and nothing else (at least 16 characters). Give it to Prometheus instead of `token`. Empty: only `token` opens `/metrics`. See [Prometheus](#prometheus). |
 | `data_dir` | `/var/lib/sparkline` if writable, else `~/.local/share/sparkline` | `console.sqlite`: events, settings, benchmark results, sessions. `--demo` uses a `demo/` subdirectory, so simulated data never mixes with real data. |
 | `web_dist` | `<repo>/web/dist` | The built web app. The installer sets `/opt/sparkline/web/dist`. |
 | `[[nodes]]` | none | One table per agent: `id = "spark1"`, `url = "http://192.168.1.11:9750"`. |
 | `[settings]` | see below | Initial values. Once you save in the app (Settings), the saved values in `console.sqlite` win. |
 | `trusted_proxies` | `[]` | IPs or networks of reverse proxies whose `X-Forwarded-For` / `X-Forwarded-Proto` headers are believed, e.g. `["127.0.0.1"]` for a proxy on the same host. See [Security model](#security-model). |
+| `[[notify]]` | none | One table per notification channel. See [Notifications](#notifications). |
 
 `[settings]` keys: `energy_rate_per_kwh` (0.28), `currency` ("£"), `stale_after_s` (5.0: a node with no
 sample for this long is shown as stale), `offline_after_s` (30.0) and `regression_pct` (5.0: a benchmark
@@ -349,6 +367,72 @@ result worse than its baseline by more than this is flagged).
 Console flags: `--config`, `--bind`, `--port`, `--data-dir`, `--web-dist`, `--allow-public`, `--log-level`,
 `--demo`, `--demo-speed` (compress the demo's failure schedule) and `--demo-empty-bench` (demo without seeded
 benchmark history).
+
+### Notifications
+
+The console sends each alert, and the recovery that follows it, to the channels you list in `console.toml`.
+Add one `[[notify]]` table per channel and restart the console. With no `[[notify]]` table the console
+sends no notification.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `name` | required | Your name for the channel, unique: letters, digits, `.`, `_` and `-`. |
+| `kind` | required | `"ntfy"`, `"discord"`, `"slack"` or `"webhook"`. |
+| `url` | required | Where to send. It is a credential. Use `https://`. `http://` is accepted only to a private address. |
+| `token` | none | `ntfy` and `webhook` only. Sent as `Authorization: Bearer <token>`. |
+| `min_severity` | `"warning"` | Send alerts at this severity and above: `"info"`, `"warning"` or `"critical"`. |
+| `send_resolved` | `true` | Also send when an alert clears. A channel hears a recovery only if it heard the alert. |
+
+```toml
+[[notify]]
+name = "phone"
+kind = "ntfy"                 # the url ends in the topic
+url = "https://ntfy.sh/<your-topic>"
+min_severity = "critical"
+
+[[notify]]
+name = "team"
+kind = "discord"              # the webhook URL Discord gives you
+url = "https://discord.com/api/webhooks/<id>/<token>"
+
+[[notify]]
+name = "ops"
+kind = "slack"                # an incoming-webhook URL
+url = "https://hooks.slack.com/services/<T>/<B>/<secret>"
+
+[[notify]]
+name = "home"
+kind = "webhook"              # Home Assistant, n8n, Node-RED
+url = "http://192.168.1.5:8123/api/webhook/<id>"
+send_resolved = false
+```
+
+What each kind sends, always as a JSON `POST`:
+
+- **`ntfy`**: ntfy's JSON publish, posted to the path above the topic, with `topic`, `title`, `message`,
+  `priority` (5 for a critical alert, 4 for a warning, 3 otherwise) and one tag. Anyone who knows an ntfy
+  topic can read it, so choose a long random one, or protect it with an access token in `token`.
+- **`discord`**: `content` (title in bold, then the detail), `username` "Sparkline", and `allowed_mentions`
+  set so that a node or rule named `@everyone` pings nobody. Discord's markdown characters in a title or a
+  detail are escaped with a backslash, so a name such as `[text](url)` shows as written and not as a link.
+- **`slack`**: `text`, with `&`, `<` and `>` escaped.
+- **`webhook`**: `{"source": "sparkline", "version": 1, "test": false, "title": …, "text": …, "more": 0,
+  "notices": [...]}`. Each notice is the event (`id`, `ts`, `node_id`, `kind`, `rule_id`, `title`, `detail`,
+  `metric`, `value`) plus `status` (`"firing"` or `"resolved"`) and `severity`, which is the alert's severity
+  also on its recovery. `notices` is a list even for one alert. `more` counts notices left out.
+
+Alerts that fire at the same moment arrive as one message: "3 alerts, 1 resolved" and one line for each. A
+channel gets at most one message a second. On HTTP 429 the console waits as long as `Retry-After` asks, up to
+15 minutes. On a 5xx answer or a network error it tries again after about 5 s, 15 s, 60 s, then every 5 minutes, and keeps up to 50
+notices meanwhile; the next message says how many more there were. Any other 4xx answer, or a redirect,
+drops the message, because sending it again cannot work. Waiting notices are not stored: when the console
+stops it tries each channel once more and drops the rest, and after a restart an alert that still holds
+fires again. An alert whose condition ended while the console was down gets no "Resolved" message, so check
+the console after a restart if a channel still shows an alert as open.
+
+The **Alerts** view lists the channels with the host, what each one sends, and how its last delivery went.
+**Send test** sends a test message now and shows the result, with the reason when it fails. Channels are
+edited only in `console.toml`.
 
 ### Environment variables
 
@@ -378,6 +462,11 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   are limited to 10 per minute per client IP, on the console and on each agent. State-changing requests
   whose `Origin` doesn't match the console are rejected. Sessions belong to the token that issued them:
   change `token` and restart the console, and every existing session is signed out.
+- **Prometheus scrapes.** `GET /metrics` answers only a request that carries `token` or `metrics_token` as a
+  bearer token, or a signed-in browser. `metrics_token` opens no other route, and a wrong token counts
+  toward the same limit of 10 per minute. The response holds every node's readings, the names of its
+  interfaces, disks, mounts and sensors, and each model server's port, software, version and loaded model
+  names. It holds no process, command line, token, event or benchmark result.
 - **Browser hardening.** Every console response carries a Content-Security-Policy (scripts, styles,
   connections and images from the console only; no framing), `X-Frame-Options: DENY`,
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`.
@@ -416,6 +505,30 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   `--enable-benchmarks`, that adds less than benchmarks already allow. On a monitor-only node it is the first
   thing the agent token can make run as root, and all it can do is install the latest checksum-verified
   release now. The agent's own unit and sandbox are unchanged. It refuses while a benchmark is running.
+- **One-click settings run a fixed list as root, on nodes that opt in.** `--enable-tune` installs
+  `sparkline-tune.path`, `sparkline-tune.service` and `sparkline-tune-boot.service`. The agent stays
+  unprivileged. To apply or undo a setting it creates an empty file named after the setting, such as
+  `gpu-clock-cap.apply`, in `/var/lib/sparkline-agent/tune-requests/`. The root helper removes the file
+  without opening it and looks the whole name up in a table that ships in `/opt/sparkline`. Every command
+  and every value comes from that table. A request cannot add a command, an argument or a number. In 0.3.0
+  the table can cap the GPU clock at 2200 MHz, cap the performance cores at 3000 MHz, set the default boot
+  target, and undo each of those. With the flag, anyone who is signed in to the console, and anyone who
+  holds the agent token, can make those changes on that node. Without the flag the helper is not installed:
+  the tab still checks the node and shows the commands to type.
+- **Notifications leave the LAN only where you say.** Without a `[[notify]]` table the console sends no
+  notification. With one, it sends alerts to the hosts in those tables, and to no other host:
+  nothing in the API or the web app can add or change a channel. For every send the console resolves the
+  host name again, checks every address in the answer, and connects to a checked address by IP. TLS
+  verifies the certificate against the name in the url, so a DNS answer that changes between the check and
+  the connection (DNS rebinding) cannot move the request. `http://` is refused unless every resolved
+  address is private; anything else needs `https://`. A redirect is a failure and is never followed. No
+  proxy from the environment is used. A channel's url and token are credentials. They stay in
+  `console.toml` (mode 0640, root:sparkline), beside the tokens, and never reach `console.sqlite`, the API,
+  the web app, an error message or the log, even at `--log-level debug`. The browser sees a channel's name,
+  kind, host and last result. What leaves your LAN is the text of the alert: its title and detail, which
+  name the node and the measured value, and for a node that went offline the LAN address and port of its
+  agent (`host:port`). The `webhook` kind also sends the rule id and the metric key.
+  Nothing notifies you when the console itself is down, or when it cannot reach the service.
 - **systemd sandboxing.** Both services run as the unprivileged `sparkline` user, with no capabilities,
   `NoNewPrivileges`, a read-only filesystem except their state directory (`ProtectSystem=strict`), a private
   /tmp, a system-call filter, and network access limited to IPv4, IPv6, Unix and netlink sockets. The agent
@@ -448,6 +561,150 @@ yet.
 
 On ConnectX-7, inter-node traffic is RDMA and bypasses the kernel interface counters. Each rail's throughput
 is therefore its netdev bytes plus its RDMA port counters (`port_rcv_data` / `port_xmit_data`).
+
+## Model servers
+
+The agent looks for model servers on its own node and reads them every 2 seconds. A server on a usual port
+needs no configuration.
+
+**Which ports are asked.** The agent reads the node's listening TCP sockets from `/proc/net/tcp` and
+`/proc/net/tcp6`, and asks a socket only when something names its port:
+
+- a default port: 8000 (vLLM, NIM, TensorRT-LLM), 8080 and 9931 (llama.cpp, old and new default) and 30000
+  (SGLang);
+- `--port N` in the arguments of a process that holds GPU memory;
+- a port Docker publishes for a container whose processes hold GPU memory;
+- a port under `[[model_servers]]` in `agent.toml`.
+
+Nothing else is asked, and no port is scanned. A database started with `--port`, or published by its
+container, holds no GPU memory and is never sent a request. A model server that runs on the CPU alone, on a
+port that is not a default, needs a `[[model_servers]]` table. Requests go only to this node's own addresses, follow no
+redirect and ignore proxy settings.
+
+**What is asked.** The agent sends each listening socket `GET /v1/models`. The answer decides what that
+socket receives afterwards:
+
+- A model list, or HTTP 401 or 403 from a server that wants an API key. The agent asks for the server's
+  Prometheus metrics at `/metrics`, then at `/v1/metrics`. On TensorRT-LLM it asks only
+  `/prometheus/metrics`, because reading its `/metrics` clears it. From then on the agent reads that one
+  metrics path every 2 seconds, or `/health` when a server it knows by name has no metrics. A port with no
+  metrics and no known server name is not asked again.
+- Any other HTTP answer, or an answer that is not HTTP, such as a database's greeting. That request is the
+  only one the socket ever receives.
+- No answer within 3 seconds. The agent asks again about 6 seconds later, and stops after three unanswered
+  requests in a row.
+- HTTP 503, a refused connection, or a connection closed before any answer. A model that is loading
+  answers 503, and a port Docker publishes closes connections until the server in its container listens.
+  The agent asks again about every 6 seconds until the socket answers. It cannot tell a starting server
+  from another service that closes every connection without an answer, so that service is asked every
+  6 seconds too. `model_server_discovery = false` stops it.
+
+The agent sends no prompt and loads no model. A server that restarts is a new socket and is asked again.
+
+**What is shown.** vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM, and any server that exports the same metric
+names under its own prefix. A value the server does not export reads "Not reported by this server". llama.cpp
+serves metrics only with `--metrics` and SGLang only with `--enable-metrics`; without the flag the server is
+listed with its model and a note naming the flag. Ollama, LM Studio and mlx_lm are not read yet. Memory held
+is the server's own figure when it exports one, otherwise the GPU memory of the process (or of every process
+in its container) whose arguments name the port.
+
+Each reading is also a history and alert key: `llm.<port>.up`, `.running`, `.waiting`, `.gen_tps`,
+`.prompt_tps`, `.ttft_p50_s`, `.ttft_p95_s`, `.kv_cache_pct`, `.preempt_per_s` and `.mem_bytes`.
+
+**Another port, or an API key.** List the server at the end of `agent.toml` and restart the agent:
+
+```toml
+[[model_servers]]
+port = 8123
+api_key = "the key the server was started with"   # optional
+```
+
+The key is sent only to that port on this node. It is never part of a sample, a log line or an error.
+
+**Turning it off.** `model_server_discovery = false` stops the agent asking any port you did not list. With
+no `[[model_servers]]` either, it asks nothing. Do this on a node with a llama.cpp server that should stay
+asleep: it is not confirmed whether `GET /v1/models` wakes a sleeping llama.cpp model. llama.cpp's
+documentation says `/health`, `/props`, `/models` and `/metrics` do not wake it, and does not mention
+`/v1/models`.
+
+## Prometheus
+
+The console serves each node's latest sample at `GET /metrics`, in Prometheus text format 0.0.4. Scrape it
+to keep Sparkline's numbers in your own Prometheus for as long as you like, next to everything else.
+
+**Set it up.** Generate a token, set it as `metrics_token` in `console.toml` and restart the console:
+
+```sh
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+sudoedit /etc/sparkline/console.toml          # metrics_token = "<the token>"
+sudo systemctl restart sparkline
+```
+
+Write the same token, and nothing else, to a file that only Prometheus can read. Then add the job to
+`prometheus.yml`, with the console's address as the target:
+
+```yaml
+scrape_configs:
+  - job_name: sparkline
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["192.168.1.11:9700"]
+    authorization:
+      credentials_file: /etc/prometheus/sparkline-metrics-token
+```
+
+To see what Prometheus gets:
+
+```sh
+curl -H "Authorization: Bearer $(sudo cat /etc/prometheus/sparkline-metrics-token)" http://192.168.1.11:9700/metrics
+```
+
+`metrics_token` opens `/metrics` and no other route, so the Prometheus host never holds the token that
+signs in to the console. The console token opens `/metrics` too. Without a valid token the answer is 401.
+A wrong token counts against the sign-in limit of 10 a minute for the scraper's address. Past the limit, the
+console answers 429 to every request from that address that needs a token, a correct sign-in included, until
+the minute has passed. So a scrape job with a mistyped token and a short interval can keep a browser on the
+same host from signing in.
+
+**Names and units.** Every series starts with `sparkline_` and has a `node` label, the node's `[[nodes]]`
+id. Values are in base units: `_bytes`, `_seconds`, `_celsius`, `_watts`, `_hertz` and `_ratio`. A ratio
+runs from 0 to 1, so the 81 % GPU utilisation in the app is 0.81 here. A rate that the agent already
+computes is a gauge named `_per_second`. The one counter is `sparkline_gpu_energy_joules_total`.
+`rate(sparkline_gpu_energy_joules_total[5m])` is the average power in watts, and
+`increase(sparkline_gpu_energy_joules_total[1d]) / 3.6e6` is a day's energy in kWh.
+
+| Series | Other labels |
+|---|---|
+| `sparkline_node_up`, `sparkline_node_last_sample_timestamp_seconds` | |
+| `sparkline_gpu_utilization_ratio`, `sparkline_gpu_temperature_celsius`, `sparkline_gpu_power_watts`, `sparkline_gpu_energy_joules_total`, `sparkline_gpu_sm_clock_hertz`, `sparkline_gpu_throttle_mask`, `sparkline_gpu_power_capped_ratio`, `sparkline_gpu_thermal_capped_ratio`, `sparkline_gpu_vram_used_bytes`, `sparkline_gpu_shared_memory_used_bytes` | `gpu`: the GPU index |
+| `sparkline_memory_used_bytes`, `sparkline_memory_available_bytes`, `sparkline_memory_used_ratio`, `sparkline_memory_gpu_bytes`, `sparkline_memory_anon_bytes`, `sparkline_memory_cache_bytes`, `sparkline_memory_shmem_bytes`, `sparkline_memory_kernel_bytes`, `sparkline_memory_other_bytes`, `sparkline_memory_swap_used_bytes`, `sparkline_memory_pressure_some_ratio`, `sparkline_memory_pressure_full_ratio` | |
+| `sparkline_cpu_utilization_ratio`, `sparkline_cpu_performance_cores_utilization_ratio`, `sparkline_cpu_efficiency_cores_utilization_ratio`, `sparkline_cpu_pressure_some_ratio`, `sparkline_cpu_temperature_celsius`, `sparkline_load1`, `sparkline_load5`, `sparkline_load15` | |
+| `sparkline_cpu_core_utilization_ratio`, `sparkline_cpu_core_frequency_hertz` | `core`: the core number |
+| `sparkline_network_receive_bytes_per_second`, `sparkline_network_transmit_bytes_per_second`, `sparkline_network_up` | `iface`: the interface name |
+| `sparkline_disk_read_bytes_per_second`, `sparkline_disk_write_bytes_per_second`, `sparkline_disk_reads_per_second`, `sparkline_disk_writes_per_second`, `sparkline_disk_busy_ratio` | `disk`: the device name |
+| `sparkline_filesystem_used_bytes`, `sparkline_filesystem_size_bytes`, `sparkline_filesystem_free_bytes`, `sparkline_filesystem_used_ratio` | `fs`: the mount, written as in alert rules (`/` is `root`, `/data/models` is `data_models`) |
+| `sparkline_sensor_temperature_celsius` | `sensor`: the hwmon sensor id, such as `nvme.composite` |
+| `sparkline_model_server_up`, `sparkline_model_server_requests_running`, `sparkline_model_server_requests_waiting`, `sparkline_model_server_generation_tokens_per_second`, `sparkline_model_server_prompt_tokens_per_second`, `sparkline_model_server_time_to_first_token_p50_seconds`, `sparkline_model_server_time_to_first_token_p95_seconds`, `sparkline_model_server_kv_cache_usage_ratio`, `sparkline_model_server_preemptions_per_second`, `sparkline_model_server_memory_bytes` | `port`: the server's port on the node |
+| `sparkline_model_server_info` (always 1) | `port`, `software`, `version`, `model`: one series per loaded model |
+
+Each `# HELP` line in the response says what its series measures.
+
+**What a node that is down looks like.** `sparkline_node_up` is 1 while the node is online, and 0 in every
+other state: connecting, stale, offline and error. A node that is not online exports only
+`sparkline_node_up` and `sparkline_node_last_sample_timestamp_seconds`, so its other series go stale in
+Prometheus and do not repeat the last reading. A node is stale after `stale_after_s` (5 s) without a
+sample, so give an alert on `sparkline_node_up == 0` a `for:` of a minute or more. A reading that a node or
+a model server does not report has no series. It is never 0.
+
+**What is not exported.**
+
+- The GPU totals of a node (`gpu.util`, `gpu.temp_c`, `gpu.power_w`, `gpu.mem_used`). Aggregate the per-GPU
+  series, for example `sum by (node) (sparkline_gpu_power_watts)`.
+- Network errors and drops. The agent counts them per sample interval, so a scrape every 15 s would miss
+  most of them.
+- A model-server reading that comes from an agent newer than the console, because the console does not know
+  its unit.
+- Processes, events, alert rules and benchmark results.
 
 ## Benchmarks
 
@@ -537,6 +794,43 @@ caveats.
 
 Each CX7 rail is its own PCIe Gen5 x4 link (~109 Gb/s of payload), but both rails share one 200 Gb/s port: run
 together they carry ~185 Gb/s, which is the ceiling NCCL reaches.
+
+## Recommendations
+
+The **Recommendations** page lists settings that DGX Spark owners recommend to each other. In 0.3.0 there are
+four.
+
+| Setting | What it changes | One click | Survives a reboot |
+|---|---|---|---|
+| Cap the GPU clock at 2200 MHz | `nvidia-smi -lgc 0,2200` | Yes | Sparkline applies it again at boot |
+| Cap the performance cores at 3000 MHz | `scaling_max_freq` of the ten fast cores | Yes | Sparkline applies it again at boot |
+| Boot without the desktop | `systemctl set-default multi-user.target` | Yes, from the next boot | Yes |
+| Set Display Reserved Memory to Auto | A firmware setting, then a reboot | No. The page shows the exact steps | Yes |
+
+Each setting shows its sources, the benefit and the cost that owners report, how to undo it, and what could
+go wrong. **No setting in 0.3.0 has been measured by Sparkline.** The page says so on every card, and shows
+the numbers only as owners' reports.
+[docs/recommendations/README.md](docs/recommendations/README.md) says what counts as a measurement and how to
+make one.
+
+**Each node is checked.** The agent reads, without root, whether a setting is applied on its node. A setting
+that is applied is not recommended for that node. The GPU driver does not report a clock cap, so the agent
+looks for Sparkline's own record or for an active systemd unit that runs `nvidia-smi -lgc`, and compares the
+live GPU clock with the cap. A unit that sets a cap above 2200 MHz does not count as applied. A cap that
+you typed by hand is not visible to the agent.
+
+**One click needs the node's consent.** Install the agent with `--enable-tune` to get the **Apply** and
+**Undo** buttons for that node. On a node that is already installed, run `install.sh agent` again with
+`--enable-tune` added to the flags it was installed with: the installer turns off what is left out, so keep
+`--enable-benchmarks` if the node runs benchmarks. Every click asks for confirmation, and the confirmation lists the commands
+that make the same change by hand. Without the flag, the page shows those commands for you to type. A setting that something other than Sparkline applied
+shows as applied, with no **Undo** button: undo it where it was set. [Security model](#security-model) says
+what the flag allows.
+
+`GET /api/v1/recommendations` returns the list and every node's state.
+`POST /api/v1/recommendations/{id}/apply` and `/undo` take `{"node": "...", "confirm": true}`. The node
+answers 409 to an apply unless it reports the setting as not applied, and to an undo of a setting that
+Sparkline did not apply.
 
 ## Keyboard shortcuts
 
@@ -641,6 +935,8 @@ One Python package (`server/`, package `sparkline`) provides both commands, `spa
 ## Limitations
 
 - There is no built-in TLS. Use a reverse proxy or VPN if traffic leaves the LAN.
+- Notifications come from the console. When the console is down nothing is sent, so a dead console is
+  silent. Notification channels do not use an HTTP proxy.
 - One shared agent token covers all nodes. Rotating it means editing every `agent.toml` and the console's
   `agent_token`.
 - Only GPU 0 is charted (a DGX Spark has one GPU). The cross-node benchmarks assume two nodes.

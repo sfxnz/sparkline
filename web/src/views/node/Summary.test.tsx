@@ -64,7 +64,7 @@ describe('Summary memory', () => {
   });
 
   it('reads a GB10 as unified memory, as before', () => {
-    open(gb10(), gb10Sample);
+    open(gb10(), gb10Sample as unknown as Sample);
     expect(memoryStat()).toHaveTextContent('of 121.7 GiB unified');
     const panel = screen.getByRole('region', { name: 'Unified memory' });
     expect(panel).toHaveTextContent('Shared by CPU and GPU');

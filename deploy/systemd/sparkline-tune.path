@@ -1,0 +1,14 @@
+# Lets the console change a setting on this node (the Recommendations tab). The agent cannot change the
+# machine: on POST /api/v1/recommendations/<id>/apply or /undo it only creates an empty file named
+# <id>.apply or <id>.undo in the directory below, and this unit then starts sparkline-tune.service as root.
+# Installed by deploy/install.sh agent --enable-tune, and removed when install.sh agent runs without it.
+
+[Unit]
+Description=Watch for setting requests from the Sparkline console
+
+[Path]
+DirectoryNotEmpty=/var/lib/sparkline-agent/tune-requests
+Unit=sparkline-tune.service
+
+[Install]
+WantedBy=paths.target

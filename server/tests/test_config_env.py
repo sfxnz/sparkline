@@ -170,7 +170,10 @@ def test_agent_cli_precedence(tmp_path, monkeypatch, no_server):
 
         def node_info(self, cfg):
             captured["cfg"] = cfg
-            return SimpleNamespace(agent_version="test")
+            return SimpleNamespace(agent_version="test", gpus=[])
+
+        def start(self):
+            captured["started"] = True
 
         def close(self):
             captured["closed"] = True
@@ -183,6 +186,7 @@ def test_agent_cli_precedence(tmp_path, monkeypatch, no_server):
     monkeypatch.setenv("SPARKLINE_DATA_DIR", str(tmp_path / "env-data"))
     monkeypatch.setenv("SPARKLINE_AGENT_TOKEN", "envtoken-0123456")
     assert agent_main.main([]) == 0
+    assert captured.get("started") is True, "the agent starts the model-server poller before it serves"
     assert captured.get("closed") is True, "the agent closes its collectors when the server stops"
     assert (no_server["host"], no_server["port"]) == ("127.0.0.1", 2222)
     assert (

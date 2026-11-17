@@ -203,6 +203,33 @@ def test_changing_a_rule_resolves_its_active_alert(eng):
     assert sink.resolved[active.id] == T0 + 20
 
 
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        (lambda rules: [r for r in rules if r.id != "gpu_temp_critical"], "removed"),
+        (lambda rules: edited(rules, "gpu_temp_critical", enabled=False), "changed"),
+        (lambda rules: edited(rules, "gpu_temp_critical", threshold=86.0), "changed"),
+    ],
+)
+def test_changing_or_removing_a_rule_records_a_recovery_for_its_active_alert(eng, change, why):
+    engine, sink = eng
+    feed(engine, T0, 11, temp=90.0)
+    engine.set_rules(change(engine.rules), T0 + 20)
+    active, recovery = (e for e in sink.events if e.rule_id == "gpu_temp_critical")
+    assert (recovery.kind, recovery.severity, recovery.ts) == ("recovered", "info", T0 + 20)
+    assert (recovery.node_id, recovery.metric) == (active.node_id, active.metric)
+    assert recovery.title == f"Resolved: {active.title}"
+    assert recovery.detail == f"Closed because its rule was {why} · was critical"
+
+
+def test_an_edited_rule_fires_again_after_its_recovery_while_the_condition_holds(eng):
+    engine, sink = eng
+    t = feed(engine, T0, 11, temp=90.0)
+    engine.set_rules(edited(engine.rules, "gpu_temp_critical", threshold=86.0), t)
+    feed(engine, t, 11, temp=90.0)
+    assert sink.kinds("gpu_temp_critical") == ["alert", "recovered", "alert"]
+
+
 def test_validate_rules():
     validate_rules(DEFAULT_RULES)
     with pytest.raises(ValueError, match="Duplicate"):

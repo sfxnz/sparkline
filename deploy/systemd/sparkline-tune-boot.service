@@ -1,0 +1,59 @@
+# Applies again, at every boot, the settings Sparkline applied that a reboot forgets: the GPU clock cap
+# (the driver starts uncapped) and the CPU cap (the kernel starts at the hardware maximum). It applies the
+# settings recorded in /var/lib/sparkline-tune/applied, which only sparkline-tune.service writes, and it
+# reads nothing else. A setting undone from the console is no longer recorded. Installed by
+# deploy/install.sh agent --enable-tune, which rewrites /opt/sparkline when --prefix is used.
+
+[Unit]
+Description=Apply the Sparkline settings that a reboot forgets
+# The GPU has to be up before its clocks can be locked. DGX OS sets the CPU frequency governor in
+# nv-cpu-governor: a cap written before it runs could be overwritten.
+After=nvidia-persistenced.service nv-cpu-governor.service
+# Nothing recorded, nothing to do: don't start Python at boot for it.
+ConditionDirectoryNotEmpty=/var/lib/sparkline-tune/applied
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sparkline/venv/bin/sparkline tune reapply
+# A oneshot has no start timeout by default. Each command the helper runs has its own 30 s limit.
+TimeoutStartSec=5min
+# /opt is read-only here, so don't try to write .pyc files.
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# --- Files ------------------------------------------------------------------------------------------
+# The same sandbox as sparkline-tune.service, without the request directory: this unit takes no requests.
+StateDirectory=sparkline-tune
+StateDirectoryMode=0755
+UMask=0022
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# PrivateDevices and ProtectClock stay off: nvidia-smi has to open /dev/nvidiactl and /dev/nvidia0.
+
+# --- Privileges -------------------------------------------------------------------------------------
+NoNewPrivileges=yes
+# CAP_SYS_ADMIN: the NVIDIA driver accepts a clock lock only from an administrator. The cpufreq files are
+# root's own and need no capability.
+CapabilityBoundingSet=CAP_SYS_ADMIN
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# --- Kernel -----------------------------------------------------------------------------------------
+# ProtectKernelTunables stays off: the CPU cap is a write to /sys/devices/system/cpu/cpufreq.
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+
+# --- Network ----------------------------------------------------------------------------------------
+# Neither setting uses the network. AF_UNIX only, as in sparkline-tune.service.
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+
+[Install]
+WantedBy=multi-user.target

@@ -94,6 +94,29 @@ describe('Overview', () => {
     expect(screen.getByRole('link', { name: /spark1, open node details/ })).toHaveAttribute('href', '/node/spark1');
   });
 
+  it('lists the model servers on a node card: what each serves and how busy it is', () => {
+    useCluster.getState().setHello(cluster([node('llm1'), node('llm2'), node('llm3')]));
+    const full = sampleJson as unknown as Sample;
+    const [vllm, down] = full.llm ?? [];
+    if (!vllm || !down) throw new Error('fixture has two model servers');
+    act(() => {
+      liveStore.pushSample({ ...full, node_id: 'llm1', ts: now });
+      liveStore.pushSample({ ...full, node_id: 'llm2', ts: now, llm: [] });
+      liveStore.pushSample({ ...full, node_id: 'llm3', ts: now, llm: [vllm, down, { ...down, port: 9932 }, { ...down, port: 9933 }] });
+      liveStore.flush();
+    });
+    render(<Overview />);
+    const servers = (id: string) => within(screen.getByRole('region', { name: `Node ${id}` })).queryByRole('list', { name: 'Model servers' });
+    const [first, second] = within(servers('llm1') as HTMLElement).getAllByRole('listitem');
+    expect(first).toHaveTextContent('Qwen3-32B');
+    expect(first).toHaveTextContent('3 running · 0 waiting · 212');
+    expect(second).toHaveTextContent('Port 9931');
+    expect(second).toHaveTextContent('Down');
+    expect(servers('llm2')).toBeNull();
+    expect(within(servers('llm3') as HTMLElement).getAllByRole('listitem')).toHaveLength(3);
+    expect(servers('llm3')).toHaveTextContent('and 2 more');
+  });
+
   it('shows the quiet empty state when there are no events', () => {
     useCluster.getState().setHello(cluster([node('spark1')]));
     render(<Overview />);

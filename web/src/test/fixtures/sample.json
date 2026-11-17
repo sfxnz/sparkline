@@ -18,5 +18,9 @@
   "temps": [{"id": "acpitz.0", "c": 63.5}, {"id": "nvme.composite", "c": null}, {"id": "mlx5.0", "c": 66.0}],
   "cpu_temp_c": 61.5,
   "procs": null,
+  "llm": [
+    {"port": 8000, "adapter": "prometheus", "software": "vLLM", "version": "0.11.0", "prefix": "vllm:", "state": "ready", "models": [{"name": "Qwen3-32B", "context_len": 32768, "size_bytes": null, "vram_bytes": null, "expires_ts": null}], "values": {"up": 1, "running": 3, "waiting": 0, "gen_tps": 212.4, "mem_bytes": 21474836480, "itl_p50_s": 0.021}, "reports": ["gen_tps", "running", "ttft_p50_s", "waiting"], "mem_source": "process", "pid": 4242, "container": "vllm-qwen3", "started_ts": 1791200000.0, "scraped_ts": 1791288000.2, "problem": null},
+    {"port": 9931, "adapter": "prometheus", "software": "llama.cpp", "version": null, "prefix": null, "state": "down", "models": [], "values": {"up": 0}, "reports": [], "mem_source": null, "pid": null, "container": null, "started_ts": null, "scraped_ts": 1791287000.0, "problem": null}
+  ],
   "errors": {}
 }

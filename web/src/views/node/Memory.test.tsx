@@ -208,7 +208,7 @@ describe('Memory tab by memory model', () => {
   };
 
   it('reads a GB10 exactly as before', () => {
-    open({ ...(gb10Info as unknown as NodeInfo), node_id: NODE }, gb10Sample);
+    open({ ...(gb10Info as unknown as NodeInfo), node_id: NODE }, gb10Sample as unknown as Sample);
     gb10Strings();
   });
 

@@ -7,6 +7,66 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+### Added
+
+- **Recommendations.** A new page lists four settings that DGX Spark owners recommend (a GPU clock cap, a
+  performance-core cap, booting without the desktop, and the firmware's Display Reserved Memory), each with
+  its sources, cost, undo and risks. Every node's agent reports whether each setting is applied, through
+  `GET /api/v1/recommendations`. No setting has been measured by Sparkline yet, and the page says so. See
+  [Recommendations](README.md#recommendations).
+- **One-click settings, on nodes that opt in.** `install.sh agent --enable-tune` installs a root helper that
+  can apply and undo three of those settings from a fixed list, and applies them again at boot. The agent
+  stays unprivileged. `POST /api/v1/recommendations/{id}/apply` and `/undo` on the console need
+  `confirm: true`. See [Security model](README.md#security-model).
+
+## [0.2.0] - 2026-11-17
+
+### Upgrading
+
+Run `sudo sparkline update` on the console host. It updates the console first and then every node, which is
+the order this release needs: a 0.1.2 console shows a 0.2.0 agent's node without its model servers, and a
+0.2.0 console says "Update the agent" in that panel for an older agent. No config edit is required.
+
+Two things start on their own after the update:
+
+- Each agent asks the usual model server ports on its own node (8000, 8080, 9931, 30000, and any port that a
+  process holding GPU memory was started with) for a model server, and reads the ones it finds every
+  2 seconds. `model_server_discovery = false` in `agent.toml` stops that.
+- `GET /metrics` on the console answers the console token. Set `metrics_token` in `console.toml` to give
+  Prometheus a token that opens nothing else.
+
+Notifications stay off until `console.toml` has a `[[notify]]` table.
+
+### Added
+
+- Alert notifications. Each `[[notify]]` table in `console.toml` is a channel (`ntfy`, `discord`, `slack` or a
+  generic JSON `webhook`) that receives alerts and their recoveries when no browser is open, filtered by
+  `min_severity` and `send_resolved`. Alerts that fire at the same moment arrive as one message. The Alerts
+  view lists the channels with their last delivery and a **Send test** button, through `GET /api/v1/notify/channels`
+  and `POST /api/v1/notify/channels/{name}/test`. The console sends to the hosts in those
+  tables, which can be outside the LAN: see "Security model" in the README and `docs/adr/0003-outbound-notifications.md`.
+- **Model servers.** Each agent finds the model servers running on its own node, with no setup, and the node
+  summary shows for each one whether it is up, which model is loaded, the requests running and waiting, tokens
+  per second, time to first token, KV cache use and memory held. The overview card carries one line per
+  server. It reads vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM and any server that uses the same Prometheus
+  metric names under its own prefix. A value a server does not export reads "Not reported by this server",
+  never 0. The readings are also history and alert keys, `llm.<port>.<field>`. `[[model_servers]]` in
+  `agent.toml` names a server on another port or one that needs an API key, and
+  `model_server_discovery = false` stops the agent asking any port you did not list. See
+  [Model servers](README.md#model-servers).
+- **Prometheus export.** `GET /metrics` on the console serves every node's latest readings in Prometheus
+  text format: GPU, memory, CPU, network, disk, filesystem, temperature and model-server series named
+  `sparkline_*`, in base units, with a `node` label. A node that is not online exports only
+  `sparkline_node_up` 0 and the time of its last sample. The new `metrics_token` key in `console.toml` opens
+  `/metrics` and nothing else, so Prometheus does not need the console token. See
+  [Prometheus](README.md#prometheus).
+
+### Changed
+
+- Editing, disabling or deleting an alert rule while its alert is open now adds a "Resolved" event that says
+  the rule was changed or removed, in the timeline and on every notification channel. Before, the alert was
+  closed with no recovery. If the edited rule still matches, its alert fires again.
+
 ## [0.1.2] - 2026-11-11
 
 ### Upgrading
@@ -142,7 +202,8 @@ gives the upgrade commands.
 - The web tests' copy of undici, which jsdom pulls in, moves from 8.11.2 to 8.12.3 and gets the security fixes
   of undici 8.12.2. The built web app does not include undici (#73).
 
-[Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sfxnz/sparkline/releases/tag/v0.2.0
 [0.1.2]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.2
 [0.1.1]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.1
 [0.1.0]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.0

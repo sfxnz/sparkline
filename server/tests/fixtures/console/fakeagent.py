@@ -105,6 +105,22 @@ GPU_BENCHES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce")
 GB10_RATES = ("gpu-matmul", "mem-bandwidth", "nccl-allreduce", "storage-fio")
 
 
+def recs_defaults() -> dict[str, Any]:
+    """Per-agent knobs for the fake recommendations routes (app.state.recs)."""
+    return {
+        # What GET /api/v1/recommendations answers (NodeRecommendations). None: an agent that predates it.
+        "reply": {
+            "one_click": None,
+            "items": [
+                {"id": "gpu-clock-cap", "state": "applied", "detail": "Capped by a unit", "managed": False},
+                {"id": "cpu-pcore-cap", "state": "not-applied", "detail": "Up to 3900 MHz", "managed": False},
+            ],
+        },
+        "delay": 0.0,  # seconds before GET answers
+        "reject": None,  # None | 409 | 500 | 501: answer apply and undo with this
+    }
+
+
 def bench_defaults() -> dict[str, Any]:
     """Per-agent knobs for the fake bench runner (app.state.bench)."""
     return {
@@ -139,6 +155,8 @@ def make_fake_agent(
     app.state.bench_starts: list[tuple[float, dict]] = []  # (time, BenchStartRequest) as received
     app.state.bench_cancels: list[str] = []
     app.state.bench_queues: set[asyncio.Queue] = set()
+    app.state.recs = recs_defaults()
+    app.state.rec_requests: list[str] = []  # "<id>.<verb>" for each apply and undo accepted
 
     def authed(headers, query) -> bool:
         return headers.get("authorization") == f"Bearer {token}" or query.get("token") == token
@@ -280,6 +298,27 @@ def make_fake_agent(
             )
         if not app.state.bench["ignore_cancel"]:
             task.cancel()
+        return JSONResponse({"ok": True}, status_code=202)
+
+    @app.get("/api/v1/recommendations")
+    async def recommendations(request: Request):
+        if (denied := bench_auth(request)) is not None:
+            return denied
+        await asyncio.sleep(app.state.recs["delay"])
+        if app.state.recs["reply"] is None:
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        return app.state.recs["reply"]
+
+    @app.post("/api/v1/recommendations/{rec_id}/{verb}")
+    async def tune(rec_id: str, verb: str, request: Request):
+        if (denied := bench_auth(request)) is not None:
+            return denied
+        if app.state.recs["reply"] is None:
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        if app.state.recs["reject"] is not None:
+            problem = {"message": "Refused", "cause": f"{rec_id} {verb}", "fix": "Fix it"}
+            return JSONResponse({"problem": problem}, status_code=app.state.recs["reject"])
+        app.state.rec_requests.append(f"{rec_id}.{verb}")
         return JSONResponse({"ok": True}, status_code=202)
 
     @app.websocket("/api/v1/stream")

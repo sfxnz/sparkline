@@ -207,6 +207,40 @@ export interface ProcSample {
   model: string | null;
 }
 
+export const SERVER_STATES = ['ready', 'loading', 'sleeping', 'down'] as const;
+export type ServerState = (typeof SERVER_STATES)[number];
+
+export interface LoadedModel {
+  name: string;
+  context_len: number | null;
+  size_bytes: number | null;
+  vram_bytes: number | null;
+  /** When the server unloads the model if it stays idle. */
+  expires_ts: number | null;
+}
+
+/** One model server listening on a node. Read a field through `reading()` in lib/llm.ts, never from `values`. */
+export interface ModelServerSample {
+  port: number;
+  adapter: string;
+  software: string | null;
+  version: string | null;
+  prefix: string | null;
+  /** A state from a newer agent that this build predates reads as 'ready', as the console reads it. */
+  state: ServerState;
+  models: LoadedModel[];
+  /** Field -> reading. A field with no reading has no key; it is never 0 for "unknown". */
+  values: Readonly<Record<string, number>>;
+  /** The fields this server can report. One that is here and not in `values` has nothing to say now. */
+  reports: readonly string[];
+  mem_source: 'server' | 'process' | null;
+  pid: number | null;
+  container: string | null;
+  started_ts: number | null;
+  scraped_ts: number | null;
+  problem: string | null;
+}
+
 export interface Sample {
   node_id: string;
   ts: number;
@@ -227,6 +261,8 @@ export interface Sample {
   procs: ProcSample[] | null;
   /** When the process list was last refreshed (carried on every tick; null from older agents). */
   procs_ts?: number | null;
+  /** Model servers on the node. Absent or null: the agent predates them, or looks for none. []: none found. */
+  llm?: ModelServerSample[] | null;
   errors: Record<string, string>;
 }
 
@@ -311,6 +347,40 @@ export interface Event {
   value: number | null;
   resolved_ts: number | null;
   acked: boolean;
+}
+
+// --- Notifications -----------------------------------------------------------------------------
+
+export type ChannelKind = 'ntfy' | 'discord' | 'slack' | 'webhook';
+
+export type NotifyFailure = 'dns' | 'address_refused' | 'connect' | 'tls' | 'timeout' | 'redirect' | 'rate_limited' | 'rejected' | 'server_error';
+
+export interface NotifyDelivery {
+  ts: number;
+  ok: boolean;
+  /** Made by "Send test". */
+  test: boolean;
+  /** Alerts and recoveries in the message (0 for a test). */
+  notices: number;
+  failure: NotifyFailure | null;
+  http_status: number | null;
+  problem: Problem | null;
+}
+
+/** One [[notify]] channel from console.toml. The console never sends its url or token. */
+export interface NotifyChannelStatus {
+  name: string;
+  kind: ChannelKind;
+  /** Host and port only. */
+  host: string;
+  min_severity: Severity;
+  send_resolved: boolean;
+  /** Notices waiting to be sent. */
+  pending: number;
+  /** When waiting notices are next tried, while the channel backs off or is rate limited. */
+  retry_at: number | null;
+  /** null until the first delivery since the console started. */
+  last: NotifyDelivery | null;
 }
 
 // --- Benchmarks --------------------------------------------------------------------------------
@@ -450,6 +520,82 @@ export interface BenchCompareMetric {
 export interface BenchCompare {
   runs: BenchRun[];
   metrics: BenchCompareMetric[];
+}
+
+// --- Recommendations (GET /api/v1/recommendations) ----------------------------------------------
+
+export type RecGoal = 'cooler' | 'quieter' | 'roomier' | 'faster';
+export type RecState = 'applied' | 'not-applied' | 'not-applicable' | 'unknown';
+
+export interface RecSource {
+  title: string;
+  url: string;
+}
+export interface RecMetric {
+  label: string;
+  before: number;
+  after: number;
+  unit: string;
+}
+export interface RecMeasurement {
+  date: string;
+  machine: string;
+  method: string;
+  results: RecMetric[];
+  /** The evidence file, docs/recommendations/<id>.md. */
+  doc: string;
+}
+/** One community-recommended setting. Static: it ships in the release. */
+export interface Recommendation {
+  id: string;
+  title: string;
+  summary: string;
+  goal: RecGoal;
+  benefit: string;
+  cost: string;
+  sources: RecSource[];
+  /** null: a community claim that Sparkline has not measured. */
+  measurement: RecMeasurement | null;
+  /** The exact commands a person would type. */
+  apply: string[];
+  undo: string[];
+  /** false: a firmware change or a reboot, and `apply` are the manual steps. */
+  one_click: boolean;
+  persists: 'until-reboot' | 'persistent';
+  /** next-boot: nothing changes until the node is restarted. */
+  takes_effect: 'now' | 'next-boot';
+  risks: string[];
+  /** Derived by the console: true only with a measurement. */
+  verified: boolean;
+}
+/** What the root helper did last for one recommendation on one node. */
+export interface TuneResult {
+  /** "apply", "undo" or "reapply" (at boot). */
+  action: string;
+  ts: number;
+  ok: boolean;
+  message: string;
+}
+/** One node, one recommendation, as that node's agent reads it. */
+export interface NodeRecState {
+  id: string;
+  state: RecState;
+  /** What the check read, e.g. "Capped at 2200 MHz by nvidia-lock-clocks.service". */
+  detail: string;
+  /** Applied by Sparkline's helper, so Undo works. false: applied by other means. */
+  managed: boolean;
+  last: TuneResult | null;
+}
+export interface NodeRecommendations {
+  /** null: this node accepts clicks. Else why not, with the fix. */
+  one_click: Problem | null;
+  items: NodeRecState[];
+}
+export interface RecommendationsView {
+  catalog: Recommendation[];
+  /** null: the node is unreachable or its agent is too old; `problems` says why. */
+  nodes: Record<string, NodeRecommendations | null>;
+  problems: Record<string, Problem>;
 }
 
 // --- WebSocket messages (console -> browser) ---------------------------------------------------

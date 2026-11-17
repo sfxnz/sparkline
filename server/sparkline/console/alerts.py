@@ -111,6 +111,7 @@ UNIT_PATTERNS: tuple[tuple[str, Unit], ...] = (
     ("fs.*.used", "gib"),
     ("fs.*.total", "gib"),
     ("fs.*.free", "gib"),
+    ("llm.*.mem_bytes", "gib"),
     ("*power_w", "watts"),
     ("*_mhz", "mhz"),
     ("*.mhz", "mhz"),
@@ -141,9 +142,12 @@ _FORMAT: dict[Unit, Callable[[float], str]] = {
 }
 
 
+def unit_of(key: str) -> Unit:
+    return next((u for pattern, u in UNIT_PATTERNS if fnmatch.fnmatchcase(key, pattern)), "plain")
+
+
 def fmt_value(key: str, v: float) -> str:
-    unit: Unit = next((u for pattern, u in UNIT_PATTERNS if fnmatch.fnmatchcase(key, pattern)), "plain")
-    return _FORMAT[unit](v)
+    return _FORMAT[unit_of(key)](v)
 
 
 def _sentence(titles: list[str]) -> str:
@@ -183,7 +187,24 @@ class AlertEngine:
             if new.get(rid) != old.get(rid):
                 st = self._st.pop(key)
                 if st.active:
-                    self._resolve(st.active, now)
+                    ev = st.active
+                    self._resolve(ev, now)
+                    self._add(
+                        Event(
+                            id=0,
+                            ts=now,
+                            node_id=ev.node_id,
+                            severity="info",
+                            kind="recovered",
+                            rule_id=rid,
+                            title=f"Resolved: {ev.title}",
+                            detail=(
+                                f"Closed because its rule was {'changed' if rid in new else 'removed'}"
+                                f" · was {ev.severity}"
+                            ),
+                            metric=ev.metric,
+                        )
+                    )
         self.rules = rules
 
     def _applies(self, r: AlertRule, node: str) -> bool:

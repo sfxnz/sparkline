@@ -45,6 +45,7 @@ describe('connection copy', () => {
     expect(pageTitle('/')).toBe('Overview');
     expect(pageTitle('/node/spark2/gpu')).toBe('spark2');
     expect(pageTitle('/benchmarks/compare')).toBe('Benchmarks');
+    expect(documentTitle('/recommendations')).toBe('Recommendations · Sparkline');
     expect(documentTitle('/alerts')).toBe('Alerts · Sparkline');
     expect(documentTitle('/node/spark2/gpu')).toBe('GPU · spark2 · Sparkline'); // each tab its own title
     expect(documentTitle('/node/spark2/thermals')).toBe('Thermals & Power · spark2 · Sparkline');

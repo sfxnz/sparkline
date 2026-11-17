@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal, Self, get_args
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 SCHEMA_VERSION = 1
 
@@ -246,6 +246,60 @@ class ProcSample(BaseModel):
     model: str | None = None  # detected model name, e.g. "DeepSeek-V4.1-Flash-EXL3"
 
 
+ServerState = Literal["ready", "loading", "sleeping", "down"]
+
+# The fields an agent writes into ModelServerSample.values and .reports. The wire keys stay `str`, so a
+# field a newer agent adds still gets history on an older console.
+LlmField = Literal[
+    "up",  # 1 while the server answers (ready or sleeping), else 0; always in `values`
+    "running",  # requests in prefill or decode
+    "waiting",  # requests queued
+    "kv_cache_pct",  # 0..100, the fullest pool when the server reports several
+    "gen_tps",  # generated tokens/s over the last ~10 s
+    "prompt_tps",  # prompt tokens/s over the last ~10 s
+    "preempt_per_s",
+    "ttft_p50_s",  # over requests whose first token came in the last ~60 s
+    "ttft_p95_s",
+    "mem_bytes",  # memory the server holds: its own gauge, else its process's GPU memory (mem_source)
+]
+LLM_FIELDS: tuple[str, ...] = get_args(LlmField)
+
+
+class LoadedModel(BaseModel):
+    name: str  # as clients address it
+    context_len: int | None = None  # tokens
+    size_bytes: int | None = None
+    vram_bytes: int | None = None
+    expires_ts: float | None = None  # when the server unloads it if idle
+
+
+class ModelServerSample(BaseModel):
+    port: int  # the series key: llm.<port>.<field>
+    adapter: str  # how the agent reads it: "prometheus"
+    software: str | None = None  # "vLLM", "llama.cpp", or the name the server gives itself
+    version: str | None = None
+    prefix: str | None = None  # metric namespace in its exposition: "vllm:", "trtllm_", "" for bare names
+    state: ServerState = "ready"
+    models: list[LoadedModel] = Field(default_factory=list)
+    # Three states per field. In `values`: a reading. In `reports` only: the server has the series and
+    # nothing to say now (no request in the window, first poll after a restart). In neither: not reported
+    # by this server. A missing reading is never 0.
+    values: dict[str, float] = Field(default_factory=dict)
+    reports: list[str] = Field(default_factory=list)
+    mem_source: str | None = None  # whose figure mem_bytes is: "server" (its own gauge) or "process"
+    pid: int | None = None
+    container: str | None = None
+    started_ts: float | None = None  # process start, as the server reports it
+    scraped_ts: float | None = None  # last poll the server answered
+    problem: str | None = None  # why readings are missing, phrased as the fix
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _unknown_state_reads_as_ready(cls, v: object) -> object:
+        # A newer agent may send a state this console predates; rejecting it would drop the whole sample.
+        return v if v in get_args(ServerState) else "ready"
+
+
 class Sample(BaseModel):
     node_id: str
     ts: float
@@ -263,6 +317,8 @@ class Sample(BaseModel):
     cpu_temp_c: float | None = None
     procs: list[ProcSample] | None = None  # only on ticks where processes were refreshed
     procs_ts: float | None = None  # when the process list was last refreshed (on every tick)
+    # Model servers listening on the node. None: the agent predates them, or looks for none. []: none found.
+    llm: list[ModelServerSample] | None = None
     errors: dict[str, str] = Field(default_factory=dict)  # collector name -> error; others still report
 
 
@@ -353,6 +409,48 @@ class Event(BaseModel):
     value: float | None = None
     resolved_ts: float | None = None
     acked: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+ChannelKind = Literal["ntfy", "discord", "slack", "webhook"]
+
+# A closed vocabulary: a delivery's failure is one of these words, never exception text, a URL or a
+# response body.
+NotifyFailure = Literal[
+    "dns",  # the host did not resolve
+    "address_refused",  # resolved to an address the scheme may not reach (http:// to a public address)
+    "connect",  # refused, unreachable, reset
+    "tls",  # the certificate did not verify for the configured host
+    "timeout",
+    "redirect",  # 3xx, never followed
+    "rate_limited",  # 429
+    "rejected",  # any other 4xx: a bad token, a deleted webhook
+    "server_error",  # 5xx
+]
+
+
+class NotifyDelivery(BaseModel):
+    ts: float
+    ok: bool
+    test: bool  # made by "Send test"
+    notices: int  # alerts and recoveries in the message (0 for a test)
+    failure: NotifyFailure | None = None
+    http_status: int | None = None
+    problem: Problem | None = None
+
+
+class NotifyChannelStatus(BaseModel):
+    name: str
+    kind: ChannelKind
+    host: str  # host and port only, never the path or the token
+    min_severity: Severity
+    send_resolved: bool
+    pending: int  # notices waiting to be sent
+    retry_at: float | None = None  # when waiting notices are next tried, while backing off or rate limited
+    last: NotifyDelivery | None = None  # None until the first delivery since the console started
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +589,90 @@ class NodeBenchState(BaseModel):
 
 
 BenchRun.model_rebuild()
+
+
+# ---------------------------------------------------------------------------
+# Recommendations (agent: GET /api/v1/recommendations for its node; console: the same path for every node)
+# ---------------------------------------------------------------------------
+
+RecGoal = Literal["cooler", "quieter", "roomier", "faster"]
+RecState = Literal["applied", "not-applied", "not-applicable", "unknown"]
+
+
+class RecSource(BaseModel):
+    title: str
+    url: str
+
+
+class RecMetric(BaseModel):
+    label: str
+    before: float
+    after: float
+    unit: str
+
+
+class RecMeasurement(BaseModel):
+    date: str
+    machine: str
+    method: str
+    results: list[RecMetric]
+    doc: str  # the evidence file, docs/recommendations/<id>.md
+
+
+class Recommendation(BaseModel):
+    """One community-recommended setting. Static: it ships in the release (common/recommendations.py)."""
+
+    id: str  # kebab-case; also the key of its root action (tune.TUNES) and of its probe
+    title: str
+    summary: str
+    goal: RecGoal
+    benefit: str
+    cost: str
+    sources: list[RecSource]
+    measurement: RecMeasurement | None  # None: a community claim that Sparkline has not measured
+    apply: list[str]  # the exact commands a person would type, shown to the reader
+    undo: list[str]
+    one_click: bool  # False: a firmware change or a reboot, and `apply` are the manual steps
+    persists: Literal["until-reboot", "persistent"]
+    takes_effect: Literal["now", "next-boot"]  # next-boot: nothing changes until the node is restarted
+    risks: list[str]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def verified(self) -> bool:
+        return self.measurement is not None
+
+
+class TuneResult(BaseModel):
+    """What the root helper did last for one recommendation on one node."""
+
+    action: str  # "apply", "undo" or "reapply" (at boot)
+    ts: float
+    ok: bool
+    message: str
+
+
+class NodeRecState(BaseModel):
+    """One node, one recommendation, as that node's agent reads it."""
+
+    id: str
+    state: RecState
+    detail: str  # what the check read, e.g. "Capped at 2200 MHz by nvidia-lock-clocks.service"
+    managed: bool  # applied by Sparkline's helper, so Undo works. False: applied by other means
+    last: TuneResult | None = None
+
+
+class NodeRecommendations(BaseModel):
+    one_click: Problem | None  # None: this node accepts clicks. Else why not, with the fix
+    items: list[NodeRecState]
+
+
+class RecommendationsView(BaseModel):
+    """Console -> browser: GET /api/v1/recommendations."""
+
+    catalog: list[Recommendation]
+    nodes: dict[str, NodeRecommendations | None]  # None: the node is unreachable or its agent is too old
+    problems: dict[str, Problem]  # why, for each node that is None
 
 
 # ---------------------------------------------------------------------------

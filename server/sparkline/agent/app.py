@@ -20,15 +20,18 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, WebSo
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from ..common.recommendations import BY_ID
 from ..common.schema import (
     BenchSpec,
     BenchStartRequest,
     HistoryResponse,
     NodeBenchState,
     NodeInfo,
+    NodeRecommendations,
     Problem,
     Sample,
 )
+from . import recommend
 from .bench.runner import BenchRunner, Rejected
 from .sampler import Sampler
 
@@ -89,6 +92,7 @@ def create_app(
     bench: BenchRunner | None = None,
     close: Callable[[], None] = lambda: None,
     update_root: Path | None = None,
+    machine: recommend.Host | None = None,
 ) -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -208,6 +212,72 @@ def create_app(
         except OSError as e:
             return problem(500, Problem(message="Cannot write the update request", cause=str(e), fix=""))
         return {"ok": True}
+
+    if machine is not None:
+
+        @app.get("/api/v1/recommendations", dependencies=[Depends(auth)])
+        async def recommendations() -> NodeRecommendations:
+            return await asyncio.to_thread(recommend.node_recommendations, machine, sampler.node_id)
+
+        async def request_tune(rec_id: str, verb: str) -> dict | JSONResponse:
+            """Ask this node's root helper to apply or undo one setting. The request is an empty file whose
+            name is a catalog id and the verb: nothing the caller sent goes into it."""
+            rec = BY_ID.get(rec_id)
+            if rec is None:
+                raise HTTPException(404, f"No recommendation {rec_id!r}")
+            if not rec.one_click:
+                return problem(
+                    409,
+                    Problem(
+                        message=f"{rec.title} is not a one-click setting",
+                        cause="It takes steps that Sparkline does not run: a firmware change or a reboot",
+                        fix=f"Type the commands shown for it on {sampler.node_id}",
+                    ),
+                )
+            requests = recommend.request_dir(machine.root)
+            if requests is None:
+                return problem(501, recommend.no_helper(sampler.node_id))
+            if bench is not None and bench.current is not None:
+                cur = bench.current.state
+                return problem(
+                    409,
+                    Problem(
+                        message=f"A benchmark is running on {sampler.node_id}",
+                        cause=f"{cur.bench_id} (run {cur.run_id}) is {cur.status}",
+                        fix="Change the setting when it finishes, or cancel it",
+                    ),
+                )
+            # The page offers Apply and Undo only where they fit. The node holds every caller to the same.
+            if verb == "apply":
+                state, detail = await asyncio.to_thread(recommend.read, machine, rec.id)
+                refusal = recommend.cannot_apply(rec, sampler.node_id, state, detail)
+            else:
+                refusal = None if machine.recorded(rec.id) else recommend.cannot_undo(rec, sampler.node_id)
+            if refusal is not None:
+                return problem(409, refusal)
+            try:
+                await asyncio.to_thread((requests / f"{rec.id}.{verb}").touch, 0o600)
+            except OSError as e:
+                return problem(500, Problem(message="Cannot write the request", cause=str(e), fix=""))
+            return {"ok": True}
+
+        @app.post(
+            "/api/v1/recommendations/{rec_id}/apply",
+            dependencies=[Depends(auth)],
+            status_code=202,
+            response_model=None,
+        )
+        async def apply_recommendation(rec_id: str) -> dict | JSONResponse:
+            return await request_tune(rec_id, "apply")
+
+        @app.post(
+            "/api/v1/recommendations/{rec_id}/undo",
+            dependencies=[Depends(auth)],
+            status_code=202,
+            response_model=None,
+        )
+        async def undo_recommendation(rec_id: str) -> dict | JSONResponse:
+            return await request_tune(rec_id, "undo")
 
     if bench is not None:
 

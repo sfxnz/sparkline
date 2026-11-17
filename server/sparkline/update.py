@@ -30,6 +30,7 @@ from .console.config import load_config as load_console_config
 RELEASES_API = "https://api.github.com/repos/sfxnz/sparkline/releases"
 UNIT_DIR = Path("etc/systemd/system")
 BENCHMARKS_DROPIN = UNIT_DIR / "sparkline-agent.service.d/10-benchmarks.conf"
+TUNE_PATH_UNIT = UNIT_DIR / "sparkline-tune.path"
 CONSOLE_CONFIG = Path("etc/sparkline/console.toml")
 NODE_TIMEOUT_S = 600.0  # a node downloads the release and rebuilds its venv, then restarts its agent
 POLL_S = 2.0
@@ -61,6 +62,7 @@ class Component:
     prefix: Path
     version: Version | None  # None: no sparkline dist-info in the prefix's venv
     benchmarks: bool = False
+    tune: bool = False  # the root helper for one-click settings (install.sh agent --enable-tune)
 
 
 @dataclass(frozen=True)
@@ -114,7 +116,8 @@ def show(version: Version | None) -> str:
 
 
 def describe(c: Component) -> str:
-    return f"{c.mode} {show(c.version)} in {c.prefix}" + (", benchmarks on" if c.benchmarks else "")
+    extras = (", benchmarks on" if c.benchmarks else "") + (", one-click settings on" if c.tune else "")
+    return f"{c.mode} {show(c.version)} in {c.prefix}{extras}"
 
 
 def detect(root: Path) -> list[Component]:
@@ -129,7 +132,8 @@ def detect(root: Path) -> list[Component]:
             raise UpdateError(f"{path} has no ExecStart=<prefix>/venv/bin/...: install.sh did not write it")
         prefix = Path(m[1])
         bench = mode == "agent" and (root / BENCHMARKS_DROPIN).is_file()
-        found.append(Component(mode, prefix, installed_version(root / prefix.relative_to("/")), bench))
+        tune = mode == "agent" and (root / TUNE_PATH_UNIT).is_file()
+        found.append(Component(mode, prefix, installed_version(root / prefix.relative_to("/")), bench, tune))
     return found
 
 
@@ -190,6 +194,8 @@ def plan(
         args = [c.mode, "--yes", "--prefix", str(c.prefix)]
         if c.benchmarks:  # without it, install.sh agent removes the benchmarks drop-in
             args.append("--enable-benchmarks")
+        if c.tune:  # without it, install.sh agent undoes the applied settings and removes the root helper
+            args.append("--enable-tune")
         if root != Path("/"):
             args += ["--destdir", str(root)]
         if dry_run:

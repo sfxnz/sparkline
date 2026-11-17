@@ -57,6 +57,10 @@ def main(argv: list[str] | None = None) -> None:
         from ..update import main as update
 
         sys.exit(update(argv[1:]))
+    if argv[:1] == ["tune"]:  # the root helper behind one-click recommendations, run by systemd
+        from ..tune import main as tune
+
+        sys.exit(tune(argv[1:]))
     p = argparse.ArgumentParser(
         prog="sparkline",
         description="Sparkline aggregator and web API",
@@ -115,6 +119,8 @@ def main(argv: list[str] | None = None) -> None:
             )
         if len(cfg.token) < 16 or len(cfg.agent_token) < 16:
             fail("token and agent_token must be at least 16 characters (install.sh generates them)")
+        if cfg.metrics_token and len(cfg.metrics_token) < 16:
+            fail("metrics_token must be at least 16 characters")
         if not cfg.nodes:
             fail("no [[nodes]] configured (or run with --demo)")
     if args.demo_speed <= 0:
