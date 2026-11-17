@@ -233,23 +233,34 @@ def _total(repo: RepoId, sizes: dict[str, int], names: set[str]) -> int | Proble
     )
 
 
+def _listed(names: list[str]) -> str:
+    return f"{', '.join(names[:3])}{f' and {len(names) - 3} more' if len(names) > 3 else ''}"
+
+
 def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
     """The size of the weights a server loads from a repo with no index: its ``model.safetensors``.
 
-    Other safetensors files beside it are copies (``consolidated.safetensors``, an fp32 variant) or parts
-    of something else, and no file says which, so they are not counted.
+    With no index, servers differ on other safetensors files at the top level: one loads only
+    ``model.safetensors``, another loads every one of them. So a repo that holds any is refused. Files in
+    subfolders are read by neither, so they are not counted.
     """
-    if WEIGHTS_FILE in sizes:
-        return _total(repo, sizes, {WEIGHTS_FILE})
-    others = _safetensors(sizes)
-    return _problem(
-        f"{repo} has no {WEIGHTS_FILE} and no {INDEX_FILE} at its top level",
-        f"It holds other .safetensors files ({', '.join(others[:3])}"
-        f"{f' and {len(others) - 3} more' if len(others) > 3 else ''}), and without an index the lookup "
-        "cannot tell which of them a server loads"
-        if others
-        else "It holds no .safetensors files. GGUF, PyTorch .bin and other formats are not read",
-    )
+    others = [name for name in _safetensors(sizes) if name != WEIGHTS_FILE]
+    if WEIGHTS_FILE not in sizes:
+        return _problem(
+            f"{repo} has no {WEIGHTS_FILE} and no {INDEX_FILE} at its top level",
+            f"It holds other .safetensors files ({_listed(others)}), and without an index the lookup "
+            "cannot tell which of them a server loads"
+            if others
+            else "It holds no .safetensors files. GGUF, PyTorch .bin and other formats are not read",
+        )
+    beside = [name for name in others if "/" not in name]
+    if beside:
+        return _problem(
+            f"{repo} holds other safetensors files beside its {WEIGHTS_FILE}, and no index",
+            f"Without an index some servers load only {WEIGHTS_FILE} and some load every .safetensors file "
+            f"at the top level ({_listed(beside)})",
+        )
+    return _total(repo, sizes, {WEIGHTS_FILE})
 
 
 def indexed_weights(repo: RepoId, sizes: dict[str, int], index: object) -> int | Problem:
