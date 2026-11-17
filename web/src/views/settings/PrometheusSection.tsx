@@ -3,7 +3,7 @@ import { Panel } from '../../design/components/Panel';
 import { useHashTarget } from '../../design/useHashTarget';
 import { SettingRow } from './parts';
 
-export const PROMETHEUS_DOCS = 'https://github.com/sfxnz/sparkline#prometheus';
+const PROMETHEUS_DOCS = 'https://github.com/sfxnz/sparkline#prometheus';
 
 export function scrapeConfig(host: string, https: boolean): string {
   return [

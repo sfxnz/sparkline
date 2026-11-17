@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 /** Write `text` to the clipboard; the console is often served over plain http on the LAN, where the async clipboard
  * API is missing, so fall back to a hidden textarea and execCommand. */
-export async function copyText(text: string): Promise<boolean> {
+async function copyText(text: string): Promise<boolean> {
   try {
     if (window.isSecureContext && 'clipboard' in navigator) {
       await navigator.clipboard.writeText(text);
@@ -28,7 +28,7 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export type Copied = { key: string; ok: boolean } | null;
+type Copied = { key: string; ok: boolean } | null;
 
 /** Which copy just happened (for its button's "Copied" and the status line), cleared after a moment. */
 export function useCopy() {

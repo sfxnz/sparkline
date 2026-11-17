@@ -13,12 +13,10 @@ import { isApple } from '../../lib/shortcuts';
 import { useCluster } from '../../store/cluster';
 import { finishGuide, markGuideItem, reopenGuide, setGuideOpen, wantGuide } from '../../store/guide';
 import { useUi } from '../../store/ui';
+import { countWord } from '../overview/model';
 import type { Guide as GuideData, GuideRow } from './items';
 import { useGuide } from './useGuide';
 import './guide.css';
-
-const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
-const countWord = (n: number) => COUNT[n] ?? String(n);
 
 export function GuideRing({ done, total, size = 22, stroke = 3.5 }: { done: number; total: number; size?: number; stroke?: number }) {
   const r = (size - stroke) / 2;
@@ -69,7 +67,8 @@ function Tile({ row }: { row: GuideRow }) {
 
 function lead(guide: GuideData, stuck: string | undefined): string {
   if (stuck) return `It starts with ${stuck}. The rest opens the real pages, in any order.`;
-  return `${countWord(guide.total)} things Sparkline does. Each one opens the real page, in any order.`;
+  const count = countWord(guide.total);
+  return `${count.charAt(0).toUpperCase()}${count.slice(1)} things Sparkline does. Each one opens the real page, in any order.`;
 }
 
 export function Guide() {

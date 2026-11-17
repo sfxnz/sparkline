@@ -139,8 +139,8 @@ export function clusterHealth(nodes: readonly NodeHealthInput[], alerts: AlertCo
 
 const stuck = (n: NodeHealthInput) => needsSetup({ first_seen: n.isNew ? null : 0, status: n.status ?? 'connecting' });
 
-const COUNT_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
-const countWord = (n: number) => COUNT_WORDS[n] ?? String(n);
+const COUNT_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+export const countWord = (n: number) => COUNT_WORDS[n] ?? String(n);
 
 /**
  * The health sentence on a first visit: the welcome, and where the nodes stand. Null when it does not apply: the

@@ -5,6 +5,7 @@ import { Button, IconButton } from '../design/components/Button';
 import { CommandLine } from '../design/components/CommandLine';
 import { InlineCode } from '../design/components/InlineCode';
 import { ApiError, api, problemOf } from '../lib/api';
+import { sentence } from '../lib/gpu';
 import { hasSignInToken, onSignInLink, takeSignInToken } from '../lib/signInLink';
 import { useConnection } from '../store/connection';
 import { retryConnection, useAuthInfo } from '../store/session';
@@ -12,8 +13,6 @@ import { ConnectionIndicator } from './ConnectionIndicator';
 import './Login.css';
 
 type LoginError = { title: string; detail: string } | null;
-
-const sentence = (s: string) => (/[.!?…]$/.test(s) ? s : `${s}.`);
 
 export function loginErrorCopy(e: unknown): NonNullable<LoginError> {
   if (e instanceof ApiError && (e.kind === 'unauthorized' || e.status === 403)) {

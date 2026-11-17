@@ -25,7 +25,7 @@ export function fixCommands(fix: string | null | undefined): string[] {
   return [...new Set([...(fix ?? '').matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter((c): c is string => !!c && /\S\s+\S/.test(c)))];
 }
 
-export interface FixStep {
+interface FixStep {
   /** One sentence of the fix, with its `backtick` spans. */
   text: string;
   commands: string[];
@@ -40,7 +40,7 @@ export function fixSteps(fix: string | null | undefined): FixStep[] {
 
 /** How far the console's request got. `no-answer`: nothing answered at the address (refused, timed out, no route).
  *  `turned-away`: an agent answered and said no (wrong token, another protocol version). */
-export type Reach = 'no-answer' | 'turned-away';
+type Reach = 'no-answer' | 'turned-away';
 export const reachOf = (status: NodeState['status']): Reach => (status === 'error' ? 'turned-away' : 'no-answer');
 
 /** The console's next automatic attempt. `secs` whole seconds left (0: trying now); `left` is the share of the wait

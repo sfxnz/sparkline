@@ -10,6 +10,7 @@ import { Bell, ChartLine, Gauge, Layers, Server, type LucideIcon } from 'lucide-
 import { paths } from '../../app/routes';
 import { isNewNode, needsSetup } from '../../lib/onboarding';
 import type { NodeState } from '../../lib/types';
+import { listNodes } from '../overview/model';
 
 /** What the rows are derived from. Every field is something the console or a node reported: nothing here is stored
  *  by the guide except `seen` (Onboarding.seen on the console). */
@@ -52,9 +53,6 @@ export interface GuideItem {
   tag?: (ctx: GuideContext) => string | null;
 }
 
-const names = (ids: readonly string[]) => (ids.length <= 1 ? (ids[0] ?? '') : `${ids.slice(0, -1).join(', ')} and ${ids.at(-1) ?? ''}`);
-const plural = (n: number, one: string, many = `${one}s`) => `${String(n)} ${n === 1 ? one : many}`;
-
 export const GUIDE_ITEMS: readonly GuideItem[] = [
   {
     id: 'connect-nodes',
@@ -71,8 +69,8 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
       const waiting = nodes.filter(isNewNode).map((n) => n.node_id);
       if (!waiting.length) return nodes.length === 1 ? `${nodes[0]?.node_id ?? 'Your node'} is live. More nodes go in \`console.toml\`.` : `All ${String(nodes.length)} nodes are live.`;
       const stuck = nodes.filter(needsSetup).map((n) => n.node_id);
-      if (!stuck.length) return `Waiting for the first reading from ${names(waiting)}.`;
-      return `Waiting for ${names(stuck)}. ${stuck.length === 1 ? 'Its card says' : 'Their cards say'} what to do.`;
+      if (!stuck.length) return `Waiting for the first reading from ${listNodes(waiting)}.`;
+      return `Waiting for ${listNodes(stuck)}. ${stuck.length === 1 ? 'Its card says' : 'Their cards say'} what to do.`;
     },
     // The node that needs something. Once every node has answered there is none, and the nodes are on the page the
     // guide is on.
@@ -87,7 +85,7 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
     title: 'Alerts on your phone',
     icon: Bell,
     done: ({ notifyChannels }) => (notifyChannels ?? 0) > 0,
-    tag: ({ notifyChannels }) => (notifyChannels ? plural(notifyChannels, 'channel') : null),
+    tag: ({ notifyChannels }) => (notifyChannels ? `${String(notifyChannels)} ${notifyChannels === 1 ? 'channel' : 'channels'}` : null),
     blurb: 'ntfy, Discord, Slack or a webhook when a node overheats or drops off.',
     to: () => `${paths.alerts}#notifications`,
   },
@@ -147,7 +145,7 @@ export function guideRow(item: GuideItem, ctx: GuideContext): GuideRow {
   };
 }
 
-export interface GuideSection {
+interface GuideSection {
   id: GuideGroup;
   label: string;
   rows: GuideRow[];
