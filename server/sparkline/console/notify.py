@@ -18,7 +18,7 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
@@ -521,7 +521,7 @@ class Notifier:
             self._workers[c.name] = _Worker(c, endpoint.display_host, egress(endpoint), clock)
         # The severity of each alert seen firing: a recovery Event does not carry it.
         self._firing: dict[AlertKey, Severity] = {}
-        self._tasks: list[asyncio.Task[None]] = []
+        self._tasks: dict[str, asyncio.Task[None]] = {}
         self._stopped = False
 
     def publish(self, ev: Event) -> None:
@@ -545,9 +545,9 @@ class Notifier:
 
     def start(self) -> None:
         if not self._tasks and not self._stopped:
-            self._tasks = [
-                asyncio.create_task(w.run(), name=f"notify:{name}") for name, w in self._workers.items()
-            ]
+            self._tasks = {
+                name: asyncio.create_task(w.run(), name=f"notify:{name}") for name, w in self._workers.items()
+            }
 
     async def stop(self, grace_s: float = STOP_GRACE_S) -> None:
         """Each channel makes at most one more attempt (none while rate limited), all within ``grace_s``.
@@ -560,10 +560,10 @@ class Notifier:
             w.closing = True
             w.wake.set()
         if self._tasks:
-            _, late = await asyncio.wait(self._tasks, timeout=grace_s)
+            _, late = await asyncio.wait(self._tasks.values(), timeout=grace_s)
             for t in late:
                 t.cancel()
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+            await asyncio.gather(*self._tasks.values(), return_exceptions=True)
         for name, w in self._workers.items():
             for waiting in w.tests:
                 if not waiting.done():
@@ -577,12 +577,17 @@ class Notifier:
 
     async def test(self, name: str) -> NotifyChannelStatus:
         """Send a test on the channel now and return its row, with the outcome in ``last``. A failed delivery
-        is an outcome, not an error. KeyError for an unknown name, NotifierStopped when not running."""
+        is an outcome, not an error. KeyError for an unknown name, NotifierStopped when not running or when
+        the channel's worker has ended."""
         w = self._workers[name]
         if self._stopped or not self._tasks:
             raise NotifierStopped
         done: asyncio.Future[NotifyDelivery] = asyncio.get_running_loop().create_future()
         w.tests.append(done)
         w.wake.set()
-        delivery = await done
-        return w.status().model_copy(update={"last": delivery})
+        either: list[asyncio.Future[Any]] = [done, self._tasks[name]]
+        await asyncio.wait(either, return_when=asyncio.FIRST_COMPLETED)
+        if not done.done():  # the worker ended, so nothing will answer
+            done.cancel()
+            raise NotifierStopped
+        return w.status().model_copy(update={"last": done.result()})

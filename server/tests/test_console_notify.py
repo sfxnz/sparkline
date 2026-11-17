@@ -484,6 +484,18 @@ async def test_a_test_of_an_unknown_channel_or_a_stopped_notifier_raises(rig):
         await Notifier([channel()], egress=lambda endpoint: ScriptedEgress([])).test("ops")
 
 
+async def test_a_test_on_a_channel_whose_worker_ended_raises_and_does_not_wait(rig):
+    r = await rig(channel(), ops=[asyncio.Event()])
+    waiting = asyncio.ensure_future(r.notifier.test("ops"))
+    await settle()
+    (worker,) = (t for t in asyncio.all_tasks() if t.get_name() == "notify:ops")
+    worker.cancel()
+    with pytest.raises(NotifierStopped):
+        await asyncio.wait_for(waiting, 1)
+    with pytest.raises(NotifierStopped):
+        await asyncio.wait_for(r.notifier.test("ops"), 1)
+
+
 # -- shutdown -----------------------------------------------------------------------------------------
 
 
