@@ -1,0 +1,47 @@
+// "Will it fit?" against the demo console: the estimate and the per-node budgets are the console's own. Only the
+// Hugging Face lookup is stubbed, so the test never leaves this machine.
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test } from '@playwright/test';
+
+const QWEN = { repo: 'Qwen/Qwen3-8B', params_by_dtype: { BF16: 8_190_735_360 }, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+
+test('a looked-up model gets an estimate and a verdict for every node', async ({ page }) => {
+  await page.route('**/api/v1/fit/lookup?*', (route) => route.fulfill({ json: QWEN }));
+  await page.goto('/');
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Will it fit?' }).click();
+  await expect(page).toHaveTitle('Will it fit? · Sparkline');
+  await page.getByRole('textbox', { name: 'Hugging Face repo' }).fill('Qwen/Qwen3-8B');
+  await page.getByRole('button', { name: 'Look up' }).click();
+  await expect(page.getByRole('textbox', { name: 'Parameters' })).toHaveValue('8190735360');
+  await page.getByRole('button', { name: 'Estimate' }).click();
+
+  const result = page.getByRole('region', { name: 'Result' });
+  await expect(result).toContainText('Qwen/Qwen3-8B at 32,768 tokens');
+  await expect(result).toContainText('15.3 GiB');
+  await expect(result).toContainText('144.0 KiB per token');
+  await expect(result).toContainText('21.7 GiB to 23.7 GiB');
+  for (const node of ['spark1', 'spark2', 'spark3']) {
+    await expect(result.getByRole('row', { name: new RegExp(`^${node}\\b`) })).toContainText(/Fits|Tight|Does not fit|Unknown/);
+  }
+  await expect(result).toContainText('not a hard cap');
+  const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
+  expect(axe.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+});
+
+test('facts typed by hand need no lookup, and a refused lookup says what to do', async ({ page }) => {
+  await page.route('**/api/v1/fit/lookup?*', (route) =>
+    route.fulfill({ status: 502, json: { problem: { message: 'Could not reach huggingface.co from the console host', cause: 'ConnectError', fix: "Check the console host's internet access, or enter the model facts by hand" } } }),
+  );
+  await page.goto('/fit');
+  await page.getByRole('textbox', { name: 'Hugging Face repo' }).fill('Qwen/Qwen3-8B');
+  await page.getByRole('button', { name: 'Look up' }).click();
+  await expect(page.getByRole('alert')).toContainText('enter the model facts by hand');
+
+  await page.getByRole('textbox', { name: 'Parameters' }).fill('8.19B');
+  await page.getByRole('textbox', { name: 'Layers' }).fill('36');
+  await page.getByRole('textbox', { name: 'KV heads' }).fill('8');
+  await page.getByRole('textbox', { name: 'Head size' }).fill('128');
+  await page.getByRole('button', { name: 'Estimate' }).click();
+  await expect(page.getByRole('region', { name: 'Result' })).toContainText('This model at 32,768 tokens');
+  await expect(page.getByRole('region', { name: 'Result' }).getByRole('row', { name: /^spark1\b/ })).toBeVisible();
+});

@@ -493,3 +493,51 @@ export type WsMessage =
   | BenchMessage
   | SettingsMessage
   | PingMessage;
+
+// --- Will it fit (server/sparkline/console/fit.py) --------------------------------------------
+
+export type KvDtype = 'fp16' | 'bf16' | 'fp8';
+
+export interface ModelFacts {
+  /** Set when the facts came from a Hugging Face lookup. */
+  repo: string | null;
+  /** safetensors dtype name -> parameter count. */
+  params_by_dtype: Record<string, number>;
+  num_layers: number;
+  num_kv_heads: number;
+  head_dim: number;
+  max_context: number | null;
+}
+
+export interface FitEstimate {
+  weights_bytes: number;
+  kv_bytes_per_token: number;
+  kv_bytes: number;
+  /** Weights + KV cache + 10 % and + 20 % for activations: the estimate is a range. */
+  total_low: number;
+  total_high: number;
+}
+
+export type NodeBudget =
+  | { kind: 'unified'; bytes: number; available: number; headroom: number; gpu_vendor: string | null }
+  | { kind: 'gpu'; bytes: number; gpu_index: number; gpu_name: string }
+  | { kind: 'unknown'; reason: string };
+
+export type FitVerdict = 'fits' | 'tight' | 'no' | 'unknown';
+
+export interface NodeFit {
+  node_id: string;
+  budget: NodeBudget;
+  verdict: FitVerdict;
+}
+
+export interface FitRequest {
+  facts: ModelFacts;
+  context_tokens: number;
+  kv_dtype: KvDtype;
+}
+
+export interface FitResponse {
+  estimate: FitEstimate;
+  nodes: NodeFit[];
+}

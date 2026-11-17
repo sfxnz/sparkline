@@ -19,6 +19,7 @@ export const paths = {
   node: (id: string, tab?: NodeTab) => `/node/${encodeURIComponent(id)}${tab && tab !== 'summary' ? `/${tab}` : ''}`,
   alerts: '/alerts',
   benchmarks: '/benchmarks',
+  fit: '/fit',
   settings: '/settings',
   wall: '/wall',
   login: '/login',
@@ -28,6 +29,7 @@ export const paths = {
  *  lean: overview, node shell and the stream plumbing). */
 export const Benchmarks = lazy(() => import('../views/Benchmarks'));
 export const Alerts = lazy(() => import('../views/Alerts'));
+export const Fit = lazy(() => import('../views/Fit'));
 export const Settings = lazy(() => import('../views/Settings'));
 export const Wall = lazy(() => import('../views/Wall'));
 export const Login = lazy(() => import('./Login').then((m) => ({ default: m.Login })));
@@ -39,6 +41,7 @@ export function pageTitle(location: string): string {
   if (node?.[1]) return decodeURIComponent(node[1]);
   if (location.startsWith('/alerts')) return 'Alerts';
   if (location.startsWith('/benchmarks')) return 'Benchmarks';
+  if (location.startsWith('/fit')) return 'Will it fit?';
   if (location.startsWith('/settings')) return 'Settings';
   return 'Sparkline';
 }

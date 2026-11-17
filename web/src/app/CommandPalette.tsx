@@ -1,4 +1,4 @@
-import { Activity, Bell, Blend, CornerDownLeft, Gauge, Keyboard, LayoutGrid, Monitor, PanelLeft, Search, Server, Settings, SunMoon, type LucideIcon } from 'lucide-react';
+import { Activity, Bell, Blend, CornerDownLeft, Gauge, Keyboard, LayoutGrid, Monitor, PanelLeft, Scale, Search, Server, Settings, SunMoon, type LucideIcon } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useLocation } from 'wouter';
 import { Dialog } from '../design/components/Dialog';
@@ -82,6 +82,7 @@ function useCommands(close: () => void, query: string): Command[] {
       { id: 'go-overview', group: 'Go to', label: 'Overview', icon: LayoutGrid, hint: 'G O', run: go(paths.overview) },
       { id: 'go-alerts', group: 'Go to', label: 'Alerts', keywords: 'events timeline rules', icon: Bell, hint: 'G A', run: go(paths.alerts) },
       { id: 'go-benchmarks', group: 'Go to', label: 'Benchmarks', keywords: 'bench runs results', icon: Gauge, hint: 'G B', run: go(paths.benchmarks) },
+      { id: 'go-fit', group: 'Go to', label: 'Will it fit?', keywords: 'model memory estimate context hugging face', icon: Scale, run: go(paths.fit) },
       { id: 'go-settings', group: 'Go to', label: 'Settings', keywords: 'preferences energy rate', icon: Settings, hint: 'G S', run: go(paths.settings) },
     ];
     order.forEach((id, i) => {
