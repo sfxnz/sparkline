@@ -6,6 +6,7 @@ import typing
 from pathlib import Path
 
 from sparkline.common.schema import (
+    LLM_FIELDS,
     MemoryModel,
     ModelServerSample,
     NodeInfo,
@@ -120,3 +121,10 @@ def test_web_types_list_the_same_server_states():
     m = re.search(r"SERVER_STATES = \[([^\]]*)\] as const", WEB_TYPES.read_text())
     assert m, f"SERVER_STATES not found in {WEB_TYPES}"
     assert re.findall(r"'([^']+)'", m.group(1)) == list(typing.get_args(ServerState))
+
+
+def test_the_web_panel_reads_every_field_the_agent_can_send():
+    web = WEB_TYPES.with_name("llm.ts")
+    m = re.search(r"LLM_FIELDS = \[([^\]]*)\] as const", web.read_text())
+    assert m, f"LLM_FIELDS not found in {web}"
+    assert sorted(re.findall(r"'([^']+)'", m.group(1))) == sorted(set(LLM_FIELDS) - {"up"})
