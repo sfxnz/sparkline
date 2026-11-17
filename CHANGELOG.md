@@ -27,10 +27,11 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   The node's first reading arrives on the card in place.
 - **Getting started.** The overview of a new install carries a short guide: connect your nodes, get told
   when something breaks, model servers, Prometheus and benchmarks. Each row opens the real page and shows
-  what the cluster already has. Once you open a row the guide becomes one line, and **Dismiss** puts it away
-  for every browser, because the console remembers it and not the browser. It ends by itself when every row is
-  done. **Settings > About** and "Open getting started" in Search bring it back. An install that
-  existed before this release never sees it.
+  what the cluster already has. A row is ticked once you have opened it, or when the cluster already has
+  the thing. "Connect your nodes" is ticked when every node has answered. Once you open a row the guide
+  becomes one line, and **Dismiss** puts it away for every browser, because the console remembers it and not
+  the browser. It ends by itself when every row is done. **Settings > About** and "Open getting started" in
+  Search bring it back. An install that existed before this release never sees it.
 - **Settings > Prometheus** shows the scrape address and a `scrape_configs` job with your console's address
   filled in, each with a copy button.
 - `GET /api/v1/auth/me` has `first_run`, the cluster state has `onboarding` and each node has `first_seen`.

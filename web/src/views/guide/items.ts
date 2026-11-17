@@ -2,6 +2,10 @@
 //
 // To add a feature to the guide, add one object to GUIDE_ITEMS and nothing else: the panel, the one-line strip, the
 // sidebar count and the phone chip all draw from this table. A group with no rows is not drawn.
+//
+// One rule says what is done, for every row: the person has opened it, or the cluster's own state shows it (a
+// channel exists, a server was found, a run exists). So a row never stays unticked after the person has been to its
+// page, and it is ticked on arrival where the cluster already has the thing. The one exception is marked `stateOnly`.
 import { Bell, ChartLine, Gauge, Layers, Server, type LucideIcon } from 'lucide-react';
 import { paths } from '../../app/routes';
 import { isNewNode, needsSetup } from '../../lib/onboarding';
@@ -40,10 +44,13 @@ export interface GuideItem {
   /** One line. A function when the cluster's own state says it better ("vLLM on spark1"). */
   blurb: string | ((ctx: GuideContext) => string);
   icon: LucideIcon;
-  /** A real route. */
-  to: (ctx: GuideContext) => string;
-  /** Done from real state where there is some. Omitted: done once the person has opened the row. */
+  /** A real route. null: there is nothing to open, and the row is drawn as a line, not as a link. */
+  to: (ctx: GuideContext) => string | null;
+  /** What the cluster's own state shows. The row is done when this says so, or once the person has opened it. */
   done?: (ctx: GuideContext) => boolean;
+  /** Done only when `done` says so: the row asks for something to happen (every node answers), and looking at its
+   *  page does not make it so. */
+  stateOnly?: boolean;
   /** A short fact from the cluster, shown beside the title ("1 found"). */
   tag?: (ctx: GuideContext) => string | null;
   /** The release that added the feature. Rows in the `new` group are headed "New in <since>". */
@@ -60,6 +67,7 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
     title: 'Connect your nodes',
     icon: Server,
     since: '0.1.0',
+    stateOnly: true,
     done: ({ nodes }) => nodes.length > 0 && !nodes.some(isNewNode),
     tag: ({ nodes }) => {
       const live = nodes.filter((n) => !isNewNode(n)).length;
@@ -72,9 +80,11 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
       if (!stuck.length) return `Waiting for the first reading from ${names(waiting)}.`;
       return `Waiting for ${names(stuck)}. ${stuck.length === 1 ? 'Its card says' : 'Their cards say'} what to do.`;
     },
+    // The node that needs something. Once every node has answered there is none, and the nodes are on the page the
+    // guide is on.
     to: ({ nodes }) => {
       const first = nodes.find(needsSetup) ?? nodes.find(isNewNode);
-      return first ? paths.node(first.node_id) : paths.overview;
+      return first ? paths.node(first.node_id) : null;
     },
   },
   {
@@ -94,7 +104,7 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
     title: 'Model servers',
     icon: Layers,
     since: '0.2.0',
-    done: ({ servers, seen }) => servers.length > 0 || seen.has('model-servers'),
+    done: ({ servers }) => servers.length > 0,
     tag: ({ servers }) => (servers.length ? `${String(servers.length)} found` : null),
     blurb: ({ servers }) => {
       const [first] = servers;
@@ -133,14 +143,14 @@ export interface GuideRow {
   done: boolean;
   blurb: string;
   tag: string | null;
-  to: string;
+  to: string | null;
 }
 
 /** A row as it is drawn, from the table and the cluster's state. */
 export function guideRow(item: GuideItem, ctx: GuideContext): GuideRow {
   return {
     item,
-    done: item.done ? item.done(ctx) : ctx.seen.has(item.id),
+    done: (item.done?.(ctx) ?? false) || (!item.stateOnly && ctx.seen.has(item.id)),
     blurb: typeof item.blurb === 'function' ? item.blurb(ctx) : item.blurb,
     tag: item.tag?.(ctx) ?? null,
     to: item.to(ctx),

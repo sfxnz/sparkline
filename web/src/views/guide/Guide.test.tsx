@@ -73,9 +73,11 @@ describe('the guide follows the console', () => {
     const p = panel();
     expect(within(p).getByText('Five things Sparkline does. Each one opens the real page, in any order.')).toBeInTheDocument();
     expect(within(p).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Set up', 'Already on', 'Try it']);
-    expect(within(p).getAllByRole('link')).toHaveLength(5);
-    // spark1 has reported, so "Connect your nodes" is already done.
-    expect(within(p).getByRole('link', { name: /Connect your nodes\s*\(done\)/ })).toBeInTheDocument();
+    expect(within(p).getAllByRole('listitem')).toHaveLength(5);
+    // spark1 has reported, so "Connect your nodes" is already done. Its nodes are on this page: it is not a link.
+    expect(within(p).getByText('Connect your nodes').closest('.guide-tile')).toHaveTextContent(/Connect your nodes\s*\(done\)/);
+    expect(within(p).queryByRole('link', { name: /Connect your nodes/ })).toBeNull();
+    expect(within(p).getAllByRole('link')).toHaveLength(4);
     expect(within(p).getByRole('img', { name: '1 of 5 done' })).toBeInTheDocument();
     await waitFor(() => { expect(fetch).toHaveBeenCalledWith('/api/v1/notify/channels', expect.anything()); });
   });
@@ -86,6 +88,14 @@ describe('the guide follows the console', () => {
     expect(s).toHaveAccessibleName('Getting started, 2 of 5 done');
     expect(within(s).getByRole('link', { name: /Next\s*Alerts on your phone/ })).toHaveAttribute('href', '/alerts#notifications');
     expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull();
+  });
+
+  it('ticks a row the person has opened and moves "Next" on, whatever the cluster has', () => {
+    // No channel and no benchmark run on this console: the Alerts and Benchmarks pages were opened, and that counts.
+    show({ ...first, seen: ['notifications', 'benchmarks'] });
+    const s = strip();
+    expect(s).toHaveAccessibleName('Getting started, 3 of 5 done');
+    expect(within(s).getByRole('link', { name: /Next\s*Model servers/ })).toBeInTheDocument();
   });
 
   it('is gone once finished, with no entry in the sidebar and no chip', () => {
@@ -159,6 +169,12 @@ describe('what the person does is kept by the console', () => {
     expect(screen.queryByRole('button', { name: 'Bring it back' })).toBeNull();
   });
 
+  it('finishes itself once every page has been opened, on a console with no channel and no run', async () => {
+    show({ ...first, seen: ['notifications', 'model-servers', 'prometheus', 'benchmarks'] });
+    await waitFor(() => { expect(sent).toEqual([{ finished: true }]); });
+    expect(screen.getByRole('status')).toHaveTextContent('That is all of it. Getting started is put away.');
+  });
+
   it('does not finish itself before the console has answered what is done', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => undefined));
     show({ ...first, seen: ['model-servers', 'prometheus', 'notifications', 'benchmarks'] });
@@ -210,7 +226,7 @@ describe('adding a row is one object in the table', () => {
     const loc = show(first, { items: [...GUIDE_ITEMS, ...LATER] });
     const p = panel();
     expect(within(p).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Set up', 'Already on', 'Try it', 'New in 0.3.0']);
-    expect(within(p).getAllByRole('link')).toHaveLength(8);
+    expect(within(p).getAllByRole('listitem')).toHaveLength(8);
     expect(within(p).getByText('Eight things Sparkline does. Each one opens the real page, in any order.')).toBeInTheDocument();
     expect(within(p).getByRole('img', { name: '1 of 8 done' })).toBeInTheDocument();
     await userEvent.click(within(p).getByRole('link', { name: /Serve a recipe/ }));

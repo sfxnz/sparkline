@@ -145,7 +145,7 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
 
   // The guide is open in full under the node cards, and the sidebar counts it.
   const panel = guidePanel(page);
-  await expect(panel.getByRole('link')).toHaveCount(5);
+  await expect(panel.getByRole('listitem')).toHaveCount(5);
   await expect(panel.getByRole('heading', { level: 3 })).toHaveText(['Set up', 'Already on', 'Try it']);
   const entry = page.getByRole('link', { name: /^Get started/ });
   await expect(entry).toContainText(/\d of 5/);
@@ -189,7 +189,7 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await page.getByRole('button', { name: 'Open getting started' }).click();
   await expect(page).toHaveURL(`${BASE}/`);
   await expect(guidePanel(page)).toBeFocused();
-  await expect(guidePanel(page).getByRole('link')).toHaveCount(5);
+  await expect(guidePanel(page).getByRole('listitem')).toHaveCount(5);
 });
 
 test('a link with a wrong token falls back to the form with the usual error, and the token leaves the address bar', async ({ page }) => {
@@ -235,10 +235,13 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await expectJustUnderToolbar(page, '#notifications');
   await page.goto(`${BASE}/`);
   await expect(guideStrip(page)).toBeVisible();
+  // Having been to Alerts ticks it, with no channel configured: "Next" has moved on.
+  await expect(guideStrip(page).getByRole('link', { name: /^Next / })).toBeVisible();
+  await expect(guideStrip(page).getByRole('link', { name: /^Next / })).not.toContainText('Alerts on your phone');
   await expect(guideStrip(page).getByRole('button', { name: 'Show all' })).toBeVisible();
   expect(await noSidewaysScroll(page)).toBe(true);
   await guideStrip(page).getByRole('button', { name: 'Show all' }).click();
-  await expect(guidePanel(page).getByRole('link')).toHaveCount(5);
+  await expect(guidePanel(page).getByRole('listitem')).toHaveCount(5);
   await guidePanel(page).getByRole('link', { name: /^Prometheus export/ }).click();
   await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
   await expectJustUnderToolbar(page, '#prometheus');

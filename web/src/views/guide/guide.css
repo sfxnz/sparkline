@@ -37,7 +37,7 @@
   color: var(--text-1);
   transition: background-color var(--dur-fast) var(--ease-out);
 }
-.guide-tile:hover { background: var(--fill-1); text-decoration: none; }
+a.guide-tile:hover { background: var(--fill-1); text-decoration: none; }
 .guide-tile:focus-visible { border-radius: var(--radius-md); outline-offset: -2px; }
 .guide-tile__icon { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: var(--radius-sm); background: var(--fill-2); border: var(--hairline) solid var(--separator); color: var(--text-1); }
 .guide-tile__icon svg { width: 1rem; height: 1rem; }

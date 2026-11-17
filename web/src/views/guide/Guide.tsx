@@ -46,19 +46,24 @@ function Meter({ guide }: { guide: GuideData }) {
 function Tile({ row }: { row: GuideRow }) {
   const { item } = row;
   const Icon = row.done ? Check : item.icon;
+  const className = `guide-tile${row.done ? ' is-done' : ''}`;
+  const body = (
+    <>
+      <span className="guide-tile__icon" aria-hidden="true"><Icon strokeWidth={row.done ? 2.5 : 2} /></span>
+      <span className="guide-tile__text">
+        <span className="guide-tile__title">
+          <span>{item.title}{row.done ? <span className="visually-hidden"> (done)</span> : null}</span>
+          {row.tag ? <span className="guide-tag">{row.tag}</span> : null}
+          {row.to ? <ArrowRight className="guide-tile__go" aria-hidden="true" /> : null}
+        </span>
+        <span className="guide-tile__blurb"><InlineCode text={row.blurb} /></span>
+      </span>
+    </>
+  );
   return (
     <li>
-      <Link href={row.to} className={`guide-tile${row.done ? ' is-done' : ''}`} onClick={() => { void markGuideItem(item.id); }}>
-        <span className="guide-tile__icon" aria-hidden="true"><Icon strokeWidth={row.done ? 2.5 : 2} /></span>
-        <span className="guide-tile__text">
-          <span className="guide-tile__title">
-            <span>{item.title}{row.done ? <span className="visually-hidden"> (done)</span> : null}</span>
-            {row.tag ? <span className="guide-tag">{row.tag}</span> : null}
-            <ArrowRight className="guide-tile__go" aria-hidden="true" />
-          </span>
-          <span className="guide-tile__blurb"><InlineCode text={row.blurb} /></span>
-        </span>
-      </Link>
+      {/* A row with nowhere to go is a line of the list, not a link that does nothing. */}
+      {row.to ? <Link href={row.to} className={className} onClick={() => { void markGuideItem(item.id); }}>{body}</Link> : <div className={className}>{body}</div>}
     </li>
   );
 }
@@ -127,7 +132,7 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
           <h2 className="guide-strip__title">Getting started</h2>
           <span className="guide-strip__count num">{guide.done} of {guide.total}</span>
         </span>
-        {next ? (
+        {next?.to ? (
           <>
             <span className="guide-strip__rule" aria-hidden="true" />
             <Link href={next.to} className="guide-strip__next" onClick={() => { void markGuideItem(next.item.id); }}>

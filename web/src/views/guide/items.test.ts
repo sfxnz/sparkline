@@ -24,7 +24,7 @@ describe('the guide table', () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const item of GUIDE_ITEMS) {
       expect(item.id).toMatch(/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/);
-      expect(item.to(ctx())).toMatch(/^\//);
+      expect(item.to(ctx({ nodes: [refused('spark1')] }))).toMatch(/^\//);
       expect(GUIDE_GROUPS.map((g) => g.id)).toContain(item.group);
     }
   });
@@ -53,30 +53,43 @@ describe('the guide table', () => {
   });
 });
 
-describe('what is done comes from the cluster, not from clicks', () => {
+describe('a row is done when the person has opened it or the cluster’s own state shows it', () => {
+  it('holds for every row but the one that asks for something to happen', () => {
+    const nothingYet = ctx({ nodes: [refused('spark1')] });
+    const opened = (id: string) => ctx({ nodes: [refused('spark1')], seen: new Set([id]) });
+    for (const item of GUIDE_ITEMS) {
+      expect(row(item.id, nothingYet).done, item.id).toBe(false);
+      expect(row(item.id, opened(item.id)).done, item.id).toBe(item.id !== 'connect-nodes');
+    }
+    // Shown by the cluster, never opened.
+    const shown = ctx({ servers: [{ node: 'spark1', name: 'm' }], notifyChannels: 1, benchRuns: 1 });
+    expect(buildGuide(shown).rows.filter((r) => r.done).map((r) => r.item.id)).toEqual(['connect-nodes', 'notifications', 'model-servers', 'benchmarks']);
+  });
+
   it('connect-nodes: done when every node has reported; until then it says who is missing and links to their fix', () => {
-    expect(row('connect-nodes', ctx())).toMatchObject({ done: true, tag: null, to: '/', blurb: 'spark1 is live. More nodes go in `console.toml`.' });
+    // Done: the nodes are on the page the guide is on, so there is nothing to open.
+    expect(row('connect-nodes', ctx())).toMatchObject({ done: true, tag: null, to: null, blurb: 'spark1 is live. More nodes go in `console.toml`.' });
     expect(row('connect-nodes', ctx({ nodes: [live('spark1'), live('spark2')] })).blurb).toBe('All 2 nodes are live.');
     expect(row('connect-nodes', ctx({ nodes: [connecting('spark1')] }))).toMatchObject({ done: false, blurb: 'Waiting for the first reading from spark1.', to: '/node/spark1' });
     expect(row('connect-nodes', ctx({ nodes: [live('spark1'), refused('spark2'), refused('spark3')] }))).toMatchObject({
       done: false, tag: '1 of 3', to: '/node/spark2', blurb: 'Waiting for spark2 and spark3. Their cards say what to do.',
     });
     expect(row('connect-nodes', ctx({ nodes: [refused('spark1')] }))).toMatchObject({ tag: null, blurb: 'Waiting for spark1. Its card says what to do.' });
-    // Opening the row does not tick it.
+    // Opening the row does not tick it: the node still has to answer.
     expect(row('connect-nodes', ctx({ nodes: [refused('spark1')], seen: new Set(['connect-nodes']) })).done).toBe(false);
   });
 
-  it('notifications: done when the console has a channel', () => {
+  it('notifications: done when the console has a channel, or once opened', () => {
     expect(row('notifications', ctx())).toMatchObject({ done: false, tag: null, to: '/alerts#notifications' });
     expect(row('notifications', ctx({ notifyChannels: null })).done).toBe(false);
     expect(row('notifications', ctx({ notifyChannels: 2 }))).toMatchObject({ done: true, tag: '2 channels' });
+    expect(row('notifications', ctx({ seen: new Set(['notifications']) }))).toMatchObject({ done: true, tag: null });
   });
 
-  it('model-servers: done when an agent found one, named from what it found', () => {
+  it('model-servers: done when an agent found one, named from what it found, or once opened', () => {
     expect(row('model-servers', ctx())).toMatchObject({ done: false, tag: null, to: '/node/spark1' });
     const found = row('model-servers', ctx({ nodes: [live('spark1'), live('spark2')], servers: [{ node: 'spark2', name: 'Qwen3-32B-AWQ' }] }));
     expect(found).toMatchObject({ done: true, tag: '1 found', to: '/node/spark2', blurb: 'Qwen3-32B-AWQ on spark2. Requests and speed are on the node’s page.' });
-    // No server anywhere: looking at the page is all there is to do.
     expect(row('model-servers', ctx({ seen: new Set(['model-servers']) })).done).toBe(true);
   });
 
@@ -85,15 +98,19 @@ describe('what is done comes from the cluster, not from clicks', () => {
     expect(row('prometheus', ctx({ seen: new Set(['prometheus']) })).done).toBe(true);
   });
 
-  it('benchmarks: done when a run exists', () => {
+  it('benchmarks: done when a run exists, or once opened', () => {
     expect(row('benchmarks', ctx()).done).toBe(false);
     expect(row('benchmarks', ctx({ benchRuns: 1 })).done).toBe(true);
+    expect(row('benchmarks', ctx({ seen: new Set(['benchmarks']) })).done).toBe(true);
   });
 
-  it('counts what is done and names the next row', () => {
+  it('counts what is done and names the next row, which moves on as rows are opened', () => {
     const g = buildGuide(ctx({ servers: [{ node: 'spark1', name: 'm' }] }));
     expect([g.done, g.total, g.next?.item.id]).toEqual([2, 5, 'notifications']);
-    const all = buildGuide(ctx({ servers: [{ node: 'spark1', name: 'm' }], notifyChannels: 1, benchRuns: 1, seen: new Set(['prometheus']) }));
+    const afterAlerts = buildGuide(ctx({ servers: [{ node: 'spark1', name: 'm' }], seen: new Set(['notifications']) }));
+    expect([afterAlerts.done, afterAlerts.next?.item.id]).toEqual([3, 'prometheus']);
+    // Every page opened on a cluster with no channel and no run: the guide can finish.
+    const all = buildGuide(ctx({ seen: new Set(['notifications', 'model-servers', 'prometheus', 'benchmarks']) }));
     expect([all.done, all.next]).toEqual([5, null]);
   });
 });
