@@ -233,7 +233,8 @@ def test_demo_apply_and_undo_flip_the_state_in_memory(demo):
 
 def test_demo_refuses_what_a_real_fleet_would(demo):
     r = demo.post(f"/api/v1/recommendations/{ONE_CLICK}/apply", json={"node": "spark3", "confirm": True})
-    assert r.status_code == 501 and "install.sh agent --enable-tune" in r.json()["problem"]["fix"]
+    assert r.status_code == 501
+    assert "Keep --enable-benchmarks if the node runs benchmarks" in r.json()["problem"]["fix"]
     r = demo.post(f"/api/v1/recommendations/{ONE_CLICK}/apply", json={"node": "ws1", "confirm": True})
     assert r.status_code == 409 and r.json()["problem"]["message"].endswith("does not apply to ws1")
     r = demo.post(f"/api/v1/recommendations/{ONE_CLICK}/apply", json={"node": "spark1"})

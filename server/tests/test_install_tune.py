@@ -64,6 +64,13 @@ def test_an_agent_installed_without_the_flag_has_no_root_helper(tmp_path: Path) 
     assert "sparkline-tune" not in out and "tune-requests" not in out
 
 
+def test_the_summary_of_an_install_without_the_flag_says_to_keep_the_other_flags() -> None:
+    # The summary is printed only by a real install, so this reads the line in the script.
+    script = (REPO / "deploy/install.sh").read_text()
+    (line,) = [x for x in script.splitlines() if "Settings:     commands only" in x]
+    assert "Re-run with the same flags plus --enable-tune" in line
+
+
 def test_reinstalling_without_the_flag_undoes_the_settings_then_removes_the_helper(tmp_path: Path) -> None:
     units = tmp_path / "etc/systemd/system"
     units.mkdir(parents=True)

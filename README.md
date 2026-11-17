@@ -182,6 +182,7 @@ git clone https://github.com/sfxnz/sparkline.git && cd sparkline
 sudo ./install.sh agent                       # monitor-only
 sudo ./install.sh agent --enable-benchmarks   # also allow benchmarks (see Security model)
 sudo ./install.sh agent --enable-tune         # also allow one-click recommended settings (see Security model)
+sudo ./install.sh agent --enable-benchmarks --enable-tune   # both
 ```
 
 The installer:
@@ -818,7 +819,9 @@ looks for Sparkline's own record or for an active systemd unit that runs `nvidia
 live GPU clock with the cap. A cap that you typed by hand is not visible to the agent.
 
 **One click needs the node's consent.** Install the agent with `--enable-tune` to get the **Apply** and
-**Undo** buttons for that node. Every click asks for confirmation, and the confirmation lists the commands
+**Undo** buttons for that node. On a node that is already installed, run `install.sh agent` again with
+`--enable-tune` added to the flags it was installed with: the installer turns off what is left out, so keep
+`--enable-benchmarks` if the node runs benchmarks. Every click asks for confirmation, and the confirmation lists the commands
 that make the same change by hand. Without the flag, the page shows those commands for you to type. A setting that something other than Sparkline applied
 shows as applied, with no **Undo** button: undo it where it was set. [Security model](#security-model) says
 what the flag allows.

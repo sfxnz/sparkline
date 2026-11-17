@@ -706,7 +706,7 @@ install_agent() {
 	if [[ $ENABLE_TUNE == 1 ]]; then
 		info "Settings:     one-click enabled (root helper sparkline-tune)"
 	else
-		info "Settings:     commands only. Re-run with --enable-tune to apply recommendations from the console."
+		info "Settings:     commands only. Re-run with the same flags plus --enable-tune to apply recommendations from the console."
 	fi
 }
 

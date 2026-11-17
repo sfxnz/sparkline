@@ -70,7 +70,7 @@ export const measurement: RecMeasurement = {
 export const noHelper: Problem = {
   message: 'spark3 does not take one-click settings',
   cause: '/etc/systemd/system/sparkline-tune.path is not installed',
-  fix: 'Reinstall the agent on spark3 with install.sh agent --enable-tune, or type the commands',
+  fix: 'Run install.sh agent again on spark3 with --enable-tune added to the flags it was installed with. Keep --enable-benchmarks if the node runs benchmarks: the installer turns off what is left out. Or type the commands',
 };
 
 export const unreachable: Problem = {

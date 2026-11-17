@@ -144,7 +144,7 @@ def test_without_the_root_helper_the_node_says_how_to_install_it(tmp_path: Path,
     assert r.status_code == 501
     problem = r.json()["problem"]
     assert problem["message"] == "n1 does not take one-click settings"
-    assert "install.sh agent --enable-tune" in problem["fix"]
+    assert "--enable-tune added to the flags it was installed with" in problem["fix"]
 
 
 def test_a_running_benchmark_refuses_a_change_until_it_ends(tmp_path: Path, root: Path) -> None:

@@ -214,10 +214,16 @@ def request_dir(root: Path) -> Path | None:
 
 
 def no_helper(node_id: str) -> Problem:
+    """install.sh turns off what it is not given, so the fix names no command line: one copied from here
+    would drop --enable-benchmarks."""
     return Problem(
         message=f"{node_id} does not take one-click settings",
         cause=f"/{TUNE_PATH_UNIT} is not installed",
-        fix=f"Reinstall the agent on {node_id} with install.sh agent --enable-tune, or type the commands",
+        fix=(
+            f"Run install.sh agent again on {node_id} with --enable-tune added to the flags it was installed "
+            "with. Keep --enable-benchmarks if the node runs benchmarks: the installer turns off what is "
+            "left out. Or type the commands"
+        ),
     )
 
 

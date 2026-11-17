@@ -390,7 +390,10 @@ def test_a_node_takes_clicks_only_with_the_path_unit_installed(m: Machine) -> No
     host = Host(m.root, True, lambda: None, m.run)
     problem = recommend.node_recommendations(host, "n1").one_click
     assert problem is not None and problem.message == "n1 does not take one-click settings"
-    assert "install.sh agent --enable-tune" in problem.fix
+    assert "--enable-tune added to the flags it was installed with" in problem.fix
+    # install.sh turns off what it is not given: the fix must not be a command line that drops a flag
+    assert "Keep --enable-benchmarks if the node runs benchmarks" in problem.fix
+    assert "install.sh agent --enable-tune" not in problem.fix
     m.file(recommend.TUNE_PATH_UNIT, "[Path]\nDirectoryNotEmpty=/var/lib/sparkline-agent/tune-requests\n")
     assert recommend.node_recommendations(host, "n1").one_click is None
     assert recommend.request_dir(m.root) == m.root / tune.REQUEST_DIR
