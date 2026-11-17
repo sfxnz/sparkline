@@ -28,7 +28,8 @@ describe('sign-in page', () => {
     show(true);
     expect(screen.getByRole('heading', { name: 'Welcome to Sparkline' })).toBeInTheDocument();
     expect(screen.getByText(/This console is new/)).toBeInTheDocument();
-    expect(screen.getByText(TOKEN_COMMAND)).toBeVisible();
+    expect(document.querySelector('.cmd__text')).toHaveTextContent(TOKEN_COMMAND);
+    expect(document.querySelector('.cmd__text')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Copy command' })).toBeInTheDocument();
     // The field is described by where the token is, so a screen reader hears it on focus.
     expect(screen.getByLabelText('Console token')).toHaveAccessibleDescription(/The token is on the console host\./);
@@ -55,7 +56,7 @@ describe('sign-in page', () => {
     expect(help.closest('details')).not.toHaveAttribute('open');
     await user.click(help);
     expect(help.closest('details')).toHaveAttribute('open');
-    expect(screen.getByText(TOKEN_COMMAND)).toBeInTheDocument();
+    expect(document.querySelector('.cmd__text')).toHaveTextContent(TOKEN_COMMAND);
   });
 
   it('signs in with a typed token and goes to the overview', async () => {

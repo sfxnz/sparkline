@@ -321,8 +321,10 @@ describe('CommandLine', () => {
     secure(true);
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    render(<CommandLine text="systemctl status sparkline-agent" />);
-    expect(screen.getByText('systemctl status sparkline-agent')).toBeInTheDocument();
+    const { container } = render(<CommandLine text="systemctl status sparkline-agent" />);
+    expect(container.querySelector('.cmd__text')?.textContent).toBe('systemctl status sparkline-agent');
+    // Each word is one box, so the line wraps at its spaces.
+    expect([...container.querySelectorAll('.cmd__word')].map((w) => w.textContent)).toEqual(['systemctl', 'status', 'sparkline-agent']);
     fireEvent.click(screen.getByRole('button', { name: 'Copy command' }));
     expect(writeText).toHaveBeenCalledWith('systemctl status sparkline-agent');
     expect(await screen.findByRole('button', { name: 'Copied command' })).toHaveTextContent('Copied');

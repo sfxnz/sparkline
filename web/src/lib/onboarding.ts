@@ -21,23 +21,23 @@ export function agentAddress(url: string): string {
   }
 }
 
-/** The commands a Problem's fix names, in order, each once. A `backtick` span of several words is something to run
- *  (`sudo systemctl start sparkline-agent`); a single word is a name (a key, a path) and stays inline. */
-export function fixCommands(fix: string | null | undefined): string[] {
-  return [...new Set([...(fix ?? '').matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter((c): c is string => !!c && /\S\s+\S/.test(c)))];
-}
-
 interface FixStep {
-  /** One sentence of the fix, with its `backtick` spans. */
+  /** The words of the step, with its `backtick` names. They end in a colon when a command follows. */
   text: string;
-  commands: string[];
+  /** What the step says to run. null: nothing to run. */
+  command: string | null;
 }
 
-/** A fix as the steps it is written in: one per sentence, each with its own commands, so a command is read next to
- *  the words that say when to run it. A full stop inside a `backtick` span or a name (`*.toml`) ends nothing. */
+/** A fix as the steps it is written in (console/nodes.py classify): one per sentence. A step that has something to
+ *  run ends in it, after a colon, as a `backtick` span of several words: the words are shown without it and the
+ *  command once, in a box of its own. A single word in backticks is a name (a key, a path) and stays in the words.
+ *  A full stop inside a `backtick` span or a name (`*.toml`) ends nothing. */
 export function fixSteps(fix: string | null | undefined): FixStep[] {
   const sentences = (fix ?? '').match(/(?:`[^`]*`|[^`.]|\.(?!\s|$))+\.?/g) ?? [];
-  return sentences.map((s) => s.trim()).filter(Boolean).map((text) => ({ text, commands: fixCommands(text) }));
+  return sentences.map((s) => s.trim()).filter(Boolean).map((text) => {
+    const run = /^(.*:)\s*`([^`]*\S\s+\S[^`]*)`\.?$/.exec(text);
+    return run?.[1] && run[2] ? { text: run[1], command: run[2] } : { text, command: null };
+  });
 }
 
 /** How far the console's request got. `no-answer`: nothing answered at the address (refused, timed out, no route).

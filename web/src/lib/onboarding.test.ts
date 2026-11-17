@@ -1,4 +1,4 @@
-import { agentAddress, fixCommands, fixSteps, guideStage, guideView, isNewNode, mergeOnboarding, needsSetup, reachOf, retryWait } from './onboarding';
+import { agentAddress, fixSteps, guideStage, guideView, isNewNode, mergeOnboarding, needsSetup, reachOf, retryWait } from './onboarding';
 import type { Onboarding } from './types';
 
 const ob = (over: Partial<Onboarding> = {}): Onboarding => ({ started: 100, finished: null, reopened: false, seen: [], ...over });
@@ -76,29 +76,31 @@ describe('a node that cannot be reached', () => {
     expect(agentAddress('not a url')).toBe('not a url');
   });
 
-  it('finds every command a fix names, once each, in order', () => {
-    expect(fixCommands('Check `systemctl status sparkline-agent` on spark1')).toEqual(['systemctl status sparkline-agent']);
-    expect(fixCommands('Check `journalctl -u sparkline-agent` on spark1 and `systemctl status sparkline-agent`; then `journalctl -u sparkline-agent` again'))
-      .toEqual(['journalctl -u sparkline-agent', 'systemctl status sparkline-agent']);
-    expect(fixCommands(null)).toEqual([]);
-  });
-
-  it('takes a span of several words for a command, and a key or a path for a name', () => {
-    expect(fixCommands('`agent_token` in `/etc/sparkline/console.toml` must equal `token`. Run `sudo grep token /etc/sparkline/*.toml`.')).toEqual(['sudo grep token /etc/sparkline/*.toml']);
-  });
-
-  it('reads a fix as its steps, one per sentence, each with the commands it names', () => {
-    const fix = 'Start the agent on spark1: `sudo systemctl start sparkline-agent`. If it does not stay up, `journalctl -u sparkline-agent -n 50` says why. '
-      + 'If the agent was never installed on spark1, run `sudo ./install.sh agent` in the Sparkline folder there.';
+  it('reads a fix as its steps: the words of each, and the command it ends in', () => {
+    const fix = 'Start the agent on spark1: `sudo systemctl start sparkline-agent`. If it does not stay up, read why: `journalctl -u sparkline-agent -n 50`. '
+      + 'If the agent was never installed on spark1, install it from the Sparkline folder there: `sudo ./install.sh agent`.';
     expect(fixSteps(fix)).toEqual([
-      { text: 'Start the agent on spark1: `sudo systemctl start sparkline-agent`.', commands: ['sudo systemctl start sparkline-agent'] },
-      { text: 'If it does not stay up, `journalctl -u sparkline-agent -n 50` says why.', commands: ['journalctl -u sparkline-agent -n 50'] },
-      { text: 'If the agent was never installed on spark1, run `sudo ./install.sh agent` in the Sparkline folder there.', commands: ['sudo ./install.sh agent'] },
+      { text: 'Start the agent on spark1:', command: 'sudo systemctl start sparkline-agent' },
+      { text: 'If it does not stay up, read why:', command: 'journalctl -u sparkline-agent -n 50' },
+      { text: 'If the agent was never installed on spark1, install it from the Sparkline folder there:', command: 'sudo ./install.sh agent' },
+    ]);
+    // No step says its command twice: the words never hold it.
+    for (const step of fixSteps(fix)) expect(step.text).not.toContain('`');
+  });
+
+  it('keeps a key or a path in the words, and a step with nothing to run whole', () => {
+    const fix = '`agent_token` in `/etc/sparkline/console.toml` must equal `token` in `/etc/sparkline/agent.toml` on spark1. '
+      + 'See both, on the console host and on spark1: `sudo grep token /etc/sparkline/*.toml`. Edit one file so they match, then restart its service. '
+      + 'For the console: `sudo systemctl restart sparkline`.';
+    expect(fixSteps(fix)).toEqual([
+      { text: '`agent_token` in `/etc/sparkline/console.toml` must equal `token` in `/etc/sparkline/agent.toml` on spark1.', command: null },
+      { text: 'See both, on the console host and on spark1:', command: 'sudo grep token /etc/sparkline/*.toml' },
+      { text: 'Edit one file so they match, then restart its service.', command: null },
+      { text: 'For the console:', command: 'sudo systemctl restart sparkline' },
     ]);
     // A full stop in a path, an address or a command ends nothing; a fix of one sentence is one step, as written.
-    expect(fixSteps('Check that 192.168.1.11 is the `url` in `/etc/sparkline/console.toml`. Then run `sudo ./install.sh agent`').map((s) => s.text))
-      .toEqual(['Check that 192.168.1.11 is the `url` in `/etc/sparkline/console.toml`.', 'Then run `sudo ./install.sh agent`']);
-    expect(fixSteps('Check `journalctl -u sparkline-agent` on spark1')).toEqual([{ text: 'Check `journalctl -u sparkline-agent` on spark1', commands: ['journalctl -u sparkline-agent'] }]);
+    expect(fixSteps('Check that 192.168.1.11 is the `url` in `/etc/sparkline/console.toml`. Then check the firewall').map((s) => s.text))
+      .toEqual(['Check that 192.168.1.11 is the `url` in `/etc/sparkline/console.toml`.', 'Then check the firewall']);
     expect(fixSteps(null)).toEqual([]);
   });
 

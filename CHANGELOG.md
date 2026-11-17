@@ -23,8 +23,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 - **Nodes that have not answered yet.** A node the console has never heard from reads "Not connected yet" on
   its card, its page, the sidebar, the wall, the benchmark cards and in Settings, in a neutral tone, and
   Settings > Data offers no "Clear history" for it. Its card shows what the console tried, the likely cause
-  and the fix a step at a time, each command under its step with a copy button, the time to the next try and
-  **Retry now**. When the agent answered and turned the console away (a wrong token), the card says that
+  and the fix a step at a time, each command once, in a box under its step with a copy button, the time to
+  the next try and **Retry now**. A command box wraps at its spaces, also on a phone. When the agent answered and turned the console away (a wrong token), the card says that
   only the fix will connect it, where it would count down to the next try. The node's first reading arrives
   on the card in place.
 - **Getting started.** The overview of a new install carries a short guide: connect your nodes, get told
@@ -61,7 +61,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   agent, the command that shows why it did not stay up and, for a node that has never answered, the install
   command. The fix for a rejected agent token says how to compare the two tokens and which service to
   restart. A fix that edits `console.toml` now ends with the console restart, because the console reads its
-  config only when it starts.
+  config only when it starts. Every fix is now written as steps: each is a sentence, and a step with
+  something to run ends in that command after a colon. The fix for a timeout or a dropped connection names
+  the command that reads the agent's log.
 - On the benchmark cards, a node on its first connection attempt reads "Connecting".
 - A dialog that closes no longer pulls focus back to the control that opened it when focus has already
   moved on, as it has after a Search command that opens a panel.

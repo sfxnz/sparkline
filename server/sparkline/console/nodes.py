@@ -80,13 +80,16 @@ def _host_port(url: str) -> tuple[str, int]:
 def classify(exc: BaseException, node: str, url: str, new: bool = False) -> tuple[NodeStatus, Problem]:
     """Map a connection failure to a status and a human Problem (message, likely cause, concrete fix).
 
-    A fix is what to do, in the order to do it, one step per sentence. Keys, paths and commands are in
-    backticks: the web shows a span of several words as a command with a copy button. The console reads its
-    config once, at start, so a fix that edits ``console.toml`` ends with the restart. ``new``: the node has
-    never answered this console, so its agent may not be installed yet."""
+    A fix is what to do, in the order to do it, one step per sentence, each ending with a full stop. A step
+    that has something to run ends in it, after a colon and in backticks ("Start the agent on spark2: `sudo
+    systemctl start sparkline-agent`."): the web shows the words, and the command in a box of its own with a
+    copy button. Keys and paths are single words in backticks. The console reads its config once, at start,
+    so a fix that edits ``console.toml`` ends with the restart. ``new``: the node has never answered this
+    console, so its agent may not be installed yet."""
     host, port = _host_port(url)
     console_toml = "`/etc/sparkline/console.toml`"
-    restart_console = "`sudo systemctl restart sparkline`"
+    restart_console = "restart the console: `sudo systemctl restart sparkline`."
+    agent_log = f"read the agent’s log on {node}: `journalctl -u sparkline-agent -n 50`."
     status = getattr(getattr(exc, "response", None), "status_code", None)  # websockets InvalidStatus
     if isinstance(exc, AuthRejected):
         status = exc.status
@@ -96,9 +99,10 @@ def classify(exc: BaseException, node: str, url: str, new: bool = False) -> tupl
             cause=f"HTTP {status} from {host}:{port}: agent token mismatch",
             fix=(
                 f"`agent_token` in {console_toml} must equal `token` in `/etc/sparkline/agent.toml` on "
-                f"{node}. To see both, run `sudo grep token /etc/sparkline/*.toml` on the console host and "
-                f"on {node}. Edit one file so they match, then restart its service: {restart_console} for "
-                f"the console, `sudo systemctl restart sparkline-agent` for the agent on {node}."
+                f"{node}. See both, on the console host and on {node}: `sudo grep token "
+                f"/etc/sparkline/*.toml`. Edit one file so they match, then restart its service. For the "
+                f"console: `sudo systemctl restart sparkline`. For the agent on {node}: `sudo systemctl "
+                f"restart sparkline-agent`."
             ),
         )
     if status is not None:
@@ -107,44 +111,46 @@ def classify(exc: BaseException, node: str, url: str, new: bool = False) -> tupl
             cause=f"HTTP {status} from {host}:{port}",
             fix=(
                 f"Check that {node}’s `url` in {console_toml} points at sparkline-agent (port 9750). "
-                f"After editing it, restart the console: {restart_console}."
+                f"After editing it, {restart_console}"
             ),
         )
     if isinstance(exc, SchemaMismatch):
         return "error", Problem(
             message=f"Agent on {node} speaks a different protocol version",
             cause=f"Agent schema_version {exc.version}, console expects {SCHEMA_VERSION}",
-            fix=f"Upgrade sparkline-agent on {node} and sparkline to one release (re-run deploy/install.sh)",
+            fix=f"Bring the console and {node} to one release, on the console host: `sudo sparkline update`.",
         )
     if isinstance(exc, socket.gaierror):
         return "offline", Problem(
             message=f"Cannot resolve {host}",
             cause=f"DNS lookup for {host} failed ({exc.strerror or exc})",
             fix=(
-                f"Use {node}’s IP address as its `url` in {console_toml} and restart the console with "
-                f"{restart_console}, or fix name resolution (`/etc/hosts`)."
+                f"Use {node}’s IP address as its `url` in {console_toml}, or fix name resolution "
+                f"(`/etc/hosts`). After editing `console.toml`, {restart_console}"
             ),
         )
     text = str(exc).lower()
     if isinstance(exc, ConnectionRefusedError) or "refused" in text or "connect call failed" in text:
         install = (
-            f" If the agent was never installed on {node}, run `sudo ./install.sh agent` in the Sparkline "
-            "folder there."
+            f" If the agent was never installed on {node}, install it from the Sparkline folder there: "
+            "`sudo ./install.sh agent`."
         )
         return "offline", Problem(
             message=f"Agent unreachable on {node}",
             cause=f"Connection refused at {host}:{port}",
             fix=(
                 f"Start the agent on {node}: `sudo systemctl start sparkline-agent`. If it does not stay "
-                f"up, `journalctl -u sparkline-agent -n 50` says why.{install if new else ''}"
+                f"up, read why: `journalctl -u sparkline-agent -n 50`.{install if new else ''}"
             ),
         )
-    journal = f"Check `journalctl -u sparkline-agent` on {node}"
     if isinstance(exc, HandshakeTimeout | httpx.ReadTimeout):
         return "offline", Problem(
             message=f"Agent on {node} is not answering",
             cause=f"{host}:{port} accepted the connection but did not answer (agent hung or overloaded)",
-            fix=f"{journal} and `systemctl status sparkline-agent`; the console retries automatically",
+            fix=(
+                f"The console retries by itself. See what the agent on {node} is doing: `systemctl status "
+                f"sparkline-agent`. If it keeps happening, {agent_log}"
+            ),
         )
     no_route = isinstance(exc, OSError) and exc.errno in (
         errno.EHOSTUNREACH,
@@ -159,7 +165,8 @@ def classify(exc: BaseException, node: str, url: str, new: bool = False) -> tupl
             cause=f"No response from {host}:{port} ({why}): a network problem",
             fix=(
                 f"Check that {node} is powered on and connected to the LAN, that {host} is still its IP, "
-                f"and that no firewall blocks port {port}"
+                f"and that no firewall blocks port {port}. For the address its agent listens on, "
+                f"{agent_log}"
             ),
         )
     if "keepalive ping timeout" in text:
@@ -167,14 +174,14 @@ def classify(exc: BaseException, node: str, url: str, new: bool = False) -> tupl
             message=f"Agent on {node} stopped responding",
             cause="The connection stayed open but the agent stopped answering keepalive pings "
             "(hung or overloaded)",
-            fix=f"{journal}; the console reconnects automatically",
+            fix=f"The console reconnects by itself. If it keeps happening, {agent_log}",
         )
     if type(exc).__name__ == "InvalidMessage":  # websockets: TCP accepted, connection closed before any reply
         return "offline", Problem(
             message=f"Agent on {node} is not answering",
             cause=f"{host}:{port} accepted the connection but closed it without replying (agent starting, "
             "stopping or hung)",
-            fix=f"{journal}; the console retries automatically",
+            fix=f"The console retries by itself. If it keeps happening, {agent_log}",
         )
     closed = isinstance(exc, StreamClosed | ConnectionError) or type(exc).__name__.startswith(
         "ConnectionClosed"
@@ -184,14 +191,17 @@ def classify(exc: BaseException, node: str, url: str, new: bool = False) -> tupl
             message=f"Lost connection to agent on {node}",
             cause=f"Connection closed ({exc or 'no reason given'})",
             fix=(
-                f"The agent may have restarted; reconnecting automatically. If this repeats, check "
-                f"`journalctl -u sparkline-agent` on {node}"
+                f"The agent may have restarted, and the console reconnects by itself. If this repeats, "
+                f"{agent_log}"
             ),
         )
     return "error", Problem(
         message=f"Cannot read from agent on {node}",
         cause=f"{type(exc).__name__}: {exc}",
-        fix=f"Check `journalctl -u sparkline-agent` on {node} and the sparkline log",
+        fix=(
+            f"First, {agent_log} Then read the console’s log on the console host: `journalctl -u sparkline "
+            "-n 50`."
+        ),
     )
 
 

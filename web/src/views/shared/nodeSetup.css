@@ -36,7 +36,7 @@
 .setup-link__end svg { width: 13px; height: 13px; color: var(--text-2); flex: none; }
 .setup-link__end .setup-link__mark { width: 14px; height: 14px; }
 .setup-link__end--far { border-style: dashed; border-color: var(--separator-strong); background: none; color: var(--text-2); }
-.setup-link__wire { position: relative; flex: 1; min-width: 3rem; height: 1.625rem; }
+.setup-link__wire { position: relative; flex: 1; min-width: 2rem; height: 1.625rem; }
 .setup-link__wire::before, .setup-link__wire::after { content: ''; position: absolute; top: 50%; height: 0; margin-top: -1px; }
 .setup-link__wire::before { left: 0; width: var(--reach); border-top: 2px solid var(--setup); opacity: 0.8; }
 .setup-link__wire::after { left: var(--reach); right: 0; border-top: 2px dotted var(--text-3); opacity: 0.7; }

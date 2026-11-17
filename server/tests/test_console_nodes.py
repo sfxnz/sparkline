@@ -48,7 +48,7 @@ def test_problem_mapping():
     assert p.message == "Agent on spark2 rejected the console’s token"
 
     st, p = classify(SchemaMismatch(2), "spark2", URL)
-    assert st == "error" and "schema_version 2" in p.cause and "Upgrade" in p.fix
+    assert st == "error" and "schema_version 2" in p.cause and "`sudo sparkline update`" in p.fix
 
     st, p = classify(
         socket.gaierror(socket.EAI_NONAME, "Name or service not known"), "spark2", "http://spark2.lan:9750"
@@ -89,7 +89,7 @@ def test_a_refused_agent_is_told_what_to_run_not_what_to_look_at():
     _, p = classify(refused, "spark2", URL)
     assert p.fix == (
         "Start the agent on spark2: `sudo systemctl start sparkline-agent`. "
-        "If it does not stay up, `journalctl -u sparkline-agent -n 50` says why."
+        "If it does not stay up, read why: `journalctl -u sparkline-agent -n 50`."
     )
     # A node that has never answered may have no agent at all: the install command comes last.
     _, p = classify(refused, "spark2", URL, new=True)
@@ -98,7 +98,10 @@ def test_a_refused_agent_is_told_what_to_run_not_what_to_look_at():
         "journalctl -u sparkline-agent -n 50",
         "sudo ./install.sh agent",
     ]
-    assert "If the agent was never installed on spark2, run `sudo ./install.sh agent`" in p.fix
+    assert p.fix.endswith(
+        " If the agent was never installed on spark2, install it from the Sparkline folder there: "
+        "`sudo ./install.sh agent`."
+    )
 
 
 def test_a_rejected_token_says_how_to_compare_the_tokens_and_what_to_restart():
@@ -112,6 +115,51 @@ def test_a_rejected_token_says_how_to_compare_the_tokens_and_what_to_restart():
         for name in ("agent_token", "/etc/sparkline/console.toml", "token", "/etc/sparkline/agent.toml"):
             assert f"`{name}`" in p.fix, name
         assert "then restart its service" in p.fix
+
+
+def test_every_fix_is_steps_that_end_with_a_full_stop_and_a_command_ends_its_step_after_a_colon():
+    """One rule, so the web can show each step's words and put its command in a box of its own, once."""
+    from websockets.exceptions import ConnectionClosedError, InvalidMessage
+    from websockets.frames import Close
+
+    class Response:
+        status_code = 404
+
+    refused = ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+    causes = [
+        (refused, False),
+        (refused, True),
+        (AuthRejected(401), True),
+        (AuthRejected(403), False),
+        (type("InvalidStatus", (Exception,), {"response": Response()})(), True),
+        (SchemaMismatch(2), False),
+        (socket.gaierror(socket.EAI_NONAME, "Name or service not known"), True),
+        (HandshakeTimeout(), True),
+        (httpx.ReadTimeout("timed out"), False),
+        (TimeoutError(), True),
+        (httpx.ConnectTimeout("timed out"), False),
+        (OSError(errno.EHOSTUNREACH, "No route to host"), True),
+        (ConnectionClosedError(None, Close(1011, "keepalive ping timeout")), False),
+        (InvalidMessage("did not receive a valid HTTP response"), True),
+        (StreamClosed("code 1012"), False),
+        (ValueError("boom"), True),
+    ]
+    messages = set()
+    for exc, new in causes:
+        _, p = classify(exc, "spark2", "http://spark2.lan:9750", new)
+        messages.add(p.message)
+        # A step ends at a full stop that a space or the end follows, outside backticks (web: fixSteps).
+        steps = re.findall(r"(?:`[^`]*`|[^`.]|\.(?!\s|$))+\.?", p.fix)
+        assert "".join(steps) == p.fix, p.fix
+        for step in steps:
+            assert step.endswith("."), (step, p.fix)
+            commands = _commands(step)
+            assert len(commands) <= 1, step
+            if commands:
+                assert step.endswith(f": `{commands[0]}`."), step
+    assert len(messages) == 9  # every message classify() has
+    _, timed_out = classify(TimeoutError(), "spark2", URL)
+    assert _commands(timed_out.fix) == ["journalctl -u sparkline-agent -n 50"]
 
 
 def test_every_fix_that_edits_the_console_config_says_to_restart_the_console():

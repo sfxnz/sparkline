@@ -26,11 +26,11 @@ const fresh = (id: string, p: Partial<NodeState> = {}): NodeState => ({
 });
 const refused = (id: string): NodeState => fresh(id, {
   status: 'offline', next_retry_ts: now + 12,
-  error: { message: `Agent unreachable on ${id}`, cause: 'Connection refused at 192.168.1.11:9750', fix: `Start the agent on ${id}: \`sudo systemctl start sparkline-agent\`. If it does not stay up, \`journalctl -u sparkline-agent -n 50\` says why. If the agent was never installed on ${id}, run \`sudo ./install.sh agent\` in the Sparkline folder there.` },
+  error: { message: `Agent unreachable on ${id}`, cause: 'Connection refused at 192.168.1.11:9750', fix: `Start the agent on ${id}: \`sudo systemctl start sparkline-agent\`. If it does not stay up, read why: \`journalctl -u sparkline-agent -n 50\`. If the agent was never installed on ${id}, install it from the Sparkline folder there: \`sudo ./install.sh agent\`.` },
 });
 const rejected = (id: string): NodeState => fresh(id, {
   status: 'error', url: 'http://192.168.1.12:9750', next_retry_ts: now + 30,
-  error: { message: `Agent on ${id} rejected the console’s token`, cause: 'HTTP 403 from 192.168.1.12:9750: agent token mismatch', fix: `\`agent_token\` in \`/etc/sparkline/console.toml\` must equal \`token\` in \`/etc/sparkline/agent.toml\` on ${id}. To see both, run \`sudo grep token /etc/sparkline/*.toml\` on the console host and on ${id}. Edit one file so they match, then restart its service: \`sudo systemctl restart sparkline\` for the console, \`sudo systemctl restart sparkline-agent\` for the agent on ${id}.` },
+  error: { message: `Agent on ${id} rejected the console’s token`, cause: 'HTTP 403 from 192.168.1.12:9750: agent token mismatch', fix: `\`agent_token\` in \`/etc/sparkline/console.toml\` must equal \`token\` in \`/etc/sparkline/agent.toml\` on ${id}. See both, on the console host and on ${id}: \`sudo grep token /etc/sparkline/*.toml\`. Edit one file so they match, then restart its service. For the console: \`sudo systemctl restart sparkline\`. For the agent on ${id}: \`sudo systemctl restart sparkline-agent\`.` },
 });
 const cluster = (nodes: NodeState[]): ClusterState => ({
   nodes, settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 },
@@ -67,14 +67,18 @@ describe('a node that cannot be reached on a first run', () => {
     expect(within(card).getByText('Likely cause').nextElementSibling).toHaveTextContent('Connection refused at 192.168.1.11:9750');
     const steps = [...card.querySelectorAll('.setup__step')];
     expect(steps.map((s) => s.querySelector('p')?.textContent)).toEqual([
-      'Start the agent on spark1: sudo systemctl start sparkline-agent.',
-      'If it does not stay up, journalctl -u sparkline-agent -n 50 says why.',
-      'If the agent was never installed on spark1, run sudo ./install.sh agent in the Sparkline folder there.',
+      'Start the agent on spark1:',
+      'If it does not stay up, read why:',
+      'If the agent was never installed on spark1, install it from the Sparkline folder there:',
     ]);
     expect(steps.map((s) => [...s.querySelectorAll('.cmd__text')].map((c) => c.textContent))).toEqual([
       ['sudo systemctl start sparkline-agent'], ['journalctl -u sparkline-agent -n 50'], ['sudo ./install.sh agent'],
     ]);
     expect(within(card).getAllByRole('button', { name: 'Copy command' })).toHaveLength(3);
+    // Each command is on the card once, in its box: the words above it do not repeat it.
+    for (const command of ['sudo systemctl start sparkline-agent', 'journalctl -u sparkline-agent -n 50', 'sudo ./install.sh agent']) {
+      expect(card.textContent.split(command)).toHaveLength(2);
+    }
     expect(within(card).getByText(/Trying again in/)).toHaveTextContent('Trying again in 12 s');
   });
 
@@ -83,10 +87,14 @@ describe('a node that cannot be reached on a first run', () => {
     const card = screen.getByRole('region', { name: 'Node spark2, not connected yet' });
     expect(within(card).getByRole('heading', { name: 'Agent on spark2 rejected the console’s token' })).toBeInTheDocument();
     const fix = card.querySelector('.setup__fix');
-    expect([...(fix?.querySelectorAll('p code') ?? [])].map((c) => c.textContent)).toEqual([
-      'agent_token', '/etc/sparkline/console.toml', 'token', '/etc/sparkline/agent.toml',
-      'sudo grep token /etc/sparkline/*.toml', 'sudo systemctl restart sparkline', 'sudo systemctl restart sparkline-agent',
+    expect([...(fix?.querySelectorAll('p') ?? [])].map((c) => c.textContent)).toEqual([
+      'agent_token in /etc/sparkline/console.toml must equal token in /etc/sparkline/agent.toml on spark2.',
+      'See both, on the console host and on spark2:',
+      'Edit one file so they match, then restart its service.',
+      'For the console:',
+      'For the agent on spark2:',
     ]);
+    expect([...(fix?.querySelectorAll('p code') ?? [])].map((c) => c.textContent)).toEqual(['agent_token', '/etc/sparkline/console.toml', 'token', '/etc/sparkline/agent.toml']);
     // A key or a path is a name, not something to run: only the three commands get a box and a copy button.
     expect([...(fix?.querySelectorAll('.cmd__text') ?? [])].map((c) => c.textContent)).toEqual([
       'sudo grep token /etc/sparkline/*.toml', 'sudo systemctl restart sparkline', 'sudo systemctl restart sparkline-agent',

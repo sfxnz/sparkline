@@ -77,7 +77,7 @@ function Retry({ node }: { node: NodeState }) {
 export function NodeSetup({ node, headingLevel = 3 }: { node: NodeState; headingLevel?: 2 | 3 }) {
   const Heading = `h${headingLevel}` as const;
   const problem = node.error;
-  const steps = fixSteps(problem?.fix ?? `Check that sparkline-agent is running on ${node.node_id} and that the console can reach ${agentAddress(node.url)}`);
+  const steps = fixSteps(problem?.fix ?? `Check that sparkline-agent is running on ${node.node_id} and that the console can reach ${agentAddress(node.url)}.`);
   return (
     <div className="setup">
       <div className="setup__grid">
@@ -96,7 +96,7 @@ export function NodeSetup({ node, headingLevel = 3 }: { node: NodeState; heading
           {steps.map((step) => (
             <div key={step.text} className="setup__step">
               <p className="setup__fix-text"><InlineCode text={step.text} /></p>
-              {step.commands.map((c) => <CommandLine key={c} text={c} />)}
+              {step.command ? <CommandLine text={step.command} /> : null}
             </div>
           ))}
         </div>

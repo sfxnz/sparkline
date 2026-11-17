@@ -110,11 +110,16 @@ async function expectWholeFix(card: Locator) {
   await expect(card.getByText('Likely cause')).toBeVisible();
   await expect(card.getByText(/^Connection refused at /)).toBeVisible();
   await expect(card.getByText('How to fix')).toBeVisible();
-  await expect(card.locator('.setup__fix-text').first()).toHaveText('Start the agent on spark3: sudo systemctl start sparkline-agent.');
-  await expect.poll(() => card.locator('.setup__fix-text').last().evaluate(shows, 'folder there.'), { message: 'the last step is shown to its last word' }).toBe(true);
+  await expect(card.locator('.setup__fix-text')).toHaveText(['Start the agent on spark3:', 'If it does not stay up, read why:', 'If the agent was never installed on spark3, install it from the Sparkline folder there:']);
+  await expect.poll(() => card.locator('.setup__fix-text').last().evaluate(shows, 'folder there:'), { message: 'the last step is shown to its last word' }).toBe(true);
   await expect(card.locator('.cmd__text')).toHaveText(FIX);
   for (const command of FIX) {
-    await expect.poll(() => card.locator('.cmd__text', { hasText: command }).evaluate(shows, command), { message: `${command} is shown to its last character` }).toBe(true);
+    // Once on the card, in its box, and what a person selects there is the command.
+    await expect(card.getByText(command)).toHaveCount(1);
+    const box = card.locator('.cmd__text', { hasText: command });
+    expect(await box.evaluate((el) => { getSelection()?.selectAllChildren(el); return getSelection()?.toString(); })).toBe(command);
+    // It wraps at its spaces: no word is on two lines.
+    await expect.poll(() => box.evaluate((el) => [...el.querySelectorAll('.cmd__word')].filter((w) => w.getBoundingClientRect().height > 1.5 * parseFloat(getComputedStyle(el).lineHeight)).map((w) => w.textContent)), { message: `${command} breaks only at spaces` }).toEqual([]);
   }
   await expect(card.getByRole('button', { name: 'Copy command' })).toHaveCount(FIX.length);
   await expect(card.getByText(/Trying again in \d+\s*s|Trying now…/)).toBeVisible();
