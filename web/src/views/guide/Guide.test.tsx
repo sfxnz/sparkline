@@ -172,7 +172,7 @@ describe('what the person does is kept by the console', () => {
     expect(sent).toEqual([{ finished: false }]);
     expect(loc.history.at(-1)).toBe('/');
     // Asked for by name: every row, not the one-line strip.
-    expect(await screen.findByRole('region', { name: 'Getting started' })).toHaveFocus();
+    await waitFor(() => { expect(screen.getByRole('region', { name: 'Getting started' })).toHaveFocus(); });
   });
 });
 
@@ -184,8 +184,18 @@ describe('the sidebar entry and the phone chip', () => {
     expect(screen.getByRole('button', { name: /Getting started\s*2 of 5/ })).toBeInTheDocument();
     await userEvent.click(entry);
     expect(loc.history.at(-1)).toBe('/');
-    expect(await screen.findByRole('region', { name: 'Getting started' })).toHaveFocus();
+    await waitFor(() => { expect(screen.getByRole('region', { name: 'Getting started' })).toHaveFocus(); });
     expect(sent).toEqual([]);
+  });
+
+  it('going to a guide that is already shown in full leaves this browser’s preference alone', async () => {
+    show(first);
+    await userEvent.click(screen.getByRole('button', { name: /Getting started\s*1 of 5/ }));
+    await waitFor(() => { expect(panel()).toHaveFocus(); });
+    expect(usePrefs.getState().guideOpen).toBeNull();
+    // So it still becomes one line once the person has opened something.
+    await userEvent.click(within(panel()).getByRole('link', { name: /Prometheus export/ }));
+    expect(await screen.findByRole('region', { name: 'Getting started, 2 of 5 done' })).toBeInTheDocument();
   });
 });
 

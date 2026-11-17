@@ -77,11 +77,15 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
   const root = useRef<HTMLElement>(null);
 
   // Asked for from the sidebar, Settings or the palette: come into view and take focus, once.
+  // A frame later: whatever asked (a dialog closing, a page change) has finished moving focus and scroll by then.
   useEffect(() => {
     if (!wanted || !root.current) return;
-    useUi.setState({ guideWanted: false });
-    root.current.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-    root.current.focus({ preventScroll: true });
+    const frame = requestAnimationFrame(() => {
+      useUi.setState({ guideWanted: false });
+      root.current?.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+      root.current?.focus({ preventScroll: true });
+    });
+    return () => { cancelAnimationFrame(frame); };
   }, [wanted, view]);
 
   // Every row is done: the guide finishes itself and says so, once, quietly.

@@ -3,6 +3,8 @@
 // state the guide writes is the console's Onboarding (store/onboarding.ts) and one per-browser preference.
 import { create } from 'zustand';
 import { api, benchApi } from '../lib/api';
+import { guideStage, guideView } from '../lib/onboarding';
+import { useCluster } from './cluster';
 import { patchOnboarding } from './onboarding';
 import { usePrefs } from './prefs';
 import { useUi } from './ui';
@@ -43,14 +45,17 @@ export function finishGuide(how: 'dismissed' | 'complete'): Promise<void> {
 /** Show every row or one line, in this browser. */
 export const setGuideOpen = (open: boolean) => { usePrefs.getState().set({ guideOpen: open }); };
 
-/** Bring the guide to the person: every row shown, and the overview scrolls to it. The caller navigates there. */
+/** Bring the guide to the person: the overview scrolls to it (the caller navigates there). One line becomes every
+ *  row, since they asked for it; a guide already shown in full leaves this browser's preference alone. */
 export function wantGuide(): void {
-  setGuideOpen(true);
+  const view = guideView(guideStage(useCluster.getState().onboarding), usePrefs.getState().guideOpen);
+  if (view === 'strip') setGuideOpen(true);
   useUi.setState({ guideWanted: true, guideLeft: null });
 }
 
-/** Settings and the command palette: open a finished guide again. */
+/** Settings and the command palette: open a finished guide again, every row shown. */
 export function reopenGuide(): Promise<void> {
-  wantGuide();
+  setGuideOpen(true);
+  useUi.setState({ guideWanted: true, guideLeft: null });
   return patchOnboarding({ finished: false });
 }

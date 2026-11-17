@@ -47,7 +47,9 @@ export function Dialog({ open, onClose, title, description, children, footer, si
     const onClosed = () => {
       const el = opener.current;
       opener.current = null;
-      if (el?.isConnected) el.focus();
+      // Unless what the dialog did has already put focus somewhere on purpose (a command that opens a panel).
+      const taken = document.activeElement && document.activeElement !== document.body && !d.contains(document.activeElement);
+      if (el?.isConnected && (!taken || document.activeElement === el)) el.focus();
     };
     d.addEventListener('cancel', onCancel);
     d.addEventListener('close', onClosed);
