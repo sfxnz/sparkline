@@ -483,13 +483,13 @@ socket receives afterwards:
   metrics and no known server name is not asked again.
 - Any other HTTP answer, or an answer that is not HTTP, such as a database's greeting. That request is the
   only one the socket ever receives.
-- No answer within 3 seconds. The agent asks again about 5 seconds later, and stops after three unanswered
+- No answer within 3 seconds. The agent asks again about 6 seconds later, and stops after three unanswered
   requests in a row.
 - HTTP 503, a refused connection, or a connection closed before any answer. A model that is loading
   answers 503, and a port Docker publishes closes connections until the server in its container listens.
-  The agent asks again about every 5 seconds until the socket answers. It cannot tell a starting server
+  The agent asks again about every 6 seconds until the socket answers. It cannot tell a starting server
   from another service that closes every connection without an answer, so that service is asked every
-  5 seconds too. `model_server_discovery = false` stops it.
+  6 seconds too. `model_server_discovery = false` stops it.
 
 The agent sends no prompt and loads no model. A server that restarts is a new socket and is asked again.
 
