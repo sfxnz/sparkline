@@ -90,9 +90,14 @@ class HttpReply(NamedTuple):
     body: bytes  # cut at HTTP_MAX_BYTES
 
 
+class NotHttp(ConnectionError):
+    """The peer answered, and its answer does not read as HTTP."""
+
+
 Http = Callable[[str, Mapping[str, str]], HttpReply]
-"""GET a URL on this node with these headers. Raises TimeoutError or ConnectionError, whose text never
-holds the URL or a header."""
+"""GET a URL on this node with these headers. Raises TimeoutError when the peer gives no answer in time,
+NotHttp when its answer is not HTTP, and ConnectionError when the connection fails before any answer.
+The text of each never holds the URL or a header."""
 
 
 @dataclass(frozen=True)
@@ -125,8 +130,11 @@ def live_http(url: str, headers: Mapping[str, str]) -> HttpReply:
         return HttpReply(reply.status, bytes(body[:HTTP_MAX_BYTES]))
     except TimeoutError:
         raise TimeoutError("no answer in time") from None
-    except (OSError, HTTPException, ValueError) as e:
+    except (OSError, ValueError) as e:
+        # Caught before HTTPException: a peer that closes without a byte (RemoteDisconnected) is both.
         raise ConnectionError(type(e).__name__) from None  # the class only: a message may quote a header
+    except HTTPException as e:
+        raise NotHttp(type(e).__name__) from None
     finally:
         conn.close()
 

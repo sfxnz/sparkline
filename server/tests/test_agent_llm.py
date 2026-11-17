@@ -6,6 +6,7 @@ import contextlib
 import json
 import logging
 import re
+import socket
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -537,3 +538,24 @@ def test_the_live_request_stays_on_this_node_and_keeps_the_key_out_of_the_log(
     with pytest.raises(TimeoutError) as hung:
         live_http(f"{base}/hang", {"Authorization": f"Bearer {KEY}"})
     assert KEY not in caplog.text + str(refused.value) + str(illegal.value) + str(hung.value)
+
+
+@pytest.mark.parametrize(
+    ("sent", "raised"),
+    [(b"\x4a\x00\x00\x00\x0a8.0.36\x00", sources.NotHttp), (b"", ConnectionError)],
+    ids=["a database greeting", "closed without a byte"],
+)
+def test_the_live_request_tells_an_answer_that_is_not_http_from_no_answer(sent, raised):
+    with socket.create_server(("127.0.0.1", 0)) as server:
+
+        def answer() -> None:
+            conn, _ = server.accept()
+            with conn:
+                conn.sendall(sent)
+                conn.recv(65536)
+
+        threading.Thread(target=answer, daemon=True).start()
+        port = server.getsockname()[1]
+        with pytest.raises(ConnectionError) as e:
+            live_http(f"http://127.0.0.1:{port}/v1/models", {"Authorization": f"Bearer {KEY}"})
+    assert type(e.value) is raised and KEY not in str(e.value)
