@@ -326,6 +326,10 @@ test('a touch screen is not shown a key to press', async ({ page, browser }) => 
   // With a keyboard: the hint is beside Search and in the line that says where the guide went.
   expect(await putAway(page)).toBe('Getting started is put away. It stays in Settings and in Search (Ctrl K).');
   await expect(page.locator('.toolbar__search kbd').first()).toBeVisible();
+  await page.locator('.toolbar__search').click();
+  await expect(page.locator('.palette__search kbd')).toBeVisible();
+  await expect(page.locator('.palette__hint kbd').first()).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Bring it back' }).click();
   await expect(guidePanel(page)).toBeVisible();
 
@@ -334,6 +338,10 @@ test('a touch screen is not shown a key to press', async ({ page, browser }) => 
   expect(await putAway(touch)).toBe('Getting started is put away. It stays in Settings and in Search.');
   await expect(touch.locator('.toolbar__search')).toBeVisible();
   await expect(touch.locator('.toolbar__search kbd').first()).toBeHidden();
+  // Nor in Search itself: every row is there, with no "esc", "G O" or "1" beside it.
+  await touch.locator('.toolbar__search').tap();
+  await expect(touch.getByRole('option', { name: 'Overview' })).toBeVisible();
+  expect(await touch.locator('.palette__search kbd, .palette__hint kbd').evaluateAll((keys) => [keys.length > 3, keys.filter((k) => k.getClientRects().length > 0).map((k) => k.textContent)])).toEqual([true, []]);
   await phone.close();
 });
 
