@@ -231,6 +231,23 @@ def test_demo_apply_and_undo_flip_the_state_in_memory(demo):
     assert states(demo, "spark1")[ONE_CLICK] == ("not-applied", False)
 
 
+def test_demo_takes_apply_only_where_recommended_and_undo_only_for_what_sparkline_applied(demo):
+    before = {n: states(demo, n) for n in ("spark1", "spark2", "ws1")}
+
+    def refused(node: str, rec_id: str, verb: str) -> str:
+        r = demo.post(f"/api/v1/recommendations/{rec_id}/{verb}", json={"node": node, "confirm": True})
+        assert r.status_code == 409, r.text
+        return r.json()["problem"]["message"]
+
+    cap = "Cap the GPU clock at 2200 MHz"
+    assert refused("spark1", "gpu-clock-cap", "undo") == f"{cap} on spark1 is not Sparkline's to undo"
+    assert refused("spark1", "gpu-clock-cap", "apply") == f"{cap} is already applied on spark1"
+    assert refused("spark2", ONE_CLICK, "apply").endswith("is already applied on spark2")
+    assert refused("spark2", "gpu-clock-cap", "undo").endswith("is not Sparkline's to undo")
+    assert refused("ws1", ONE_CLICK, "undo").endswith("is not Sparkline's to undo")
+    assert {n: states(demo, n) for n in before} == before
+
+
 def test_demo_refuses_what_a_real_fleet_would(demo):
     r = demo.post(f"/api/v1/recommendations/{ONE_CLICK}/apply", json={"node": "spark3", "confirm": True})
     assert r.status_code == 501

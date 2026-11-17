@@ -247,6 +247,14 @@ def create_app(
                         fix="Change the setting when it finishes, or cancel it",
                     ),
                 )
+            # The page offers Apply and Undo only where they fit. The node holds every caller to the same.
+            if verb == "apply":
+                state, detail = await asyncio.to_thread(recommend.read, machine, rec.id)
+                refusal = recommend.cannot_apply(rec, sampler.node_id, state, detail)
+            else:
+                refusal = None if machine.recorded(rec.id) else recommend.cannot_undo(rec, sampler.node_id)
+            if refusal is not None:
+                return problem(409, refusal)
             try:
                 await asyncio.to_thread((requests / f"{rec.id}.{verb}").touch, 0o600)
             except OSError as e:

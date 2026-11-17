@@ -827,7 +827,9 @@ shows as applied, with no **Undo** button: undo it where it was set. [Security m
 what the flag allows.
 
 `GET /api/v1/recommendations` returns the list and every node's state.
-`POST /api/v1/recommendations/{id}/apply` and `/undo` take `{"node": "...", "confirm": true}`.
+`POST /api/v1/recommendations/{id}/apply` and `/undo` take `{"node": "...", "confirm": true}`. The node
+answers 409 to an apply unless it reports the setting as not applied, and to an undo of a setting that
+Sparkline did not apply.
 
 ## Keyboard shortcuts
 

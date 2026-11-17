@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
 from ..agent.bench.specs import is_gb10
-from ..agent.recommend import NOT_GB10, no_helper
+from ..agent.recommend import NOT_GB10, cannot_apply, cannot_undo, no_helper
 from ..common.recommendations import BY_ID, CATALOG
 from ..common.schema import NodeRecommendations, NodeRecState, Problem, RecommendationsView, TuneResult
 from .cluster import Cluster
@@ -110,7 +110,8 @@ class AgentRecs:
             problem = Problem.model_validate(r.json()["problem"])
         except (ValueError, KeyError, TypeError, ValidationError):
             raise self._bad(node, f"{verb} the setting", r) from None
-        # 409: not one-click, or a benchmark is running. 501: the node has no root helper.
+        # 409: not one-click, a benchmark is running, nothing to apply, or not Sparkline's to undo.
+        # 501: the node has no root helper.
         raise RecError(r.status_code if r.status_code in (409, 501) else 502, problem)
 
 
@@ -186,11 +187,13 @@ class DemoRecs:
         if node == DEMO_NO_HELPER:
             raise RecError(501, no_helper(node))
         items = self._items(node)
-        if items[rec_id].state == "not-applicable":
-            raise RecError(
-                409,
-                Problem(message=f"{BY_ID[rec_id].title} does not apply to {node}", cause=NOT_GB10, fix=""),
-            )
+        was, rec = items[rec_id], BY_ID[rec_id]
+        if verb == "apply":  # the two rules a node's agent holds a caller to
+            refusal = cannot_apply(rec, node, was.state, was.detail)
+        else:
+            refusal = None if was.managed else cannot_undo(rec, node)
+        if refusal is not None:
+            raise RecError(409, refusal)
         done = TuneResult(action=verb, ts=time.time(), ok=True, message=DEMO_MESSAGE)
         items[rec_id] = self._state(rec_id, verb == "apply", verb == "apply", done)
 

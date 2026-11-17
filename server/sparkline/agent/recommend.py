@@ -18,7 +18,15 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from ..common.recommendations import CATALOG, CPU_PCORE_CAP_MHZ, GPU_CLOCK_CAP_MHZ
-from ..common.schema import NodeRecommendations, NodeRecState, Problem, RecState, Sample, TuneResult
+from ..common.schema import (
+    NodeRecommendations,
+    NodeRecState,
+    Problem,
+    Recommendation,
+    RecState,
+    Sample,
+    TuneResult,
+)
 from ..tune import APPLIED, CPUFREQ, RESULTS, TUNES
 
 UNIT_DIR = Path("etc/systemd/system")
@@ -235,6 +243,38 @@ def no_helper(node_id: str) -> Problem:
             "with. Keep --enable-benchmarks if the node runs benchmarks: the installer turns off what is "
             "left out. Or type the commands"
         ),
+    )
+
+
+def cannot_apply(rec: Recommendation, node_id: str, state: RecState, detail: str) -> Problem | None:
+    """Apply is for a setting the node reports as not applied. In any other state: why not, and what to do."""
+    if state == "not-applied":
+        return None
+    if state == "applied":
+        return Problem(
+            message=f"{rec.title} is already applied on {node_id}",
+            cause=detail,
+            fix="There is nothing to apply. Reload the page if it still offers Apply",
+        )
+    if state == "not-applicable":
+        return Problem(
+            message=f"{rec.title} does not apply to {node_id}",
+            cause=detail,
+            fix="There is nothing to apply on this node",
+        )
+    return Problem(
+        message=f"{rec.title} cannot be applied on {node_id} yet",
+        cause=detail,
+        fix="The node could not read whether it is applied. Fix what the check could not read, then apply",
+    )
+
+
+def cannot_undo(rec: Recommendation, node_id: str) -> Problem:
+    """Undo is for a setting Sparkline's helper applied: the record is what makes it Sparkline's to undo."""
+    return Problem(
+        message=f"{rec.title} on {node_id} is not Sparkline's to undo",
+        cause=f"Sparkline has no record of applying it (/{APPLIED / rec.id})",
+        fix="Undo it where it was set. Sparkline undoes only what it applied",
     )
 
 
