@@ -572,7 +572,8 @@ socket receives afterwards:
   answers 503, and a port Docker publishes closes connections until the server in its container listens.
   The agent asks again about every 6 seconds until the socket answers. It cannot tell a starting server
   from another service that closes every connection without an answer, so that service is asked every
-  6 seconds too. `model_server_discovery = false` stops it.
+  6 seconds too. `model_server_discovery = false` stops it. A port under `[[model_servers]]` reads
+  Loading while it answers 503, and so does a server that restarts and loads its model again.
 
 The agent sends no prompt and loads no model. A server that restarts is a new socket and is asked again.
 

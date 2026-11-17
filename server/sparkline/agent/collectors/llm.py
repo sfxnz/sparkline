@@ -68,15 +68,33 @@ class Identity:
     problem: str | None
 
 
+@dataclass(frozen=True)
+class Unread:
+    """What a socket answered in place of a model server. Shown for a port under [[model_servers]] and
+    for a port that held a model server before, which are the ports that have a card."""
+
+    state: ServerState = "down"
+    why: str | None = "did not answer as a model server"  # completes "Port N ..."
+    settled: bool = True  # False: the answer can change, so the socket is asked again
+
+    def shown(self, port: int) -> dict[str, Any]:
+        problem = f"Port {port} {self.why}" if self.why else None
+        return {"state": self.state, "values": {"up": 0.0}, "problem": problem}
+
+
+NOT_A_MODEL_SERVER = Unread()
+NOT_LISTENING = Unread(why="is not listening")
+LOADING = Unread("loading", None, settled=False)
+
+
 class Adapter(Protocol):
     name: str
     default_ports: frozenset[int]
 
     def identify(
         self, http: Http, at: Listener, hint: ProcHint | None, auth: Mapping[str, str]
-    ) -> Identity | None:
-        """Asked about a listening socket until an answer settles it. None: not this adapter's server.
-        Raises what ``http`` raises, and ConnectionError for a server still loading."""
+    ) -> Identity | Unread:
+        """Asked about a listening socket until an answer settles it. Raises what ``http`` raises."""
         ...
 
     def poll(
@@ -123,14 +141,14 @@ class PrometheusAdapter:
 
     def identify(
         self, http: Http, at: Listener, hint: ProcHint | None, auth: Mapping[str, str]
-    ) -> Identity | None:
+    ) -> Identity | Unread:
         reply = http(_url(at, "/v1/models"), auth)
         if reply.status == 503:
-            raise ConnectionError("still loading")
+            return LOADING
         locked = reply.status in (401, 403)
         listed = None if locked else _listed(reply)
         if not locked and (reply.status != 200 or listed is None):
-            return None
+            return NOT_A_MODEL_SERVER
         owner, models = listed or ("", ())
         if (hint is not None and hint.trt) or any(t in owner.lower() for t in TRT_OWNERS):
             # TensorRT-LLM's default metrics path answers JSON that a read drains, so this branch is the
@@ -149,7 +167,7 @@ class PrometheusAdapter:
         if software is None:
             # No metrics and no known owner. Ollama, LM Studio and mlx_lm answer /v1/models with the models
             # on disk, not the loaded ones, so they wait for adapters of their own.
-            return None
+            return NOT_A_MODEL_SERVER
         problem = NO_METRICS.get(software, f"{software} serves no metrics on this port")
         return Identity(software, models, None, problem)
 
@@ -242,7 +260,7 @@ class ModelServerCollector:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._tracked: dict[int, Tracked] = {}
-        self._rejected: set[tuple[int, int | None]] = set()
+        self._unread: dict[tuple[int, int | None], Unread] = {}
         self._identify_timeouts: dict[tuple[int, int | None], int] = {}
         self._listening: dict[int, Listener] = {}
         self._published: dict[int, str] = {}
@@ -301,7 +319,10 @@ class ModelServerCollector:
         results = []
         for port, tr in sorted(self._tracked.items()):
             if self._listening.get(port) != tr.at:
-                self._down(tr, f"The server on port {port} stopped listening")
+                if unread := self._unread_at(port):
+                    tr.last = tr.last.model_copy(update=unread.shown(port))
+                else:
+                    self._down(tr, f"The server on port {port} stopped listening")
             else:
                 try:
                     auth = self._auth.get(port, {})
@@ -325,12 +346,14 @@ class ModelServerCollector:
             else:
                 results.append(tr.last)
         for port in self._target_ports - self._tracked.keys():
-            why = "did not answer as a model server" if port in self._listening else "is not listening"
-            problem = f"Port {port} {why}"
-            results.append(
-                ModelServerSample(port=port, adapter="", state="down", values={"up": 0.0}, problem=problem)
-            )
+            unanswered = NOT_A_MODEL_SERVER if port in self._listening else NOT_LISTENING
+            unread = self._unread_at(port) or unanswered
+            results.append(ModelServerSample(port=port, adapter="", **unread.shown(port)))
         self._snapshot = tuple(sorted(results, key=lambda s: s.port))
+
+    def _unread_at(self, port: int) -> Unread | None:
+        at = self._listening.get(port)
+        return self._unread.get((port, at.inode)) if at else None
 
     @staticmethod
     def _down(tr: Tracked, problem: str) -> None:
@@ -365,19 +388,22 @@ class ModelServerCollector:
         )
         self._listening = {li.port: li for li in found}
         sockets = {(li.port, li.inode) for li in found}
-        self._rejected &= sockets
+        self._unread = {key: unread for key, unread in self._unread.items() if key in sockets}
         self._identify_timeouts = {key: n for key, n in self._identify_timeouts.items() if key in sockets}
         for at in found:
             tracked = self._tracked.get(at.port)
-            if (tracked is None or tracked.at != at) and (at.port, at.inode) not in self._rejected:
+            unread = self._unread.get((at.port, at.inode))
+            if (tracked is None or tracked.at != at) and not (unread and unread.settled):
                 self._identify(at, hints.by_port.get(at.port))
 
     def _identify(self, at: Listener, hint: ProcHint | None) -> None:
         auth = self._auth.get(at.port, {})
         key = (at.port, at.inode)
+        self._unread.pop(key, None)
+        unread = NOT_A_MODEL_SERVER
         for adapter in self._adapters:
             try:
-                ident = adapter.identify(self._http, at, hint, auth)
+                got = adapter.identify(self._http, at, hint, auth)
             except NotHttp:
                 break
             except TimeoutError:
@@ -390,10 +416,14 @@ class ModelServerCollector:
                 # listens, so a failed connection settles nothing and the socket is asked again.
                 self._identify_timeouts.pop(key, None)
                 return
-            if ident is not None:
+            if isinstance(got, Identity):
                 first = ModelServerSample(
                     port=at.port, adapter=adapter.name, values={"up": 0.0}, state="down"
                 )
-                self._tracked[at.port] = Tracked(at, adapter, ident, Window(), first)
+                self._tracked[at.port] = Tracked(at, adapter, got, Window(), first)
                 return
-        self._rejected.add(key)
+            unread = got
+            if not unread.settled:
+                self._identify_timeouts.pop(key, None)
+                break
+        self._unread[key] = unread
