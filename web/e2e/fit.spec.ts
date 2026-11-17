@@ -35,7 +35,7 @@ test('facts typed by hand need no lookup, and a refused lookup says what to do',
   await page.getByRole('button', { name: 'Look up' }).click();
   await expect(page.getByRole('alert')).toContainText('enter the model facts by hand');
 
-  await page.getByRole('textbox', { name: 'Parameters' }).fill('8.19B');
+  await page.getByRole('textbox', { name: 'Weights' }).fill('16.4');
   await page.getByRole('textbox', { name: 'Layers' }).fill('36');
   await page.getByRole('textbox', { name: 'KV heads' }).fill('8');
   await page.getByRole('textbox', { name: 'Head size' }).fill('128');

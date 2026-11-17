@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FitRequest, FitResponse, ModelFacts } from '../../lib/types';
 import Fit from '../Fit';
-import { EMPTY_DRAFT, fromFacts, parseCount, toRequest } from './model';
+import { EMPTY_DRAFT, fromFacts, parseCount, parseSize, toRequest } from './model';
 
 const GIB = 1024 ** 3;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -81,12 +81,15 @@ describe('Will it fit', () => {
     const spy = fakeConsole();
     render(<Fit />);
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
-    expect(screen.getAllByText('Enter a whole number above 0')).toHaveLength(4);
+    expect(screen.getAllByText('Enter a whole number above 0')).toHaveLength(3);
+    expect(screen.getByText('Enter a size above 0, for example 9.98')).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
 
-    await user.type(screen.getByRole('textbox', { name: 'Parameters' }), '8.19B');
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Bits per weight' }), '4-bit (AWQ, GPTQ, bitsandbytes)');
-    expect(screen.getByText(/A quantised repo keeps some layers at 16 bits/)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Parameters' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Bits per weight' })).not.toBeInTheDocument();
+    expect(screen.getByText(/add up the \.safetensors files on the repo's Files tab/)).toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '5.57');
+    expect(screen.getByRole('combobox', { name: 'Unit of the size' })).toHaveValue('GB');
     await user.type(screen.getByRole('textbox', { name: 'Layers' }), '36');
     await user.type(screen.getByRole('textbox', { name: 'KV heads' }), '8');
     await user.type(screen.getByRole('textbox', { name: 'Head size' }), '128');
@@ -97,11 +100,31 @@ describe('Will it fit', () => {
     await screen.findByRole('region', { name: 'Result' });
     expect(spy).toHaveBeenCalledTimes(1);
     expect(sent(spy)).toEqual({
-      facts: { repo: null, weights_bytes: 4_095_000_000, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null },
+      facts: { repo: null, weights_bytes: 5_570_000_000, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null },
       context_tokens: 8192,
       kv_dtype: 'fp8',
     });
     expect(screen.getByText(/This model at 8,192 tokens/)).toBeInTheDocument();
+  });
+
+  it('takes a size in GiB too, and no size without a number above 0', async () => {
+    const user = userEvent.setup();
+    const spy = fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Layers' }), '36');
+    await user.type(screen.getByRole('textbox', { name: 'KV heads' }), '8');
+    await user.type(screen.getByRole('textbox', { name: 'Head size' }), '128');
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '8.19B');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    expect(screen.getByText('Enter a size above 0, for example 9.98')).toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByRole('textbox', { name: 'Weights' }));
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '2.5');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Unit of the size' }), 'GiB');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    await screen.findByRole('region', { name: 'Result' });
+    expect(sent(spy).facts.weights_bytes).toBe(2.5 * GIB);
   });
 
   it('explains a failed lookup and still lets the facts be typed', async () => {
@@ -113,7 +136,7 @@ describe('Will it fit', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Hugging Face has no public model nope/nope');
     expect(alert).toHaveTextContent('enter the model facts by hand');
-    expect(screen.getByRole('textbox', { name: 'Parameters' })).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: 'Weights' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Look up' })).toBeEnabled();
   });
 
@@ -141,16 +164,17 @@ describe('Will it fit', () => {
     expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, num_layers: 360 });
   });
 
-  it('lets a parameter count replace the size a lookup found', async () => {
+  it('lets a typed size replace the size a lookup found, and stops saying the repo filled the form in', async () => {
     const user = userEvent.setup();
     const spy = fakeConsole();
     render(<Fit />);
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
-    await user.click(await screen.findByRole('button', { name: 'Enter a parameter count' }));
-    await user.type(screen.getByRole('textbox', { name: 'Parameters' }), '8190735360');
+    await user.click(await screen.findByRole('button', { name: 'Enter a size' }));
+    expect(screen.queryByText('Filled in from Qwen/Qwen3-8B.')).not.toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '16.5');
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     await screen.findByRole('region', { name: 'Result' });
-    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null });
+    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, weights_bytes: 16_500_000_000 });
   });
 });
 
@@ -169,8 +193,15 @@ describe('fit form model', () => {
     expect(parsed.ok && parsed.request.facts).toEqual(facts);
   });
 
-  it('rounds a typed count up to whole bytes', () => {
-    const parsed = toRequest({ ...fromFacts(EMPTY_DRAFT, QWEN), weights: { kind: 'params', count: '3', bits: 4 } });
-    expect(parsed.ok && parsed.request.facts.weights_bytes).toBe(2);
+  it('reads a typed size in the unit beside it, and nothing that is not a plain number above 0', () => {
+    expect(parseSize('9.98', 'GB')).toBe(9_980_000_000);
+    expect(parseSize(' 37 ', 'GiB')).toBe(37 * GIB);
+    expect(parseSize('0.548', 'GB')).toBe(548_000_000);
+    for (const bad of ['', '0', '0.0', '-3', '9,98', '9.98 GB', '1e3', '8.19B', 'abc', '99999999999']) expect(parseSize(bad, 'GB'), bad).toBeNull();
+  });
+
+  it('sends a typed size as bytes', () => {
+    const parsed = toRequest({ ...fromFacts(EMPTY_DRAFT, QWEN), weights: { kind: 'typed', size: '39.77', unit: 'GB' } });
+    expect(parsed.ok && parsed.request.facts.weights_bytes).toBe(39_770_000_000);
   });
 });
