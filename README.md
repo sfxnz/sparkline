@@ -159,10 +159,13 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   a verdict per node (Fits, Tight, Does not fit, Unknown). Look a public safetensors repo up on Hugging Face,
   or type the size of its weight files, layers, KV heads and head size by hand. A lookup sizes the files that
   the repo's `model.safetensors.index.json` names, or its `model.safetensors` when it has no index, so a
-  4-bit AWQ, GPTQ or bitsandbytes repo counts as it is stored. When it cannot tell which files a server
-  loads, it shows no size and says why: an index over 1 MiB, an index that names files the repo lacks,
-  neither an index nor a `model.safetensors`, or no index and other safetensors files beside
-  `model.safetensors`. It still fills in the part it read. By hand the weights are a
+  4-bit AWQ, GPTQ or bitsandbytes repo counts as it is stored. An index over 1 MiB is not read. If every
+  safetensors file in the repo is then a shard of one set at its top level (`model-00001-of-00026.safetensors`
+  and so on), the lookup shows their total and says so beside the number. A server loads those files or
+  fewer, so that size is never too low. When the lookup cannot tell which files a server loads, it shows no
+  size and says why: an index over 1 MiB in a repo that holds other safetensors files as well, an index that
+  names files the repo lacks, neither an index nor a `model.safetensors`, or no index and other safetensors
+  files beside `model.safetensors`. It still fills in the part it read. By hand the weights are a
   size in GB or GiB, as the repo's Files tab lists them, and not a parameter count: a quantised model keeps
   some layers at 16 bits, so a count times its bits comes out too small. A unified-memory node offers its
   available memory minus 4 GiB. A node with dedicated GPU memory offers the free memory of its emptiest GPU,

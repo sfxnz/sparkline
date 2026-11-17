@@ -16,9 +16,11 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   Look up reads a public repo from huggingface.co. The weights are the size of the files that the repo's
   `model.safetensors.index.json` names, or of its `model.safetensors` when it has no index, so a 4-bit AWQ,
   GPTQ, bitsandbytes or MLX repo counts as it is stored. The model's shape comes from its `config.json`.
-  When the lookup cannot tell which files a server loads, for example because the index is over 1 MiB, it
-  shows no size, says why and fills in the part it read. The same facts can be typed by hand, with the
-  weights as the size of the weight files in GB or GiB and not as a parameter count. New endpoints
+  An index over 1 MiB is not read. When the repo's safetensors files are then one set of shards, the weights
+  are their total, which a server never exceeds, and the page says so beside the number. When the lookup
+  cannot tell which files a server loads, for example because such a repo holds other safetensors files as
+  well, it shows no size, says why and fills in the part it read. The same facts can be typed by hand, with
+  the weights as the size of the weight files in GB or GiB and not as a parameter count. New endpoints
   `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new `console.toml` key `hf_lookup`
   (default `true`) turns the lookup off.
 
