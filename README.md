@@ -471,11 +471,25 @@ needs no configuration.
 Nothing else is asked, and no port is scanned. Requests go only to this node's own addresses, follow no
 redirect and ignore proxy settings.
 
-**What is asked.** One `GET /v1/models` per listening socket tells the agent whether the port is a model
-server and which model it serves. After that it reads only the server's Prometheus metrics (`/metrics` or
-`/v1/metrics`; on TensorRT-LLM only `/prometheus/metrics`, because reading its `/metrics` clears it), or
-`/health` when the server has no metrics. It sends no prompt and loads no model. A server that restarts is a
-new socket and is asked again.
+**What is asked.** The agent sends each listening socket `GET /v1/models`. The answer decides what that
+socket receives afterwards:
+
+- A model list, or HTTP 401 or 403 from a server that wants an API key. The agent asks for the server's
+  Prometheus metrics at `/metrics`, then at `/v1/metrics`. On TensorRT-LLM it asks only
+  `/prometheus/metrics`, because reading its `/metrics` clears it. From then on the agent reads that one
+  metrics path every 2 seconds, or `/health` when a server it knows by name has no metrics. A port with no
+  metrics and no known server name is not asked again.
+- Any other HTTP answer, or an answer that is not HTTP, such as a database's greeting. That request is the
+  only one the socket ever receives.
+- No answer within 3 seconds. The agent asks again about 5 seconds later, and stops after three unanswered
+  requests in a row.
+- HTTP 503, a refused connection, or a connection closed before any answer. A model that is loading
+  answers 503, and a port Docker publishes closes connections until the server in its container listens.
+  The agent asks again about every 5 seconds until the socket answers. It cannot tell a starting server
+  from another service that closes every connection without an answer, so that service is asked every
+  5 seconds too. `model_server_discovery = false` stops it.
+
+The agent sends no prompt and loads no model. A server that restarts is a new socket and is asked again.
 
 **What is shown.** vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM, and any server that exports the same metric
 names under its own prefix. A value the server does not export reads "Not reported by this server". llama.cpp
