@@ -105,6 +105,24 @@ describe('sign-in link', () => {
     expect(sentToken(fetch)).toBe('link-token-0123456789');
   });
 
+  it('keeps one title while a link signs in, whatever /auth/me says meanwhile', async () => {
+    let answer: (r: Response) => void = () => undefined;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { answer = resolve; })));
+    const { loc, hist } = address('#token=not-the-token');
+    captureSignInLink(loc, hist);
+    show(false);
+    const title = screen.getByRole('heading', { level: 1 }).textContent;
+    act(() => { useAuthInfo.setState({ firstRun: true }); }); // /auth/me answers: nobody has signed in here yet
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(title);
+    expect(screen.getByText('Signing in with your link.')).toBeInTheDocument();
+    expect(screen.queryByText(/This console is new/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Signing in…' })).toBeDisabled();
+    // The link's token is refused: now it is the first-run form, with the error.
+    act(() => { answer(new Response('{}', { status: 401 })); });
+    expect(await screen.findByRole('heading', { name: 'Welcome to Sparkline' })).toBeInTheDocument();
+    expect(screen.getByText('That token wasn’t accepted.')).toBeInTheDocument();
+  });
+
   it('signs in when the link is opened in a tab that already shows the sign-in page', async () => {
     const fetch = reply(200, { ok: true });
     vi.stubGlobal('fetch', fetch);
