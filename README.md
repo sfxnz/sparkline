@@ -584,7 +584,8 @@ one. A model list from `/v1/models` is proof, together with metrics the agent ca
 knows. When `/v1/models` answers 401 or 403, the metrics are the only proof: they must sit under a known
 server's prefix (`vllm:`, `sglang:`, `llamacpp:`, `trtllm_`), or count tokens, or time the first token. A
 count of running or waiting requests proves nothing, because any web service can export one. A service
-behind a login that gives no such proof gets those three requests and no more.
+behind a login that gives no such proof gets those three requests and no more. If it is a model server, list
+it under `[[model_servers]]` with its `api_key`: its card then says what the port answered.
 
 **What is shown.** vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM, and any server that exports the same metric
 names under its own prefix. A value the server does not export reads "Not reported by this server". llama.cpp
