@@ -13,11 +13,13 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 import re
 import socket
 import ssl
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from importlib.metadata import version as pkg_version
@@ -40,6 +42,20 @@ MAX_ADDRESSES = 3  # AAAA records with no IPv6 route are common, so a failed con
 RETRY_AFTER_MIN_S = 1.0
 RETRY_AFTER_MAX_S = 900.0
 USER_AGENT = f"sparkline/{pkg_version('sparkline')}"
+
+# At DEBUG httpcore logs every response header, and a redirect's Location can repeat the channel url. So
+# while a send is in flight, nothing httpcore reads from the service is logged. Its connection lines (the
+# address and the TLS name) still are.
+_sending: ContextVar[bool] = ContextVar("sparkline_egress_sending", default=False)
+
+
+class _NoServiceAnswers(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not _sending.get()
+
+
+for _logger in ("httpcore.http11", "httpcore.http2"):
+    logging.getLogger(_logger).addFilter(_NoServiceAnswers())
 
 _HOSTNAME = re.compile(r"[a-z0-9]([a-z0-9_-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9_-]*[a-z0-9])?)*\.?")
 _TOPIC = re.compile(r"[-_A-Za-z0-9]{1,64}")
@@ -230,8 +246,10 @@ class Egress:
                 content=json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode(),
                 extensions=extensions,
             )
+            sending = _sending.set(True)
             try:
                 response = await self._transport.handle_async_request(request)
+                await response.aclose()
             except (httpx.ConnectError, httpx.ConnectTimeout) as e:
                 if _is_tls(e):
                     raise EgressError("tls") from None
@@ -241,7 +259,8 @@ class Egress:
                 raise EgressError("timeout") from None
             except httpx.HTTPError:
                 raise EgressError("connect") from None
-            await response.aclose()
+            finally:
+                _sending.reset(sending)
             if 300 <= response.status_code < 400:
                 raise EgressError("redirect")
             return Reply(response.status_code, _retry_after(response.headers.get("retry-after")))

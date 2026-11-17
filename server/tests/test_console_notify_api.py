@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,20 +25,23 @@ CHANNELS = "/api/v1/notify/channels"
 
 @pytest.fixture
 def sink():
-    """A loopback HTTP server that records every POST and answers 204."""
+    """A loopback HTTP server that records every POST and answers ``server.status`` (204), with a Location
+    header that repeats the request path, as a redirect to a canonical URL does."""
     seen: list[dict] = []
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             body = self.rfile.read(int(self.headers["content-length"]))
             seen.append({"path": self.path, "headers": dict(self.headers), "body": json.loads(body)})
-            self.send_response(204)
+            self.send_response(server.status)
+            self.send_header("Location", f"https://elsewhere.example{self.path}/")
             self.end_headers()
 
         def log_message(self, *args: object) -> None:
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.status = 204
     threading.Thread(target=server.serve_forever, daemon=True).start()
     server.seen = seen
     yield server
@@ -148,6 +152,21 @@ def test_a_test_that_cannot_be_delivered_is_a_200_with_the_problem_in_the_row(tm
         assert (
             last["problem"]["cause"] == f"127.0.0.1:{closed} refused the connection or could not be reached."
         )
+
+
+def test_a_redirect_that_repeats_the_url_is_not_followed_and_not_logged_even_at_debug(tmp_path, sink, caplog):
+    caplog.set_level(logging.DEBUG)
+    sink.status = 302
+    with TestClient(make(tmp_path, hook(sink, token=CANARY))) as c:
+        r = c.post(f"{CHANNELS}/home/test", headers=AUTH)
+        assert r.status_code == 200 and CANARY not in r.text
+        last = r.json()["last"]
+        assert (last["ok"], last["failure"]) == (False, "redirect")
+        assert "never follows" in last["problem"]["cause"]
+    assert len(sink.seen) == 1
+    assert "connect_tcp.started host='127.0.0.1'" in caplog.text
+    assert "notify 'home': test not sent: redirect" in caplog.text
+    assert CANARY not in caplog.text
 
 
 def test_an_unknown_channel_is_a_404_problem(tmp_path, sink):
