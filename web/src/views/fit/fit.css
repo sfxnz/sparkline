@@ -30,11 +30,17 @@
 
 /* At phone widths the verdict is the last column, and the three columns together were wider than the screen,
    so "Does not fit" sat past the right edge and could only be read by swiping the table sideways. Narrower
-   gutters, a header that wraps and a detail line that breaks where it must keep every verdict in view. */
+   gutters, a header that wraps and a detail line that breaks where it must were not enough: at
+   360 px the three columns still needed 250 px of 218, so 32 px of "Does not fit" stayed off screen. The
+   verdict is the only cell left that cannot give ground, because a pill never wraps, so in this table it
+   wraps. "Does not fit" then sets its own width from "Does", not from the whole phrase. */
 @media (max-width: 27rem) {
   .fit-view .table th, .fit-view .table td { padding-left: var(--space-2); padding-right: var(--space-2); }
   .fit-view .table th:first-child, .fit-view .table td:first-child { padding-left: var(--space-3); }
   .fit-view .table th:last-child, .fit-view .table td:last-child { padding-right: var(--space-3); }
   .fit-view .table th { white-space: normal; }
   .fit-view .fit-budget__detail { overflow-wrap: anywhere; }
+  .fit-view .table td:last-child .status { white-space: normal; align-items: flex-start; }
+  .fit-view .table td:last-child .status--pill { padding: 2px 8px 2px 6px; border-radius: var(--radius-md); }
+  .fit-view .table td:last-child .status__icon { margin-top: 0.1em; }
 }
