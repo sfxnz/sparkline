@@ -28,6 +28,7 @@ def install(
     console: bool = True,
     agent: bool = True,
     bench: bool = False,
+    tune: bool = False,
     version="0.1.0",
     nodes: list[str] = (),
     agent_token: str = AGENT_TOKEN,
@@ -44,6 +45,8 @@ def install(
     if bench:
         (units / "sparkline-agent.service.d").mkdir()
         (units / "sparkline-agent.service.d/10-benchmarks.conf").write_text("[Service]\n")
+    if tune:
+        (units / "sparkline-tune.path").write_text("[Path]\n")
     site = root / "opt/sparkline/venv/lib/python3.12/site-packages"
     (site / f"sparkline-{version}.dist-info").mkdir(parents=True)
 
@@ -155,6 +158,21 @@ def test_agent_only_host_without_benchmarks_stays_monitor_only(tmp_path: Path, a
     install(root, console=False)
     assert run(root, FakeGitHub(log), "--yes") == 0
     assert calls(log) == [f"agent --yes --prefix /opt/sparkline --destdir {root}"]
+
+
+def test_an_agent_with_one_click_settings_keeps_its_root_helper(
+    tmp_path: Path, as_root: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, log = tmp_path / "root", tmp_path / "install.log"
+    install(root, bench=True, tune=True)
+    assert run(root, FakeGitHub(log), "--yes") == 0
+    assert calls(log) == [
+        f"console --yes --prefix /opt/sparkline --destdir {root}",
+        f"agent --yes --prefix /opt/sparkline --enable-benchmarks --enable-tune --destdir {root}",
+    ]
+    out = capsys.readouterr().out
+    assert "Installed: console 0.1.0 in /opt/sparkline\n" in out
+    assert "Installed: agent 0.1.0 in /opt/sparkline, benchmarks on, one-click settings on" in out
 
 
 def test_dry_run_passes_dry_run_to_the_installers_without_root(

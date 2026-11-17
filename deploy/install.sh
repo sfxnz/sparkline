@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sparkline installer. One command per node:
 #
-#   sudo ./deploy/install.sh agent [--enable-benchmarks]                 # every DGX Spark
+#   sudo ./deploy/install.sh agent [--enable-benchmarks] [--enable-tune]   # every DGX Spark
 #   sudo ./deploy/install.sh console --nodes spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750
 #   sudo ./deploy/install.sh uninstall [--purge]
 #
@@ -28,6 +28,9 @@ Options:
                         name the links, e.g. spark2=10.0.8.2,spark2=10.0.9.2
   --enable-benchmarks   agent: allow benchmarks. Adds the agent to the docker group (root-equivalent) and lifts
                         the agent's CPU/memory caps for benchmark payloads. Without it the agent is monitor-only.
+  --enable-tune         agent: allow one-click settings from the console's Recommendations tab. Installs a root
+                        helper that applies and undoes three fixed settings when the agent asks: the GPU clock
+                        cap, the CPU cap and the boot target. Without it the tab only shows the commands.
   --bind ADDR           Address written to a new config (default "auto": the private LAN IP of the default route).
   --port N              Port written to a new config (default 9750 agent, 9700 console).
   --prefix DIR          Install location for code and venv (default /opt/sparkline).
@@ -44,6 +47,7 @@ MODE=agent
 NODES=""
 AGENT_TOKEN=${SPARKLINE_AGENT_TOKEN:-}
 ENABLE_BENCH=0
+ENABLE_TUNE=0
 PEERS=""
 BIND=""
 PORT=""
@@ -69,6 +73,7 @@ while [[ $# -gt 0 ]]; do
 	--agent-token) need_arg "$@"; AGENT_TOKEN=$2; shift ;;
 	--peers) need_arg "$@"; PEERS=$2; shift ;;
 	--enable-benchmarks) ENABLE_BENCH=1 ;;
+	--enable-tune) ENABLE_TUNE=1 ;;
 	--bind) need_arg "$@"; BIND=$2; shift ;;
 	--port) need_arg "$@"; PORT=$2; shift ;;
 	--prefix) need_arg "$@"; PREFIX=$2; shift ;;
@@ -94,6 +99,7 @@ fi
 	die "agent token must be 16-256 characters of A-Z a-z 0-9 _ -"
 [[ $MODE == console || -z $NODES ]] || die "--nodes only applies to console"
 [[ $MODE == agent || $ENABLE_BENCH == 0 ]] || die "--enable-benchmarks only applies to agent"
+[[ $MODE == agent || $ENABLE_TUNE == 0 ]] || die "--enable-tune only applies to agent"
 [[ $MODE == agent || -z $PEERS ]] || die "--peers only applies to agent"
 PEER_RE='[A-Za-z0-9_-]+=([0-9]{1,3}[.]){3}[0-9]{1,3}'
 [[ -z $PEERS || $PEERS =~ ^$PEER_RE(,$PEER_RE)*$ ]] || die "--peers must look like spark2=10.0.8.2,spark2=10.0.9.2"
@@ -109,6 +115,9 @@ CONSOLE_DATA=/var/lib/sparkline
 VENV=$PREFIX/venv
 DROPIN_DIR=$UNIT_DIR/sparkline-agent.service.d
 DROPIN=$DROPIN_DIR/10-benchmarks.conf
+TUNE_UNITS=(sparkline-tune.path sparkline-tune.service sparkline-tune-boot.service)
+TUNE_REQUESTS=$AGENT_DATA/tune-requests
+TUNE_STATE=/var/lib/sparkline-tune
 BIN_DIR=/usr/local/bin
 COMMANDS=(sparkline sparkline-agent sparkline-capture)
 PY=${PYTHON:-python3}
@@ -535,6 +544,43 @@ install_units() {
 	else
 		info "monitor-only (no --enable-benchmarks)"
 	fi
+	# The root helper behind the Recommendations tab: the agent leaves a request in TUNE_REQUESTS, the path
+	# unit starts the service, and the boot unit applies again what a reboot forgets.
+	if [[ $ENABLE_TUNE == 1 ]]; then
+		info "one-click settings enabled: root helper ${TUNE_UNITS[*]}"
+		for helper in "${TUNE_UNITS[@]}"; do
+			install_unit "$REPO/deploy/systemd/$helper" "$units/$helper"
+		done
+		if [[ $SYSTEM == 1 ]]; then
+			run install -d -m 0700 -o "$SVC_USER" -g "$SVC_USER" "$(p "$TUNE_REQUESTS")"
+		else
+			run install -d -m 0700 "$(p "$TUNE_REQUESTS")"
+		fi
+	elif [[ -e $units/sparkline-tune.path ]]; then
+		info "one-click settings not requested: undoing what Sparkline applied and removing its root helper"
+		if [[ $SYSTEM == 1 ]]; then
+			# A unit already disabled or half removed must not stop the install: the files go below.
+			run systemctl disable --quiet --now sparkline-tune.path sparkline-tune-boot.service || true
+		fi
+		undo_tune
+		for helper in "${TUNE_UNITS[@]}"; do
+			run rm -f "$units/$helper"
+		done
+		run rm -rf "$(p "$TUNE_REQUESTS")"
+	else
+		info "no one-click settings (no --enable-tune)"
+	fi
+}
+
+# Undo the settings applied from the Recommendations tab while the helper that can undo them is still
+# installed. With the boot unit gone, a reboot would drop the two caps without a word.
+undo_tune() {
+	if [[ $SYSTEM == 0 ]]; then
+		skip "$(why_no_system)" "$VENV/bin/sparkline tune undo-all"
+		return
+	fi
+	run "$VENV/bin/sparkline" tune undo-all ||
+		warn "a setting Sparkline applied could not be undone (see above): undo it with the commands on the Recommendations tab"
 }
 
 start_unit() {
@@ -603,8 +649,24 @@ EOF
 	confirm "Give sparkline-agent the docker group and enable benchmarks?"
 }
 
+tune_warning() {
+	[[ $ENABLE_TUNE == 1 ]] || return 0
+	cat >&2 <<'EOF'
+
+  --enable-tune installs a helper that runs as root on this machine. When someone signed in to the console
+  presses Apply or Undo on the Recommendations tab, the agent leaves a request and the helper carries it
+  out. It can do three things and nothing else: cap the GPU clock (nvidia-smi -lgc 0,2200), cap the
+  performance cores at 3000 MHz, and make the machine boot without the desktop. A request carries no
+  command and no value. Anyone who can sign in to the console, or who controls the agent process, can
+  apply and undo those three settings. The two caps are applied again at every boot until they are undone.
+
+EOF
+	confirm "Install the root helper and allow one-click settings?"
+}
+
 install_agent() {
 	benchmark_warning
+	tune_warning
 	check_platform
 	ensure_user
 	install_code
@@ -615,6 +677,10 @@ install_agent() {
 	install_units sparkline-agent.service
 	start_unit sparkline-agent.service
 	start_unit sparkline-update.path
+	if [[ $ENABLE_TUNE == 1 ]]; then
+		start_unit sparkline-tune.path
+		start_unit sparkline-tune-boot.service # also applies now what is recorded, as it does at boot
+	fi
 
 	local file url token
 	file=$(p "$ETC/agent.toml")
@@ -636,6 +702,11 @@ install_agent() {
 		info "Benchmarks:   enabled (docker group, caps lifted)"
 	else
 		info "Benchmarks:   off (monitor-only). Re-run with --enable-benchmarks to allow them."
+	fi
+	if [[ $ENABLE_TUNE == 1 ]]; then
+		info "Settings:     one-click enabled (root helper sparkline-tune)"
+	else
+		info "Settings:     commands only. Re-run with --enable-tune to apply recommendations from the console."
 	fi
 }
 
@@ -675,8 +746,11 @@ uninstall() {
 	if [[ $PURGE == 1 ]]; then
 		confirm "Delete $ETC (tokens), $AGENT_DATA and $CONSOLE_DATA (all history and benchmark results)?"
 	fi
+	if [[ $DRY_RUN == 1 || -e $(p "$UNIT_DIR/sparkline-tune.path") ]]; then
+		undo_tune
+	fi
 	local unit
-	for unit in sparkline-update.path sparkline-update.service sparkline-agent.service sparkline.service; do
+	for unit in "${TUNE_UNITS[@]}" sparkline-update.path sparkline-update.service sparkline-agent.service sparkline.service; do
 		if [[ $SYSTEM == 0 ]]; then
 			skip "$(why_no_system)" "systemctl disable --now $unit"
 		elif [[ $DRY_RUN == 1 ]] || systemctl cat "$unit" >/dev/null 2>&1; then
@@ -686,6 +760,7 @@ uninstall() {
 	done
 	# Kept data must not hold a pending request: a later install would start an update at once.
 	run rm -f "$(p "$AGENT_DATA/update-request")"
+	run rm -rf "$(p "$TUNE_REQUESTS")"
 	run rm -rf "$(p "$DROPIN_DIR")"
 	[[ $SYSTEM == 1 ]] && run systemctl daemon-reload
 	local name link
@@ -700,7 +775,7 @@ uninstall() {
 		info "kept $ETC, $AGENT_DATA, $CONSOLE_DATA and the $SVC_USER user (use --purge to delete them)"
 		return
 	fi
-	run rm -rf "$(p "$ETC")" "$(p "$AGENT_DATA")" "$(p "$CONSOLE_DATA")"
+	run rm -rf "$(p "$ETC")" "$(p "$AGENT_DATA")" "$(p "$CONSOLE_DATA")" "$(p "$TUNE_STATE")"
 	if [[ $SYSTEM == 0 ]]; then
 		skip "$(why_no_system)" "userdel $SVC_USER"
 	elif [[ $DRY_RUN == 1 ]] || getent passwd "$SVC_USER" >/dev/null; then

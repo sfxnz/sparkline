@@ -1,0 +1,64 @@
+# Applies or undoes the settings the agent asked for, started by sparkline-tune.path. It runs as root
+# because the three settings need root: nvidia-smi -lgc, the cpufreq limit in /sys, systemctl set-default.
+# A request is a file name and nothing else. The helper removes the file without opening it and looks the
+# whole name up in a fixed table that ships in /opt/sparkline, which only root can write. Every command
+# and every value comes from that table: no request can add one. Installed by deploy/install.sh agent
+# --enable-tune, which rewrites /opt/sparkline when --prefix is used. Check the sandbox with
+# `systemd-analyze security sparkline-tune`.
+
+[Unit]
+Description=Apply the settings requested through the Sparkline console
+# Each request starts a run that ends in a second or two. The default start limit would fail the path
+# unit after a few quick requests and leave this node deaf until reset-failed.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sparkline/venv/bin/sparkline tune run-requests
+# A oneshot has no start timeout by default. Each command the helper runs has its own 30 s limit.
+TimeoutStartSec=5min
+# /opt is read-only here, so don't try to write .pyc files.
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# --- Files ------------------------------------------------------------------------------------------
+# Results and the record of what Sparkline applied live in /var/lib/sparkline-tune, owned by root. 0755:
+# the agent reads them to say what happened.
+StateDirectory=sparkline-tune
+StateDirectoryMode=0755
+UMask=0022
+# The whole filesystem is read-only except the state directory and the request directory, where the
+# helper removes the requests. The boot target is not written from here: systemctl asks systemd to do it.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sparkline-agent/tune-requests
+ProtectHome=yes
+PrivateTmp=yes
+# PrivateDevices stays off (the default): nvidia-smi has to open /dev/nvidiactl and /dev/nvidia0 to lock
+# the GPU clocks. ProtectClock= is left out for the same reason: it adds a DeviceAllow= rule, which would
+# block every other device node.
+
+# --- Privileges -------------------------------------------------------------------------------------
+NoNewPrivileges=yes
+# CAP_SYS_ADMIN: the NVIDIA driver accepts a clock lock only from an administrator. CAP_DAC_OVERRIDE: the
+# request directory belongs to the sparkline user (0700), and root needs it to list and empty that
+# directory. Nothing else: the cpufreq files are root's own, and systemd accepts set-default from uid 0.
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# --- Kernel -----------------------------------------------------------------------------------------
+# ProtectKernelTunables stays off (the default): it makes /sys read-only, and the CPU cap is a write to
+# /sys/devices/system/cpu/cpufreq/policy*/scaling_max_freq.
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+
+# --- Network ----------------------------------------------------------------------------------------
+# AF_UNIX: systemctl reaches systemd over a Unix socket. No IP traffic at all.
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
