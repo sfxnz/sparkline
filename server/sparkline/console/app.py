@@ -48,6 +48,7 @@ from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
+from .prometheus import render
 from .store import SESSION_TTL_S, Store
 
 log = logging.getLogger("sparkline.console.app")
@@ -176,6 +177,7 @@ def create_app(
         bench = BenchManager(cluster, bench_store, AgentBackend(cluster, cfg.agent_token))
     auth_enabled = bool(cfg.token) or not demo
     token = cfg.token.encode()
+    metrics_token = cfg.metrics_token.encode()
     login_attempts: dict[str, deque[float]] = {}
     http: dict[str, httpx.AsyncClient] = {}
 
@@ -287,6 +289,14 @@ def create_app(
             )
 
     Auth = [Depends(require_auth)]
+
+    async def require_scrape_auth(request: Request) -> None:
+        """GET /metrics: the metrics token, tried under the same attempt limit, or whatever opens the API."""
+        h = request.headers.get("authorization", "")
+        sent = h[7:].strip().encode() if h[:7].lower() == "bearer " else b""
+        scrape_only = bool(metrics_token) and hmac.compare_digest(sent, metrics_token)
+        if not (scrape_only and len(attempts(request)) < LOGIN_LIMIT):
+            await require_auth(request)
 
     @app.get("/healthz")
     async def healthz() -> dict:
@@ -557,6 +567,11 @@ def create_app(
                 await ws.close(code=1008)
 
     app.include_router(bench_router(bench, Auth))
+
+    @app.get("/metrics", dependencies=[Depends(require_scrape_auth)])
+    async def metrics() -> Response:
+        text = render((src.state for src in cluster.sources.values()), cluster.latest_samples())
+        return Response(text, media_type="text/plain; version=0.0.4; charset=utf-8")
 
     # -- static web app (registered last: catch-all) -----------------------------------------------
     @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)

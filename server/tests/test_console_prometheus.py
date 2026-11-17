@@ -1,4 +1,4 @@
-"""The console's live state as Prometheus text format 0.0.4."""
+"""GET /metrics: the console's live state as Prometheus text format 0.0.4."""
 
 from __future__ import annotations
 
@@ -6,9 +6,12 @@ import fnmatch
 import math
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 from platforms import AMD_THREADRIPPER, GB10, INTEL_HYBRID
+from starlette.websockets import WebSocketDisconnect
 
 from sparkline.agent.collectors.prom import parse_exposition
 from sparkline.agent.config import AgentConfig
@@ -30,7 +33,11 @@ from sparkline.common.schema import (
     Sample,
     TempSample,
 )
+from sparkline.console import main as console_main
+from sparkline.console.app import LOGIN_LIMIT, create_app
+from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo_fleets import FLEETS
+from sparkline.console.nodes import NodeSource
 from sparkline.console.prometheus import NOT_EXPORTED, family_for, render
 
 REPO = Path(__file__).parents[2]
@@ -361,3 +368,98 @@ def test_a_model_server_gets_one_info_series_per_loaded_model_and_one_when_it_na
         (n, ("port", "8001")),
     }
     assert got["sparkline_model_server_up", (n, ("port", "8001"))] == 0
+
+
+TOKEN = "s3cret-browser-token"
+SCRAPE = "scrape-only-token-0123"
+
+
+class _Src(NodeSource):
+    async def session(self) -> None:
+        raise NotImplementedError
+
+
+def bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def app(tmp_path, metrics_token: str = SCRAPE):
+    cfg = ConsoleConfig(
+        token=TOKEN, agent_token="a", metrics_token=metrics_token, web_dist=tmp_path / "missing-dist"
+    )
+    return create_app(cfg, tmp_path / "data")
+
+
+def test_metrics_needs_the_console_token_or_the_metrics_token(tmp_path):
+    with TestClient(app(tmp_path)) as c:
+        cluster = c.app.state.cluster
+        src = _Src("spark1", "http://127.0.0.1:1", cluster)
+        cluster.add_source(src)
+        src.got_sample(one_of_each())
+        for headers in ({}, bearer("wrong"), bearer(""), {"Authorization": SCRAPE}):
+            r = c.get("/metrics", headers=headers)
+            assert r.status_code == 401 and r.json()["problem"]["message"] == "Sign in required", headers
+        for token in (TOKEN, SCRAPE):
+            r = c.get("/metrics", headers=bearer(token))
+            assert r.status_code == 200, token
+            assert r.headers["content-type"] == "text/plain; version=0.0.4; charset=utf-8"
+            got = series(r.text)
+            assert got["sparkline_node_up", (("node", "spark1"),)] == 1
+            assert got["sparkline_gpu_temperature_celsius", (("node", "spark1"), ("gpu", "0"))] == 65
+        assert c.post("/api/v1/auth/login", json={"token": TOKEN}).status_code == 200
+        assert c.get("/metrics").status_code == 200, "a signed-in browser"
+
+
+def test_the_metrics_token_opens_nothing_but_metrics(tmp_path):
+    with TestClient(app(tmp_path)) as c:
+        assert c.get("/metrics", headers=bearer(SCRAPE)).status_code == 200
+        for path in ("/api/v1/cluster", "/api/v1/bench/runs"):
+            assert c.get(path, headers=bearer(SCRAPE)).status_code == 401, path
+            assert c.get(path, headers=bearer(TOKEN)).status_code == 200, path
+        assert c.get("/api/v1/auth/me", headers=bearer(SCRAPE)).json()["authenticated"] is False
+        assert c.post("/api/v1/auth/login", json={"token": SCRAPE}).status_code == 401
+        with (
+            pytest.raises(WebSocketDisconnect),
+            c.websocket_connect("/api/v1/stream", headers=bearer(SCRAPE)) as ws,
+        ):
+            ws.receive_text()
+
+
+def test_without_a_metrics_token_only_the_console_token_opens_metrics(tmp_path):
+    with TestClient(app(tmp_path, metrics_token="")) as c:
+        assert c.get("/metrics", headers=bearer("")).status_code == 401
+        assert c.get("/metrics", headers=bearer(SCRAPE)).status_code == 401
+        assert c.get("/metrics", headers=bearer(TOKEN)).status_code == 200
+
+
+def test_wrong_tokens_on_metrics_count_toward_the_attempt_limit_which_then_holds_for_both_tokens(tmp_path):
+    with TestClient(app(tmp_path)) as c:
+        for _ in range(LOGIN_LIMIT):
+            assert c.get("/metrics", headers=bearer("wrong")).status_code == 401
+        for token in ("wrong", SCRAPE, TOKEN):
+            assert c.get("/metrics", headers=bearer(token)).status_code == 429, token
+
+
+def test_metrics_token_is_a_console_toml_key_of_at_least_16_characters(tmp_path, capsys, monkeypatch):
+    served: list[ConsoleConfig] = []
+    monkeypatch.setattr(
+        console_main, "create_app", lambda cfg, *_a, **_kw: SimpleNamespace(state=SimpleNamespace(cfg=cfg))
+    )
+    monkeypatch.setattr(console_main, "lock_data_dir", lambda d: -1)
+    monkeypatch.setattr(console_main.uvicorn, "run", lambda app, **_kw: served.append(app.state.cfg))
+    for name in ("CONFIG", "TOKEN", "AGENT_TOKEN", "BIND", "PORT", "DATA_DIR"):
+        monkeypatch.delenv(f"SPARKLINE_{name}", raising=False)
+    p = tmp_path / "console.toml"
+    rest = (
+        f'bind = "127.0.0.1"\ndata_dir = "{tmp_path}"\ntoken = "c-0123456789abcdef"\n'
+        'agent_token = "a-0123456789abcdef"\n[[nodes]]\nid = "a"\nurl = "http://a:9750"\n'
+    )
+    assert ConsoleConfig().metrics_token == ""
+    p.write_text(f'metrics_token = "{SCRAPE}"\n{rest}')
+    console_main.main(["--config", str(p)])
+    assert [cfg.metrics_token for cfg in served] == [SCRAPE]
+    p.write_text(f'metrics_token = "short"\n{rest}')
+    with pytest.raises(SystemExit, match="2"):
+        console_main.main(["--config", str(p)])
+    assert "metrics_token must be at least 16 characters" in capsys.readouterr().err
+    assert len(served) == 1
