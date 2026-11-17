@@ -292,8 +292,8 @@ def other_format_weights(repo: RepoId, sizes: dict[str, int]) -> Problem | None:
         return None
     return _problem(
         f"{repo} holds a weight file in a format the lookup does not read",
-        f"It holds {_listed(others)} beside the safetensors files the lookup sized, and the lookup cannot "
-        "tell whether a server loads those as well",
+        f"It holds {_listed(others)}, and the lookup cannot tell whether a server loads "
+        f"{'that file' if len(others) == 1 else 'those files'}",
     )
 
 
@@ -436,32 +436,55 @@ def _whole(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
-def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Problem:
-    """The model's shape, from the repo's ``config.json`` as decoded JSON."""
+def _shape_in(config: dict[str, object]) -> ModelShape:
+    """The shape these keys hold. Raises ``ValidationError`` when they hold none."""
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
     head_dim = config.get("head_dim")
     if head_dim is None and (h := _whole(heads)) is not None and (w := _whole(hidden)) is not None:
         head_dim = w // h
+    return ModelShape.model_validate(
+        {
+            "num_layers": config.get("num_hidden_layers"),
+            "num_kv_heads": config.get("num_key_value_heads", heads),
+            "head_dim": head_dim,
+            "max_context": config.get("max_position_embeddings"),
+        }
+    )
+
+
+def _holds_a_shape(node: object) -> bool:
+    if not isinstance(node, dict):
+        return False
     try:
-        return ModelShape.model_validate(
-            {
-                "num_layers": config.get("num_hidden_layers"),
-                "num_kv_heads": config.get("num_key_value_heads", heads),
-                "head_dim": head_dim,
-                "max_context": config.get("max_position_embeddings"),
-            }
-        )
+        _shape_in(node)
+    except ValidationError:
+        return False
+    return True
+
+
+def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Problem:
+    """The model's shape, from the repo's ``config.json`` as decoded JSON."""
+    try:
+        return _shape_in(config)
     except ValidationError as e:
         keys = "; ".join(_SHAPE_KEYS[str(err["loc"][0])] for err in e.errors())
+        # The hint names a sub-object only when it holds a shape. llava-1.5-7b-hf keeps a text_config with
+        # no layer count in it, and the hint used to send its user there.
+        below = sorted(key for key, sub in config.items() if _holds_a_shape(sub))
+        where = (
+            f"It found a shape one level down, in {_listed(below)}. Type in the shape of the part that "
+            "answers"
+            if below
+            else "It found no shape one level down either. A shape under an older name such as n_layer is "
+            "read off the config and typed in"
+        )
         # "at its top level" is the whole of what the lookup looked at. 1,472 of 3,867 cached configs keep
         # the shape in a sub-object such as text_config, and the cause without those words is false of
         # every one of them (.audit/evidence/verify/D4/nested_shape_census.out).
         return _problem(
             f"Hugging Face does not describe {repo} in a way this estimator reads",
             f"Its config.json has no whole number above 0 for {keys} at its top level",
-            f"{MANUAL_FIX}: the lookup reads the top level of config.json only, so a shape kept in a "
-            "sub-object such as text_config, or under an older name such as n_layer, is read off the "
-            "config and typed in",
+            f"{MANUAL_FIX}: the lookup reads the top level of config.json only. {where}",
         )
 
 
@@ -572,9 +595,9 @@ def drafts_for_another_model(repo: RepoId, config: dict[str, object]) -> Problem
     if not keys:
         return None
     return _problem(
-        f"The config.json of {repo} describes a second model the repo does not hold",
-        f"It has {_listed(keys)}, which measure another model. Keys like these are a draft model's record "
-        "of the target it drafts for, and a server loads that target as well",
+        f"The config.json of {repo} has the keys of a draft model",
+        f"It has {_listed(keys)}, as a draft model's config does. A draft model drafts for a target model, "
+        "and the lookup read nothing of that target",
         f"{BOTH_BY_HAND}. The size is the total of this repo's weight files and the target model's. The "
         f"shape is the target model's, which is {ANSWERING_MODEL}, and not this repo's own",
     )
@@ -633,10 +656,11 @@ def points_elsewhere(repo: RepoId, config: dict[str, object]) -> Problem | None:
     }
     if not named:
         return None
-    where = ", ".join(f"{value} in {key}" for key, value in sorted(named.items()))
+    where = ", ".join(f"{value} under {key}" for key, value in sorted(named.items()))
     return _problem(
-        f"The config.json of {repo} names a model outside the repo",
-        f"It names {where}, and the lookup cannot tell whether a server loads weights from there",
+        f"The config.json of {repo} holds a name that reads as another repo's",
+        f"It holds {where}. The lookup cannot tell whether a name like that is a model, or whether a server "
+        "loads weights from it",
         f"{BOTH_BY_HAND}. The size is the total of this repo's weight files, plus those of any model named "
         f"there that the server loads as a separate model. The shape is that of {ANSWERING_MODEL}",
     )

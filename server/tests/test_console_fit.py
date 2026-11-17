@@ -444,16 +444,19 @@ async def test_a_repo_whose_config_names_a_model_outside_it_gets_no_size(config)
     hf = FakeHuggingFace(public_repo(info=SPEECH_INFO, config=config))
     failure = await hf.lookup()
     assert isinstance(failure, LookupFailure), failure
-    assert "names a model outside the repo" in failure.problem.message
+    assert "holds a name that reads as another repo's" in failure.problem.message
     assert "by hand" in failure.problem.fix
 
 
-async def test_the_refusal_names_the_model_the_key_and_says_what_the_lookup_cannot_tell():
+async def test_the_refusal_says_what_the_config_holds_and_what_the_lookup_cannot_tell():
     failure = await FakeHuggingFace(public_repo(info=SPEECH_INFO, config=SPEECH_CONFIG)).lookup()
     assert failure.problem.cause == (
-        "It names some-org/some-70b-model in text_model_id, and the lookup cannot tell whether a server "
-        "loads weights from there"
+        "It holds some-org/some-70b-model under text_model_id. The lookup cannot tell whether a name like "
+        "that is a model, or whether a server loads weights from it"
     )
+    # The name may be a private repo, a part already inside this one, or a file path. The hint does not
+    # hand it over as a model whose files can be added up.
+    assert "some-org/some-70b-model" not in failure.problem.fix
     # Clause 5: the hint says to add the other model's size, not to add up this repo's Files tab.
     assert (
         "plus those of any model named there that the server loads as a separate model" in failure.problem.fix
@@ -513,9 +516,19 @@ async def test_a_draft_model_gets_no_size_even_when_it_names_no_target(config):
         public_repo(info=repo_files(files), config={**QWEN_CONFIG, **config})
     ).lookup()
     assert isinstance(failure, LookupFailure), failure
-    assert "describes a second model the repo does not hold" in failure.problem.message
+    assert "has the keys of a draft model" in failure.problem.message
     assert next(iter(config)) in failure.problem.cause
     assert "the target model's" in failure.problem.fix
+
+
+async def test_a_draft_models_refusal_claims_nothing_about_what_a_server_loads():
+    config = {**QWEN_CONFIG, "num_target_layers": 93, "target_hidden_size": 8192}
+    problem = (await FakeHuggingFace(public_repo(config=config)).lookup()).problem
+    assert problem.cause == (
+        "It has num_target_layers, target_hidden_size, as a draft model's config does. A draft model "
+        "drafts for a target model, and the lookup read nothing of that target"
+    )
+    assert "a server loads" not in problem.cause
 
 
 # A weight file in a format the lookup never reads, by whether its name marks it as a copy or as training
@@ -535,6 +548,28 @@ async def test_a_weight_file_in_another_format_takes_the_size_with_it(name):
     assert "a format the lookup does not read" in failure.problem.message
     assert name in failure.problem.cause
     assert "by hand" in failure.problem.fix
+
+
+@pytest.mark.parametrize(
+    ("others", "cause"),
+    [
+        pytest.param(
+            ["codec.pth"],
+            "It holds codec.pth, and the lookup cannot tell whether a server loads that file",
+            id="one-file",
+        ),
+        pytest.param(
+            ["codec.pth", "head.pt"],
+            "It holds codec.pth, head.pt, and the lookup cannot tell whether a server loads those files",
+            id="two-files",
+        ),
+    ],
+)
+async def test_the_other_format_refusal_says_no_file_was_sized(others, cause):
+    # The cause said "beside the safetensors files the lookup sized". This refusal comes before any sizing.
+    files = {"config.json": 726, "model.safetensors": 7} | dict.fromkeys(others, 5_000_000)
+    problem = (await FakeHuggingFace(public_repo(info=repo_files(files))).lookup()).problem
+    assert problem.cause == cause
 
 
 @pytest.mark.parametrize(
@@ -560,7 +595,7 @@ async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():
     hf = FakeHuggingFace(public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config=SPEECH_CONFIG))
     failure = await hf.lookup()
     assert isinstance(failure, LookupFailure), failure
-    assert "names a model outside the repo" in failure.problem.message
+    assert "holds a name that reads as another repo's" in failure.problem.message
 
 
 @pytest.mark.parametrize(
@@ -834,20 +869,50 @@ async def test_a_config_without_the_model_shape_names_the_keys_it_lacks():
     assert "num_key_value_heads" not in problem.cause
 
 
+VISION_SHAPE = {"num_hidden_layers": 24, "num_attention_heads": 16, "hidden_size": 1024}
+
+
 @pytest.mark.parametrize(
-    "config",
+    ("config", "where"),
     [
-        pytest.param({"text_config": QWEN_CONFIG}, id="in-a-sub-object"),
-        pytest.param({"n_layer": 36, "n_head": 32, "n_embd": 4096}, id="under-an-older-name"),
+        pytest.param(
+            {"text_config": QWEN_CONFIG},
+            "It found a shape one level down, in text_config. Type in the shape of the part that answers",
+            id="in-a-sub-object",
+        ),
+        pytest.param(
+            {"vision_config": VISION_SHAPE, "text_config": QWEN_CONFIG, "audio_config": {"d_model": 1280}},
+            "It found a shape one level down, in text_config, vision_config. Type in the shape of the part "
+            "that answers",
+            id="in-two-sub-objects-and-not-a-third",
+        ),
+        # llava-hf/llava-1.5-7b-hf: its text_config holds no layer count, and the hint sent the user there.
+        pytest.param(
+            {
+                "text_config": {"model_type": "llama", "vocab_size": 32064},
+                "vision_config": {"image_size": 336},
+            },
+            "It found no shape one level down either. A shape under an older name such as n_layer is read "
+            "off the config and typed in",
+            id="sub-objects-without-a-shape",
+        ),
+        pytest.param(
+            {"n_layer": 36, "n_head": 32, "n_embd": 4096},
+            "It found no shape one level down either. A shape under an older name such as n_layer is read "
+            "off the config and typed in",
+            id="under-an-older-name",
+        ),
     ],
 )
-async def test_a_shape_the_lookup_does_not_look_for_is_refused_as_not_being_at_the_top_level(config):
+async def test_a_shape_not_at_the_top_level_is_refused_and_the_hint_names_only_where_one_is(config, where):
     # The refusal said the config has no whole number above 0 for these keys, which is false of a config
     # that holds them one level down: 1,472 of 3,867 cached configs do.
     problem = (await FakeHuggingFace(public_repo(config=config)).lookup()).problem
     assert problem.cause.endswith("at its top level")
     assert all(key not in config for key in ("num_hidden_layers", "num_attention_heads", "head_dim"))
-    assert "sub-object such as text_config" in problem.fix
+    assert problem.fix == (
+        f"Enter the model facts by hand: the lookup reads the top level of config.json only. {where}"
+    )
 
 
 @pytest.mark.parametrize(

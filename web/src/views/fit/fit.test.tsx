@@ -32,7 +32,7 @@ const REFUSED: Record<string, unknown> = {
   // A draft model. Its own config holds a whole shape (one layer), and the console sends none of it.
   'some/draft': {
     problem: {
-      message: 'The config.json of some/draft describes a second model the repo does not hold',
+      message: 'The config.json of some/draft has the keys of a draft model',
       cause: 'It has draft_vocab_size',
       fix: "Enter the model facts by hand, both the size and the shape. The shape is the target model's, which is the model the server answers with",
     },
