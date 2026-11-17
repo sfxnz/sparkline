@@ -818,8 +818,8 @@ looks for Sparkline's own record or for an active systemd unit that runs `nvidia
 live GPU clock with the cap. A cap that you typed by hand is not visible to the agent.
 
 **One click needs the node's consent.** Install the agent with `--enable-tune` to get the **Apply** and
-**Undo** buttons for that node. Every click asks for confirmation and lists the commands. Without the flag,
-the page shows the same commands for you to type. A setting that something other than Sparkline applied
+**Undo** buttons for that node. Every click asks for confirmation, and the confirmation lists the commands
+that make the same change by hand. Without the flag, the page shows those commands for you to type. A setting that something other than Sparkline applied
 shows as applied, with no **Undo** button: undo it where it was set. [Security model](#security-model) says
 what the flag allows.
 
