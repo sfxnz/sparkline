@@ -310,14 +310,16 @@ def probe(info: NodeInfo, image: str, work_dir: str, sock_path: str = DOCKER_SOC
             message=f"sparkline-agent is CPU-capped on {node}",
             cause=f"Its cgroup allows {cap:g} CPUs (cpu.max), which would throttle this benchmark "
             "and skew its results",
-            fix=f"Run `sudo ./deploy/install.sh agent --enable-benchmarks` on {node}",
+            fix=f"Run `sudo ./deploy/install.sh agent` again on {node} with `--enable-benchmarks` added to "
+            "the flags it was installed with",
         )
     if importlib.util.find_spec("tool_eval_bench") is None:
         env.tool_eval = Problem(
             message=f"tool-eval-bench isn't installed on {node}",
             cause="The agent's Python environment doesn't include the tool-eval-bench package.",
-            fix="Reinstall the agent (`sudo ./deploy/install.sh agent --enable-benchmarks` installs the "
-            "pinned version), or for a dev agent run `server/.venv/bin/pip install tool-eval-bench==2.8.0`.",
+            fix="Reinstall the agent: run `sudo ./deploy/install.sh agent` again with `--enable-benchmarks` "
+            "added to the flags it was installed with, which installs the pinned version. For a dev agent, "
+            "run `server/.venv/bin/pip install tool-eval-bench==2.8.0`.",
         )
     return env
 

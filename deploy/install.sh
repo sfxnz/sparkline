@@ -701,7 +701,7 @@ install_agent() {
 	if [[ $ENABLE_BENCH == 1 ]]; then
 		info "Benchmarks:   enabled (docker group, caps lifted)"
 	else
-		info "Benchmarks:   off (monitor-only). Re-run with --enable-benchmarks to allow them."
+		info "Benchmarks:   off (monitor-only). Re-run with the same flags plus --enable-benchmarks to allow them."
 	fi
 	if [[ $ENABLE_TUNE == 1 ]]; then
 		info "Settings:     one-click enabled (root helper sparkline-tune)"
