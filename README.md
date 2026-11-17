@@ -561,6 +561,10 @@ curl -H "Authorization: Bearer $(sudo cat /etc/prometheus/sparkline-metrics-toke
 
 `metrics_token` opens `/metrics` and no other route, so the Prometheus host never holds the token that
 signs in to the console. The console token opens `/metrics` too. Without a valid token the answer is 401.
+A wrong token counts against the sign-in limit of 10 a minute for the scraper's address. Past the limit, the
+console answers 429 to every request from that address that needs a token, a correct sign-in included, until
+the minute has passed. So a scrape job with a mistyped token and a short interval can keep a browser on the
+same host from signing in.
 
 **Names and units.** Every series starts with `sparkline_` and has a `node` label, the node's `[[nodes]]`
 id. Values are in base units: `_bytes`, `_seconds`, `_celsius`, `_watts`, `_hertz` and `_ratio`. A ratio
