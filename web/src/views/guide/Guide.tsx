@@ -13,7 +13,7 @@ import { isApple } from '../../lib/shortcuts';
 import { useCluster } from '../../store/cluster';
 import { finishGuide, markGuideItem, reopenGuide, setGuideOpen, wantGuide } from '../../store/guide';
 import { useUi } from '../../store/ui';
-import type { Guide as GuideData, GuideItem, GuideRow } from './items';
+import type { Guide as GuideData, GuideRow } from './items';
 import { useGuide } from './useGuide';
 import './guide.css';
 
@@ -72,8 +72,8 @@ function lead(guide: GuideData, stuck: string | undefined): string {
   return `${countWord(guide.total)} things Sparkline does. Each one opens the real page, in any order.`;
 }
 
-export function Guide({ items }: { items?: readonly GuideItem[] }) {
-  const { stage, view, guide, ready } = useGuide(items);
+export function Guide() {
+  const { stage, view, guide, ready } = useGuide();
   const left = useUi((s) => s.guideLeft);
   const wanted = useUi((s) => s.guideWanted);
   const stuck = useCluster((s) => s.order.find((id) => needsSetup(s.nodes[id])));

@@ -30,8 +30,6 @@ export const GUIDE_GROUPS = [
   { id: 'setup', label: 'Set up' },
   { id: 'on', label: 'Already on' },
   { id: 'try', label: 'Try it' },
-  /** Features of the newest release; the heading names it from the rows' `since`. */
-  { id: 'new', label: 'New' },
 ] as const;
 export type GuideGroup = (typeof GUIDE_GROUPS)[number]['id'];
 
@@ -52,8 +50,6 @@ export interface GuideItem {
   stateOnly?: boolean;
   /** A short fact from the cluster, shown beside the title ("1 found"). */
   tag?: (ctx: GuideContext) => string | null;
-  /** The release that added the feature. Rows in the `new` group are headed "New in <since>". */
-  since: string;
 }
 
 const names = (ids: readonly string[]) => (ids.length <= 1 ? (ids[0] ?? '') : `${ids.slice(0, -1).join(', ')} and ${ids.at(-1) ?? ''}`);
@@ -65,7 +61,6 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
     group: 'setup',
     title: 'Connect your nodes',
     icon: Server,
-    since: '0.1.0',
     stateOnly: true,
     done: ({ nodes }) => nodes.length > 0 && !nodes.some(isNewNode),
     tag: ({ nodes }) => {
@@ -91,7 +86,6 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
     group: 'setup',
     title: 'Alerts on your phone',
     icon: Bell,
-    since: '0.2.0',
     done: ({ notifyChannels }) => (notifyChannels ?? 0) > 0,
     tag: ({ notifyChannels }) => (notifyChannels ? plural(notifyChannels, 'channel') : null),
     blurb: 'ntfy, Discord, Slack or a webhook when a node overheats or drops off.',
@@ -102,7 +96,6 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
     group: 'on',
     title: 'Model servers',
     icon: Layers,
-    since: '0.2.0',
     done: ({ servers }) => servers.length > 0,
     tag: ({ servers }) => (servers.length ? `${String(servers.length)} found` : null),
     blurb: ({ servers }) => {
@@ -122,7 +115,6 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
     group: 'on',
     title: 'Prometheus export',
     icon: ChartLine,
-    since: '0.2.0',
     blurb: 'Every reading is already at `/metrics`. Point Prometheus or Grafana at it.',
     to: () => `${paths.settings}#prometheus`,
   },
@@ -131,7 +123,6 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
     group: 'try',
     title: 'Benchmarks',
     icon: Gauge,
-    since: '0.1.0',
     done: ({ benchRuns }) => (benchRuns ?? 0) > 0,
     blurb: 'Measure tokens per second on a node and compare runs side by side.',
     to: () => paths.benchmarks,
@@ -173,12 +164,7 @@ export interface Guide {
 }
 
 export function buildGuide(ctx: GuideContext, items: readonly GuideItem[] = GUIDE_ITEMS): Guide {
-  const sections = GUIDE_GROUPS.map((g) => {
-    const mine = items.filter((i) => i.group === g.id);
-    // "New in 0.3.0": the newest release among the rows, so the heading never needs editing by hand.
-    const newest = mine.map((i) => i.since).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
-    return { id: g.id, label: g.id === 'new' && newest ? `New in ${newest}` : g.label, rows: mine.map((i) => guideRow(i, ctx)) };
-  }).filter((s) => s.rows.length > 0);
+  const sections = GUIDE_GROUPS.map((g) => ({ ...g, rows: items.filter((i) => i.group === g.id).map((i) => guideRow(i, ctx)) })).filter((s) => s.rows.length > 0);
   const rows = sections.flatMap((s) => s.rows);
   return { sections, rows, done: rows.filter((r) => r.done).length, total: rows.length, next: rows.find((r) => !r.done) ?? null };
 }

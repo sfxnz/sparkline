@@ -1,4 +1,4 @@
-import { Lightbulb, Play, Ruler } from 'lucide-react';
+import { FlaskConical } from 'lucide-react';
 import { buildGuide, GUIDE_GROUPS, GUIDE_ITEMS, type GuideContext, type GuideItem } from './items';
 
 const live = (id: string) => ({ node_id: id, status: 'online' as const, first_seen: 100 });
@@ -11,12 +11,12 @@ const row = (id: string, c: GuideContext) => {
   return found;
 };
 
-/** The rows other branches add for 0.3.0: each is one object, as it would be written in GUIDE_ITEMS. */
-const LATER: readonly GuideItem[] = [
-  { id: 'fit', group: 'try', title: 'Will it fit?', blurb: 'See if a Hugging Face model fits a node before you download it.', icon: Ruler, since: '0.3.0', to: () => '/fit' },
-  { id: 'serve-recipe', group: 'new', title: 'Serve a recipe', blurb: 'Start a tuned model server on a node with one click.', icon: Play, since: '0.3.0', to: () => '/recipes' },
-  { id: 'recommendations', group: 'new', title: 'Recommendations', blurb: 'Community settings, checked against each of your nodes.', icon: Lightbulb, since: '0.3.0', to: () => '/recommendations' },
+/** Rows as another feature would add them: each is one object, as it would be written in GUIDE_ITEMS. */
+const FAKE: readonly GuideItem[] = [
+  { id: 'fake-row-a', group: 'try', title: 'Fake row A', blurb: 'Not a feature.', icon: FlaskConical, to: () => '/fake-a' },
+  { id: 'fake-row-b', group: 'setup', title: 'Fake row B', blurb: 'Not a feature either.', icon: FlaskConical, to: () => '/fake-b' },
 ];
+const EVERY_ROW = GUIDE_ITEMS.map((i) => i.id);
 
 describe('the guide table', () => {
   it('has unique kebab-case ids and a real route for every row', () => {
@@ -29,22 +29,28 @@ describe('the guide table', () => {
     }
   });
 
-  it('draws five rows in three groups today, in the order a person would take them', () => {
+  it('draws every row once, in the groups’ order, and starts with connecting the nodes', () => {
     const g = buildGuide(ctx());
-    expect(g.sections.map((s) => [s.label, s.rows.map((r) => r.item.id)])).toEqual([
-      ['Set up', ['connect-nodes', 'notifications']],
-      ['Already on', ['model-servers', 'prometheus']],
-      ['Try it', ['benchmarks']],
-    ]);
-    expect(g.total).toBe(5);
+    expect(g.total).toBe(GUIDE_ITEMS.length);
+    expect([...g.rows.map((r) => r.item.id)].sort()).toEqual([...EVERY_ROW].sort());
+    const order = GUIDE_GROUPS.map((group) => group.id);
+    expect(g.sections.map((s) => s.id)).toEqual(order.filter((id) => GUIDE_ITEMS.some((i) => i.group === id)));
+    expect(g.rows[0]?.item.id).toBe('connect-nodes');
   });
 
-  it('takes a new row as one object: eight rows make four groups, and the new group names its release', () => {
-    const g = buildGuide(ctx(), [...GUIDE_ITEMS, ...LATER]);
-    expect(g.total).toBe(8);
-    expect(g.sections.map((s) => [s.label, s.rows.length])).toEqual([['Set up', 2], ['Already on', 2], ['Try it', 2], ['New in 0.3.0', 2]]);
+  it('takes a new row as one object: it is drawn in its group after the rows above it, counted, and done once opened', () => {
+    const items = [...GUIDE_ITEMS, ...FAKE];
+    const g = buildGuide(ctx(), items);
+    expect(g.total).toBe(GUIDE_ITEMS.length + FAKE.length);
+    expect(g.sections.find((s) => s.id === 'try')?.rows.at(-1)).toMatchObject({ item: { id: 'fake-row-a' }, done: false, to: '/fake-a', blurb: 'Not a feature.', tag: null });
+    expect(g.sections.find((s) => s.id === 'setup')?.rows.at(-1)?.item.id).toBe('fake-row-b');
     // With nothing to derive it from, a row is done once the person has opened it.
-    expect(buildGuide(ctx({ seen: new Set(['fit']) }), [...GUIDE_ITEMS, ...LATER]).rows.find((r) => r.item.id === 'fit')?.done).toBe(true);
+    const opened = buildGuide(ctx({ seen: new Set(['fake-row-a']) }), items);
+    expect(opened.rows.find((r) => r.item.id === 'fake-row-a')?.done).toBe(true);
+    expect(opened.done).toBe(g.done + 1);
+    // The guide is not complete until the new rows are done too.
+    expect(buildGuide(ctx({ seen: new Set(EVERY_ROW) }), items).next?.item.id).toBe('fake-row-b');
+    expect(buildGuide(ctx({ seen: new Set([...EVERY_ROW, 'fake-row-a', 'fake-row-b']) }), items).next).toBeNull();
   });
 
   it('does not draw a group that has no rows', () => {
@@ -59,11 +65,12 @@ describe('a row is done when the person has opened it or the cluster’s own sta
     const opened = (id: string) => ctx({ nodes: [refused('spark1')], seen: new Set([id]) });
     for (const item of GUIDE_ITEMS) {
       expect(row(item.id, nothingYet).done, item.id).toBe(false);
-      expect(row(item.id, opened(item.id)).done, item.id).toBe(item.id !== 'connect-nodes');
+      expect(row(item.id, opened(item.id)).done, item.id).toBe(!item.stateOnly);
     }
     // Shown by the cluster, never opened.
     const shown = ctx({ servers: [{ node: 'spark1', name: 'm' }], notifyChannels: 1, benchRuns: 1 });
-    expect(buildGuide(shown).rows.filter((r) => r.done).map((r) => r.item.id)).toEqual(['connect-nodes', 'notifications', 'model-servers', 'benchmarks']);
+    for (const id of ['connect-nodes', 'notifications', 'model-servers', 'benchmarks']) expect(row(id, shown).done, id).toBe(true);
+    expect(row('prometheus', shown).done).toBe(false);
   });
 
   it('connect-nodes: done when every node has reported; until then it says who is missing and links to their fix', () => {
@@ -106,11 +113,11 @@ describe('a row is done when the person has opened it or the cluster’s own sta
 
   it('counts what is done and names the next row, which moves on as rows are opened', () => {
     const g = buildGuide(ctx({ servers: [{ node: 'spark1', name: 'm' }] }));
-    expect([g.done, g.total, g.next?.item.id]).toEqual([2, 5, 'notifications']);
+    expect([g.done, g.next?.item.id]).toEqual([2, 'notifications']);
     const afterAlerts = buildGuide(ctx({ servers: [{ node: 'spark1', name: 'm' }], seen: new Set(['notifications']) }));
     expect([afterAlerts.done, afterAlerts.next?.item.id]).toEqual([3, 'prometheus']);
     // Every page opened on a cluster with no channel and no run: the guide can finish.
-    const all = buildGuide(ctx({ seen: new Set(['notifications', 'model-servers', 'prometheus', 'benchmarks']) }));
-    expect([all.done, all.next]).toEqual([5, null]);
+    const all = buildGuide(ctx({ seen: new Set(EVERY_ROW) }));
+    expect([all.done, all.next]).toEqual([all.total, null]);
   });
 });

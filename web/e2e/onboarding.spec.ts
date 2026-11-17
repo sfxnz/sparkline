@@ -88,7 +88,13 @@ async function expectJustUnderToolbar(page: Page, selector: string) {
 
 const setupCard = (page: Page) => page.getByRole('region', { name: 'Node spark3, not connected yet' });
 const guidePanel = (page: Page) => page.getByRole('region', { name: 'Getting started', exact: true });
-const guideStrip = (page: Page) => page.getByRole('region', { name: /^Getting started, \d of \d done$/ });
+const guideStrip = (page: Page) => page.getByRole('region', { name: /^Getting started, \d+ of \d+ done$/ });
+/** How many rows the guide has, as its own meter says ("N of M done"). The table in views/guide/items.ts decides,
+ *  so a row added there changes nothing here. */
+async function guideTotal(page: Page): Promise<number> {
+  const label = await guidePanel(page).getByRole('img', { name: /^\d+ of \d+ done$/ }).getAttribute('aria-label');
+  return Number(/of (\d+)/.exec(label ?? '')?.[1]);
+}
 
 /** Nothing on the page says a node that has never answered is broken. */
 async function expectNoAlarm(page: Page) {
@@ -147,10 +153,12 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await page.goto(`${BASE}/`);
 
   const panel = guidePanel(page);
-  await expect(panel.getByRole('listitem')).toHaveCount(5);
+  const total = await guideTotal(page);
+  expect(total).toBeGreaterThan(0);
+  await expect(panel.getByRole('listitem')).toHaveCount(total);
   await expect(panel.getByRole('heading', { level: 3 })).toHaveText(['Set up', 'Already on', 'Try it']);
   const entry = page.getByRole('link', { name: /^Get started/ });
-  await expect(entry).toContainText(/\d of 5/);
+  await expect(entry).toContainText(new RegExp(`\\d+ of ${total}`));
 
   await panel.getByRole('link', { name: /^Prometheus export/ }).click();
   await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
@@ -188,7 +196,7 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await page.getByRole('button', { name: 'Open getting started' }).click();
   await expect(page).toHaveURL(`${BASE}/`);
   await expect(guidePanel(page)).toBeFocused();
-  await expect(guidePanel(page).getByRole('listitem')).toHaveCount(5);
+  await expect(guidePanel(page).getByRole('listitem')).toHaveCount(total);
 });
 
 test('a guide that finished itself comes back from Settings and from Search, and stays until it is dismissed', { annotation: { type: 'demo-speed', description: '4' } }, async ({ page, context }) => {
@@ -196,7 +204,7 @@ test('a guide that finished itself comes back from Settings and from Search, and
   const panel = guidePanel(page);
   // Every node has answered (spark3 about 10 s in at this speed), so what is left is rows to open.
   await expect(panel.getByText('All 3 nodes are live.')).toBeVisible({ timeout: 40_000 });
-  const total = await panel.getByRole('listitem').count();
+  const total = await guideTotal(page);
   const todo = panel.getByRole('link').filter({ hasNotText: '(done)' });
   const opens = await todo.count();
   expect(opens).toBeGreaterThan(0);
@@ -268,7 +276,7 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await expectNoAlarm(page);
 
   await page.evaluate(() => { window.scrollTo(0, 0); });
-  const chip = page.getByRole('button', { name: /^Getting started \d of 5/ });
+  const chip = page.getByRole('button', { name: /^Getting started \d+ of \d+/ });
   await expect(chip).toBeVisible();
   await expect(guidePanel(page)).not.toBeInViewport();
   await chip.click();
@@ -290,7 +298,7 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await expect(guideStrip(page).getByRole('button', { name: 'Show all' })).toBeVisible();
   expect(await noSidewaysScroll(page)).toBe(true);
   await guideStrip(page).getByRole('button', { name: 'Show all' }).click();
-  await expect(guidePanel(page).getByRole('listitem')).toHaveCount(5);
+  await expect(guidePanel(page).getByRole('listitem')).toHaveCount(await guideTotal(page));
   await guidePanel(page).getByRole('link', { name: /^Prometheus export/ }).click();
   await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
   await expectJustUnderToolbar(page, '#prometheus');
@@ -357,7 +365,7 @@ test('the main path with a keyboard only', async ({ page }) => {
   await expect(guidePanel(page)).toBeFocused();
   // Collapse, Show all, Dismiss and Bring it back each go away when pressed: the keyboard goes to the control that
   // takes their place, so the next key press still does something.
-  const strip = page.getByRole('region', { name: /^Getting started, \d of 5 done$/ });
+  const strip = guideStrip(page);
   await tabTo(guidePanel(page).getByRole('button', { name: 'Collapse' }));
   await page.keyboard.press('Enter');
   await expect(strip.getByRole('button', { name: 'Show all' })).toBeFocused();

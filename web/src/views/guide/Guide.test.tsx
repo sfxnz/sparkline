@@ -1,7 +1,6 @@
 // The guide's three shapes follow the console's Onboarding, and everything it stores goes to the console.
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Lightbulb, Play, Ruler } from 'lucide-react';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import { mergeOnboarding } from '../../lib/onboarding';
@@ -17,7 +16,7 @@ import sampleJson from '../../test/fixtures/sample.json';
 import { CommandPalette } from '../../app/CommandPalette';
 import { AboutSection } from '../settings/AboutSection';
 import { Guide, GuideChip, GuideEntry } from './Guide';
-import { GUIDE_ITEMS, type GuideItem } from './items';
+import { GUIDE_ITEMS } from './items';
 
 const now = Date.now() / 1000;
 const node = (id: string, p: Partial<NodeState> = {}): NodeState => ({
@@ -45,16 +44,19 @@ function consoleWith({ channels = 0, runs = 0 }: { channels?: number; runs?: num
     return json([]);
   });
 }
-function show(onboarding: Onboarding | undefined, opts: { nodes?: NodeState[]; items?: readonly GuideItem[]; path?: string } = {}) {
+function show(onboarding: Onboarding | undefined, opts: { nodes?: NodeState[]; path?: string } = {}) {
   useCluster.getState().setHello(cluster(onboarding, opts.nodes));
   const loc = memoryLocation({ path: opts.path ?? '/', record: true });
-  render(<Router hook={loc.hook}><GuideChip /><Guide items={opts.items} /><GuideEntry collapsed={false} /><AboutSection /><CommandPalette /></Router>);
+  render(<Router hook={loc.hook}><GuideChip /><Guide /><GuideEntry collapsed={false} /><AboutSection /><CommandPalette /></Router>);
   return loc;
 }
 const panel = () => screen.getByRole('region', { name: 'Getting started' });
 // jsdom has no layout, so Testing Library joins the text of sibling spans without the space a browser reads
 // between them; the names below allow for it, and e2e/onboarding.spec.ts reads the real ones.
-const strip = () => screen.getByRole('region', { name: /^Getting started, \d of \d done$/ });
+const strip = () => screen.getByRole('region', { name: /^Getting started, \d+ of \d+ done$/ });
+// The table decides how many rows there are and which: a row added to GUIDE_ITEMS changes no test here.
+const ROWS = GUIDE_ITEMS.length;
+const EVERY_ROW = GUIDE_ITEMS.map((i) => i.id);
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = () => undefined;
@@ -73,21 +75,21 @@ describe('the guide follows the console', () => {
   it('shows every row, grouped, on a first visit', async () => {
     show(first);
     const p = panel();
-    expect(within(p).getByText('Five things Sparkline does. Each one opens the real page, in any order.')).toBeInTheDocument();
+    expect(within(p).getByText(/^\w+ things Sparkline does\. Each one opens the real page, in any order\.$/)).toBeInTheDocument();
     expect(within(p).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Set up', 'Already on', 'Try it']);
-    expect(within(p).getAllByRole('listitem')).toHaveLength(5);
+    expect(within(p).getAllByRole('listitem')).toHaveLength(ROWS);
     // spark1 has reported, so "Connect your nodes" is already done. Its nodes are on this page: it is not a link.
     expect(within(p).getByText('Connect your nodes').closest('.guide-tile')).toHaveTextContent(/Connect your nodes\s*\(done\)/);
     expect(within(p).queryByRole('link', { name: /Connect your nodes/ })).toBeNull();
-    expect(within(p).getAllByRole('link')).toHaveLength(4);
-    expect(within(p).getByRole('img', { name: '1 of 5 done' })).toBeInTheDocument();
+    expect(within(p).getAllByRole('link')).toHaveLength(ROWS - 1);
+    expect(within(p).getByRole('img', { name: `1 of ${ROWS} done` })).toBeInTheDocument();
     await waitFor(() => { expect(fetch).toHaveBeenCalledWith('/api/v1/notify/channels', expect.anything()); });
   });
 
   it('is one line with the next step once the person has opened something', () => {
     show({ ...first, seen: ['prometheus'] });
     const s = strip();
-    expect(s).toHaveAccessibleName('Getting started, 2 of 5 done');
+    expect(s).toHaveAccessibleName(`Getting started, 2 of ${ROWS} done`);
     expect(within(s).getByRole('link', { name: /Next\s*Alerts on your phone/ })).toHaveAttribute('href', '/alerts#notifications');
     expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull();
   });
@@ -96,7 +98,7 @@ describe('the guide follows the console', () => {
     // No channel and no benchmark run on this console: the Alerts and Benchmarks pages were opened, and that counts.
     show({ ...first, seen: ['notifications', 'benchmarks'] });
     const s = strip();
-    expect(s).toHaveAccessibleName('Getting started, 3 of 5 done');
+    expect(s).toHaveAccessibleName(`Getting started, 3 of ${ROWS} done`);
     expect(within(s).getByRole('link', { name: /Next\s*Model servers/ })).toBeInTheDocument();
   });
 
@@ -138,7 +140,7 @@ describe('what the person does is kept by the console', () => {
     await userEvent.click(within(panel()).getByRole('link', { name: /Prometheus export/ }));
     expect(sent).toEqual([{ seen: ['prometheus'] }]);
     expect(loc.history.at(-1)).toBe('/settings#prometheus');
-    expect(await screen.findByRole('region', { name: 'Getting started, 2 of 5 done' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: `Getting started, 2 of ${ROWS} done` })).toBeInTheDocument();
   });
 
   it('Collapse and Show all are this browser’s choice and send nothing', async () => {
@@ -184,15 +186,16 @@ describe('what the person does is kept by the console', () => {
   });
 
   it('finishes itself when every row is done, with one quiet line', async () => {
+    // The console has a channel and a run. Every other row was opened.
     consoleWith({ channels: 1, runs: 1 });
-    show({ ...first, seen: ['model-servers', 'prometheus'] });
+    show({ ...first, seen: EVERY_ROW.filter((id) => id !== 'notifications' && id !== 'benchmarks') });
     await waitFor(() => { expect(sent).toEqual([{ finished: true }]); });
     expect(screen.getByRole('status')).toHaveTextContent('That is all of it. Getting started is put away. It stays in Settings and in Search (Ctrl K).');
     expect(screen.queryByRole('button', { name: 'Bring it back' })).toBeNull();
   });
 
   it('finishes itself once every page has been opened, on a console with no channel and no run', async () => {
-    show({ ...first, seen: ['notifications', 'model-servers', 'prometheus', 'benchmarks'] });
+    show({ ...first, seen: EVERY_ROW });
     await waitFor(() => { expect(sent).toEqual([{ finished: true }]); });
     expect(screen.getByRole('status')).toHaveTextContent('That is all of it. Getting started is put away.');
   });
@@ -202,7 +205,7 @@ describe('what the person does is kept by the console', () => {
     let answer = () => {};
     const asked = new Promise<void>((done) => { answer = done; });
     vi.mocked(fetch).mockImplementation((...args) => asked.then(() => theConsole?.(...args) ?? Response.error()));
-    show({ ...first, seen: ['model-servers', 'prometheus', 'notifications', 'benchmarks'] });
+    show({ ...first, seen: EVERY_ROW });
     await act(() => Promise.resolve());
     expect(strip()).toBeInTheDocument();
     // The request for the two counts is shared by every test in this file: it ends with this one.
@@ -213,7 +216,7 @@ describe('what the person does is kept by the console', () => {
 
   it.each(['Settings', 'Search'])('a guide that finished itself comes back from %s and stays, every row ticked, until it is dismissed', async (from) => {
     const user = userEvent.setup();
-    const loc = show({ ...first, seen: GUIDE_ITEMS.map((i) => i.id) }, { path: '/settings' });
+    const loc = show({ ...first, seen: EVERY_ROW }, { path: '/settings' });
     await waitFor(() => { expect(sent).toEqual([{ finished: true }]); });
     await waitFor(() => { expect(useCluster.getState().onboarding?.finished).not.toBeNull(); });
 
@@ -230,7 +233,7 @@ describe('what the person does is kept by the console', () => {
     await act(() => new Promise<void>((done) => { setTimeout(done, 50); }));
     expect(sent).toEqual([{ finished: true }, { finished: false }]);
     const rows = within(panel()).getAllByRole('listitem');
-    expect(rows).toHaveLength(GUIDE_ITEMS.length);
+    expect(rows).toHaveLength(ROWS);
     for (const row of rows) expect(row).toHaveTextContent('(done)');
     expect(within(panel()).getByRole('link', { name: /Prometheus export\s*\(done\)/ })).toHaveAttribute('href', '/settings#prometheus');
 
@@ -241,11 +244,11 @@ describe('what the person does is kept by the console', () => {
   });
 
   it('a guide brought back on another device is not put away by this one', async () => {
-    show({ ...first, seen: GUIDE_ITEMS.map((i) => i.id), finished: now });
-    act(() => { dispatch({ type: 'onboarding', onboarding: { ...first, seen: GUIDE_ITEMS.map((i) => i.id), reopened: true } }); });
+    show({ ...first, seen: EVERY_ROW, finished: now });
+    act(() => { dispatch({ type: 'onboarding', onboarding: { ...first, seen: EVERY_ROW, reopened: true } }); });
     await waitFor(() => { expect(useGuideFacts.getState().benchRuns).not.toBeNull(); });
     await act(() => new Promise<void>((done) => { setTimeout(done, 50); }));
-    expect(strip()).toHaveAccessibleName(`Getting started, ${GUIDE_ITEMS.length} of ${GUIDE_ITEMS.length} done`);
+    expect(strip()).toHaveAccessibleName(`Getting started, ${ROWS} of ${ROWS} done`);
     expect(sent).toEqual([]);
   });
 
@@ -272,8 +275,8 @@ describe('the sidebar entry and the phone chip', () => {
   it('show a plain count while the guide is unfinished and bring it into view', async () => {
     const loc = show({ ...first, seen: ['prometheus'] }, { path: '/alerts' });
     const entry = screen.getByRole('link', { name: /Get started/ });
-    expect(entry).toHaveTextContent('Get started2 of 5 done');
-    expect(screen.getByRole('button', { name: /Getting started\s*2 of 5/ })).toBeInTheDocument();
+    expect(entry).toHaveTextContent(`Get started2 of ${ROWS} done`);
+    expect(screen.getByRole('button', { name: new RegExp(`Getting started\\s*2 of ${ROWS}`) })).toBeInTheDocument();
     await userEvent.click(entry);
     expect(loc.history.at(-1)).toBe('/');
     await waitFor(() => { expect(screen.getByRole('region', { name: 'Getting started' })).toHaveFocus(); });
@@ -282,32 +285,11 @@ describe('the sidebar entry and the phone chip', () => {
 
   it('going to a guide that is already shown in full leaves this browser’s preference alone', async () => {
     show(first);
-    await userEvent.click(screen.getByRole('button', { name: /Getting started\s*1 of 5/ }));
+    await userEvent.click(screen.getByRole('button', { name: new RegExp(`Getting started\\s*1 of ${ROWS}`) }));
     await waitFor(() => { expect(panel()).toHaveFocus(); });
     expect(usePrefs.getState().guideOpen).toBeNull();
     // So it still becomes one line once the person has opened something.
     await userEvent.click(within(panel()).getByRole('link', { name: /Prometheus export/ }));
-    expect(await screen.findByRole('region', { name: 'Getting started, 2 of 5 done' })).toBeInTheDocument();
-  });
-});
-
-describe('adding a row is one object in the table', () => {
-  const LATER: readonly GuideItem[] = [
-    { id: 'fit', group: 'try', title: 'Will it fit?', blurb: 'See if a Hugging Face model fits a node before you download it.', icon: Ruler, since: '0.3.0', to: () => '/fit' },
-    { id: 'serve-recipe', group: 'new', title: 'Serve a recipe', blurb: 'Start a tuned model server on a node with one click.', icon: Play, since: '0.3.0', to: () => '/recipes' },
-    { id: 'recommendations', group: 'new', title: 'Recommendations', blurb: 'Community settings, checked against each of your nodes.', icon: Lightbulb, since: '0.3.0', to: () => '/recommendations' },
-  ];
-
-  it('draws eight rows in four groups, counts them, and marks one seen like any other', async () => {
-    const loc = show(first, { items: [...GUIDE_ITEMS, ...LATER] });
-    const p = panel();
-    expect(within(p).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Set up', 'Already on', 'Try it', 'New in 0.3.0']);
-    expect(within(p).getAllByRole('listitem')).toHaveLength(8);
-    expect(within(p).getByText('Eight things Sparkline does. Each one opens the real page, in any order.')).toBeInTheDocument();
-    expect(within(p).getByRole('img', { name: '1 of 8 done' })).toBeInTheDocument();
-    await userEvent.click(within(p).getByRole('link', { name: /Serve a recipe/ }));
-    expect(sent).toEqual([{ seen: ['serve-recipe'] }]);
-    expect(loc.history.at(-1)).toBe('/recipes');
-    expect(await screen.findByRole('region', { name: 'Getting started, 2 of 8 done' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: `Getting started, 2 of ${ROWS} done` })).toBeInTheDocument();
   });
 });
