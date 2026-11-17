@@ -38,6 +38,7 @@ log = logging.getLogger("sparkline.console.nodes")
 
 BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 30.0
+BACKOFF_NEW_CAP_S = 5.0  # a node that has never answered: someone is setting it up and watching the page
 RING_S = 900.0
 SKEW_WARN_S = 5.0
 
@@ -281,7 +282,10 @@ class NodeSource:
         self._wake.set()
 
     def backoff_delay(self) -> float:
-        return min(BACKOFF_CAP_S, BACKOFF_BASE_S * 2 ** min(self._attempt, 10) * random.uniform(0.8, 1.2))
+        """The wait before the next try: doubling, up to 30 s for a node that has answered before. Until a
+        node's first answer the wait stays short, so starting its agent shows on the page within seconds."""
+        cap = BACKOFF_NEW_CAP_S if self.state.first_seen is None else BACKOFF_CAP_S
+        return min(cap, BACKOFF_BASE_S * 2 ** min(self._attempt, 10) * random.uniform(0.8, 1.2))
 
     async def run(self) -> None:
         while True:

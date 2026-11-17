@@ -37,7 +37,7 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   `PUT /api/v1/onboarding` records an opened guide row, a dismissal or a reopening, and every open tab
   follows through an `onboarding` message.
 - `--demo-first-run` runs the demo as a new install: two nodes connect within seconds and the last one
-  refuses connections for about 45 s.
+  refuses connections at first and is live about 45 s in.
 
 ### Changed
 
@@ -46,6 +46,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   offline alerts as before.
 - Each installer ends with the one next step: the agent installer with the console command for that host,
   and the console installer with the nodes it will show and the sign-in link.
+- The console tries a node that has never answered every 5 s at most, so starting its agent shows on the
+  page within seconds. A node that has answered before is tried up to 30 s apart, as before.
 - The fix for "Agent unreachable" on a refused connection says what to run: the command that starts the
   agent, the command that shows why it did not stay up and, for a node that has never answered, the install
   command. The fix for a rejected agent token says how to compare the two tokens and which service to

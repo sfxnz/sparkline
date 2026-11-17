@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from sparkline.common.schema import ConsoleSettings, NodeInfo
+from sparkline.common.schema import ConsoleSettings, NodeInfo, Sample
 from sparkline.console.cluster import Cluster
 from sparkline.console.hub import Hub
 from sparkline.console.nodes import (
@@ -144,6 +144,29 @@ async def test_only_a_node_that_has_never_answered_is_told_how_to_install_the_ag
         fixes[name] = src.state.error.fix
     assert "sudo ./install.sh agent" in fixes["new"]
     assert "install" not in fixes["known"] and fixes["known"].startswith("Start the agent on known")
+
+
+def test_a_node_is_retried_within_seconds_until_its_first_answer_and_backs_off_to_30_s_after(tmp_path):
+    """Someone setting a node up is watching the page: starting its agent must show within about 5 s."""
+    info = json.loads((Path(__file__).parent / "fixtures/console/node_info.json").read_text())
+    sample = json.loads((Path(__file__).parent / "fixtures/console/sample.json").read_text())
+    cluster = Cluster(Store(tmp_path / "c.sqlite"), Hub(), ConsoleSettings())
+    src = NodeSource("n", URL, cluster)
+    cluster.add_source(src)
+
+    def waits() -> list[float]:
+        out = []
+        for src._attempt in range(12):
+            out.append(src.backoff_delay())
+        return out
+
+    never_answered = waits()
+    assert never_answered[0] <= 1.2 and max(never_answered) == 5.0, never_answered
+    src.got_hello(NodeInfo.model_validate(info))
+    src.got_sample(Sample.model_validate(sample))
+    assert src.state.first_seen is not None
+    answered_once = waits()
+    assert answered_once[0] <= 1.2 and max(answered_once) == 30.0, answered_once
 
 
 def test_stale_threshold_respects_the_agent_interval(tmp_path):

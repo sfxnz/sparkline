@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> None:
         "--demo-first-run",
         action="store_true",
         help="demo of a new install: nobody has signed in, two nodes connect within seconds and the last one "
-        "refuses connections for about 45 s",
+        "refuses connections at first and is live about 45 s in",
     )
     p.add_argument(
         "--allow-public", action="store_true", help="allow binding a public / all-interfaces address"

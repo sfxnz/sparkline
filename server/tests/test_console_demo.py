@@ -521,7 +521,8 @@ async def test_the_live_energy_counter_of_every_gpu_integrates_its_power(node, s
 
 
 def test_the_first_run_demo_brings_up_two_nodes_in_turn_and_the_last_after_it_stops_refusing(tmp_path):
-    """At 10x: hellos at 0.2 s and 0.7 s, the last node refused until 4.4 s. A first sample follows by 1 s."""
+    """At 10x: hellos at 0.2 s and 0.7 s, the last node refused until 4.1 s and found by the next try, which
+    for a node that has never answered is at most 5 s later. A first sample follows by 1 s."""
     cfg = ConsoleConfig(web_dist=tmp_path / "x")
     t0 = time.time()
     with TestClient(create_app(cfg, tmp_path / "data", demo=True, demo_speed=10, demo_first_run=True)) as c:
@@ -538,7 +539,7 @@ def test_the_first_run_demo_brings_up_two_nodes_in_turn_and_the_last_after_it_st
                     refused = n
             time.sleep(0.05)
         assert list(live) == ["spark1", "spark2", "spark3"], live
-        assert 1.2 <= live["spark1"] <= live["spark2"] < 5.4 <= live["spark3"] < 15, live
+        assert 1.2 <= live["spark1"] <= live["spark2"] < 5.1 <= live["spark3"] < 11, live
         assert live["spark2"] >= 1.7, live
         assert refused is not None and refused["node_id"] == "spark3"
         assert refused["error"]["cause"].startswith("Connection refused at ")

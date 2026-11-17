@@ -738,9 +738,10 @@ class DemoModel:
 
 
 # --demo-first-run, in scenario seconds: when each node but the last says hello, and how long the last one
-# refuses connections. A node's first sample, which turns it online, follows its hello by 1 s.
+# refuses connections. A node's first sample, which turns it online, follows its hello by 1 s. The last node
+# is found by the console's next try, at most BACKOFF_NEW_CAP_S after it stops refusing: live at 42 to 47 s.
 FIRST_RUN_HELLO_S = (2.0, 7.0)
-FIRST_RUN_REFUSED_S = 44.0
+FIRST_RUN_REFUSED_S = 41.0
 
 
 def first_run_script(i: int, n: int, t0: float, speed: float) -> tuple[float, bool]:
@@ -768,11 +769,6 @@ class DemoSource(NodeSource):
         return ConnectionRefusedError(
             errno.ECONNREFUSED, f"Connect call failed ('{self.model.lan_ip}', 9750)"
         )
-
-    def backoff_delay(self) -> float:
-        """The retry after a scripted first refusal comes when the refusal ends, not up to 30 s later."""
-        delay, wait = super().backoff_delay(), self.hello_at - time.time()
-        return min(delay, wait) if wait > 0 else delay
 
     async def session(self) -> None:
         wait = self.hello_at - time.time()

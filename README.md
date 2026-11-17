@@ -374,7 +374,7 @@ result worse than its baseline by more than this is flagged).
 Console flags: `--config`, `--bind`, `--port`, `--data-dir`, `--web-dist`, `--allow-public`, `--log-level`,
 `--demo`, `--demo-speed` (compress the demo's failure schedule), `--demo-empty-bench` (demo without seeded
 benchmark history) and `--demo-first-run` (demo of a new install: two nodes connect within seconds and the
-last one refuses connections for about 45 s. The clock starts with the console, so open the app straight
+last one refuses connections at first and is live about 45 s in. The clock starts with the console, so open the app straight
 away. With a `token` in `--config`, nobody has signed in yet and the sign-in page shows its first-run
 welcome).
 
