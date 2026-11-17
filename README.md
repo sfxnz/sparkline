@@ -406,13 +406,14 @@ What each kind sends, always as a JSON `POST`:
   `metric`, `value`) plus `status` (`"firing"` or `"resolved"`) and `severity`, which is the alert's severity
   also on its recovery. `notices` is a list even for one alert. `more` counts notices left out.
 
-Alerts that fire together arrive as one message: "3 alerts, 1 resolved" and one line for each. A channel gets
-at most one message a second. On HTTP 429 the console waits as long as `Retry-After` asks. On a 5xx answer or
-a network error it tries again after about 5 s, 15 s, 60 s, then every 5 minutes, and keeps up to 50
+Alerts that fire at the same moment arrive as one message: "3 alerts, 1 resolved" and one line for each. A
+channel gets at most one message a second. On HTTP 429 the console waits as long as `Retry-After` asks, up to
+15 minutes. On a 5xx answer or a network error it tries again after about 5 s, 15 s, 60 s, then every 5 minutes, and keeps up to 50
 notices meanwhile; the next message says how many more there were. Any other 4xx answer, or a redirect,
 drops the message, because sending it again cannot work. Waiting notices are not stored: when the console
 stops it tries each channel once more and drops the rest, and after a restart an alert that still holds
-fires again.
+fires again. An alert whose condition ended while the console was down gets no "Resolved" message, so check
+the console after a restart if a channel still shows an alert as open.
 
 The **Alerts** view lists the channels with the host, what each one sends, and how its last delivery went.
 **Send test** sends a test message now and shows the result, with the reason when it fails. Channels are
