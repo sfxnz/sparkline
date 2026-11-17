@@ -181,21 +181,32 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   `n_layer`, is typed in by hand. An index over 1 MiB is not read. If every safetensors file in the repo is
   then a shard of one set at its top level (`model-00001-of-00026.safetensors` and so on), the lookup shows
   their total and says so beside the number: a server loads those files or fewer of them. Anything else
-  shows no size and says what it found, naming the string in the config, the adapter, the draft model's
-  keys, the left-over file or the format it does not read, and what to add up by hand.
+  shows no size and a refusal.
 
-  A refusal over a second model fills in nothing, neither a size nor a shape. That is a config string naming
-  another repo, an adapter, or a draft model's keys. A draft model's own `config.json` holds the draft's
-  shape, often a single layer, and a server answers with the target model. So the refusal asks for both
-  numbers: the size of this repo's weight files plus the other model's, and the shape of the model the
-  server answers with. Any other refusal still fills in the shape it read and asks for the size.
+  A refusal has two parts. The first says what the lookup read: the file or the `config.json` string it
+  saw, and that the lookup cannot tell where that leaves a question open. For a repo with an
+  `adapter_config.json` it says the repo has that file and that the lookup cannot tell whether the repo's
+  files hold the base model. For a `config.json` whose top level holds no shape it says so and names no
+  sub-object. It never says what a server loads, what kind of model the repo is, or where a number can be
+  read, because advice that is true of one repo is untrue of the next. The second part is one of two
+  instructions, in the same words for every repo. One asks for the size: the total of every weight file
+  the server loads, in every folder of the repo and in any other repo. The other asks for the size and for
+  the shape of the language model that answers, not of a vision, audio or other part. A multimodal model's
+  `config.json` can keep the language model's shape in a sub-object beside those of its other parts.
 
-  By hand the weights are the total of every weight file a server loads, in GiB as this page shows sizes or
-  in GB as the repo's Files tab lists each file, and never a parameter count: for a 16-bit model the count
-  in GB is half of what its files hold, and a quantised model has no fixed ratio. A result says where the
-  size and the shape each came from, read from the repo or typed by hand. A size the lookup read keeps its
-  label, and the sentence on what it leaves out, when you retype the shape. A result built from typed
-  numbers alone says that the console read nothing and can check nothing.
+  A refusal fills in the shape alone, or nothing. It fills in nothing after a sign of a second model (a
+  config string naming another repo, an `adapter_config.json`, a draft model's keys), because the shape in
+  that config can be a draft's, often a single layer, or one part's. It fills in nothing when the repo, its
+  file list or its `config.json` could not be read, or when the config's top level holds no shape. Any
+  other refusal fills in the shape it read and asks for the size.
+
+  By hand the weights are the total of every weight file the server loads, in every folder of the repo and
+  in any other repo, in GiB as this page shows sizes or in GB, and never a parameter count: for a 16-bit
+  model the count in GB is half of what its files hold, and a quantised model has no fixed ratio. A result
+  says where the size and the shape each came from, read from the repo or typed by hand. A size the lookup
+  read keeps its label, and the sentence on what it leaves out, when you retype the shape. A result built
+  from typed numbers alone says that the console read nothing and can check nothing. A lookup replaces the
+  model on the form and takes an earlier result off the page, whether it answers or refuses.
 
   A unified-memory node offers its available memory minus 4 GiB. A node with dedicated GPU memory offers the
   free memory of its emptiest GPU, so the verdict is for a model on one GPU. On a GB10, vLLM's
