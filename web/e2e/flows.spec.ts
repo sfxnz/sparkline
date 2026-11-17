@@ -138,7 +138,8 @@ test('an open alert can be acknowledged, and stays acknowledged after a reload',
   await expect(page.getByText(/Acknowledged|Open · acknowledged/).first()).toBeVisible();
 });
 
-test('with no [[notify]] table the Alerts view shows how to add a channel', async ({ page }) => {
+test('with no [[notify]] table the Alerts view shows how to add a channel', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/alerts');
   await ready(page);
   const panel = page.getByRole('region', { name: 'Notifications' });
@@ -156,11 +157,14 @@ test('with no [[notify]] table the Alerts view shows how to add a channel', asyn
       return {
         outside: [...card.querySelectorAll('.state__title, .state__copy p, .cmd, pre, button')].filter(out).map((el) => el.className || el.tagName),
         wordsWrap: !!words && words.scrollWidth <= words.clientWidth,
-        snippetScrolls: !!snippet && getComputedStyle(snippet).overflowX === 'auto',
+        // Every character of the example is on screen: nothing to scroll to, least of all the `url` line to edit.
+        snippetWhole: !!snippet && snippet.scrollWidth <= snippet.clientWidth,
       };
     });
-    await expect.poll(cut, `${String(width)} px`).toEqual({ outside: [], wordsWrap: true, snippetScrolls: true });
-    await expect(panel.getByRole('button', { name: 'Copy notify table' })).toBeVisible();
+    await expect.poll(cut, `${String(width)} px`).toEqual({ outside: [], wordsWrap: true, snippetWhole: true });
+    // Wrapped on screen, exact on the clipboard.
+    await panel.getByRole('button', { name: 'Copy notify table' }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('[[notify]]\nname = "phone"\nkind = "ntfy"  # or "discord", "slack", "webhook"\nurl = "https://ntfy.sh/<your-topic>"');
   }
 });
 

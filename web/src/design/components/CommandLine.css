@@ -28,8 +28,8 @@
 /* Several lines: indentation is part of the text, so a line too long for the box scrolls inside it. */
 .cmd--block { align-items: flex-start; padding-top: var(--space-2); padding-bottom: var(--space-2); }
 .cmd--block .cmd__text { white-space: pre; overflow-x: auto; border-radius: var(--radius-xs); }
-/* On a phone the text needs the width. A line's button is its icon alone. A block's button goes above the text,
-   so its lines have the whole width before they scroll. */
+/* On a phone the text needs the width. A line's button is its icon alone. A block's button goes above it, and its
+   long lines wrap, so every character is on screen without scrolling. */
 @media (max-width: 480px) {
   .cmd { padding-left: var(--space-2); gap: 6px; }
   .cmd .btn { padding: 0 6px; }
@@ -37,4 +37,5 @@
   .cmd--block { flex-direction: column-reverse; align-items: stretch; }
   .cmd--block .btn { align-self: flex-end; padding: 0 var(--space-2); }
   .cmd--block .cmd__copy-label { display: inline; }
+  .cmd--block .cmd__text { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; }
 }

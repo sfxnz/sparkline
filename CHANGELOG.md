@@ -64,6 +64,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   config only when it starts. Every fix is now written as steps: each is a sentence, and a step with
   something to run ends in that command after a colon. The fix for a timeout or a dropped connection names
   the command that reads the agent's log.
+- A config example with a copy button (an empty Notifications panel, the Prometheus scrape job) wraps on a
+  phone, so every character is on screen without scrolling. Copy still takes the exact text.
 - On the benchmark cards, a node on its first connection attempt reads "Connecting".
 - A dialog that closes no longer pulls focus back to the control that opened it when focus has already
   moved on, as it has after a Search command that opens a panel.
