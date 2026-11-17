@@ -287,9 +287,7 @@ def is_copy_or_training_state(name: str) -> bool:
 def other_format_weights(repo: RepoId, sizes: dict[str, int]) -> Problem | None:
     """Why the lookup will not size a repo holding a weight file it never reads, or None."""
     others = sorted(
-        name
-        for name in sizes
-        if name.lower().endswith(OTHER_FORMATS) and not is_copy_or_training_state(name)
+        name for name in sizes if name.lower().endswith(OTHER_FORMATS) and not is_copy_or_training_state(name)
     )
     if not others:
         return None

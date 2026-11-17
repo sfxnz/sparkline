@@ -420,7 +420,8 @@ SPEECH_CONFIG = {**QWEN_CONFIG, "text_model_id": "some-org/some-70b-model"}
             id="a-second-repo-this-repos-own-code-loads",
         ),
         pytest.param(
-            {**QWEN_CONFIG, "mm_vision_tower_aux_list": ["some-org/a-vision-model"]}, id="in-a-list"),
+            {**QWEN_CONFIG, "mm_vision_tower_aux_list": ["some-org/a-vision-model"]}, id="in-a-list"
+        ),
         pytest.param({**QWEN_CONFIG, "model_name": "some-org/a-vision-model"}, id="model_name"),
         pytest.param({**QWEN_CONFIG, "pretrained_asr": "some-org/an-asr-model"}, id="any-other-key"),
         # A local path with two segments has the shape of a repo id, and says the same thing.
@@ -453,7 +454,8 @@ async def test_the_refusal_names_the_model_the_key_and_says_what_the_lookup_cann
         pytest.param({"text_config": {"_name_or_path": "some-org/a-model"}}, id="provenance-nested"),
         # Model code, which transformers imports from there. A repo's own modeling_*.py is no different.
         pytest.param(
-            {"auto_map": {"AutoConfig": "some-org/a-model--configuration_x.XConfig"}}, id="auto_map"),
+            {"auto_map": {"AutoConfig": "some-org/a-model--configuration_x.XConfig"}}, id="auto_map"
+        ),
         pytest.param({"auto_map": {"AutoTokenizer": "some-org/a-tokenizer"}}, id="auto_map-tokenizer"),
         # The repo being looked up is not another repo.
         pytest.param({"base_model": "Qwen/Qwen3-8B"}, id="this-repo-itself"),

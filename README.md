@@ -157,22 +157,41 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
 - **Will it fit?** Before you download a model: what it needs at a context length (weights, KV cache, plus
   10 to 20 % for activations, so a range and not one number) against what each node has free right now, with
   a verdict per node (Fits, Tight, Does not fit, Unknown). Look a public safetensors repo up on Hugging Face,
-  or type the size of its weight files, layers, KV heads and head size by hand. A lookup gives a size only
-  where the repo's own files are the whole model, which it takes from the files it reads: its `config.json`
-  can be read and names no other repo for weights, it holds no `adapter_config.json`, and the repo holds no
-  safetensors file outside the ones sized. Those are the files its `model.safetensors.index.json` names, or
-  its `model.safetensors` when it has no index, so a 4-bit AWQ, GPTQ or bitsandbytes repo counts as it is
-  stored. An index over 1 MiB is not read. If every safetensors file in the repo is then a shard of one set
-  at its top level (`model-00001-of-00026.safetensors` and so on), the lookup shows their total and says so
-  beside the number: a server loads those files or fewer of them, so that size is never below what it loads
-  from the repo. Anything else shows no size and says why, naming the second repo, the adapter or the file
-  left over, and it still fills in the part it read. By hand the weights are a size in GiB, as this page
-  shows sizes, or in GB, as the repo's Files tab lists each file, and never a parameter count: for a 16-bit
-  model the count in GB is half of what its files hold, and a quantised model has no fixed ratio. A
-  unified-memory node offers its available memory minus 4 GiB. A node with dedicated GPU memory offers the free memory of its emptiest GPU,
-  so the verdict is for a model on one GPU. On a GB10, vLLM's `--gpu-memory-utilization` is not a hard cap,
-  and the page says so. Not modelled: GGUF files, sliding-window attention layers, a model split across
-  GPUs, the AMD GTT limit and the macOS wired-memory limit.
+  or type the size of its weight files, layers, KV heads and head size by hand.
+
+  **What a lookup fills in is the size of that repo's own weight files, and the page says so beside the
+  number.** It is not the size of everything a server loads. A second model the repo loads, a draft model's
+  target and the base model under an adapter are not counted: a server loads those as well, and nothing a
+  lookup reads says how large they are. Add them by hand.
+
+  A lookup reads the repo's file list and its `config.json`, and sometimes its
+  `model.safetensors.index.json`. It fills in a size only when none of those is a sign that the model
+  reaches outside the repo: the `config.json` can be read and holds no string that names another Hugging
+  Face repo (`owner/name`, under any key, except `_name_or_path`, which records where a model was made
+  from, and an `auto_map` entry, which names where its code comes from); the repo holds no
+  `adapter_config.json`; every `.safetensors` file in it is one the lookup sized and none is listed twice;
+  and every weight file in another format (`.bin`, `.pt`, `.pth`, `.ckpt`, `.gguf`, `.npz`) has a name that
+  marks it as a copy of the same weights or as training state. The size is the files the index names, or
+  `model.safetensors` where there is no index, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it
+  is stored. The model's shape comes from the top level of that same `config.json`, and no size is filled
+  in without it: a shape kept in a sub-object such as `text_config`, or under an older name such as
+  `n_layer`, is typed in by hand. An index over 1 MiB is not read. If every safetensors file in the repo is
+  then a shard of one set at its top level (`model-00001-of-00026.safetensors` and so on), the lookup shows
+  their total and says so beside the number: a server loads those files or fewer of them. Anything else
+  shows no size and says what it found, naming the model the config names, the adapter, the left-over file
+  or the format it does not read, and what to add up by hand.
+
+  By hand the weights are the total of every weight file a server loads, in GiB as this page shows sizes or
+  in GB as the repo's Files tab lists each file, and never a parameter count: for a 16-bit model the count
+  in GB is half of what its files hold, and a quantised model has no fixed ratio. A result built that way
+  says so, because the console read nothing and can check nothing.
+
+  A unified-memory node offers its available memory minus 4 GiB. A node with dedicated GPU memory offers the
+  free memory of its emptiest GPU, so the verdict is for a model on one GPU. On a GB10, vLLM's
+  `--gpu-memory-utilization` is not a hard cap, and the page says so. The KV cache is sized as every layer
+  at full width, so it is too high for a model that keeps a smaller one: sliding-window layers halve it, and
+  latent attention (MLA) needs a fraction, 25 times less for DeepSeek-V3. Not modelled: GGUF files, a model
+  split across GPUs, the AMD GTT limit and the macOS wired-memory limit.
 - **Wall mode, command palette and keyboard shortcuts.** Dark and light themes that follow the system, with
   reduced-motion and reduced-transparency support.
 - **Demo mode** (`--demo`): three simulated nodes, including a thermal episode, a stalled stream and a node
@@ -417,14 +436,15 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   console. The web app shows it as plain text, never as HTML or Markdown. tool-eval-bench's tools are mocks:
   nothing the model asks for is executed.
 - **Hugging Face lookup, only on request.** The console contacts `https://huggingface.co` when a signed-in user
-  presses Look up on the Will it fit? page, and at no other time. A lookup asks for three files: the repo's
-  file list, its `config.json` and its `model.safetensors.index.json`. Hugging Face answers a file read with
-  a redirect to a cache path on the same host as often as not, so a lookup usually sends five GET requests,
-  and three or fewer when the index is not asked for: a repo with no index, with one over 1 MiB, or with a
-  config that rules a size out. The console follows at most three redirects per file, so no lookup sends
-  more than twelve requests whatever Hugging Face answers. The repo id must match `owner/name`, the host is fixed,
-  a redirect is followed only while it stays on `https://huggingface.co`, each response is read up to 1 MiB,
-  and no token or cookie of yours is sent. Hugging Face sees the console host's address and the repo id.
+  presses Look up on the Will it fit? page, and at no other time. A lookup asks for at most three files: the
+  repo's file list, its `config.json` and its `model.safetensors.index.json`. Hugging Face answers a file
+  read with a redirect to a cache path on the same host as often as not, so one lookup sends one to five GET
+  requests: how many depends on which of the three files it gets as far as asking for and how many of those
+  are redirected. The console follows at most three redirects per file, so no lookup sends more than twelve
+  requests whatever Hugging Face answers. The repo id must match `owner/name`, the host is fixed, a redirect
+  is followed only while it stays on `https://huggingface.co` and is refused if its URL carries a user name,
+  each response is read up to 1 MiB, and the lookup sends no authorization header and no cookie, neither
+  yours nor one an earlier answer set. Hugging Face sees the console host's address and the repo id.
   `hf_lookup = false` in `console.toml` turns it off.
 - **An agent without a token** starts only on a loopback address, and then answers only local, non-browser
   requests.
