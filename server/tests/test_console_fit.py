@@ -4,7 +4,9 @@ and the two routes."""
 from __future__ import annotations
 
 import json
+import re
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -54,6 +56,13 @@ def test_an_unknown_dtype_is_refused_not_guessed():
         ModelFacts(params_by_dtype={"Q4_K": 1}, num_layers=1, num_kv_heads=1, head_dim=1)
     with pytest.raises(ValidationError, match="unknown KV cache dtype"):
         fit.FitRequest(facts=QWEN, context_tokens=1, kv_dtype="q8_0")
+
+
+def test_the_web_form_offers_exactly_the_dtypes_the_console_sizes():
+    web = (Path(__file__).parents[2] / "web/src/views/fit/model.ts").read_text()
+    weights = re.search(r"WEIGHT_DTYPES = \[([^\]]*)\] as const", web)
+    assert weights and set(re.findall(r"'([^']+)'", weights[1])) == set(fit.DTYPE_BYTES)
+    assert set(re.findall(r"value: '([^']+)'", web)) == set(fit.KV_DTYPE_BYTES)
 
 
 def gb10(available: int) -> tuple[NodeInfo, Sample]:
