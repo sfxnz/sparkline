@@ -11,8 +11,10 @@ import { useConnection } from '../../store/connection';
 import { useGuideFacts } from '../../store/guide';
 import { liveStore } from '../../store/live';
 import { usePrefs } from '../../store/prefs';
+import { dispatch } from '../../store/session';
 import { useUi } from '../../store/ui';
 import sampleJson from '../../test/fixtures/sample.json';
+import { CommandPalette } from '../../app/CommandPalette';
 import { AboutSection } from '../settings/AboutSection';
 import { Guide, GuideChip, GuideEntry } from './Guide';
 import { GUIDE_ITEMS, type GuideItem } from './items';
@@ -24,7 +26,7 @@ const node = (id: string, p: Partial<NodeState> = {}): NodeState => ({
 const cluster = (onboarding: Onboarding | undefined, nodes: NodeState[] = [node('spark1')]): ClusterState => ({
   nodes, settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 }, demo: false, version: 'test', server_time: now, onboarding,
 });
-const first: Onboarding = { started: now, finished: null, seen: [] };
+const first: Onboarding = { started: now, finished: null, reopened: false, seen: [] };
 
 /** A console: answers the two counts, and merges a PUT as the real one does. */
 let sent: OnboardingPatch[] = [];
@@ -46,7 +48,7 @@ function consoleWith({ channels = 0, runs = 0 }: { channels?: number; runs?: num
 function show(onboarding: Onboarding | undefined, opts: { nodes?: NodeState[]; items?: readonly GuideItem[]; path?: string } = {}) {
   useCluster.getState().setHello(cluster(onboarding, opts.nodes));
   const loc = memoryLocation({ path: opts.path ?? '/', record: true });
-  render(<Router hook={loc.hook}><GuideChip /><Guide items={opts.items} /><GuideEntry collapsed={false} /><AboutSection /></Router>);
+  render(<Router hook={loc.hook}><GuideChip /><Guide items={opts.items} /><GuideEntry collapsed={false} /><AboutSection /><CommandPalette /></Router>);
   return loc;
 }
 const panel = () => screen.getByRole('region', { name: 'Getting started' });
@@ -60,7 +62,7 @@ beforeAll(() => {
 beforeEach(() => {
   useConnection.setState({ status: 'live', everLive: true });
   useGuideFacts.setState({ notifyChannels: null, benchRuns: null });
-  useUi.setState({ guideWanted: false, guideLeft: null });
+  useUi.setState({ guideWanted: false, guideLeft: null, paletteOpen: false });
   usePrefs.setState({ guideOpen: null });
   liveStore.removeNode('spark1');
   consoleWith();
@@ -196,10 +198,64 @@ describe('what the person does is kept by the console', () => {
   });
 
   it('does not finish itself before the console has answered what is done', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => undefined));
+    const theConsole = vi.mocked(fetch).getMockImplementation();
+    let answer = () => {};
+    const asked = new Promise<void>((done) => { answer = done; });
+    vi.mocked(fetch).mockImplementation((...args) => asked.then(() => theConsole?.(...args) ?? Response.error()));
     show({ ...first, seen: ['model-servers', 'prometheus', 'notifications', 'benchmarks'] });
     await act(() => Promise.resolve());
     expect(strip()).toBeInTheDocument();
+    // The request for the two counts is shared by every test in this file: it ends with this one.
+    answer();
+    await waitFor(() => { expect(sent).toEqual([{ finished: true }]); });
+    await act(() => new Promise<void>((done) => { setTimeout(done, 0); }));
+  });
+
+  it.each(['Settings', 'Search'])('a guide that finished itself comes back from %s and stays, every row ticked, until it is dismissed', async (from) => {
+    const user = userEvent.setup();
+    const loc = show({ ...first, seen: GUIDE_ITEMS.map((i) => i.id) }, { path: '/settings' });
+    await waitFor(() => { expect(sent).toEqual([{ finished: true }]); });
+    await waitFor(() => { expect(useCluster.getState().onboarding?.finished).not.toBeNull(); });
+
+    if (from === 'Settings') await user.click(screen.getByRole('button', { name: 'Open getting started' }));
+    else {
+      act(() => { useUi.getState().setPalette(true); });
+      await user.type(screen.getByRole('combobox', { name: /Search views/ }), 'getting started');
+      await user.keyboard('{Enter}');
+    }
+    expect(loc.history.at(-1)).toBe('/');
+    await waitFor(() => { expect(panel()).toHaveFocus(); });
+    await waitFor(() => { expect(useCluster.getState().onboarding).toMatchObject({ finished: null, reopened: true }); });
+    // Long enough for an effect to have put it away again.
+    await act(() => new Promise<void>((done) => { setTimeout(done, 50); }));
+    expect(sent).toEqual([{ finished: true }, { finished: false }]);
+    const rows = within(panel()).getAllByRole('listitem');
+    expect(rows).toHaveLength(GUIDE_ITEMS.length);
+    for (const row of rows) expect(row).toHaveTextContent('(done)');
+    expect(within(panel()).getByRole('link', { name: /Prometheus export\s*\(done\)/ })).toHaveAttribute('href', '/settings#prometheus');
+
+    await user.click(within(panel()).getByRole('button', { name: 'Dismiss getting started' }));
+    expect(sent.at(-1)).toEqual({ finished: true });
+    await waitFor(() => { expect(useCluster.getState().onboarding).toMatchObject({ reopened: false }); });
+    expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull();
+  });
+
+  it('a guide brought back on another device is not put away by this one', async () => {
+    show({ ...first, seen: GUIDE_ITEMS.map((i) => i.id), finished: now });
+    act(() => { dispatch({ type: 'onboarding', onboarding: { ...first, seen: GUIDE_ITEMS.map((i) => i.id), reopened: true } }); });
+    await waitFor(() => { expect(useGuideFacts.getState().benchRuns).not.toBeNull(); });
+    await act(() => new Promise<void>((done) => { setTimeout(done, 50); }));
+    expect(strip()).toHaveAccessibleName(`Getting started, ${GUIDE_ITEMS.length} of ${GUIDE_ITEMS.length} done`);
+    expect(sent).toEqual([]);
+  });
+
+  it('Settings brings a guide still in progress into view and leaves it to finish itself', async () => {
+    const loc = show({ ...first, seen: ['prometheus'] }, { path: '/settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Open getting started' }));
+    expect(loc.history.at(-1)).toBe('/');
+    await waitFor(() => { expect(panel()).toHaveFocus(); });
+    expect(sent).toEqual([]);
+    expect(useCluster.getState().onboarding?.reopened).toBe(false);
   });
 
   it('Settings opens a finished guide again and goes to the overview', async () => {

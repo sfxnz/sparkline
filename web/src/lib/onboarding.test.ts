@@ -1,7 +1,7 @@
 import { agentAddress, fixCommands, fixSteps, guideStage, guideView, isNewNode, mergeOnboarding, needsSetup, reachOf, retryWait } from './onboarding';
 import type { Onboarding } from './types';
 
-const ob = (over: Partial<Onboarding> = {}): Onboarding => ({ started: 100, finished: null, seen: [], ...over });
+const ob = (over: Partial<Onboarding> = {}): Onboarding => ({ started: 100, finished: null, reopened: false, seen: [], ...over });
 
 describe('new nodes', () => {
   it('a node is new only while the console says it has never answered', () => {
@@ -33,6 +33,13 @@ describe('mergeOnboarding', () => {
     expect(mergeOnboarding(done, { finished: true }, 300).finished).toBe(200);
     expect(mergeOnboarding(done, { finished: false }, 300).finished).toBeNull();
     expect(mergeOnboarding(done, { seen: ['x'] }, 300).finished).toBe(200);
+  });
+
+  it('a guide cleared after it was finished is reopened, until it is finished again', () => {
+    const back = mergeOnboarding(ob({ finished: 200 }), { finished: false }, 300);
+    expect(back).toMatchObject({ finished: null, reopened: true });
+    expect(mergeOnboarding(back, { seen: ['x'] }, 400).reopened).toBe(true);
+    expect(mergeOnboarding(back, { finished: true }, 400)).toMatchObject({ finished: 400, reopened: false });
   });
 });
 

@@ -10,12 +10,13 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from sparkline.common.metrics import flatten
-from sparkline.common.schema import Event, HistoryResponse
+from sparkline.common.schema import Event, HistoryResponse, Onboarding, OnboardingPatch
 from sparkline.console.alerts import DEFAULT_RULES
 from sparkline.console.app import create_app
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel
 from sparkline.console.nodes import RING_S, NodeSource
+from sparkline.console.onboarding import merge
 from sparkline.console.store import Store
 
 TOKEN = "s3cret-browser-token"
@@ -517,7 +518,7 @@ def test_rules_the_console_read_or_never_saved_are_not_reported_as_reset(tmp_pat
 ME = "/api/v1/auth/me"
 LOGIN = "/api/v1/auth/login"
 ONBOARDING = "/api/v1/onboarding"
-NEW = {"started": None, "finished": None, "seen": []}
+NEW = {"started": None, "finished": None, "reopened": False, "seen": []}
 
 
 def cluster_state(c) -> dict:
@@ -561,17 +562,46 @@ def test_onboarding_put_adds_seen_ids_and_stamps_finished_once_until_it_is_clear
         before = time.time()
         row = put({"finished": True})
         assert before <= row["finished"] <= time.time()
-        assert row == {"started": None, "finished": row["finished"], "seen": seen}
+        assert row == {**NEW, "finished": row["finished"], "seen": seen}
         for same in ({"finished": True}, {"seen": ["fit"], "finished": True}, {"seen": []}, {}):
             assert put(same) == row, same
         assert cluster_state(c)["onboarding"] == row
     with TestClient(make(tmp_path)) as c:
         assert cluster_state(c)["onboarding"] == row
-        reopened = {**row, "finished": None}
+        reopened = {**row, "finished": None, "reopened": True}
         for _ in range(2):
             assert c.put(ONBOARDING, json={"finished": False}, headers=bearer()).json() == reopened
+        assert put({"seen": ["prometheus"]})["reopened"] is True  # opening a row does not put it away again
+    with TestClient(make(tmp_path)) as c:
+        assert cluster_state(c)["onboarding"]["reopened"] is True
         again = c.put(ONBOARDING, json={"finished": True}, headers=bearer()).json()
-        assert again["finished"] > row["finished"] and again["seen"] == seen
+        assert again["finished"] > row["finished"] and again["reopened"] is False
+        assert again["seen"] == sorted([*seen, "prometheus"])
+
+
+def test_merge_keeps_three_states_unfinished_finished_and_reopened():
+    new = Onboarding(started=1.0)
+    finished = merge(new, OnboardingPatch(finished=True), 10.0)
+    assert (finished.finished, finished.reopened) == (10.0, False)
+    assert merge(finished, OnboardingPatch(finished=True), 20.0) == finished  # stamped once
+    reopened = merge(finished, OnboardingPatch(finished=False), 30.0)
+    assert (reopened.finished, reopened.reopened) == (None, True)
+    assert merge(reopened, OnboardingPatch(finished=False), 40.0) == reopened
+    assert merge(reopened, OnboardingPatch(seen=["benchmarks"]), 40.0).reopened is True
+    again = merge(reopened, OnboardingPatch(finished=True), 50.0)
+    assert (again.finished, again.reopened) == (50.0, False)
+    assert merge(new, OnboardingPatch(finished=False), 5.0).reopened is True
+
+
+def test_a_row_stored_before_reopened_existed_reads_as_not_reopened(tmp_path):
+    with TestClient(make(tmp_path)) as c:
+        assert c.put(ONBOARDING, json={"seen": ["fit"]}, headers=bearer()).status_code == 200
+    store = Store(tmp_path / "data" / "console.sqlite")
+    store.kv_set("onboarding", {"started": 1.0, "finished": None, "seen": ["fit"]})
+    store.close()
+    with TestClient(make(tmp_path)) as c:
+        expected = {"started": 1.0, "finished": None, "reopened": False, "seen": ["fit"]}
+        assert cluster_state(c)["onboarding"] == expected
 
 
 def test_onboarding_put_needs_a_sign_in_the_consoles_own_origin_and_a_readable_patch(client):
@@ -608,7 +638,7 @@ def test_a_store_an_earlier_release_ran_on_starts_finished_with_its_configured_n
         state = cluster_state(c)
         row = state["onboarding"]
         assert before <= row["started"] <= time.time()
-        assert row == {"started": row["started"], "finished": row["started"], "seen": []}
+        assert row == {**NEW, "started": row["started"], "finished": row["started"]}
         assert [n["first_seen"] for n in state["nodes"]] == [row["started"]] * 2
     with TestClient(make(tmp_path, nodes=["spark1", "spark2", "spark3"])) as c:
         state = cluster_state(c)
@@ -639,7 +669,7 @@ def test_the_demo_starts_finished_with_every_node_already_seen(tmp_path, token):
         state = cluster_state(c)
         row = state["onboarding"]
         assert before <= row["started"] <= time.time()
-        assert row == {"started": row["started"], "finished": row["started"], "seen": []}
+        assert row == {**NEW, "started": row["started"], "finished": row["started"]}
         assert [n["first_seen"] for n in state["nodes"]] == [row["started"]] * 3
 
 

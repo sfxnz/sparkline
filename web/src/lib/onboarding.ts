@@ -53,8 +53,9 @@ export function retryWait(next: number | null | undefined, learned: number, now:
 
 /** `row` after `patch`, as the console merges it (console/onboarding.py): the app shows the result at once. */
 export function mergeOnboarding(row: Onboarding, patch: OnboardingPatch, now: number): Onboarding {
-  const finished = patch.finished === false ? null : patch.finished && row.finished === null ? now : row.finished;
-  return { ...row, seen: [...new Set([...row.seen, ...(patch.seen ?? [])])].sort(), finished };
+  const seen = [...new Set([...row.seen, ...(patch.seen ?? [])])].sort();
+  if (patch.finished === undefined) return { ...row, seen };
+  return patch.finished ? { ...row, seen, finished: row.finished ?? now, reopened: false } : { ...row, seen, finished: null, reopened: true };
 }
 
 /** Where the person is in the getting-started guide. `first`: signed in, nothing opened yet. `resumed`: they opened

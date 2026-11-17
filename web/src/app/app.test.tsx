@@ -154,8 +154,8 @@ describe('CommandPalette', () => {
   it('opens the getting-started guide again: tells the console and goes to the overview', async () => {
     const user = userEvent.setup();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) =>
-      Promise.resolve(new Response(JSON.stringify(url === '/api/v1/onboarding' ? { started: 1, finished: null, seen: [] } : []), { status: 200, headers: { 'content-type': 'application/json' } })));
-    useCluster.getState().setHello({ ...cluster, onboarding: { started: 1, finished: 2, seen: [] } });
+      Promise.resolve(new Response(JSON.stringify(url === '/api/v1/onboarding' ? { started: 1, finished: null, reopened: true, seen: [] } : []), { status: 200, headers: { 'content-type': 'application/json' } })));
+    useCluster.getState().setHello({ ...cluster, onboarding: { started: 1, finished: 2, reopened: false, seen: [] } });
     const loc = memoryLocation({ path: '/settings', record: true });
     render(<Router hook={loc.hook}><CommandPalette /></Router>);
     act(() => { useUi.getState().setPalette(true); });

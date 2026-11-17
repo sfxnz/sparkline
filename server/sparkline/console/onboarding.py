@@ -18,12 +18,13 @@ _FIRST_SEEN = TypeAdapter(dict[str, float])
 
 def merge(row: Onboarding, patch: OnboardingPatch, now: float) -> Onboarding:
     """``row`` after ``patch``. The same patch twice gives the same row."""
-    finished = row.finished
+    finished, reopened = row.finished, row.reopened
     if patch.finished is False:
-        finished = None
-    elif patch.finished and finished is None:
-        finished = now
-    return row.model_copy(update={"seen": sorted({*row.seen, *(patch.seen or ())}), "finished": finished})
+        finished, reopened = None, True
+    elif patch.finished:
+        finished, reopened = now if finished is None else finished, False
+    seen = sorted({*row.seen, *(patch.seen or ())})
+    return row.model_copy(update={"seen": seen, "finished": finished, "reopened": reopened})
 
 
 class OnboardingStore:

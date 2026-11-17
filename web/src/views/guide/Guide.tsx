@@ -110,7 +110,9 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
     to.focus();
   });
 
-  const complete = stage !== 'finished' && ready && guide.total > 0 && guide.done === guide.total;
+  // A guide the person brought back stays, every row ticked, until they dismiss it.
+  const reopened = useCluster((s) => s.onboarding?.reopened);
+  const complete = stage !== 'finished' && !reopened && ready && guide.total > 0 && guide.done === guide.total;
   useEffect(() => {
     if (complete) void finishGuide('complete');
   }, [complete]);

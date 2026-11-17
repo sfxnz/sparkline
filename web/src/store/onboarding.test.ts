@@ -3,7 +3,7 @@ import { useCluster } from './cluster';
 import { patchOnboarding } from './onboarding';
 import { checkAuth, dispatch, useAuthInfo } from './session';
 
-const row: Onboarding = { started: 100, finished: null, seen: [] };
+const row: Onboarding = { started: 100, finished: null, reopened: false, seen: [] };
 const cluster = (onboarding?: Onboarding): ClusterState => ({
   nodes: [],
   settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 },

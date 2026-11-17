@@ -2,7 +2,8 @@
 // Each test starts its own console (--demo-first-run with a token) and serves the built app from it, because the
 // first-run script runs on the console's clock from the moment it starts: a console shared by the whole suite would
 // be past "connecting" before the first test opened a page. --demo-speed 0.5 gives the tests room: spark1 answers
-// about 6 s in, spark2 about 16 s, and spark3 refuses for the first 82 s.
+// about 6 s in, spark2 about 16 s, and spark3 refuses for the first 82 s. A test that needs every node live says so
+// with a `demo-speed` annotation.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -25,7 +26,8 @@ test.beforeEach(async ({ request }, testInfo) => {
   const dir = testInfo.outputPath('console');
   mkdirSync(`${dir}/data`, { recursive: true });
   writeFileSync(`${dir}/console.toml`, `token = "${TOKEN}"\ndata_dir = "${dir}/data"\n`);
-  server = spawn('../server/.venv/bin/sparkline', ['--demo-first-run', '--demo-speed', '0.5', '--config', `${dir}/console.toml`, '--bind', '127.0.0.1', '--port', String(PORT), '--web-dist', 'dist'], { stdio: 'ignore' });
+  const speed = testInfo.annotations.find((a) => a.type === 'demo-speed')?.description ?? '0.5';
+  server = spawn('../server/.venv/bin/sparkline', ['--demo-first-run', '--demo-speed', speed, '--config', `${dir}/console.toml`, '--bind', '127.0.0.1', '--port', String(PORT), '--web-dist', 'dist'], { stdio: 'ignore' });
   await expect.poll(() => request.get(`${BASE}/healthz`).then((r) => r.ok(), () => false), { timeout: 20_000, intervals: [100] }).toBe(true);
 });
 
@@ -187,6 +189,56 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await expect(page).toHaveURL(`${BASE}/`);
   await expect(guidePanel(page)).toBeFocused();
   await expect(guidePanel(page).getByRole('listitem')).toHaveCount(5);
+});
+
+test('a guide that finished itself comes back from Settings and from Search, and stays until it is dismissed', { annotation: { type: 'demo-speed', description: '4' } }, async ({ page, context }) => {
+  await signInByLink(page);
+  const panel = guidePanel(page);
+  // Every node has answered (spark3 about 10 s in at this speed), so what is left is rows to open.
+  await expect(panel.getByText('All 3 nodes are live.')).toBeVisible({ timeout: 40_000 });
+  const total = await panel.getByRole('listitem').count();
+  const todo = panel.getByRole('link').filter({ hasNotText: '(done)' });
+  const opens = await todo.count();
+  expect(opens).toBeGreaterThan(0);
+  for (let i = 0; i < opens; i++) {
+    // Back from the first row the guide is one line.
+    if (i === 1) await guideStrip(page).getByRole('button', { name: 'Show all' }).click();
+    await todo.first().click();
+    await expect(page).not.toHaveURL(`${BASE}/`);
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Overview' }).click();
+  }
+  await expect(page.getByText('That is all of it. Getting started is put away.')).toBeVisible();
+
+  const everyRowTicked = async (p: Page) => {
+    await expect(guidePanel(p).getByRole('listitem')).toHaveCount(total);
+    await expect(guidePanel(p).getByRole('listitem').filter({ hasText: '(done)' })).toHaveCount(total);
+  };
+  await page.goto(`${BASE}/settings`);
+  await page.getByRole('button', { name: 'Open getting started' }).click();
+  await expect(page).toHaveURL(`${BASE}/`);
+  await expect(guidePanel(page)).toBeFocused();
+  await everyRowTicked(page);
+  await expect(guidePanel(page).getByRole('link', { name: /^Prometheus export/ })).toHaveAttribute('href', '/settings#prometheus');
+  // A second tab on the same console shows it too, and neither puts it away.
+  const second = await context.newPage();
+  await second.goto(`${BASE}/`);
+  await everyRowTicked(second);
+  await page.waitForTimeout(1500);
+  await everyRowTicked(page);
+  await everyRowTicked(second);
+  await page.reload();
+  await everyRowTicked(page);
+
+  await guidePanel(page).getByRole('button', { name: 'Dismiss getting started' }).click();
+  await expect(page.getByText('Getting started is put away.')).toBeVisible();
+  await expect(second.locator('#getting-started')).toHaveCount(0);
+  await second.keyboard.press('Control+k');
+  await second.keyboard.type('getting started');
+  await second.keyboard.press('Enter');
+  await expect(guidePanel(second)).toBeFocused();
+  await second.waitForTimeout(1500);
+  await everyRowTicked(second);
+  await everyRowTicked(page);
 });
 
 test('a link with a wrong token falls back to the form with the usual error, and the token leaves the address bar', async ({ page }) => {

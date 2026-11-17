@@ -366,12 +366,13 @@ class Onboarding(BaseModel):
 
     started: float | None = None  # first successful sign-in on this console. None: nobody has signed in
     finished: float | None = None  # the guide was completed or dismissed: it never opens by itself again
+    reopened: bool = False  # brought back after it was finished: it stays until the person dismisses it
     seen: list[str] = Field(default_factory=list)  # ids of guide items the person opened. Sorted, unique
 
 
 class OnboardingPatch(BaseModel):
     seen: list[str] | None = None  # ids to add. Unknown ids are kept
-    finished: bool | None = None  # True stamps `finished` once. False clears it (the guide reopens)
+    finished: bool | None = None  # True stamps `finished` once. False clears it and sets `reopened`
 
 
 class ConsoleSettings(BaseModel):

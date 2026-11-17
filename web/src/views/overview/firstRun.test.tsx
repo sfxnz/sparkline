@@ -34,7 +34,7 @@ const rejected = (id: string): NodeState => fresh(id, {
 });
 const cluster = (nodes: NodeState[]): ClusterState => ({
   nodes, settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 },
-  demo: false, version: 'test', server_time: now, onboarding: { started: now, finished: null, seen: [] },
+  demo: false, version: 'test', server_time: now, onboarding: { started: now, finished: null, reopened: false, seen: [] },
 });
 const show = (nodes: NodeState[]) => {
   useCluster.getState().setHello(cluster(nodes));

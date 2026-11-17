@@ -36,7 +36,7 @@ beforeEach(() => {
   useEvents.setState({ events: [], load: { status: 'ready' } });
   useCluster.setState({
     cluster: { nodes: [refused, rejected], settings: { energy_rate_per_kwh: 0.28, currency: '£', stale_after_s: 5, offline_after_s: 30, regression_pct: 5 }, demo: false, version: '0.3.0', server_time: now },
-    clockOffset: 0, order: ['spark1', 'spark2'], nodes: { spark1: refused, spark2: rejected }, onboarding: { started: now, finished: null, seen: [] },
+    clockOffset: 0, order: ['spark1', 'spark2'], nodes: { spark1: refused, spark2: rejected }, onboarding: { started: now, finished: null, reopened: false, seen: [] },
   });
 });
 

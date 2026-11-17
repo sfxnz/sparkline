@@ -32,7 +32,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   the thing. "Connect your nodes" is ticked when every node has answered. Once you open a row the guide
   becomes one line, and **Dismiss** puts it away for every browser, because the console remembers it and not
   the browser. It ends by itself when every row is done. **Settings > About** and "Open getting started" in
-  Search bring it back. An install that existed before this release never sees it.
+  Search bring it back, and a guide brought back stays, with its rows ticked, until you dismiss it. An
+  install that existed before this release never sees it.
 - **Settings > Prometheus** shows the scrape address and a `scrape_configs` job with your console's address
   filled in, each with a copy button.
 - `GET /api/v1/auth/me` has `first_run`, the cluster state has `onboarding` and each node has `first_seen`.

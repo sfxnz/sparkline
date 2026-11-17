@@ -307,11 +307,14 @@ export interface Onboarding {
   started: number | null;
   /** The getting-started guide was completed or dismissed. Set: it never opens by itself again. */
   finished: number | null;
+  /** Brought back after it was finished: it stays, however many rows are done, until the person dismisses it. */
+  reopened: boolean;
   /** Ids of the guide items the person opened. Sorted, unique. Ids this build does not know are ignored. */
   seen: string[];
 }
 
-/** PUT /api/v1/onboarding. Merge semantics: `seen` adds ids, `finished` true stamps it once and false clears it. */
+/** PUT /api/v1/onboarding. Merge semantics: `seen` adds ids, `finished` true stamps it once and clears `reopened`,
+ *  false clears it and sets `reopened`. */
 export interface OnboardingPatch {
   seen?: string[];
   finished?: boolean;

@@ -50,8 +50,11 @@ export function wantGuide(): void {
   useUi.setState({ guideWanted: true, guideLeft: null });
 }
 
+/** "Open getting started" and "Bring it back". A guide still in progress is only brought into view: reopening it
+ *  would stop it from putting itself away when its last row is done. */
 export function reopenGuide(): Promise<void> {
   setGuideOpen(true);
   useUi.setState({ guideWanted: true, guideLeft: null });
+  if (useCluster.getState().onboarding?.finished == null) return Promise.resolve();
   return patchOnboarding({ finished: false });
 }
