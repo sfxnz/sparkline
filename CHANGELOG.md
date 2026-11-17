@@ -63,6 +63,10 @@ Two things start on their own after the update:
 
 Notifications stay off until `console.toml` has a `[[notify]]` table.
 
+To go back to 0.1.2, remove every `[[notify]]` table and the `metrics_token` key from `console.toml` first,
+and `[[model_servers]]` and `model_server_discovery` from `agent.toml`. 0.1.2 refuses to start on a config
+key it does not know.
+
 ### Added
 
 - Alert notifications. Each `[[notify]]` table in `console.toml` is a channel (`ntfy`, `discord`, `slack` or a
@@ -92,6 +96,8 @@ Notifications stay off until `console.toml` has a `[[notify]]` table.
 - Editing, disabling or deleting an alert rule while its alert is open now adds a "Resolved" event that says
   the rule was changed or removed, in the timeline and on every notification channel. Before, the alert was
   closed with no recovery. If the edited rule still matches, its alert fires again.
+- An alert that is open when the console restarts stays open until a reading from its node decides it, then
+  ends with a "Resolved" event or fires again. Before, every open alert was closed at the start with no recovery.
 
 ## [0.1.2] - 2026-11-11
 

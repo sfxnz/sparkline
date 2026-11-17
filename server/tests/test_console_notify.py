@@ -218,6 +218,25 @@ async def test_only_alerts_and_recoveries_seen_firing_are_sent(rig):
     ]
 
 
+async def test_the_recovery_of_an_adopted_alert_goes_where_its_alert_went_and_the_alert_is_not_sent(rig):
+    r = await rig(
+        channel("all", min_severity="info"),
+        channel("crit", min_severity="critical"),
+        channel("quiet", send_resolved=False),
+    )
+    warning, critical = alert("gpu_temp_high", "warning"), alert("gpu_temp_critical", "critical")
+    r.notifier.adopt([warning, critical])
+    await settle()
+    assert r.bodies("all") == []
+    for ev in (warning, critical, critical):
+        r.notifier.publish(recovery(ev))
+    await settle()
+    cleared = [("resolved", "warning", "gpu_temp_high"), ("resolved", "critical", "gpu_temp_critical")]
+    assert [heard(b) for b in r.bodies("all")] == [cleared]
+    assert [heard(b) for b in r.bodies("crit")] == [cleared[1:]]
+    assert r.bodies("quiet") == []
+
+
 async def test_no_channel_builds_no_egress_and_sends_nothing():
     made: list[object] = []
     notifier = Notifier([], egress=made.append)

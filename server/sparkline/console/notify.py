@@ -511,7 +511,7 @@ class Notifier:
     def publish(self, ev: Event) -> None:
         """Called by Cluster.add_event for every event, on the sample path: it only appends to mailboxes.
 
-        A recovery whose alert this run never saw fire (the console restarted) is not sent.
+        A recovery is sent only for an alert that this run saw fire or adopted.
         """
         if self._stopped or not self._workers:
             return
@@ -527,6 +527,12 @@ class Notifier:
             if w.cfg.wants(notice.alert_severity, notice.status == "resolved"):
                 w.offer(notice)
 
+    def adopt(self, left_open: list[Event]) -> None:
+        """Called by Cluster.start with the alerts the previous run left open, so that the recovery of each
+        reaches the channels its alert went to. Nothing is sent for the alerts themselves."""
+        for ev in left_open:
+            self._firing[(ev.rule_id, ev.node_id, ev.metric)] = ev.severity
+
     def start(self) -> None:
         if not self._tasks and not self._stopped:
             self._tasks = {
@@ -535,8 +541,8 @@ class Notifier:
 
     async def stop(self, grace_s: float = STOP_GRACE_S) -> None:
         """Each channel makes at most one more attempt (none while rate limited), all within ``grace_s``.
-        Nothing is kept for the next start: the alert engine starts empty and fires again whatever still
-        holds, so a stored queue would deliver stale duplicates."""
+        Nothing is kept for the next start: the alert engine fires again whatever still holds, so a stored
+        queue would deliver stale duplicates."""
         if self._stopped:
             return
         self._stopped = True

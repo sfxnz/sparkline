@@ -178,6 +178,9 @@ class Store:
         self.db.execute("DELETE FROM events WHERE ts < ?", (now - EVENT_RETENTION_S,))
         self.db.execute("DELETE FROM sessions WHERE expires < ?", (now,))
 
-    def resolve_open_alerts(self, ts: float) -> None:
-        """Alerts left open by a previous run cannot be tracked any more; close them."""
-        self.db.execute("UPDATE events SET resolved_ts=? WHERE kind='alert' AND resolved_ts IS NULL", (ts,))
+    def open_alerts(self) -> list[Event]:
+        cols = ",".join(_EVENT_COLS)
+        rows = self.db.execute(
+            f"SELECT {cols} FROM events WHERE kind='alert' AND resolved_ts IS NULL ORDER BY id"
+        ).fetchall()
+        return [Event(**dict(zip(_EVENT_COLS, r, strict=True))) for r in rows]

@@ -99,12 +99,14 @@ class Cluster:
         demo: bool = False,
         notify: Callable[[Event], None] = lambda ev: None,
         onboarding: OnboardingStore | None = None,
+        adopt: Callable[[list[Event]], None] = lambda left_open: None,
     ):
         self.store = store
         self.hub = hub
         self.demo = demo
         self.notify = notify
         self.onboarding = onboarding or OnboardingStore.open(store, [], time.time())
+        self.adopt = adopt
         saved: ConsoleSettings | None = store.kv_read("settings", _saved_settings)
         self.settings = saved or default_settings
         metrics = _saved_rule_metrics(store, store.kv_read(RULE_METRICS_KEY, _METRICS.validate_python))
@@ -122,7 +124,9 @@ class Cluster:
 
     # -- lifecycle ----------------------------------------------------------------------------------
     async def start(self) -> None:
-        self.store.resolve_open_alerts(time.time())
+        left_open = self.store.open_alerts()
+        self.adopt(left_open)
+        self.alerts.adopt(left_open, self.sources.keys(), time.time())
         self.store.prune()
         self._tasks = [asyncio.create_task(s.run(), name=f"node:{s.node_id}") for s in self.sources.values()]
         self._tasks += [asyncio.create_task(self._watchdog()), asyncio.create_task(self._housekeeping())]

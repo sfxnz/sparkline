@@ -14,10 +14,11 @@ from netports import free_ports
 
 from sparkline.common.schema import Event
 from sparkline.console.app import create_app
-from sparkline.console.config import ConsoleConfig
+from sparkline.console.config import ConsoleConfig, NodeConfig
 from sparkline.console.demo import DemoModel
 from sparkline.console.nodes import NodeSource, classify
 from sparkline.console.notify import NotifyConfig
+from sparkline.console.store import Store
 
 TOKEN = "s3cret-browser-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -263,3 +264,123 @@ def test_a_node_that_never_answered_raises_no_offline_alert_and_the_same_node_do
         assert (notice["status"], notice["title"]) == ("firing", "Node offline on spark1")
         [event] = c.get("/api/v1/events", headers=AUTH).json()
         assert (event["kind"], event["rule_id"], event["node_id"]) == ("alert", "node_offline", "spark1")
+
+
+# -- a restart with an alert open ---------------------------------------------------------------------
+
+(NO_AGENT,) = free_ports(1)
+HOT = {
+    "id": "gpu_hot",
+    "name": "GPU hot",
+    "metric": "gpu0.temp_c",
+    "threshold": 85,
+    "for_s": 0,
+    "severity": "critical",
+}
+FIRING = ("firing", "critical", "GPU hot on spark1")
+RESOLVED = ("resolved", "critical", "Resolved: GPU hot on spark1")
+
+
+def console(tmp_path, sink, nodes: tuple[str, ...] = ("spark1",)) -> TestClient:
+    """A console on one data directory, so entering it again is a restart."""
+    cfg = ConsoleConfig(
+        token=TOKEN,
+        agent_token="a",
+        web_dist=tmp_path / "missing-dist",
+        notify=[hook(sink)],
+        nodes=[NodeConfig(id=n, url=f"http://127.0.0.1:{NO_AGENT}") for n in nodes],
+    )
+    return TestClient(create_app(cfg, tmp_path / "data"))
+
+
+def spark1_reads(c: TestClient, temp: float) -> None:
+    now = time.time()
+    s = DemoModel("spark1", now).sample_at(now)
+    s.gpu[0].temp_c = temp
+    c.portal.call(c.app.state.cluster.alerts.evaluate_sample, "spark1", s)
+
+
+def stopped_with_the_alert_open(tmp_path, sink) -> None:
+    with console(tmp_path, sink) as c:
+        assert c.put(RULES, json=[HOT], headers=AUTH).status_code == 200
+        spark1_reads(c, 90)
+        until(lambda: len(sink.seen) == 1)
+
+
+def heard(sink) -> list[tuple[str, str, str]]:
+    return [(n["status"], n["severity"], n["title"]) for r in sink.seen for n in r["body"]["notices"]]
+
+
+def heard_after_everything_waiting_was_sent(c: TestClient, sink) -> list[tuple[str, str, str]]:
+    # A test goes out after the notices that wait, so its answer means the channel has nothing left to say.
+    assert c.post(f"{CHANNELS}/relay/test", headers=AUTH).json()["last"]["ok"]
+    return heard(sink)
+
+
+def timeline(c: TestClient) -> list[tuple[str, str, bool]]:
+    events = reversed(c.get("/api/v1/events", headers=AUTH).json())
+    return [(e["kind"], e["title"], e["resolved_ts"] is None) for e in events]
+
+
+def test_an_alert_that_ended_while_the_console_was_down_is_resolved_on_the_channel_once(tmp_path, sink):
+    stopped_with_the_alert_open(tmp_path, sink)
+    with console(tmp_path, sink) as c:
+        spark1_reads(c, 60)
+        until(lambda: len(sink.seen) == 2)
+        assert heard(sink) == [FIRING, RESOLVED]
+        assert sink.seen[1]["body"]["text"].startswith("Now 60 °C · cleared after ")
+        assert timeline(c) == [
+            ("alert", "GPU hot on spark1", False),
+            ("recovered", "Resolved: GPU hot on spark1", True),
+        ]
+    with console(tmp_path, sink) as c:
+        spark1_reads(c, 60)
+        assert heard_after_everything_waiting_was_sent(c, sink) == [FIRING, RESOLVED]
+
+
+def test_an_alert_left_open_is_not_resolved_before_its_node_reports_a_clear_reading(tmp_path, sink):
+    stopped_with_the_alert_open(tmp_path, sink)
+    for _restart in range(2):
+        with console(tmp_path, sink) as c:
+            assert heard_after_everything_waiting_was_sent(c, sink) == [FIRING]
+            assert timeline(c) == [("alert", "GPU hot on spark1", True)]
+    with console(tmp_path, sink) as c:
+        spark1_reads(c, 84)  # under the threshold, inside the margin a recovery must pass
+        assert heard_after_everything_waiting_was_sent(c, sink) == [FIRING]
+        assert timeline(c) == [("alert", "GPU hot on spark1", True)]
+
+
+def test_an_alert_that_still_holds_after_a_restart_fires_again_and_is_resolved_once(tmp_path, sink):
+    stopped_with_the_alert_open(tmp_path, sink)
+    with console(tmp_path, sink) as c:
+        spark1_reads(c, 90)
+        until(lambda: len(sink.seen) == 2)
+        assert timeline(c) == [("alert", "GPU hot on spark1", False), ("alert", "GPU hot on spark1", True)]
+        spark1_reads(c, 60)
+        assert heard_after_everything_waiting_was_sent(c, sink) == [FIRING, FIRING, RESOLVED]
+
+
+def rule_deleted(tmp_path) -> tuple[str, ...]:
+    store = Store(tmp_path / "data" / "console.sqlite")
+    store.kv_set_atomically({"alert_rules": [], "alert_rule_metrics": {}})
+    store.close()
+    return ("spark1",)
+
+
+def node_removed(tmp_path) -> tuple[str, ...]:
+    return ()
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [(rule_deleted, "its rule was removed"), (node_removed, "spark1 is no longer monitored")],
+)
+def test_an_alert_that_nothing_evaluates_after_the_restart_is_resolved_with_the_reason(
+    tmp_path, sink, change, why
+):
+    stopped_with_the_alert_open(tmp_path, sink)
+    with console(tmp_path, sink, nodes=change(tmp_path)) as c:
+        until(lambda: len(sink.seen) == 2)
+        assert heard(sink) == [FIRING, RESOLVED]
+        assert sink.seen[1]["body"]["text"] == f"Closed because {why} · was critical"
+        assert timeline(c)[0] == ("alert", "GPU hot on spark1", False)

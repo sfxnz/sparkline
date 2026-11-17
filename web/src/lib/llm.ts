@@ -35,7 +35,7 @@ export const FIELD_SPECS: Record<LlmField, FieldSpec> = {
 };
 
 const NOT_ANSWERING: Partial<Record<ServerState, string>> = {
-  down: 'The server is not answering',
+  down: 'No reading from this server',
   loading: 'The server is still loading its model',
 };
 

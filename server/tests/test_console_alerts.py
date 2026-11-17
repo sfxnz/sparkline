@@ -383,6 +383,120 @@ def test_on_a_one_gpu_node_the_default_gpu_rules_read_exactly_as_before(eng, inf
     ]
 
 
+def restarted(engine: AlertEngine, sink: Sink, nodes=("spark2",), rules=None) -> AlertEngine:
+    """A new engine that adopts what the old one left open, as a console restart does."""
+    left_open = [e for e in sink.events if e.kind == "alert" and e.id not in sink.resolved]
+    new = AlertEngine(engine.rules if rules is None else rules, sink.add, sink.resolve)
+    new.adopt(left_open, nodes, T0 + 100)
+    return new
+
+
+def test_an_adopted_alert_stays_open_until_a_reading_clears_it(eng):
+    engine, sink = eng
+    t = feed(engine, T0, 11, temp=90.0)
+    engine = restarted(engine, sink)
+    assert sink.kinds("gpu_temp_critical") == ["alert"] and sink.resolved == {}
+    engine.evaluate_sample("spark2", sample(t, temp=84.0))  # below 85, not below the 2 % margin
+    engine.evaluate_sample("ws1", ws1_sample(t, temps=COOL), WS1.info)  # another node says nothing about it
+    assert sink.kinds("gpu_temp_critical") == ["alert"] and sink.resolved == {}
+    engine.evaluate_sample("spark2", sample(t + 1, temp=60.0))
+    alert, recovery = (e for e in sink.events if e.rule_id == "gpu_temp_critical")
+    assert (recovery.kind, recovery.title) == ("recovered", f"Resolved: {alert.title}")
+    assert recovery.detail == "Now 60 °C · cleared after 2 s · was critical"
+    assert sink.resolved == {alert.id: t + 1}
+    feed(engine, t + 2, 5, temp=60.0)
+    assert sink.kinds("gpu_temp_critical") == ["alert", "recovered"]
+
+
+def test_an_adopted_alert_that_still_holds_for_for_s_fires_again_with_no_recovery(eng):
+    engine, sink = eng
+    t = feed(engine, T0, 11, temp=90.0)
+    engine = restarted(engine, sink)
+    engine.evaluate_sample("spark2", sample(t, temp=84.0))  # below 85, not below the 2 % margin
+    t = feed(engine, t + 1, 10, temp=90.0)
+    assert sink.kinds("gpu_temp_critical") == ["alert"] and sink.resolved == {}
+    engine.evaluate_sample("spark2", sample(t, temp=90.0))
+    first, again = (e for e in sink.events if e.rule_id == "gpu_temp_critical")
+    assert again.kind == "alert" and sink.resolved == {first.id: t}
+    feed(engine, t + 1, 3, temp=60.0)
+    assert sink.kinds("gpu_temp_critical") == ["alert", "alert", "recovered"]
+
+
+def test_an_adopted_alert_whose_breach_ends_before_for_s_recovers(eng):
+    engine, sink = eng
+    t = feed(engine, T0, 11, temp=90.0)
+    engine = restarted(engine, sink)
+    t = feed(engine, t, 5, temp=90.0)
+    engine.evaluate_sample("spark2", sample(t, temp=60.0))
+    assert sink.kinds("gpu_temp_critical") == ["alert", "recovered"]
+
+
+def test_an_adopted_node_offline_alert_recovers_only_when_the_node_is_online(eng):
+    engine, sink = eng
+    engine.evaluate_status("spark2", "offline", None, T0)
+    engine.evaluate_status("spark2", "offline", None, T0 + 16)
+    engine = restarted(engine, sink)
+    for i, status in enumerate(("connecting", "offline", "connecting")):
+        engine.evaluate_status("spark2", status, None, T0 + 101 + i)
+    assert sink.kinds("node_offline") == ["alert"] and sink.resolved == {}
+    engine.evaluate_status("spark2", "online", None, T0 + 110)
+    assert sink.kinds("node_offline") == ["alert", "recovered"]
+    assert sink.events[-1].detail == "spark2 is online · cleared after 94 s · was critical"
+
+
+def test_an_adopted_node_offline_alert_fires_again_while_the_node_stays_offline(eng):
+    engine, sink = eng
+    engine.evaluate_status("spark2", "offline", None, T0)
+    engine.evaluate_status("spark2", "offline", None, T0 + 16)
+    engine = restarted(engine, sink)
+    engine.evaluate_status("spark2", "offline", None, T0 + 101)
+    engine.evaluate_status("spark2", "offline", None, T0 + 116)
+    assert sink.kinds("node_offline") == ["alert", "alert"]
+    assert sink.resolved == {sink.events[0].id: T0 + 116}
+
+
+@pytest.mark.parametrize(
+    ("nodes", "change", "why"),
+    [
+        (
+            ("spark2",),
+            lambda rules: [r for r in rules if r.id != "gpu_temp_critical"],
+            "its rule was removed",
+        ),
+        (
+            ("spark2",),
+            lambda rules: edited(rules, "gpu_temp_critical", enabled=False),
+            "its rule was changed",
+        ),
+        (
+            ("spark2",),
+            lambda rules: edited(rules, "gpu_temp_critical", nodes=["ws1"]),
+            "its rule was changed",
+        ),
+        (("ws1",), lambda rules: rules, "spark2 is no longer monitored"),
+    ],
+)
+def test_an_alert_that_nothing_will_evaluate_after_a_restart_is_closed_with_the_reason(
+    eng, nodes, change, why
+):
+    engine, sink = eng
+    feed(engine, T0, 11, temp=90.0)
+    restarted(engine, sink, nodes, change(engine.rules))
+    alert, recovery = (e for e in sink.events if e.rule_id == "gpu_temp_critical")
+    assert (recovery.kind, recovery.ts, recovery.title) == ("recovered", T0 + 100, f"Resolved: {alert.title}")
+    assert recovery.detail == f"Closed because {why} · was critical"
+    assert sink.resolved == {alert.id: T0 + 100}
+
+
+def test_changing_a_rule_closes_the_alert_adopted_for_it(eng):
+    engine, sink = eng
+    feed(engine, T0, 11, temp=90.0)
+    engine = restarted(engine, sink)
+    engine.set_rules(edited(engine.rules, "gpu_temp_critical", threshold=86.0), T0 + 120)
+    assert sink.kinds("gpu_temp_critical") == ["alert", "recovered"]
+    assert sink.events[-1].detail == "Closed because its rule was changed · was critical"
+
+
 GPU0_METRICS = {
     "gpu_temp_high": "gpu0.temp_c",
     "gpu_temp_critical": "gpu0.temp_c",
