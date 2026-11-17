@@ -296,7 +296,7 @@ class Reason(Enum):
         "It has {keys}. The lookup cannot tell whether the repo holds a draft model",
     )
     OTHER_FORMAT = (
-        "{repo} holds a weight file in a format the lookup does not read",
+        "{repo} holds a file that may hold weights, in a format the lookup does not read",
         "It holds {files}, and the lookup cannot tell whether a server loads {them}",
     )
     NO_WEIGHTS_FILE = (
@@ -616,8 +616,8 @@ def read_config(repo: RepoId, answer: _Json | Refusal) -> dict[str, object] | Re
         refusal = Reason.CONFIG_NOT_OBJECT.of(repo=repo, type=type(answer.value).__name__)
     return Refusal(
         refusal.message,
-        f"{refusal.cause}. Without the repo's config.json the lookup has neither the model's shape nor any "
-        "sign that the model names another repo, so it fills in no size either",
+        f"{refusal.cause}. Without the repo's config.json the lookup has no shape and cannot tell whether "
+        "the config names another repo, so it fills in no size either",
     )
 
 
