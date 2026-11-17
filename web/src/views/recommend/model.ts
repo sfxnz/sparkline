@@ -63,6 +63,14 @@ export function survivesReboot(rec: Recommendation): string {
     : 'No. It has to be applied again after every reboot.';
 }
 
+/** Shown with the by-hand commands of a one-click setting: they do not undo a click. The helper records what it
+ *  applied, and applies again at boot what a reboot forgets, whatever was typed since. */
+export function byHandNote(rec: Recommendation): string | null {
+  if (!rec.one_click) return null;
+  const record = rec.persists === 'until-reboot' ? 'Sparkline keeps its own record and applies the setting again at every boot.' : 'Sparkline keeps its own record of what it applied.';
+  return `These commands are for making the change by hand, without Sparkline. A setting that Sparkline applied must be undone with Undo, not by hand: ${record}`;
+}
+
 /** The words of the confirmation before a click. The node's root helper runs fixed actions from the release, so
  *  `commands` are the same change by hand, not what runs. */
 export function confirmCopy(rec: Recommendation, node: string, verb: Verb): { title: string; consequences: string[]; commands: string[]; confirmLabel: string } {

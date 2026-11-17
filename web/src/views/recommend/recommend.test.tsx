@@ -22,6 +22,9 @@ const tick = (ms = 0) => act(() => vi.advanceTimersByTimeAsync(ms));
 const commands = (lines: string[]) => (_text: string, el: Element | null) => el?.tagName === 'CODE' && el.textContent === lines.join('\n');
 
 const GPU = gpuCap.title;
+const BY_HAND = 'These commands are for making the change by hand, without Sparkline. A setting that Sparkline applied must be undone with Undo, not by hand:';
+const BY_HAND_CAP = `${BY_HAND} Sparkline keeps its own record and applies the setting again at every boot.`;
+const BY_HAND_BOOT = `${BY_HAND} Sparkline keeps its own record of what it applied.`;
 const notApplied = item(gpuCap.id, 'not-applied', 'No cap found');
 const applied = item(gpuCap.id, 'applied', 'Capped at 2200 MHz by Sparkline', { managed: true, last: { action: 'apply', ts: 200, ok: true, message: 'GPU clock capped at 2200 MHz' } });
 
@@ -211,6 +214,16 @@ describe('Recommendations', () => {
       expect(row(GPU, 'spark2').getByRole('button', { name: `Apply ${GPU} on spark2` })).toBeInTheDocument();
     });
 
+    it('says beside a one-click setting’s commands that they do not undo what Sparkline applied', async () => {
+      serve(view([gpuCap, headless, displayMemory], { spark3: node([notApplied, item(headless.id, 'not-applied', 'Boots to the desktop'), item(displayMemory.id, 'not-applied', 'Set to 2 GB')], noHelper) }));
+      render(<Recommendations />);
+      await screen.findByRole('heading', { name: GPU });
+      expect(card(GPU).getByText(BY_HAND_CAP)).toBeVisible();
+      expect(card(headless.title).getByText(BY_HAND_BOOT)).toBeVisible();
+      // Not one-click: Sparkline never applies it, so there is nothing of Sparkline's to undo.
+      expect(card(displayMemory.title).queryByText(/must be undone with Undo/)).not.toBeInTheDocument();
+    });
+
     it('keeps the commands folded away while every node takes a click', async () => {
       serve(view([gpuCap], { spark2: node([notApplied]) }));
       render(<Recommendations />);
@@ -238,6 +251,7 @@ describe('Recommendations', () => {
       const dialog = within(screen.getByRole('dialog', { name: `Apply “${GPU}” on spark2?` }));
       expect(dialog.getByText("Change spark2: Sparkline's root helper on spark2 applies this setting.")).toBeInTheDocument();
       expect(dialog.getByText(commands(gpuCap.apply))).toBeInTheDocument();
+      expect(dialog.getByText(BY_HAND_CAP)).toBeInTheDocument();
       expect(dialog.getByText('The setting is forgotten at a reboot, so Sparkline applies it again at every boot until it is undone.')).toBeInTheDocument();
       for (const risk of gpuCap.risks) expect(dialog.getByText(risk)).toBeInTheDocument();
       expect(dialog.getByRole('button', { name: 'Cancel' })).toHaveFocus();
@@ -254,6 +268,7 @@ describe('Recommendations', () => {
       const dialog = within(screen.getByRole('dialog', { name: `Undo “${headless.title}” on spark2?` }));
       expect(dialog.getByText("Change spark2: Sparkline's root helper on spark2 removes this setting.")).toBeInTheDocument();
       expect(dialog.getByText(commands(headless.undo))).toBeInTheDocument();
+      expect(dialog.getByText(BY_HAND_BOOT)).toBeInTheDocument();
       expect(dialog.getByText('The change survives a reboot.')).toBeInTheDocument();
 
       await userEvent.click(dialog.getByRole('button', { name: 'Undo on spark2' }));

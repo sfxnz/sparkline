@@ -7,7 +7,7 @@ import { ProblemState } from '../design/components/ProblemState';
 import type { NodeRecState, Recommendation } from '../lib/types';
 import { useCluster } from '../store/cluster';
 import { RowsSkeleton } from './placeholders';
-import { confirmCopy, leadWithRecommended, nodeOrder, nodeRows, standing, type Verb } from './recommend/model';
+import { byHandNote, confirmCopy, leadWithRecommended, nodeOrder, nodeRows, standing, type Verb } from './recommend/model';
 import { RecCard } from './recommend/RecCard';
 import { rowKey, useRecommendations } from './recommend/useRecommendations';
 import './recommend/recommend.css';
@@ -33,6 +33,7 @@ function Confirm({ ask, onCancel, onConfirm }: { ask: Ask; onCancel: () => void;
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         <div className="rec-confirm" tabIndex={0} role="region" aria-label="Commands and known risks">
           <p className="rec-h">By hand, the same change is these commands</p>
+          <p className="rec-manual__note">{byHandNote(ask.rec)}</p>
           <pre className="rec-cmd__pre"><code>{commands.join('\n')}</code></pre>
           <p className="rec-h">Known risks of this setting</p>
           <ul className="rec-list">

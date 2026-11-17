@@ -9,7 +9,7 @@ import '../../design/components/StatusPill.css';
 import { Table, type Column } from '../../design/components/Table';
 import { copyText } from '../../lib/clipboard';
 import type { NodeRecState, Problem, RecGoal, RecMeasurement, RecMetric, RecState, Recommendation } from '../../lib/types';
-import { actionFor, survivesReboot, type NodeRow, type Standing, type Verb } from './model';
+import { actionFor, byHandNote, survivesReboot, type NodeRow, type Standing, type Verb } from './model';
 import type { RowStatus } from './useRecommendations';
 
 /** Where the evidence files (docs/recommendations/<id>.md) can be read. */
@@ -200,6 +200,7 @@ interface Props {
 export function RecCard({ rec, rows, standing, statusOf, onAsk }: Props) {
   // Open from the start where typing the commands is the only way: not one-click, or a node without the helper.
   const byHandFirst = !rec.one_click || rows.some((r) => r.item && r.item.state === 'not-applied' && r.helper);
+  const note = byHandNote(rec);
   return (
     <Panel className="rec-card" title={rec.title} subtitle={GOAL[rec.goal]} actions={<Pill {...standingLook(standing, rows)} />}>
       <div className="rec-body">
@@ -242,6 +243,7 @@ export function RecCard({ rec, rows, standing, statusOf, onAsk }: Props) {
 
         <details className="rec-manual" open={byHandFirst}>
           <summary>{BY_HAND}</summary>
+          {note ? <p className="rec-manual__note">{note}</p> : null}
           <Commands label="To apply" name={`the commands to apply ${rec.title}`} commands={rec.apply} />
           <Commands label="To undo" name={`the commands to undo ${rec.title}`} commands={rec.undo} />
         </details>

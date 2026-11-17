@@ -40,6 +40,7 @@
 .rec-evidence__meta { color: var(--text-2); font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
 
 .rec-manual summary { width: fit-content; cursor: pointer; font-weight: 560; color: var(--accent-text); border-radius: var(--radius-xs); }
+.rec-manual__note { margin-top: var(--space-2); color: var(--text-2); font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
 .rec-cmd { margin-top: var(--space-3); }
 .rec-cmd__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .rec-cmd__head .rec-h { margin: 0; }
@@ -48,5 +49,5 @@
 
 /* the confirmation's commands and risks */
 .rec-confirm { display: grid; gap: var(--space-2); font-size: var(--fs-callout); line-height: var(--lh-callout); border-radius: var(--radius-xs); }
-.rec-confirm .rec-h { margin: 0; }
+.rec-confirm .rec-h, .rec-confirm .rec-manual__note { margin: 0; }
 .rec-confirm .rec-cmd__pre { margin: 0 0 var(--space-2); }
