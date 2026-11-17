@@ -35,6 +35,7 @@ Options:
   --prefix DIR          Install location for code and venv (default /opt/sparkline).
   --destdir DIR         Stage everything under DIR (for testing or packaging). Skips users, ownership, systemd.
   --dry-run             Print every action, change nothing.
+  --no-next-steps       agent: end without the next steps. install-cluster.sh passes it: it runs them itself.
   --purge               uninstall: also delete /etc/sparkline, the data directories and the sparkline user.
   -y, --yes             Don't ask for confirmation.
   -h, --help            Show this help.
@@ -52,6 +53,7 @@ PORT=""
 PREFIX=/opt/sparkline
 DESTDIR=""
 DRY_RUN=0
+NEXT_STEPS=1
 PURGE=0
 YES=0
 
@@ -76,6 +78,7 @@ while [[ $# -gt 0 ]]; do
 	--prefix) need_arg "$@"; PREFIX=$2; shift ;;
 	--destdir) need_arg "$@"; DESTDIR=$2; shift ;;
 	--dry-run) DRY_RUN=1 ;;
+	--no-next-steps) NEXT_STEPS=0 ;;
 	--purge) PURGE=1 ;;
 	-y | --yes) YES=1 ;;
 	-h | --help) usage; exit 0 ;;
@@ -97,6 +100,7 @@ fi
 [[ $MODE == console || -z $NODES ]] || die "--nodes only applies to console"
 [[ $MODE == agent || $ENABLE_BENCH == 0 ]] || die "--enable-benchmarks only applies to agent"
 [[ $MODE == agent || -z $PEERS ]] || die "--peers only applies to agent"
+[[ $MODE == agent || $NEXT_STEPS == 1 ]] || die "--no-next-steps only applies to agent"
 PEER_RE='[A-Za-z0-9_-]+=([0-9]{1,3}[.]){3}[0-9]{1,3}'
 [[ -z $PEERS || $PEERS =~ ^$PEER_RE(,$PEER_RE)*$ ]] || die "--peers must look like spark2=10.0.8.2,spark2=10.0.9.2"
 [[ $MODE == uninstall || $PURGE == 0 ]] || die "--purge only applies to uninstall"
@@ -190,12 +194,32 @@ show_secret() {
 	fi
 }
 
+# The console URL that signs in: the console token rides in the fragment, which a browser never sends to a
+# server. Read from the config here, so the token is never on a command line. Printed only where show_secret
+# would print the token.
+signin_link() {
+	"$PY" - "$1" "$2" <<'PYEOF'
+import sys, tomllib
+from urllib.parse import quote
+with open(sys.argv[2], "rb") as f:
+    print(f"{sys.argv[1]}/login#token={quote(tomllib.load(f)['token'], safe='')}")
+PYEOF
+}
+
 # This installer's command line for a next step, with the options that have to stay the same.
 self_cmd() {
 	local cmd="$0 $*"
 	[[ $PREFIX == /opt/sparkline ]] || cmd+=" --prefix $PREFIX"
 	if [[ -n $DESTDIR ]]; then cmd+=" --destdir $DESTDIR"; else cmd="sudo $cmd"; fi
 	printf '%s' "$cmd"
+}
+
+# How a dry run's summary ends.
+dry_run_next() { info "To apply it, run the same command without --dry-run."; }
+
+# What a --destdir run leaves undone, said before a next step that needs the service running.
+staged_note() {
+	[[ $SYSTEM == 1 ]] || info "Staged with --destdir: nothing was started (see DEV.md, \"Deployment files\")."
 }
 
 # Write a file from stdin with mode/owner. Owner root:sparkline only when making system changes.
@@ -590,6 +614,13 @@ local_node() {
 	printf '%s=%s' "${id:-$(hostname -s)}" "$(service_url "$file" 9750)"
 }
 
+# A [[nodes]] entry for a console.toml, as lines of the summary.
+node_entry() {
+	info "    [[nodes]]"
+	info "    id = \"${1%%=*}\""
+	info "    url = \"${1#*=}\""
+}
+
 wait_healthy() {
 	local unit=$1 url=$2
 	[[ $SYSTEM == 1 && $DRY_RUN == 0 ]] || return 0
@@ -642,26 +673,50 @@ install_agent() {
 	start_unit sparkline-agent.service
 	start_unit sparkline-update.path
 
-	local file url token
+	local file url node
 	file=$(p "$ETC/agent.toml")
 	echo
 	say "sparkline-agent $([[ $CONFIG_KEPT == 1 ]] && echo updated || echo installed)$([[ $DRY_RUN == 1 ]] && echo " (dry run: nothing was changed)")"
-	[[ $DRY_RUN == 1 ]] && return 0
+	if [[ $DRY_RUN == 1 ]]; then
+		[[ $NEXT_STEPS == 0 ]] || dry_run_next
+		return 0
+	fi
 	url=$(service_url "$file" 9750)
 	wait_healthy sparkline-agent.service "$url"
-	info "Agent URL:    $url"
-	if [[ $CONFIG_KEPT == 0 ]]; then
-		token=$(toml_get "$file" token)
-		info "Agent token:  $(show_secret "$token" "$file" token)"
-		info "Put this URL in the console's --nodes list, and the same token in the console's agent_token."
-		info "On every other node, pass the token through the environment (never on the command line, which sudo logs):"
-		info "  read -rs SPARKLINE_AGENT_TOKEN && export SPARKLINE_AGENT_TOKEN"
-		info "  sudo --preserve-env=SPARKLINE_AGENT_TOKEN $0 agent"
-	fi
+	info "Listening on:  $url"
 	if [[ $ENABLE_BENCH == 1 ]]; then
-		info "Benchmarks:   enabled (docker group, caps lifted)"
+		info "Benchmarks:    enabled (docker group, caps lifted)"
 	else
-		info "Benchmarks:   off (monitor-only). Re-run with --enable-benchmarks to allow them."
+		info "Benchmarks:    off (monitor-only). Re-run with --enable-benchmarks to allow them."
+	fi
+	[[ $CONFIG_KEPT == 0 && $NEXT_STEPS == 1 ]] || return 0
+	staged_note
+	node=$(local_node)
+	echo
+	if [[ -f $(p "$ETC/console.toml") ]]; then
+		info "Next: make sure the console on this host knows this node. In $(p "$ETC/console.toml"),"
+		info "agent_token must equal token in $file, and the nodes must include:"
+		node_entry "$node"
+		info "If you change it, restart the console: sudo systemctl restart sparkline"
+	elif [[ -n $AGENT_TOKEN ]]; then
+		# The token was passed in, so this is one more node of a cluster, not the first.
+		info "Next: add this node to the console."
+		info "  Console not installed yet? Put this pair in its --nodes list:"
+		info "    $node"
+		info "  Console already running? Add this to $ETC/console.toml on its host, then restart it"
+		info "  there (sudo systemctl restart sparkline):"
+		node_entry "$node"
+	else
+		info "Next: install the console on this host. It finds this agent by itself."
+		info "  $(self_cmd console)"
+		echo
+		info "More than one Spark? Install the agent on the others before the console, with this"
+		info "node's agent token. Pass it through the environment, because sudo logs command lines:"
+		info "  Agent token:  $(show_secret "$(toml_get "$file" token)" "$file" token)"
+		info "  read -rs SPARKLINE_AGENT_TOKEN && export SPARKLINE_AGENT_TOKEN    # paste it, press Enter"
+		info "  sudo --preserve-env=SPARKLINE_AGENT_TOKEN ./install.sh agent"
+		info "Each one ends with its id=URL pair. Then install the console here with every pair:"
+		info "  $(self_cmd console) --nodes $node,<id>=<URL>"
 	fi
 }
 
@@ -684,22 +739,53 @@ install_console() {
 	install_units sparkline.service
 	start_unit sparkline.service
 
-	local file url
+	local file url pair pairs id width=0 label="Nodes:" seen cmd
 	file=$(p "$ETC/console.toml")
 	echo
 	say "Sparkline console $([[ $CONFIG_KEPT == 1 ]] && echo updated || echo installed)$([[ $DRY_RUN == 1 ]] && echo " (dry run: nothing was changed)")"
-	[[ $DRY_RUN == 1 ]] && return 0
+	if [[ $DRY_RUN == 1 ]]; then
+		dry_run_next
+		return 0
+	fi
 	url=$(service_url "$file" 9700)
 	wait_healthy sparkline.service "$url"
-	info "Open:           $url"
-	[[ $CONFIG_KEPT == 1 ]] && return 0
-	info "Console token:  $(show_secret "$(toml_get "$file" token)" "$file" token)   (type this on the sign-in screen)"
-	info "Agent token:    $(show_secret "$(toml_get "$file" agent_token)" "$file" agent_token)"
-	if [[ $GENERATED_AGENT_TOKEN == 1 ]]; then
-		warn "a new agent token was generated: set it as token in /etc/sparkline/agent.toml on every node and restart"
-		warn "sparkline-agent there, or delete $ETC/console.toml and re-run this with the agents' token in the environment:"
-		warn "  read -rs SPARKLINE_AGENT_TOKEN && export SPARKLINE_AGENT_TOKEN && sudo --preserve-env=SPARKLINE_AGENT_TOKEN $0 console ..."
+	if [[ $CONFIG_KEPT == 1 ]]; then
+		info "Open:           $url"
+		return 0
 	fi
+	IFS=',' read -r -a pairs <<<"$NODES"
+	for pair in "${pairs[@]}"; do
+		id=${pair%%=*}
+		[[ ${#id} -le $width ]] || width=${#id}
+	done
+	for pair in "${pairs[@]}"; do
+		info "$(printf '%-15s %-*s  %s' "$label" "$width" "${pair%%=*}" "${pair#*=}")"
+		label=""
+	done
+	info "Console:        $url"
+	info "Console token:  $(show_secret "$(toml_get "$file" token)" "$file" token)"
+	staged_note
+	if [[ $GENERATED_AGENT_TOKEN == 1 ]]; then
+		cmd=$(self_cmd console)
+		echo
+		info "Before you sign in: the agents refuse this console until they share its agent token."
+		info "A new one was generated, because none was passed in or found on this host:"
+		info "  Agent token:  $(show_secret "$(toml_get "$file" agent_token)" "$file" agent_token)"
+		info "On every node, set it as token in $ETC/agent.toml and restart sparkline-agent. Or, if the"
+		info "agents already share a token, delete $file and re-run this with theirs:"
+		info "  read -rs SPARKLINE_AGENT_TOKEN && export SPARKLINE_AGENT_TOKEN    # paste it, press Enter"
+		info "  ${cmd/#sudo /sudo --preserve-env=SPARKLINE_AGENT_TOKEN } --nodes $NODES"
+	fi
+	echo
+	if [[ ${#pairs[@]} == 1 ]]; then seen=${pairs[0]%%=*}; else seen="your ${#pairs[@]} nodes"; fi
+	if [[ $TTY_OUT == 1 ]]; then
+		info "Next: open this link to sign in. It carries the console token, so keep it private."
+		info "  $(signin_link "$url" "$file")"
+		info "On another device, open the console address above and type the console token."
+	else
+		info "Next: open $url and sign in with the console token."
+	fi
+	info "You should see $seen, live."
 }
 
 uninstall() {
