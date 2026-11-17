@@ -156,6 +156,16 @@ INDEX = "model.safetensors.index.json"
 INDEX_PATH = f"/Qwen/Qwen3-8B/resolve/main/{INDEX}"
 CACHED_INDEX_PATH = f"/api/resolve-cache/models/Qwen/Qwen3-8B/abc/{INDEX}"
 
+# The two instructions a refusal can end with, as a user reads them.
+SIZE_ASKED = (
+    "the total of every weight file the server loads, in every folder of this repo and in any other repo"
+)
+ASK_SIZE = f"Enter the size by hand: {SIZE_ASKED}"
+ASK_BOTH = (
+    f"Enter the size and the shape by hand. The size is {SIZE_ASKED}. The shape is that of the language "
+    "model that answers, not of a vision, audio or other part"
+)
+
 
 def weight_index(*files: str) -> dict[str, object]:
     return {
@@ -280,7 +290,7 @@ async def test_an_indexed_repo_holding_a_safetensors_file_its_index_misses_is_re
     assert isinstance(failure, LookupFailure), failure
     assert "does not name every" in failure.problem.message
     assert named in failure.problem.cause
-    assert "by hand" in failure.problem.fix
+    assert failure.problem.fix == ASK_SIZE
 
 
 async def test_a_repo_with_no_index_and_a_safetensors_file_in_a_subfolder_is_refused():
@@ -355,29 +365,28 @@ async def test_a_size_from_the_files_a_server_loads_is_not_called_an_upper_bound
 
 
 @pytest.mark.parametrize(
-    ("sizes", "at_most"),
+    "sizes",
     [
-        pytest.param(
-            {**SHARDS, "extra_head-00001-of-00001.safetensors": 1}, "12.1 GB", id="a-second-shard-family"
-        ),
-        pytest.param(
-            {**SHARDS, "model-00001-of-00004.safetensors": 1}, "12.1 GB", id="the-same-stem-and-another-count"
-        ),
-        pytest.param({**SHARDS, "model.safetensors": 1}, "12.1 GB", id="a-single-file-beside-the-shards"),
-        pytest.param({**SHARDS, "vision/model.safetensors": 1}, "12.1 GB", id="a-file-in-a-subfolder"),
-        pytest.param({"model.safetensors": 12_000_000_000}, "12.0 GB", id="one-file-and-no-shards"),
-        pytest.param(
-            {f"half/{name}": size for name, size in SHARDS.items()}, "12.0 GB", id="shards-in-a-subfolder"
-        ),
+        pytest.param({**SHARDS, "extra_head-00001-of-00001.safetensors": 1}, id="a-second-shard-family"),
+        pytest.param({**SHARDS, "model-00001-of-00004.safetensors": 1}, id="the-same-stem-and-another-count"),
+        pytest.param({**SHARDS, "model.safetensors": 1}, id="a-single-file-beside-the-shards"),
+        pytest.param({**SHARDS, "vision/model.safetensors": 1}, id="a-file-in-a-subfolder"),
+        pytest.param({"model.safetensors": 12_000_000_000}, id="one-file-and-no-shards"),
+        pytest.param({f"half/{name}": size for name, size in SHARDS.items()}, id="shards-in-a-subfolder"),
     ],
 )
-async def test_an_index_too_large_to_read_is_refused_unless_the_repo_holds_one_shard_family(sizes, at_most):
+async def test_an_index_too_large_to_read_is_refused_unless_the_repo_holds_one_shard_family(sizes):
     hf = FakeHuggingFace(public_repo(info=repo_files({**OVER_THE_CAP, **sizes})))
     failure = await hf.lookup()
     assert isinstance(failure, LookupFailure), failure
     assert "too large" in failure.problem.message
-    assert "1.0 MiB" in failure.problem.cause and "which files a server loads" in failure.problem.cause
-    assert "by hand" in failure.problem.fix and f"at most {at_most}" in failure.problem.fix
+    assert failure.problem.cause == (
+        "model.safetensors.index.json is 1.0 MiB and the lookup reads at most 1.0 MiB of an answer, so it "
+        "cannot tell which of the repo's files the index names"
+    )
+    # The refusal gave the total of the repo's safetensors files as the most the weights can be. A model
+    # that reaches outside the repo loads more, so the refusal gives no number at all.
+    assert failure.problem.fix == ASK_SIZE
     assert INDEX_PATH not in hf.paths
 
 
@@ -445,7 +454,7 @@ async def test_a_repo_whose_config_names_a_model_outside_it_gets_no_size(config)
     failure = await hf.lookup()
     assert isinstance(failure, LookupFailure), failure
     assert "holds a name that reads as another repo's" in failure.problem.message
-    assert "by hand" in failure.problem.fix
+    assert failure.problem.fix == ASK_BOTH
 
 
 async def test_the_refusal_says_what_the_config_holds_and_what_the_lookup_cannot_tell():
@@ -454,13 +463,9 @@ async def test_the_refusal_says_what_the_config_holds_and_what_the_lookup_cannot
         "It holds some-org/some-70b-model under text_model_id. The lookup cannot tell whether a name like "
         "that is a model, or whether a server loads weights from it"
     )
-    # The name may be a private repo, a part already inside this one, or a file path. The hint does not
-    # hand it over as a model whose files can be added up.
-    assert "some-org/some-70b-model" not in failure.problem.fix
-    # Clause 5: the hint says to add the other model's size, not to add up this repo's Files tab.
-    assert (
-        "plus those of any model named there that the server loads as a separate model" in failure.problem.fix
-    )
+    # The name may be a private repo, a part already inside this one, or a file path. The instruction
+    # does not hand it over as a model whose files can be added up.
+    assert failure.problem.fix == ASK_BOTH
 
 
 @pytest.mark.parametrize(
@@ -490,12 +495,14 @@ async def test_a_config_string_that_is_not_another_repo_still_gets_a_size(config
 async def test_an_adapter_gets_no_size_even_when_it_is_saved_as_model_safetensors():
     failure = await FakeHuggingFace(public_repo(info=ADAPTER_INFO)).lookup()
     assert isinstance(failure, LookupFailure), failure
-    assert "adapter" in failure.problem.message
-    assert "adapter_config.json" in failure.problem.cause
-    # base_model_name_or_path in that file is null for a real LoRA, so the refusal does not say the file
-    # names the base model, only that there is one.
-    assert "named there" not in failure.problem.cause
-    assert "the base model's" in failure.problem.fix
+    # The sixth verifier looked up a speech model that holds its base model and an adapter_config.json
+    # naming the repo itself. The refusal called it "an adapter, not a whole model" and said to add the
+    # base model's files, which gave 1.94 times the truth. 31 of 443 cached adapter repos are whole.
+    assert failure.problem.message == "Qwen/Qwen3-8B has an adapter_config.json"
+    assert failure.problem.cause == (
+        "The lookup does not read that file, and cannot tell whether the repo's files hold the base model"
+    )
+    assert failure.problem.fix == ASK_BOTH
 
 
 @pytest.mark.parametrize(
@@ -516,19 +523,18 @@ async def test_a_draft_model_gets_no_size_even_when_it_names_no_target(config):
         public_repo(info=repo_files(files), config={**QWEN_CONFIG, **config})
     ).lookup()
     assert isinstance(failure, LookupFailure), failure
-    assert "has the keys of a draft model" in failure.problem.message
+    assert "has a key that a draft model's config has" in failure.problem.message
     assert next(iter(config)) in failure.problem.cause
-    assert "the target model's" in failure.problem.fix
+    assert failure.problem.fix == ASK_BOTH
 
 
-async def test_a_draft_models_refusal_claims_nothing_about_what_a_server_loads():
+async def test_a_draft_models_refusal_names_the_keys_and_does_not_say_the_repo_is_a_draft_model():
     config = {**QWEN_CONFIG, "num_target_layers": 93, "target_hidden_size": 8192}
     problem = (await FakeHuggingFace(public_repo(config=config)).lookup()).problem
     assert problem.cause == (
-        "It has num_target_layers, target_hidden_size, as a draft model's config does. A draft model "
-        "drafts for a target model, and the lookup read nothing of that target"
+        "It has num_target_layers, target_hidden_size. The lookup cannot tell whether the repo holds a "
+        "draft model"
     )
-    assert "a server loads" not in problem.cause
 
 
 # A weight file in a format the lookup never reads, by whether its name marks it as a copy or as training
@@ -547,7 +553,7 @@ async def test_a_weight_file_in_another_format_takes_the_size_with_it(name):
     assert isinstance(failure, LookupFailure), failure
     assert "a format the lookup does not read" in failure.problem.message
     assert name in failure.problem.cause
-    assert "by hand" in failure.problem.fix
+    assert failure.problem.fix == ASK_SIZE
 
 
 @pytest.mark.parametrize(
@@ -621,7 +627,7 @@ async def test_a_config_read_but_not_understood_keeps_neither_the_shape_nor_the_
     failure = await FakeHuggingFace(public_repo(config={"num_attention_heads": 16})).lookup()
     assert isinstance(failure, LookupFailure), failure
     assert failure.shape is None
-    assert "does not describe" in failure.problem.message
+    assert "holds no shape at its top level" in failure.problem.message
 
 
 async def test_a_shape_read_without_a_size_is_still_filled_in():
@@ -684,7 +690,7 @@ async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
             public_repo(info={"siblings": [{"rfilename": "model.safetensors", "size": "big"}]}),
             "does not list",
         ),
-        (public_repo(config={"num_hidden_layers": 36}), "does not describe"),
+        (public_repo(config={"num_hidden_layers": 36}), "holds no shape"),
         (public_repo(config=["not", "an", "object"]), "not a JSON object"),
         ({INFO_PATH: httpx.ConnectError("Name or service not known")}, "Could not reach huggingface.co"),
         ({INFO_PATH: httpx.Response(200, content=b"<html>")}, "not JSON"),
@@ -695,10 +701,10 @@ async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
         ),
     ],
 )
-async def test_each_lookup_failure_is_a_problem_that_says_to_enter_the_facts_by_hand(routes, message):
+async def test_each_lookup_failure_is_a_problem_that_says_what_to_enter_by_hand(routes, message):
     problem = (await FakeHuggingFace(routes).lookup()).problem
     assert message in problem.message
-    assert "nter the model facts by hand" in problem.fix
+    assert problem.fix in (ASK_SIZE, ASK_BOTH)
     assert "Input should be" not in problem.cause and "Field required" not in problem.cause
 
 
@@ -721,8 +727,7 @@ async def test_a_refusal_over_a_second_model_fills_in_neither_a_size_nor_a_shape
     failure = await FakeHuggingFace(routes).lookup()
     assert isinstance(failure, LookupFailure), failure
     assert failure.model_dump() == {"problem": failure.problem.model_dump(), "shape": None}
-    assert "both the size and the shape" in failure.problem.fix
-    assert "the model the server answers with" in failure.problem.fix
+    assert failure.problem.fix == ASK_BOTH
 
 
 @pytest.mark.parametrize("routes", SECOND_MODEL)
@@ -739,14 +744,14 @@ def test_lookup_route_sends_nothing_to_fill_in_after_a_refusal_over_a_second_mod
     [
         pytest.param(
             public_repo(config={"num_attention_heads": 16}),
-            "does not describe",
+            "holds no shape",
             None,
             id="weights-sized-and-no-shape-in-the-config",
         ),
         pytest.param(refused(CONFIG_PATH, 401), "is gated", None, id="nothing-read-and-a-gated-config"),
         pytest.param(
             public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config={"num_attention_heads": 16}),
-            "does not describe",
+            "holds no shape",
             None,
             id="weights-bounded-and-no-shape-in-the-config",
         ),
@@ -818,6 +823,8 @@ async def test_a_refusal_fills_in_the_shape_alone_and_only_when_it_is_this_model
     failure = await FakeHuggingFace(routes).lookup()
     assert message in failure.problem.message
     assert failure.model_dump() == {"problem": failure.problem.model_dump(), "shape": shape}
+    # The instruction asks for exactly what the refusal left blank.
+    assert failure.problem.fix == (ASK_SIZE if shape else ASK_BOTH)
 
 
 def test_lookup_route_sends_the_shape_a_refused_lookup_read(tmp_path, hf):
@@ -834,12 +841,6 @@ async def test_a_file_too_large_to_read_is_named_in_the_refusal():
     problem = (await FakeHuggingFace({**public_repo(), CACHED_PATH: too_big}).lookup()).problem
     assert problem.message == "The config.json of Qwen/Qwen3-8B is larger than the lookup reads"
     assert "at most 1.0 MiB" in problem.cause
-
-
-async def test_a_rate_limit_says_to_try_again_later():
-    assert (
-        "Try again in a few minutes" in (await FakeHuggingFace(refused(INFO_PATH, 429)).lookup()).problem.fix
-    )
 
 
 BOOL_DIMS = {"num_hidden_layers": 4, "num_key_value_heads": 4, "num_attention_heads": 4, "hidden_size": 64}
@@ -860,7 +861,7 @@ async def test_a_json_boolean_where_a_dimension_belongs_is_not_a_number(config):
     # describes no model.
     failure = await FakeHuggingFace(public_repo(config=config)).lookup()
     assert not isinstance(failure, ModelFacts), failure
-    assert "does not describe" in failure.problem.message
+    assert "holds no shape at its top level" in failure.problem.message
 
 
 async def test_a_config_without_the_model_shape_names_the_keys_it_lacks():
@@ -873,55 +874,139 @@ VISION_SHAPE = {"num_hidden_layers": 24, "num_attention_heads": 16, "hidden_size
 
 
 @pytest.mark.parametrize(
-    ("config", "where"),
+    "config",
     [
-        pytest.param(
-            {"text_config": QWEN_CONFIG},
-            "The same keys are one level down in text_config. Type in the shape of the language model, "
-            "which writes the answer, and not that of a vision or audio tower",
-            id="in-a-sub-object",
-        ),
+        pytest.param({"text_config": QWEN_CONFIG}, id="in-a-sub-object"),
         pytest.param(
             {"vision_config": VISION_SHAPE, "text_config": QWEN_CONFIG, "audio_config": {"d_model": 1280}},
-            "The same keys are one level down in text_config, vision_config. Type in the shape of the "
-            "language model, which writes the answer, and not that of a vision or audio tower",
             id="in-two-sub-objects-and-not-a-third",
         ),
-        # A vision tower's shape is the only one in the file. Typed in for the language model's, its fewer
-        # layers give a KV cache that is too small, so the hint says whose shape is wanted.
+        # The sixth verifier's two repos. The only sub-object with a shape was a vision tower in one and a
+        # waveform decoder in the other, the hint named it, and its fewer layers gave a KV cache three
+        # times too small.
         pytest.param(
             {"text_config": {"model_type": "some-text-model"}, "vision_config": VISION_SHAPE},
-            "The same keys are one level down in vision_config. Type in the shape of the language model, "
-            "which writes the answer, and not that of a vision or audio tower",
             id="only-in-a-vision-tower",
         ),
-        # A text_config that holds no layer count. The hint sent the user to it all the same.
         pytest.param(
-            {
-                "text_config": {"model_type": "some-text-model", "vocab_size": 32064},
-                "vision_config": {"image_size": 336},
-            },
-            "It found no shape one level down either. A shape under an older name such as n_layer is read "
-            "off the config and typed in",
-            id="sub-objects-without-a-shape",
+            {"thinker_config": {"text_config": QWEN_CONFIG}, "code2wav_config": VISION_SHAPE},
+            id="only-in-a-waveform-decoder-and-two-levels-down",
         ),
-        pytest.param(
-            {"n_layer": 36, "n_head": 32, "n_embd": 4096},
-            "It found no shape one level down either. A shape under an older name such as n_layer is read "
-            "off the config and typed in",
-            id="under-an-older-name",
-        ),
+        pytest.param({"n_layer": 36, "n_head": 32, "n_embd": 4096}, id="under-an-older-name"),
     ],
 )
-async def test_a_shape_not_at_the_top_level_is_refused_and_the_hint_names_only_where_one_is(config, where):
-    # The refusal said the config has no whole number above 0 for these keys, which is false of a config
-    # that holds them one level down: 1,472 of 3,867 cached configs do.
-    problem = (await FakeHuggingFace(public_repo(config=config)).lookup()).problem
-    assert problem.cause.endswith("at its top level")
-    assert all(key not in config for key in ("num_hidden_layers", "num_attention_heads", "head_dim"))
-    assert problem.fix == (
-        f"Enter the model facts by hand: the lookup reads the top level of config.json only. {where}"
+async def test_a_shape_not_at_the_top_level_is_refused_and_no_sub_object_is_named(config):
+    failure = await FakeHuggingFace(public_repo(config=config)).lookup()
+    problem = failure.problem
+    assert failure.shape is None
+    assert problem.message == "The config.json of Qwen/Qwen3-8B holds no shape at its top level"
+    assert problem.cause == (
+        "The lookup reads the top level only, and found no whole number above 0 there for "
+        "num_hidden_layers; num_key_value_heads or num_attention_heads; head_dim, or hidden_size and "
+        "num_attention_heads"
     )
+    assert problem.fix == ASK_BOTH
+    said = f"{problem.message} {problem.cause} {problem.fix}"
+    assert not any(key in said for key, value in config.items() if isinstance(value, dict))
+
+
+# A config whose top level holds no shape and whose sub-objects each hold one: a language model, a vision
+# tower and a waveform decoder. No refusal names any of them.
+PARTS_CONFIG = {
+    "text_config": QWEN_CONFIG,
+    "vision_config": {"num_hidden_layers": 24, "num_attention_heads": 16, "hidden_size": 1024},
+    "code2wav_config": {"num_hidden_layers": 8, "num_attention_heads": 16, "hidden_size": 1024},
+}
+
+# One repo for every reason the lookup refuses, keyed by the name of the reason.
+REFUSALS: dict[str, dict[str, httpx.Response | Exception]] = {
+    "OFF_HOST": {
+        **public_repo(),
+        CONFIG_PATH: httpx.Response(302, headers={"location": "https://cdn.example/config.json"}),
+    },
+    "USER_NAME": {
+        **public_repo(),
+        CONFIG_PATH: httpx.Response(302, headers={"location": "https://user:pass@huggingface.co/steal"}),
+    },
+    "RATE_LIMITED": refused(INFO_PATH, 429),
+    "HTTP_STATUS": refused(INFO_PATH, 500),
+    "TOO_LARGE": {INFO_PATH: httpx.Response(200, content=b" " * (fit.MAX_RESPONSE_BYTES + 1))},
+    "UNREACHABLE": {INFO_PATH: httpx.ConnectError("Name or service not known")},
+    "NOT_JSON": {INFO_PATH: httpx.Response(200, content=b"<html>")},
+    "REDIRECT_LOOP": {INFO_PATH: httpx.Response(307, headers={"location": INFO_PATH})},
+    "ABSENT": refused(INFO_PATH, 401),
+    "GATED": refused(CONFIG_PATH, 401),
+    "NO_CONFIG": refused(CONFIG_PATH, 404),
+    "FILE_LIST": public_repo(info={"id": "Qwen/Qwen3-8B"}),
+    "LISTED_TWICE": public_repo(
+        info={"siblings": [{"rfilename": "model.safetensors", "size": size} for size in (5, 1)]}
+    ),
+    "CONFIG_NOT_OBJECT": public_repo(config=["not", "an", "object"]),
+    "ADAPTER": public_repo(info=ADAPTER_INFO, config=PARTS_CONFIG),
+    "POINTER": public_repo(info=SPEECH_INFO, config={**PARTS_CONFIG, "text_model_id": "some-org/a-model"}),
+    "DRAFT_KEYS": public_repo(config={**PARTS_CONFIG, "draft_vocab_size": 32_000}),
+    "OTHER_FORMAT": public_repo(info=repo_files({"model.safetensors": 5, "codec.pth": 5})),
+    "NO_WEIGHTS_FILE": public_repo(
+        info=repo_files({f"model-0000{i}-of-00002.safetensors": 5 for i in (1, 2)})
+    ),
+    "NO_SAFETENSORS": public_repo(info=repo_files({"model.Q4_K_M.gguf": 5})),
+    "BESIDE_WEIGHTS_FILE": public_repo(
+        info=repo_files({"model.safetensors": 5, "vision/model.safetensors": 5})
+    ),
+    "INDEX_UNREADABLE": public_repo(repo_files({INDEX: 9, "model.safetensors": 5}), index={"metadata": {}}),
+    "INDEX_NAMES_MISSING": indexed_repo(
+        {"model-00001-of-00002.safetensors": 5}, "model-00002-of-00002.safetensors"
+    ),
+    "INDEX_LEAVES_OUT": indexed_repo({"model.safetensors": 5, "extra.safetensors": 5}, "model.safetensors"),
+    "INDEX_TOO_LARGE": public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS, "model.safetensors": 5})),
+    "EMPTY_WEIGHTS": public_repo(info=repo_files({"model.safetensors": 0})),
+    "NO_SHAPE": public_repo(config=PARTS_CONFIG),
+}
+
+# What the words a refusal writes for itself may never hold. Advice that is true of one repo is untrue of
+# the next: 7 % of the repos with an adapter_config.json hold the whole model, and the only sub-object with
+# a shape can be a vision tower or a waveform decoder.
+FORBIDDEN = {
+    "the kind of model the repo is": r"\bis an? (adapter|draft|whole)|not a whole model",
+    "a place to read a number from": (
+        r"Files tab|one level down|sub-object|\b\w+_config\b(?!\.json)|base model's|target model|\bplus\b"
+    ),
+    "a number to type": r"\d ?(GB|GiB)\b",
+    "advice, which only the two instructions give": r"by hand|\b(enter|type|typed|check|try|add)\b",
+}
+
+
+def claims_about_a_server(text: str) -> list[str]:
+    """The sentences that speak of a server other than as something the lookup cannot tell."""
+    return [
+        sentence
+        for sentence in re.split(r"(?<=\.)\s+", text)
+        if re.search(r"\bserver\b", sentence) and not re.search(r"cannot tell[^.]*\bserver\b", sentence)
+    ]
+
+
+def broken_rules(text: str) -> list[str]:
+    broken = [rule for rule, phrase in FORBIDDEN.items() if re.search(phrase, text, re.IGNORECASE)]
+    return [*broken, *(f"what a server loads: {sentence}" for sentence in claims_about_a_server(text))]
+
+
+@pytest.mark.parametrize("reason", REFUSALS)
+async def test_a_refusal_says_what_the_lookup_read_and_ends_with_one_of_two_fixed_instructions(reason):
+    failure = await FakeHuggingFace(REFUSALS[reason]).lookup()
+    assert isinstance(failure, LookupFailure), failure
+    problem = failure.problem
+    assert problem.fix == (ASK_SIZE if failure.shape else ASK_BOTH)
+    assert broken_rules(f"{problem.message}. {problem.cause}") == []
+    # The repo above is one that reaches this reason, and the table's own words hold nothing forbidden
+    # either, whatever a repo fills them in with.
+    message, cause = fit.Reason[reason].value
+    assert broken_rules(re.sub(r"\{\w+\}", "...", f"{message}. {cause}")) == []
+    for words, said in ((message, problem.message), (cause, problem.cause)):
+        assert re.match(re.sub(r"\\\{\w+\\\}", ".+", re.escape(words)), said), said
+
+
+def test_every_reason_the_lookup_refuses_for_is_walked():
+    assert set(REFUSALS) == {reason.name for reason in fit.Reason}
 
 
 @pytest.mark.parametrize(

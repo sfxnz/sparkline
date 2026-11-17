@@ -14,6 +14,10 @@ that same ``config.json``, and a size is never filled in without it. A refusal f
 and not even that after a sign of a second model (the first three above): the shape in the config may
 then be an adapter's, a draft's or one part's, not that of the model a server answers with.
 
+A refusal is what the lookup read (``Reason``), then one of two fixed instructions (``Ask``). It never says
+what a server loads, what kind of model the repo is, or where a number can be read: advice that is true
+of one repo is untrue of the next.
+
 None of that proves the repo holds the whole model, and nothing here claims it does. A repo's own code can
 load a second model that no file the lookup reads names, a draft model whose config measures nothing is
 still served beside a target, and ``subfolder=``, ``variant=`` and a LoRA flag are the caller's. So what the
@@ -30,6 +34,7 @@ import json
 import re
 from collections import Counter
 from collections.abc import Iterator
+from enum import Enum
 from typing import Annotated, Literal, NamedTuple, NewType
 
 import httpx
@@ -45,11 +50,6 @@ UNIFIED_HEADROOM_BYTES = 4 * 2**30
 HF_ORIGIN = "https://huggingface.co"
 MAX_RESPONSE_BYTES = 1 << 20
 MAX_REDIRECTS = 3
-MANUAL_FIX = "Enter the model facts by hand"
-OR_MANUAL_FIX = "or enter the model facts by hand"
-# After a sign of a second model the page fills in nothing, so the refusal asks for both parts.
-BOTH_BY_HAND = f"{MANUAL_FIX}, both the size and the shape"
-ANSWERING_MODEL = "the model the server answers with"
 
 RepoId = NewType("RepoId", str)
 _REPO_PART = r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}"
@@ -214,8 +214,140 @@ def parse_repo_id(raw: str) -> RepoId | None:
     return RepoId(raw) if re.fullmatch(REPO_ID_PATTERN, raw) and ".." not in raw else None
 
 
-def _problem(message: str, cause: str, fix: str = MANUAL_FIX) -> Problem:
-    return Problem(message=message, cause=cause, fix=fix)
+_SIZE_ASKED = (
+    "the total of every weight file the server loads, in every folder of this repo and in any other repo"
+)
+
+
+class Ask(Enum):
+    """The two instructions a refusal ends with, in the same words for every repo.
+
+    No refusal writes its own. ``_failure`` picks one by what the refusal fills in, so an instruction
+    cannot name a repo to add, a part of the config to read or a page to copy a number from.
+    """
+
+    SIZE = f"Enter the size by hand: {_SIZE_ASKED}"
+    SIZE_AND_SHAPE = (
+        f"Enter the size and the shape by hand. The size is {_SIZE_ASKED}. The shape is that of the "
+        "language model that answers, not of a vision, audio or other part"
+    )
+
+
+class Refusal(NamedTuple):
+    """Why a lookup gives no size, as what it read. It has no field for what to do next."""
+
+    message: str
+    cause: str
+
+
+class Reason(Enum):
+    """Every reason a lookup refuses, as the message and the cause its refusal is built from.
+
+    Each says what the lookup read: the file, the config string or the answer it saw, and "the lookup
+    cannot tell" where that leaves a question open. None says what a server loads, what kind of model the
+    repo is, or where a number can be read. ``test_console_fit.py`` walks this table and fails on a
+    phrase that does.
+    """
+
+    OFF_HOST = (
+        "Hugging Face redirected the lookup to another host",
+        "The console only reads from {origin} and does not follow {host}",
+    )
+    USER_NAME = (
+        "Hugging Face redirected the lookup to a URL carrying a user name",
+        "The console reads {origin} without signing in, and following that redirect would make it send "
+        "credentials",
+    )
+    RATE_LIMITED = ("Hugging Face has rate limited the console host", "HTTP 429 from {url}")
+    HTTP_STATUS = ("Hugging Face could not answer the lookup", "HTTP {status} from {url}")
+    TOO_LARGE = (
+        "{what} is larger than the lookup reads",
+        "The lookup reads at most {cap} of an answer, and {url} sent more",
+    )
+    UNREACHABLE = ("Could not reach huggingface.co from the console host", "{error}")
+    NOT_JSON = ("Hugging Face sent an answer that is not JSON", "From {url}")
+    REDIRECT_LOOP = ("Hugging Face kept redirecting the lookup", "More than {redirects} redirects")
+    ABSENT = ("Hugging Face has no public model {repo}", "The repo does not exist or is private")
+    GATED = (
+        "{repo} is gated on Hugging Face",
+        "Its files are only served to accounts that accepted the model's terms",
+    )
+    NO_CONFIG = ("{repo} has no config.json", "The estimator reads the model's shape from it")
+    FILE_LIST = (
+        "Hugging Face does not list the files of {repo} in a way this estimator reads",
+        "Its answer is not a list of file names with sizes",
+    )
+    LISTED_TWICE = (
+        "Hugging Face lists a file of {repo} twice",
+        "{files} appears more than once with a size, so the lookup cannot tell how large it is",
+    )
+    CONFIG_NOT_OBJECT = ("The config.json of {repo} is not a JSON object", "It is a {type}")
+    ADAPTER = (
+        "{repo} has an {file}",
+        "The lookup does not read that file, and cannot tell whether the repo's files hold the base model",
+    )
+    POINTER = (
+        "The config.json of {repo} holds a name that reads as another repo's",
+        "It holds {where}. The lookup cannot tell whether a name like that is a model, or whether a server "
+        "loads weights from it",
+    )
+    DRAFT_KEYS = (
+        "The config.json of {repo} has a key that a draft model's config has",
+        "It has {keys}. The lookup cannot tell whether the repo holds a draft model",
+    )
+    OTHER_FORMAT = (
+        "{repo} holds a weight file in a format the lookup does not read",
+        "It holds {files}, and the lookup cannot tell whether a server loads {them}",
+    )
+    NO_WEIGHTS_FILE = (
+        "{repo} has no {weights} and no {index} at its top level",
+        "It holds other .safetensors files ({files}), and without an index the lookup cannot tell which of "
+        "them, if any, a server loads",
+    )
+    NO_SAFETENSORS = (
+        "{repo} has no {weights} and no {index} at its top level",
+        "It holds no .safetensors files. GGUF, PyTorch .bin and other formats are not read",
+    )
+    BESIDE_WEIGHTS_FILE = (
+        "{repo} holds other safetensors files beside its {weights}, and no index",
+        "The lookup cannot tell whether a server loads only {weights} or {files} as well",
+    )
+    INDEX_UNREADABLE = (
+        "The weight index of {repo} is not one this estimator reads",
+        "{index} has no weight_map from tensor names to file names",
+    )
+    INDEX_NAMES_MISSING = (
+        "The weight index of {repo} names files the repo does not hold",
+        "{index} names {files}, which the repo's file list does not hold",
+    )
+    INDEX_LEAVES_OUT = (
+        "The weight index of {repo} does not name every safetensors file in the repo",
+        "It names {named} of them, and the lookup cannot tell whether a server also loads {files}",
+    )
+    INDEX_TOO_LARGE = (
+        "The weight index of {repo} is too large for the lookup to read",
+        "{index} is {size} and the lookup reads at most {cap} of an answer, so it cannot tell which of the "
+        "repo's files the index names",
+    )
+    EMPTY_WEIGHTS = ("The weight files of {repo} are empty", "Hugging Face lists them at 0 bytes")
+    NO_SHAPE = (
+        "The config.json of {repo} holds no shape at its top level",
+        "The lookup reads the top level only, and found no whole number above 0 there for {keys}",
+    )
+
+    def of(self, **read: object) -> Refusal:
+        message, cause = self.value
+        return Refusal(message.format(**read), cause.format(**read))
+
+
+def _failure(refusal: Refusal, shape: ModelShape | None = None) -> LookupFailure:
+    """A refusal as the page gets it: what the lookup read, then the instruction for what it fills in."""
+    ask = Ask.SIZE if shape else Ask.SIZE_AND_SHAPE
+    problem = Problem(message=refusal.message, cause=refusal.cause, fix=ask.value)
+    return LookupFailure(problem=problem, shape=shape)
+
+
+_CAP = f"{MAX_RESPONSE_BYTES / 2**20:.1f} MiB"
 
 
 class _RepoFile(BaseModel):
@@ -283,37 +415,28 @@ def is_copy_or_training_state(name: str) -> bool:
     return folded in COPY_NAMES or folded in TRAINING_NAMES or bool(COPY_NAME_PATTERN.fullmatch(folded))
 
 
-def other_format_weights(repo: RepoId, sizes: dict[str, int]) -> Problem | None:
+def other_format_weights(repo: RepoId, sizes: dict[str, int]) -> Refusal | None:
     """Why the lookup will not size a repo holding a weight file it never reads, or None."""
     others = sorted(
         name for name in sizes if name.lower().endswith(OTHER_FORMATS) and not is_copy_or_training_state(name)
     )
     if not others:
         return None
-    return _problem(
-        f"{repo} holds a weight file in a format the lookup does not read",
-        f"It holds {_listed(others)}, and the lookup cannot tell whether a server loads "
-        f"{'that file' if len(others) == 1 else 'those files'}",
-    )
+    them = "that file" if len(others) == 1 else "those files"
+    return Reason.OTHER_FORMAT.of(repo=repo, files=_listed(others), them=them)
 
 
-def file_sizes(repo: RepoId, info: object) -> dict[str, int] | Problem:
+def file_sizes(repo: RepoId, info: object) -> dict[str, int] | Refusal:
     """Every file in the repo and its size, from the repo's ``/api/models`` answer as decoded JSON."""
     try:
         files = _RepoFiles.model_validate(info, strict=True).siblings
     except ValidationError:
-        return _problem(
-            f"Hugging Face does not list the files of {repo} in a way this estimator reads",
-            "Its answer is not a list of file names with sizes",
-        )
+        return Reason.FILE_LIST.of(repo=repo)
     sizes = {f.rfilename: f.size for f in files}
     if len(sizes) != len(files):
         seen = Counter(f.rfilename for f in files)
         twice = sorted(name for name, n in seen.items() if n > 1)
-        return _problem(
-            f"Hugging Face lists a file of {repo} twice",
-            f"{_listed(twice)} appears more than once with a size, so the lookup cannot tell how large it is",
-        )
+        return Reason.LISTED_TWICE.of(repo=repo, files=_listed(twice))
     return sizes
 
 
@@ -321,10 +444,8 @@ def _safetensors(sizes: dict[str, int]) -> list[str]:
     return [name for name in sizes if name.endswith(".safetensors")]
 
 
-def _total(repo: RepoId, sizes: dict[str, int], names: set[str]) -> int | Problem:
-    return sum(sizes[n] for n in names) or _problem(
-        f"The weight files of {repo} are empty", "Hugging Face lists them at 0 bytes"
-    )
+def _total(repo: RepoId, sizes: dict[str, int], names: set[str]) -> int | Refusal:
+    return sum(sizes[n] for n in names) or Reason.EMPTY_WEIGHTS.of(repo=repo)
 
 
 def _listed(names: list[str]) -> str:
@@ -336,7 +457,7 @@ def _left_out(sizes: dict[str, int], named: set[str]) -> list[str]:
     return sorted(set(_safetensors(sizes)) - named)
 
 
-def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
+def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Refusal:
     """The size of the weights a server loads from a repo with no index: its ``model.safetensors``.
 
     Only when that is the one safetensors file in the repo. Any other is a second candidate for the
@@ -345,22 +466,14 @@ def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
     """
     others = _left_out(sizes, {WEIGHTS_FILE})
     if WEIGHTS_FILE not in sizes:
-        return _problem(
-            f"{repo} has no {WEIGHTS_FILE} and no {INDEX_FILE} at its top level",
-            f"It holds other .safetensors files ({_listed(others)}), and without an index the lookup "
-            "cannot tell which of them a server loads"
-            if others
-            else "It holds no .safetensors files. GGUF, PyTorch .bin and other formats are not read",
-        )
+        reason = Reason.NO_WEIGHTS_FILE if others else Reason.NO_SAFETENSORS
+        return reason.of(repo=repo, weights=WEIGHTS_FILE, index=INDEX_FILE, files=_listed(others))
     if others:
-        return _problem(
-            f"{repo} holds other safetensors files beside its {WEIGHTS_FILE}, and no index",
-            f"The lookup cannot tell whether a server loads only {WEIGHTS_FILE} or {_listed(others)} as well",
-        )
+        return Reason.BESIDE_WEIGHTS_FILE.of(repo=repo, weights=WEIGHTS_FILE, files=_listed(others))
     return _total(repo, sizes, {WEIGHTS_FILE})
 
 
-def indexed_weights(repo: RepoId, sizes: dict[str, int], index: object) -> int | Problem:
+def indexed_weights(repo: RepoId, sizes: dict[str, int], index: object) -> int | Refusal:
     """The size of the files the repo's index names, from ``model.safetensors.index.json`` as decoded JSON.
 
     The index maps every tensor of the model it describes to the file that holds it, so its files are ones
@@ -370,31 +483,20 @@ def indexed_weights(repo: RepoId, sizes: dict[str, int], index: object) -> int |
     try:
         names = set(_WeightIndex.model_validate(index, strict=True).weight_map.values())
     except ValidationError:
-        return _problem(
-            f"The weight index of {repo} is not one this estimator reads",
-            f"{INDEX_FILE} has no weight_map from tensor names to file names",
-        )
+        return Reason.INDEX_UNREADABLE.of(repo=repo, index=INDEX_FILE)
     missing = sorted(names - sizes.keys())
     if missing:
-        return _problem(
-            f"The weight index of {repo} names files the repo does not hold",
-            f"{missing[0]}{f' and {len(missing) - 1} more' if len(missing) > 1 else ''} in {INDEX_FILE}, "
-            "so a server cannot load the repo as it is",
-        )
+        return Reason.INDEX_NAMES_MISSING.of(repo=repo, index=INDEX_FILE, files=_listed(missing))
     others = _left_out(sizes, names)
     if others:
-        return _problem(
-            f"The weight index of {repo} does not name every safetensors file in the repo",
-            f"It names {len(names)} of them, and the lookup cannot tell whether a server also loads "
-            f"{_listed(others)}: some models load a file in a subfolder, or one beside the index's",
-        )
+        return Reason.INDEX_LEAVES_OUT.of(repo=repo, named=len(names), files=_listed(others))
     return _total(repo, sizes, names)
 
 
 _SHARD = re.compile(r"(.*)-\d+-of-(\d+)\.safetensors")
 
 
-def unread_index_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
+def unread_index_weights(repo: RepoId, sizes: dict[str, int]) -> int | Refusal:
     """An upper bound on the weights of a repo whose index is too large to read: the total of its shards.
 
     Only when every ``.safetensors`` file in the repo, at any depth, is a top-level shard of one family,
@@ -405,21 +507,9 @@ def unread_index_weights(repo: RepoId, sizes: dict[str, int]) -> int | Problem:
     files = _safetensors(sizes)
     families = {m.groups() if "/" not in f and (m := _SHARD.fullmatch(f)) else None for f in files}
     if len(families) != 1 or None in families:
-        return _index_too_large(repo, sizes)
+        size = f"{sizes[INDEX_FILE] / 2**20:.1f} MiB"
+        return Reason.INDEX_TOO_LARGE.of(repo=repo, index=INDEX_FILE, size=size, cap=_CAP)
     return _total(repo, sizes, set(files))
-
-
-def _index_too_large(repo: RepoId, sizes: dict[str, int]) -> Problem:
-    files = _safetensors(sizes)
-    # Rounded up to 0.1 GB: the weights are some of these files, never more than all of them.
-    at_most = -(-sum(sizes[f] for f in files) // 10**8) / 10
-    return _problem(
-        f"The weight index of {repo} is too large for the lookup to read",
-        f"{INDEX_FILE} is {sizes[INDEX_FILE] / 2**20:.1f} MiB and the lookup reads at most "
-        f"{MAX_RESPONSE_BYTES / 2**20:.1f} MiB of an answer, so it cannot tell which files a server loads",
-        f"{MANUAL_FIX}: the weights are at most {at_most} GB, the total of the repo's {len(files)} "
-        ".safetensors files",
-    )
 
 
 _SHAPE_KEYS = {
@@ -452,41 +542,15 @@ def _shape_in(config: dict[str, object]) -> ModelShape:
     )
 
 
-def _holds_a_shape(node: object) -> bool:
-    if not isinstance(node, dict):
-        return False
-    try:
-        _shape_in(node)
-    except ValidationError:
-        return False
-    return True
-
-
-def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Problem:
+def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Refusal:
     """The model's shape, from the repo's ``config.json`` as decoded JSON."""
     try:
         return _shape_in(config)
     except ValidationError as e:
         keys = "; ".join(_SHAPE_KEYS[str(err["loc"][0])] for err in e.errors())
-        # The hint names a sub-object only when it holds a shape. A text_config can hold no layer count,
-        # and the hint used to send every user to it. It also says whose shape is wanted, because the only
-        # sub-object with one can be a vision tower, whose fewer layers give a KV cache that is too small.
-        below = sorted(key for key, sub in config.items() if _holds_a_shape(sub))
-        where = (
-            f"The same keys are one level down in {_listed(below)}. Type in the shape of the language "
-            "model, which writes the answer, and not that of a vision or audio tower"
-            if below
-            else "It found no shape one level down either. A shape under an older name such as n_layer is "
-            "read off the config and typed in"
-        )
-        # "at its top level" is the whole of what the lookup looked at. 1,472 of 3,867 cached configs keep
-        # the shape in a sub-object such as text_config, and the cause without those words is false of
-        # every one of them (.audit/evidence/verify/D4/nested_shape_census.out).
-        return _problem(
-            f"Hugging Face does not describe {repo} in a way this estimator reads",
-            f"Its config.json has no whole number above 0 for {keys} at its top level",
-            f"{MANUAL_FIX}: the lookup reads the top level of config.json only. {where}",
-        )
+        # The refusal names no sub-object. 1,472 of 3,867 cached configs keep a shape in one, and the only
+        # one that holds a shape can be a vision tower or a waveform decoder.
+        return Reason.NO_SHAPE.of(repo=repo, keys=keys)
 
 
 class _Json(NamedTuple):
@@ -494,8 +558,8 @@ class _Json(NamedTuple):
 
 
 async def _get_hf_json(
-    client: httpx.AsyncClient, path: str, by_status: dict[int, Problem], what: str = "The answer"
-) -> _Json | Problem:
+    client: httpx.AsyncClient, path: str, by_status: dict[int, Refusal], what: str = "The answer"
+) -> _Json | Refusal:
     """One file of a repo as decoded JSON, or why not. ``what`` names the file in a problem about its size."""
     url = httpx.URL(HF_ORIGIN + path)
     try:
@@ -507,50 +571,30 @@ async def _get_hf_json(
                 if r.has_redirect_location:
                     url = url.join(r.headers["location"])
                     if f"{url.scheme}://{url.netloc.decode()}" != HF_ORIGIN:
-                        return _problem(
-                            "Hugging Face redirected the lookup to another host",
-                            f"The console only reads from {HF_ORIGIN} and does not follow {url.host}",
-                        )
+                        return Reason.OFF_HOST.of(origin=HF_ORIGIN, host=url.host)
                     # netloc leaves out the user info, so a redirect to user:pass@huggingface.co is on
                     # the right host. httpx would turn it into an Authorization: Basic header.
                     if url.userinfo:
-                        return _problem(
-                            "Hugging Face redirected the lookup to a URL carrying a user name",
-                            f"The console reads {HF_ORIGIN} without signing in, and following that "
-                            "redirect would make it send credentials",
-                        )
+                        return Reason.USER_NAME.of(origin=HF_ORIGIN)
                     continue
                 if r.status_code == 429:
-                    return _problem(
-                        "Hugging Face has rate limited the console host",
-                        f"HTTP 429 from {HF_ORIGIN}{path}",
-                        f"Try again in a few minutes, {OR_MANUAL_FIX}",
-                    )
+                    return Reason.RATE_LIMITED.of(url=HF_ORIGIN + path)
                 if r.status_code != 200:
-                    return by_status.get(r.status_code) or _problem(
-                        "Hugging Face could not answer the lookup",
-                        f"HTTP {r.status_code} from {HF_ORIGIN}{path}",
+                    return by_status.get(r.status_code) or Reason.HTTP_STATUS.of(
+                        status=r.status_code, url=HF_ORIGIN + path
                     )
                 body = b""
                 async for chunk in r.aiter_bytes():
                     body += chunk
                     if len(body) > MAX_RESPONSE_BYTES:
-                        return _problem(
-                            f"{what} is larger than the lookup reads",
-                            f"The lookup reads at most {MAX_RESPONSE_BYTES / 2**20:.1f} MiB of an answer, "
-                            f"and {HF_ORIGIN}{path} sent more",
-                        )
+                        return Reason.TOO_LARGE.of(what=what, cap=_CAP, url=HF_ORIGIN + path)
                 return _Json(json.loads(body))
     except httpx.HTTPError as e:
-        return _problem(
-            "Could not reach huggingface.co from the console host",
-            f"{type(e).__name__}: {e}".removesuffix(": "),
-            f"Check the console host's internet access, {OR_MANUAL_FIX}",
-        )
+        return Reason.UNREACHABLE.of(error=f"{type(e).__name__}: {e}".removesuffix(": "))
     # json.loads raises RecursionError, not ValueError, for an answer nested too deep to decode.
     except (ValueError, RecursionError):
-        return _problem("Hugging Face sent an answer that is not JSON", f"From {HF_ORIGIN}{path}")
-    return _problem("Hugging Face kept redirecting the lookup", f"More than {MAX_REDIRECTS} redirects")
+        return Reason.NOT_JSON.of(url=HF_ORIGIN + path)
+    return Reason.REDIRECT_LOOP.of(redirects=MAX_REDIRECTS)
 
 
 class _Weights(NamedTuple):
@@ -558,25 +602,22 @@ class _Weights(NamedTuple):
     upper_bound: bool
 
 
-def read_config(repo: RepoId, answer: _Json | Problem) -> dict[str, object] | Problem:
+def read_config(repo: RepoId, answer: _Json | Refusal) -> dict[str, object] | Refusal:
     """The repo's ``config.json`` as an object, or why the lookup has none.
 
     It is read twice over: for the model's shape, and because it is the only place the repo says that a
     server loads weights from somewhere else. Without it neither is known.
     """
-    if isinstance(answer, Problem):
-        problem = answer
+    if isinstance(answer, Refusal):
+        refusal = answer
     elif isinstance(answer.value, dict):
         return answer.value
     else:
-        problem = _problem(
-            f"The config.json of {repo} is not a JSON object", f"It is a {type(answer.value).__name__}"
-        )
-    return _problem(
-        problem.message,
-        f"{problem.cause}. Without the repo's config.json the lookup has neither the model's shape nor any "
+        refusal = Reason.CONFIG_NOT_OBJECT.of(repo=repo, type=type(answer.value).__name__)
+    return Refusal(
+        refusal.message,
+        f"{refusal.cause}. Without the repo's config.json the lookup has neither the model's shape nor any "
         "sign that the model names another repo, so it fills in no size either",
-        problem.fix,
     )
 
 
@@ -590,18 +631,12 @@ TARGET_KEYS = (
 )  # fmt: skip
 
 
-def drafts_for_another_model(repo: RepoId, config: dict[str, object]) -> Problem | None:
+def drafts_for_another_model(repo: RepoId, config: dict[str, object]) -> Refusal | None:
     """Why the lookup will not size a repo whose ``config.json`` measures a model it does not hold."""
     keys = [key for key in TARGET_KEYS if key in config]
     if not keys:
         return None
-    return _problem(
-        f"The config.json of {repo} has the keys of a draft model",
-        f"It has {_listed(keys)}, as a draft model's config does. A draft model drafts for a target model, "
-        "and the lookup read nothing of that target",
-        f"{BOTH_BY_HAND}. The size is the total of this repo's weight files and the target model's. The "
-        f"shape is the target model's, which is {ANSWERING_MODEL}, and not this repo's own",
-    )
+    return Reason.DRAFT_KEYS.of(repo=repo, keys=_listed(keys))
 
 
 def config_strings(config: dict[str, object]) -> Iterator[tuple[tuple[str, ...], str]]:
@@ -644,7 +679,7 @@ def names_another_repo(repo: RepoId, path: tuple[str, ...], value: str) -> bool:
     return not (len(path) > 1 and path[-2] == "auto_map" and AUTO_MAP_KEY.fullmatch(path[-1]))
 
 
-def points_elsewhere(repo: RepoId, config: dict[str, object]) -> Problem | None:
+def points_elsewhere(repo: RepoId, config: dict[str, object]) -> Refusal | None:
     """Why the lookup will not size a repo whose ``config.json`` names a model outside it, or None.
 
     Only that the name is there, never that a server reads it: no loader reads a weight path out of
@@ -658,16 +693,10 @@ def points_elsewhere(repo: RepoId, config: dict[str, object]) -> Problem | None:
     if not named:
         return None
     where = ", ".join(f"{value} under {key}" for key, value in sorted(named.items()))
-    return _problem(
-        f"The config.json of {repo} holds a name that reads as another repo's",
-        f"It holds {where}. The lookup cannot tell whether a name like that is a model, or whether a server "
-        "loads weights from it",
-        f"{BOTH_BY_HAND}. The size is the total of this repo's weight files, plus those of any model named "
-        f"there that the server loads as a separate model. The shape is that of {ANSWERING_MODEL}",
-    )
+    return Reason.POINTER.of(repo=repo, where=where)
 
 
-def second_model(repo: RepoId, sizes: dict[str, int], config: dict[str, object] | Problem) -> Problem | None:
+def second_model(repo: RepoId, sizes: dict[str, int], config: dict[str, object] | Refusal) -> Refusal | None:
     """Why serving this repo involves a model the repo may not hold, or None when nothing read says so.
 
     The signs are an ``adapter_config.json``, a ``config.json`` string that names another repo, and a
@@ -675,14 +704,8 @@ def second_model(repo: RepoId, sizes: dict[str, int], config: dict[str, object] 
     reach past this repo, and that the shape in this repo's config may not be the served model's.
     """
     if ADAPTER_FILE in sizes:
-        return _problem(
-            f"{repo} is an adapter, not a whole model",
-            f"It holds {ADAPTER_FILE}, which marks these weights as a layer trained on top of another "
-            "model, and a server loads that model as well",
-            f"{BOTH_BY_HAND}. The size is the total of this repo's weight files and the base model's. The "
-            f"shape is the base model's, which is {ANSWERING_MODEL}",
-        )
-    if isinstance(config, Problem):
+        return Reason.ADAPTER.of(repo=repo, file=ADAPTER_FILE)
+    if isinstance(config, Refusal):
         return None
     return points_elsewhere(repo, config) or drafts_for_another_model(repo, config)
 
@@ -691,9 +714,9 @@ async def weights_of(
     client: httpx.AsyncClient,
     repo: RepoId,
     sizes: dict[str, int],
-    config: dict[str, object] | Problem,
-    gated: Problem,
-) -> _Weights | Problem:
+    config: dict[str, object] | Refusal,
+    gated: Refusal,
+) -> _Weights | Refusal:
     """The size of the weights a server loads from this repo, or why the lookup will not give one.
 
     ``fetch_facts`` calls this once ``second_model`` has found no sign of one. A size then needs the rest
@@ -702,7 +725,7 @@ async def weights_of(
     ``.safetensors`` file in the repo. Without all of that the lookup gives no size, because every way a
     server loads weights from outside the files it sized ends in a number below what the server loads.
     """
-    if isinstance(config, Problem):
+    if isinstance(config, Refusal):
         return config
     other_format = other_format_weights(repo, sizes)
     if other_format is not None:
@@ -719,9 +742,9 @@ async def weights_of(
             {401: gated, 403: gated},
             f"The weight index of {repo}",
         )
-        weights = index if isinstance(index, Problem) else indexed_weights(repo, sizes, index.value)
+        weights = index if isinstance(index, Refusal) else indexed_weights(repo, sizes, index.value)
         upper_bound = False
-    return weights if isinstance(weights, Problem) else _Weights(weights, upper_bound)
+    return weights if isinstance(weights, Refusal) else _Weights(weights, upper_bound)
 
 
 async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | LookupFailure:
@@ -731,11 +754,7 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
     shape, the shape alone, or nothing. A size never comes without a shape.
     """
     # Hugging Face answers 401 for a repo that does not exist and for a private one alike.
-    absent = _problem(
-        f"Hugging Face has no public model {repo}",
-        "The repo does not exist or is private",
-        f"Check the repo id, {OR_MANUAL_FIX}",
-    )
+    absent = Reason.ABSENT.of(repo=repo)
     # expand[]=siblings keeps the answer to the file list. Without it the model card comes too, which is
     # a third of the response cap for some repos.
     info = await _get_hf_json(
@@ -744,16 +763,13 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
         {401: absent, 403: absent, 404: absent},
         f"The file list of {repo}",
     )
-    if isinstance(info, Problem):
-        return LookupFailure(problem=info)
+    if isinstance(info, Refusal):
+        return _failure(info)
     sizes = file_sizes(repo, info.value)
-    if isinstance(sizes, Problem):
-        return LookupFailure(problem=sizes)
-    gated = _problem(
-        f"{repo} is gated on Hugging Face",
-        "Its files are only served to accounts that accepted the model's terms",
-    )
-    no_config = _problem(f"{repo} has no config.json", "The estimator reads the model's shape from it")
+    if isinstance(sizes, Refusal):
+        return _failure(sizes)
+    gated = Reason.GATED.of(repo=repo)
+    no_config = Reason.NO_CONFIG.of(repo=repo)
     config = read_config(
         repo,
         await _get_hf_json(
@@ -765,13 +781,13 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
     )
     second = second_model(repo, sizes, config)
     if second is not None:
-        return LookupFailure(problem=second)
-    shape = config if isinstance(config, Problem) else parse_shape(repo, config)
+        return _failure(second)
+    shape = config if isinstance(config, Refusal) else parse_shape(repo, config)
     weights = await weights_of(client, repo, sizes, config, gated)
-    if isinstance(shape, Problem):
-        return LookupFailure(problem=weights if isinstance(weights, Problem) else shape)
-    if isinstance(weights, Problem):
-        return LookupFailure(problem=weights, shape=shape)
+    if isinstance(shape, Refusal):
+        return _failure(weights if isinstance(weights, Refusal) else shape)
+    if isinstance(weights, Refusal):
+        return _failure(weights, shape)
     return ModelFacts(
         repo=repo, weights_bytes=weights.bytes, weights_upper_bound=weights.upper_bound, **shape.model_dump()
     )
