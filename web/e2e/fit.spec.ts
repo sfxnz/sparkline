@@ -21,6 +21,7 @@ test('a looked-up model gets an estimate and a verdict for every node', async ({
   for (const node of ['spark1', 'spark2', 'spark3']) {
     await expect(result.getByRole('row', { name: new RegExp(`^${node}\\b`) })).toContainText(/Fits|Tight|Does not fit|Unknown/);
   }
+  await expect(result).toContainText("Every verdict below counts Qwen/Qwen3-8B's own weight files and nothing else");
   await expect(result).toContainText('not a hard cap');
   const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
   expect(axe.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
@@ -40,6 +41,6 @@ test('facts typed by hand need no lookup, and a refused lookup says what to do',
   await page.getByRole('textbox', { name: 'KV heads' }).fill('8');
   await page.getByRole('textbox', { name: 'Head size' }).fill('128');
   await page.getByRole('button', { name: 'Estimate' }).click();
-  await expect(page.getByRole('region', { name: 'Result' })).toContainText('This model at 32,768 tokens');
+  await expect(page.getByRole('region', { name: 'Result' })).toContainText('This model at 32,768 tokens of context, bf16 KV cache, from facts typed by hand');
   await expect(page.getByRole('region', { name: 'Result' }).getByRole('row', { name: /^spark1\b/ })).toBeVisible();
 });
