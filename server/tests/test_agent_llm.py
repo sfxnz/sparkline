@@ -160,6 +160,41 @@ def test_a_new_socket_on_the_port_is_identified_again(tmp_path):
     assert http.asked(web_app) == ["/v1/models", "/v1/models"]
 
 
+def test_a_port_that_answers_with_something_that_is_not_http_is_asked_once(tmp_path):
+    listen(tmp_path, {8000: 41, 3306: 77, 9000: 78})
+    database, listed = "http://127.0.0.1:3306", "http://127.0.0.1:9000"
+    greeting = sources.NotHttp("BadStatusLine")
+    http = acmeserve(**{f"{database}/v1/models": greeting, f"{listed}/v1/models": greeting})
+    published = [{"Id": "b" * 64, "Names": ["/db"], "Ports": [{"PublicPort": 3306, "Type": "tcp"}]}]
+    c = collector(tmp_path, http, targets=(Target(9000),), containers=published)
+    for i in range(10):
+        c.poll_round(i * FIND_EVERY_S)
+    assert http.asked(database) == http.asked(listed) == ["/v1/models"]
+    assert [(s.port, s.state, s.problem) for s in servers(c)] == [
+        (8000, "ready", None),
+        (9000, "down", "Port 9000 did not answer as a model server"),
+    ]
+    listen(tmp_path, {8000: 41, 3306: 79, 9000: 78})
+    for i in range(10, 13):
+        c.poll_round(i * FIND_EVERY_S)
+    assert http.asked(database) == ["/v1/models"] * 2, "a new socket on the port is asked once more"
+
+
+def test_a_port_that_accepts_and_never_answers_is_asked_three_times(tmp_path):
+    listen(tmp_path, {8000: 41, 9000: 78})
+    listed = "http://127.0.0.1:9000"
+    http = acmeserve(**{f"{listed}/v1/models": TimeoutError("no answer in time")})
+    c = collector(tmp_path, http, targets=(Target(9000),))
+    for i in range(10):
+        c.poll_round(i * FIND_EVERY_S)
+    assert http.asked(listed) == ["/v1/models"] * 3
+    assert servers(c)[1].problem == "Port 9000 did not answer as a model server"
+    listen(tmp_path, {8000: 41, 9000: 79})
+    for i in range(10, 20):
+        c.poll_round(i * FIND_EVERY_S)
+    assert http.asked(listed) == ["/v1/models"] * 6, "a new socket on the port gets three of its own"
+
+
 @pytest.mark.parametrize("by", ["owner", "arguments"])
 def test_tensorrt_llm_is_never_asked_for_the_metrics_path_that_drains(tmp_path, by):
     listen(tmp_path, {8000: 41})
@@ -243,16 +278,23 @@ def test_a_server_that_lists_models_and_has_no_metrics_or_known_owner_is_left_ou
     assert http.asked(base) == ["/v1/models", "/metrics", "/v1/metrics"]
 
 
-def test_a_server_still_loading_is_asked_again_until_it_answers(tmp_path):
+@pytest.mark.parametrize(
+    "not_ready",
+    [text("Loading model", 503), ConnectionRefusedError("refused"), ConnectionError("ConnectionResetError")],
+    ids=["answers 503", "refuses", "closes without a byte"],
+)
+def test_a_server_still_loading_is_asked_again_until_it_answers(tmp_path, not_ready):
     listen(tmp_path, {8000: 41})
-    http = acmeserve(**{f"{BASE}/v1/models": text("Loading model", 503)})
+    http = acmeserve()
     c = collector(tmp_path, http)
-    c.poll_round(0.0)
-    http.routes[f"{BASE}/v1/models"] = TimeoutError("no answer in time")
-    c.poll_round(FIND_EVERY_S)
-    assert servers(c) == []
+    slow = TimeoutError("no answer in time")
+    answers = [not_ready] * 10 + [slow, slow, not_ready, slow, slow]
+    for i, answer in enumerate(answers):
+        http.routes[f"{BASE}/v1/models"] = answer
+        c.poll_round(i * FIND_EVERY_S)
+    assert http.asked() == ["/v1/models"] * 15 and servers(c) == []
     http.routes[f"{BASE}/v1/models"] = models("acmeserve")
-    c.poll_round(2 * FIND_EVERY_S)
+    c.poll_round(15 * FIND_EVERY_S)
     assert [s.state for s in servers(c)] == ["ready"]
 
 

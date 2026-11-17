@@ -24,7 +24,7 @@ from typing import Any, Protocol
 
 from ...common.schema import LoadedModel, ModelServerSample, ProcSample, ServerState, Unsupported
 from ..config import Target
-from ..sources import HTTP_TIMEOUT_S, Http, HttpReply, Sources
+from ..sources import HTTP_TIMEOUT_S, Http, HttpReply, NotHttp, Sources
 from . import Caps
 from .llm_find import (
     NO_HINTS,
@@ -44,6 +44,9 @@ log = logging.getLogger(__name__)
 POLL_EVERY_S = 2.0
 FIND_EVERY_S = 5.0
 FORGET_AFTER_S = 600.0  # a discovered server that stays down this long leaves the list
+# Each ask of a socket that accepts and stays silent holds the poller for HTTP_TIMEOUT_S, so every server
+# on the node misses a poll. One silence may be a server's busy moment. Three in a row end the asking.
+SILENT_ASKS = 3
 MODELS_MAX = 32
 TEXT_MAX = 128
 
@@ -76,8 +79,8 @@ class Adapter(Protocol):
     def identify(
         self, http: Http, at: Listener, hint: ProcHint | None, auth: Mapping[str, str]
     ) -> Identity | None:
-        """Asked once per listening socket. None: not this adapter's server. Raises OSError when the
-        socket gave no answer to decide on (a server still loading), and is asked again later."""
+        """Asked about a listening socket until an answer settles it. None: not this adapter's server.
+        Raises what ``http`` raises, and ConnectionError for a server still loading."""
         ...
 
     def poll(
@@ -253,7 +256,8 @@ class ModelServerCollector:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._tracked: dict[int, Tracked] = {}
-        self._rejected: set[tuple[int, int | None]] = set()  # sockets that answered and are no model server
+        self._rejected: set[tuple[int, int | None]] = set()  # sockets that are no model server
+        self._silent: dict[tuple[int, int | None], int] = {}  # socket -> unanswered asks in a row
         self._listening: dict[int, Listener] = {}
         self._published: dict[int, str] = {}
         self._found_at = self._docker_at = float("-inf")
@@ -372,7 +376,9 @@ class ModelServerCollector:
             self._discover,
         )
         self._listening = {li.port: li for li in found}
-        self._rejected &= {(li.port, li.inode) for li in found}
+        sockets = {(li.port, li.inode) for li in found}
+        self._rejected &= sockets
+        self._silent = {key: n for key, n in self._silent.items() if key in sockets}
         for at in found:
             tracked = self._tracked.get(at.port)
             if (tracked is None or tracked.at != at) and (at.port, at.inode) not in self._rejected:
@@ -380,15 +386,26 @@ class ModelServerCollector:
 
     def _identify(self, at: Listener, hint: ProcHint | None) -> None:
         auth = self._auth.get(at.port, {})
+        key = (at.port, at.inode)
         for adapter in self._adapters:
             try:
                 ident = adapter.identify(self._http, at, hint, auth)
+            except NotHttp:
+                break
+            except TimeoutError:
+                self._silent[key] = self._silent.get(key, 0) + 1
+                if self._silent[key] < SILENT_ASKS:
+                    return
+                break
             except OSError:
-                return  # no answer to decide on: asked again on the next look
+                # A port Docker publishes resets every connection until the server in its container
+                # listens, so a failed connection settles nothing and the socket is asked again.
+                self._silent.pop(key, None)
+                return
             if ident is not None:
                 first = ModelServerSample(
                     port=at.port, adapter=adapter.name, values={"up": 0.0}, state="down"
                 )
                 self._tracked[at.port] = Tracked(at, adapter, ident, Window(), first)
                 return
-        self._rejected.add((at.port, at.inode))
+        self._rejected.add(key)
