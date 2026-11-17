@@ -464,11 +464,13 @@ needs no configuration.
 
 - a default port: 8000 (vLLM, NIM, TensorRT-LLM), 8080 and 9931 (llama.cpp, old and new default) and 30000
   (SGLang);
-- `--port N` in the arguments of a running process;
-- a port Docker publishes for a container;
+- `--port N` in the arguments of a process that holds GPU memory;
+- a port Docker publishes for a container whose processes hold GPU memory;
 - a port under `[[model_servers]]` in `agent.toml`.
 
-Nothing else is asked, and no port is scanned. Requests go only to this node's own addresses, follow no
+Nothing else is asked, and no port is scanned. A database started with `--port`, or published by its
+container, holds no GPU memory and is never sent a request. A model server that runs on the CPU alone, on a
+port that is not a default, needs a `[[model_servers]]` table. Requests go only to this node's own addresses, follow no
 redirect and ignore proxy settings.
 
 **What is asked.** The agent sends each listening socket `GET /v1/models`. The answer decides what that

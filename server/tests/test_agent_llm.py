@@ -160,24 +160,43 @@ def test_a_new_socket_on_the_port_is_identified_again(tmp_path):
     assert http.asked(web_app) == ["/v1/models", "/v1/models"]
 
 
+def test_a_port_named_by_a_process_or_by_docker_is_asked_only_when_that_process_holds_gpu_memory(tmp_path):
+    listen(tmp_path, {3306: 71, 5432: 72, 8100: 73, 8200: 74})
+    at = "http://127.0.0.1:{}".format
+    http = FakeHttp({})
+    rows = [
+        ProcSample(pid=1, name="mysqld", cmdline="mysqld --port 3306", rss=1),
+        ProcSample(pid=2, name="postgres", cmdline="postgres", rss=1, container="db"),
+        ProcSample(pid=3, name="python", cmdline="serve.py --port 8100", rss=1, gpu_mem=9 << 30),
+        ProcSample(pid=4, name="python", cmdline="worker", rss=1, gpu_mem=4 << 30, container="llm"),
+    ]
+    published = [
+        {"Id": "b" * 64, "Names": ["/db"], "Ports": [{"PublicPort": 5432, "Type": "tcp"}]},
+        {"Id": "c" * 64, "Names": ["/llm"], "Ports": [{"PublicPort": 8200, "Type": "tcp"}]},
+    ]
+    c = collector(tmp_path, http, procs=SimpleNamespace(rows=rows, cmdlines={}), containers=published)
+    c.collect()
+    c.poll_round(0.0)
+    assert http.asked(at(3306)) == http.asked(at(5432)) == []
+    assert http.asked(at(8100)) == http.asked(at(8200)) == ["/v1/models"]
+
+
 def test_a_port_that_answers_with_something_that_is_not_http_is_asked_once(tmp_path):
-    listen(tmp_path, {8000: 41, 3306: 77, 9000: 78})
-    database, listed = "http://127.0.0.1:3306", "http://127.0.0.1:9000"
-    greeting = sources.NotHttp("BadStatusLine")
-    http = acmeserve(**{f"{database}/v1/models": greeting, f"{listed}/v1/models": greeting})
-    published = [{"Id": "b" * 64, "Names": ["/db"], "Ports": [{"PublicPort": 3306, "Type": "tcp"}]}]
-    c = collector(tmp_path, http, targets=(Target(9000),), containers=published)
+    listen(tmp_path, {8000: 41, 9000: 78})
+    listed = "http://127.0.0.1:9000"
+    http = acmeserve(**{f"{listed}/v1/models": sources.NotHttp("BadStatusLine")})
+    c = collector(tmp_path, http, targets=(Target(9000),))
     for i in range(10):
         c.poll_round(i * FIND_EVERY_S)
-    assert http.asked(database) == http.asked(listed) == ["/v1/models"]
+    assert http.asked(listed) == ["/v1/models"]
     assert [(s.port, s.state, s.problem) for s in servers(c)] == [
         (8000, "ready", None),
         (9000, "down", "Port 9000 did not answer as a model server"),
     ]
-    listen(tmp_path, {8000: 41, 3306: 79, 9000: 78})
+    listen(tmp_path, {8000: 41, 9000: 79})
     for i in range(10, 13):
         c.poll_round(i * FIND_EVERY_S)
-    assert http.asked(database) == ["/v1/models"] * 2, "a new socket on the port is asked once more"
+    assert http.asked(listed) == ["/v1/models"] * 2, "a new socket on the port is asked once more"
 
 
 def test_a_port_that_accepts_and_never_answers_is_asked_three_times(tmp_path):

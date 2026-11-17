@@ -367,11 +367,14 @@ class ModelServerCollector:
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
                 self._published = {}
                 log.debug("docker port lookup failed: %s", type(e).__name__)
+        # A port that only a process or Docker names is asked when that process holds GPU memory. A
+        # database started with --port, or published by its container, is then never sent a request.
+        on_gpu = {name for name, hint in hints.by_container.items() if hint.gpu_mem}
         found = candidates(
             self._listeners(),
             self._default_ports,
-            frozenset(hints.by_port),
-            frozenset(self._published),
+            frozenset(port for port, hint in hints.by_port.items() if hint.gpu_mem),
+            frozenset(port for port, name in self._published.items() if name in on_gpu),
             self._target_ports,
             self._discover,
         )
