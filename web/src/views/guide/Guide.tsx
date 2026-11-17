@@ -91,11 +91,26 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
       if (!root.current) return;
       held.current?.();
       held.current = bringIntoView(root.current, 'nearest');
-      root.current.focus({ preventScroll: true });
+      // "Bring it back" has already handed focus to a control inside (below): leave it there.
+      if (!root.current.contains(document.activeElement)) root.current.focus({ preventScroll: true });
     });
     return () => { cancelAnimationFrame(frame); };
   }, [wanted, view]);
   useEffect(() => () => { held.current?.(); }, []);
+
+  // A control that goes away when it is pressed hands the keyboard to its counterpart, so focus never falls to
+  // <body>: Collapse to "Show all", Dismiss to "Bring it back", and those two to the first control of the guide in
+  // full. The counterpart is focused in the render that first has it.
+  const handTo = useRef<'collapse' | 'show-all' | 'bring-back' | null>(null);
+  const collapse = useRef<HTMLButtonElement>(null);
+  const showAll = useRef<HTMLButtonElement>(null);
+  const bringBack = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const to = handTo.current === 'collapse' ? collapse.current : handTo.current === 'show-all' ? showAll.current : handTo.current === 'bring-back' ? bringBack.current : null;
+    if (!to) return;
+    handTo.current = null;
+    to.focus();
+  });
 
   // Every row is done: the guide finishes itself and says so, once, quietly.
   const complete = stage !== 'finished' && ready && guide.total > 0 && guide.done === guide.total;
@@ -114,13 +129,13 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
           {left === 'complete' ? 'That is all of it. Getting started is put away.' : 'Getting started is put away.'} It stays in Settings and in Search
           (<Kbd>{isApple() ? '⌘' : 'Ctrl'}</Kbd> <Kbd>K</Kbd>).
         </span>
-        {left === 'dismissed' ? <Button size="sm" variant="ghost" onClick={() => { void reopenGuide(); }}>Bring it back</Button> : null}
+        {left === 'dismissed' ? <Button ref={bringBack} size="sm" variant="ghost" onClick={() => { handTo.current = 'collapse'; void reopenGuide(); }}>Bring it back</Button> : null}
       </div>
     );
   }
 
   const dismiss = (
-    <IconButton size="sm" aria-label="Dismiss getting started" title="Dismiss" icon={<X />} onClick={() => { void finishGuide('dismissed'); }} />
+    <IconButton size="sm" aria-label="Dismiss getting started" title="Dismiss" icon={<X />} onClick={() => { handTo.current = 'bring-back'; void finishGuide('dismissed'); }} />
   );
 
   if (view === 'strip') {
@@ -144,7 +159,7 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
           </>
         ) : null}
         <span className="guide-strip__actions">
-          <Button size="sm" variant="ghost" className="guide-strip__all" aria-expanded={false} aria-label="Show all" onClick={() => { setGuideOpen(true); }}>
+          <Button ref={showAll} size="sm" variant="ghost" className="guide-strip__all" aria-expanded={false} aria-label="Show all" onClick={() => { handTo.current = 'collapse'; setGuideOpen(true); }}>
             <span className="guide-strip__all-label">Show all</span><span className="btn__icon" aria-hidden="true"><ChevronDown /></span>
           </Button>
           {dismiss}
@@ -163,7 +178,7 @@ export function Guide({ items }: { items?: readonly GuideItem[] }) {
         <div className="guide__right">
           <Meter guide={guide} />
           <div className="guide__actions">
-            <Button size="sm" variant="ghost" icon={<ChevronUp />} aria-expanded onClick={() => { setGuideOpen(false); }}>
+            <Button ref={collapse} size="sm" variant="ghost" icon={<ChevronUp />} aria-expanded onClick={() => { handTo.current = 'show-all'; setGuideOpen(false); }}>
               <span className="guide__collapse-label">Collapse</span>
             </Button>
             {dismiss}

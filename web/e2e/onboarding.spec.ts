@@ -298,6 +298,20 @@ test('the main path with a keyboard only', async ({ page }) => {
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(`${BASE}/`);
   await expect(guidePanel(page)).toBeFocused();
+  // Collapse, Show all, Dismiss and Bring it back each go away when pressed: the keyboard goes to the control that
+  // takes their place, so the next key press still does something.
+  const strip = page.getByRole('region', { name: /^Getting started, \d of 5 done$/ });
+  await tabTo(guidePanel(page).getByRole('button', { name: 'Collapse' }));
+  await page.keyboard.press('Enter');
+  await expect(strip.getByRole('button', { name: 'Show all' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(guidePanel(page).getByRole('button', { name: 'Collapse' })).toBeFocused();
+  await tabTo(guidePanel(page).getByRole('button', { name: 'Dismiss getting started' }));
+  await page.keyboard.press('Space');
+  await expect(page.getByText('Getting started is put away.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Bring it back' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(guidePanel(page).getByRole('button', { name: 'Collapse' })).toBeFocused();
   await tabTo(guidePanel(page).getByRole('button', { name: 'Dismiss getting started' }));
   await page.keyboard.press('Enter');
   await expect(page.getByText('Getting started is put away.')).toBeVisible();

@@ -161,6 +161,27 @@ describe('what the person does is kept by the console', () => {
     expect(await screen.findByRole('region', { name: 'Getting started' })).toBeInTheDocument();
   });
 
+  it('hands the keyboard from a control that goes away to the one that takes its place, never to <body>', async () => {
+    const user = userEvent.setup();
+    show(first);
+    const collapse = () => within(panel()).getByRole('button', { name: 'Collapse' });
+    collapse().focus();
+    await user.keyboard('{Enter}');
+    expect(within(strip()).getByRole('button', { name: 'Show all' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(collapse()).toHaveFocus();
+
+    within(panel()).getByRole('button', { name: 'Dismiss getting started' }).focus();
+    await user.keyboard(' ');
+    await waitFor(() => { expect(screen.getByRole('button', { name: 'Bring it back' })).toHaveFocus(); });
+    await user.keyboard('{Enter}');
+    await waitFor(() => { expect(collapse()).toHaveFocus(); });
+    // It stays there: the guide coming into view a frame later does not take focus from a control inside it.
+    await act(() => new Promise<void>((done) => { requestAnimationFrame(() => { requestAnimationFrame(() => { done(); }); }); }));
+    expect(useUi.getState().guideWanted).toBe(false);
+    expect(collapse()).toHaveFocus();
+  });
+
   it('finishes itself when every row is done, with one quiet line', async () => {
     consoleWith({ channels: 1, runs: 1 });
     show({ ...first, seen: ['model-servers', 'prometheus'] });
