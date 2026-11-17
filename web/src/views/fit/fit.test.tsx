@@ -7,7 +7,8 @@ import { EMPTY_DRAFT, fromLookup, parseCount, parseSize, toRequest } from './mod
 const GIB = 1024 ** 3;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-const QWEN: ModelFacts = { repo: 'Qwen/Qwen3-8B', weights_bytes: 16_381_470_720, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+const QWEN: ModelFacts = { repo: 'Qwen/Qwen3-8B', weights_bytes: 16_381_470_720, weights_upper_bound: false, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+const SHARDED: ModelFacts = { ...QWEN, repo: 'some/sharded', weights_bytes: 12_000_000_000, weights_upper_bound: true };
 const RESPONSE: FitResponse = {
   estimate: { weights_bytes: 16_381_470_720, kv_bytes_per_token: 147_456, kv_bytes: 4.5 * GIB, total_low: 23_334_639_820, total_high: 25_455_970_713 },
   nodes: [
@@ -22,23 +23,24 @@ const SHAPE = { num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 409
 const REFUSED: Record<string, unknown> = {
   'some/big-index': {
     problem: { message: 'The weight index of some/big-index is too large for the lookup to read', cause: 'model.safetensors.index.json is 24.0 MiB', fix: 'Enter the model facts by hand' },
-    found: { weights_bytes: null, shape: SHAPE },
+    found: { weights_bytes: null, weights_upper_bound: false, shape: SHAPE },
   },
   'some/odd-config': {
     problem: { message: 'Hugging Face does not describe some/odd-config in a way this estimator reads', cause: 'Its config.json has no whole number above 0 for num_hidden_layers', fix: 'Enter the model facts by hand' },
-    found: { weights_bytes: 9_980_000_000, shape: null },
+    found: { weights_bytes: 9_980_000_000, weights_upper_bound: false, shape: null },
   },
 };
 const NO_REPO = {
   problem: { message: 'Hugging Face has no public model nope/nope', cause: 'The repo does not exist or is private', fix: 'Check the repo id, or enter the model facts by hand' },
-  found: { weights_bytes: null, shape: null },
+  found: { weights_bytes: null, weights_upper_bound: false, shape: null },
 };
 
 function fakeConsole(estimate: FitResponse = RESPONSE) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
     if (init?.method === 'POST') return Promise.resolve(json(estimate));
     const repo = new URL(url as string, 'http://console').searchParams.get('repo') ?? '';
-    return Promise.resolve(repo === 'Qwen/Qwen3-8B' ? json(QWEN) : json(REFUSED[repo] ?? NO_REPO, 502));
+    const facts = [QWEN, SHARDED].find((f) => f.repo === repo);
+    return Promise.resolve(facts ? json(facts) : json(REFUSED[repo] ?? NO_REPO, 502));
   });
 }
 
@@ -113,7 +115,7 @@ describe('Will it fit', () => {
     await screen.findByRole('region', { name: 'Result' });
     expect(spy).toHaveBeenCalledTimes(1);
     expect(sent(spy)).toEqual({
-      facts: { repo: null, weights_bytes: 5_570_000_000, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null },
+      facts: { repo: null, weights_bytes: 5_570_000_000, weights_upper_bound: false, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null },
       context_tokens: 8192,
       kv_dtype: 'fp8',
     });
@@ -189,6 +191,27 @@ describe('Will it fit', () => {
     expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, weights_bytes: 9_980_000_000 });
   });
 
+  it('says beside the size when it is the total of the repo\'s weight files, and not when it is the files a server loads', async () => {
+    const user = userEvent.setup();
+    const spy = fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/sharded{Enter}');
+    expect(await screen.findByText('Filled in from some/sharded.')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Weights' })).toHaveTextContent('11.2 GiB');
+    expect(screen.getByRole('status', { name: 'Weights' })).toHaveAccessibleDescription(/total of the repo's weight files.*could not read the repo's index/);
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    expect(await screen.findByRole('region', { name: 'Result' })).toHaveTextContent(/total of the repo's weight files/);
+    expect(sent(spy).facts.weights_upper_bound).toBe(true);
+
+    await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+    expect(screen.getByRole('status', { name: 'Weights' })).not.toHaveAccessibleDescription(/total of the repo's weight files/);
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    await screen.findByText(/Qwen\/Qwen3-8B at 32,768 tokens/);
+    expect(screen.getByRole('region', { name: 'Result' })).not.toHaveTextContent(/total of the repo's weight files/);
+  });
+
   it('does not leave one repo\'s size beside another repo\'s shape', async () => {
     const user = userEvent.setup();
     fakeConsole();
@@ -257,7 +280,7 @@ describe('fit form model', () => {
 
   it('sends the size a lookup found as it came', () => {
     const facts = { ...QWEN, weights_bytes: 5_570_829_761 };
-    const parsed = toRequest(fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { weights_bytes: facts.weights_bytes, shape: facts }));
+    const parsed = toRequest(fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { weights_bytes: facts.weights_bytes, weights_upper_bound: false, shape: facts }));
     expect(parsed.ok && parsed.request.facts).toEqual(facts);
   });
 
@@ -269,7 +292,7 @@ describe('fit form model', () => {
   });
 
   it('sends a typed size as bytes', () => {
-    const parsed = toRequest({ ...fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { weights_bytes: null, shape: QWEN }), weights: { kind: 'typed', size: '39.77', unit: 'GB' } });
+    const parsed = toRequest({ ...fromLookup(EMPTY_DRAFT, 'Qwen/Qwen3-8B', { weights_bytes: null, weights_upper_bound: false, shape: QWEN }), weights: { kind: 'typed', size: '39.77', unit: 'GB' } });
     expect(parsed.ok && parsed.request.facts.weights_bytes).toBe(39_770_000_000);
   });
 });

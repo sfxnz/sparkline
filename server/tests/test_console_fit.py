@@ -298,13 +298,46 @@ def test_weights_the_index_names_outside_the_usual_file_names_are_counted(sizes,
     assert fit.indexed_weights(repo, {INDEX: 400, **sizes}, weight_index(*named)) == want
 
 
-async def test_an_index_too_large_to_read_is_refused_without_asking_for_it():
-    shards = {f"model-0000{i}-of-00003.safetensors": 4_000_000_000 for i in (1, 2, 3)}
-    hf = FakeHuggingFace(public_repo(info=repo_files({INDEX: fit.MAX_RESPONSE_BYTES + 1, **shards})))
-    problem = (await hf.lookup()).problem
-    assert "too large" in problem.message
-    assert "1.0 MiB" in problem.cause and "which files a server loads" in problem.cause
-    assert "by hand" in problem.fix and "at most 12.0 GB" in problem.fix
+OVER_THE_CAP = {INDEX: fit.MAX_RESPONSE_BYTES + 1}
+SHARDS = {f"model-0000{i}-of-00003.safetensors": 4_000_000_000 for i in (1, 2, 3)}
+
+
+async def test_an_index_too_large_to_read_is_answered_when_the_repo_holds_one_shard_family():
+    hf = FakeHuggingFace(public_repo(info=repo_files({"config.json": 726, **OVER_THE_CAP, **SHARDS})))
+    facts = await hf.lookup()
+    assert (facts.weights_bytes, facts.weights_upper_bound) == (12_000_000_000, True)
+    assert INDEX_PATH not in hf.paths
+
+
+async def test_a_size_from_the_files_a_server_loads_is_not_called_an_upper_bound():
+    assert (await FakeHuggingFace(public_repo()).lookup()).weights_upper_bound is False
+    assert (await FakeHuggingFace(indexed_repo(SHARDS)).lookup()).weights_upper_bound is False
+
+
+@pytest.mark.parametrize(
+    ("sizes", "at_most"),
+    [
+        pytest.param(
+            {**SHARDS, "extra_head-00001-of-00001.safetensors": 1}, "12.1 GB", id="a-second-shard-family"
+        ),
+        pytest.param(
+            {**SHARDS, "model-00001-of-00004.safetensors": 1}, "12.1 GB", id="the-same-stem-and-another-count"
+        ),
+        pytest.param({**SHARDS, "model.safetensors": 1}, "12.1 GB", id="a-single-file-beside-the-shards"),
+        pytest.param({**SHARDS, "vision/model.safetensors": 1}, "12.1 GB", id="a-file-in-a-subfolder"),
+        pytest.param({"model.safetensors": 12_000_000_000}, "12.0 GB", id="one-file-and-no-shards"),
+        pytest.param(
+            {f"half/{name}": size for name, size in SHARDS.items()}, "12.0 GB", id="shards-in-a-subfolder"
+        ),
+    ],
+)
+async def test_an_index_too_large_to_read_is_refused_unless_the_repo_holds_one_shard_family(sizes, at_most):
+    hf = FakeHuggingFace(public_repo(info=repo_files({**OVER_THE_CAP, **sizes})))
+    failure = await hf.lookup()
+    assert failure.found.weights_bytes is None
+    assert "too large" in failure.problem.message
+    assert "1.0 MiB" in failure.problem.cause and "which files a server loads" in failure.problem.cause
+    assert "by hand" in failure.problem.fix and f"at most {at_most}" in failure.problem.fix
     assert INDEX_PATH not in hf.paths
 
 
@@ -397,37 +430,44 @@ QWEN_SHAPE = {"num_layers": 36, "num_kv_heads": 8, "head_dim": 128, "max_context
         pytest.param(
             public_repo(config={"num_attention_heads": 16}),
             "does not describe",
-            {"weights_bytes": 16_381_470_720, "shape": None},
+            {"weights_bytes": 16_381_470_720, "weights_upper_bound": False, "shape": None},
             id="weights-sized-and-no-shape-in-the-config",
         ),
         pytest.param(
             refused(CONFIG_PATH, 401),
             "is gated",
-            {"weights_bytes": 16_381_470_720, "shape": None},
+            {"weights_bytes": 16_381_470_720, "weights_upper_bound": False, "shape": None},
             id="weights-sized-and-a-gated-config",
         ),
         pytest.param(
-            public_repo(
-                info=repo_files({INDEX: fit.MAX_RESPONSE_BYTES + 1, "model-00001-of-00001.safetensors": 5})
-            ),
+            public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config={"num_attention_heads": 16}),
+            "does not describe",
+            {"weights_bytes": 12_000_000_000, "weights_upper_bound": True, "shape": None},
+            id="weights-bounded-and-no-shape-in-the-config",
+        ),
+        pytest.param(
+            public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS, "model.safetensors": 5})),
             "too large",
-            {"weights_bytes": None, "shape": QWEN_SHAPE},
+            {"weights_bytes": None, "weights_upper_bound": False, "shape": QWEN_SHAPE},
             id="shape-read-and-an-index-too-large",
         ),
         pytest.param(
             public_repo(info=repo_files({"model.Q4_K_M.gguf": 5})),
             "no model.safetensors",
-            {"weights_bytes": None, "shape": QWEN_SHAPE},
+            {"weights_bytes": None, "weights_upper_bound": False, "shape": QWEN_SHAPE},
             id="shape-read-and-no-safetensors",
         ),
         pytest.param(
             public_repo(info=repo_files({"model.Q4_K_M.gguf": 5}), config={}),
             "no model.safetensors",
-            {"weights_bytes": None, "shape": None},
+            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
             id="neither",
         ),
         pytest.param(
-            refused(INFO_PATH, 401), "no public model", {"weights_bytes": None, "shape": None}, id="no-repo"
+            refused(INFO_PATH, 401),
+            "no public model",
+            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
+            id="no-repo",
         ),
     ],
 )
@@ -443,7 +483,7 @@ def test_lookup_route_sends_the_part_a_refused_lookup_read(tmp_path, hf):
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
     assert r.status_code == 502
     assert "does not describe" in r.json()["problem"]["message"]
-    assert r.json()["found"] == {"weights_bytes": 16_381_470_720, "shape": None}
+    assert r.json()["found"] == {"weights_bytes": 16_381_470_720, "weights_upper_bound": False, "shape": None}
 
 
 async def test_a_rate_limit_says_to_try_again_later():
