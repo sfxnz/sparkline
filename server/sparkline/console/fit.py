@@ -269,7 +269,8 @@ async def _get_hf_json(
             f"{type(e).__name__}: {e}".removesuffix(": "),
             f"Check the console host's internet access, {OR_MANUAL_FIX}",
         )
-    except ValueError:
+    # json.loads raises RecursionError, not ValueError, for an answer nested too deep to decode.
+    except (ValueError, RecursionError):
         return _problem("Hugging Face sent an answer that is not JSON", f"From {HF_ORIGIN}{path}")
     return _problem("Hugging Face kept redirecting the lookup", f"More than {MAX_REDIRECTS} redirects")
 
