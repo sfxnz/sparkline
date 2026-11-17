@@ -1,0 +1,52 @@
+.rec-lead { font-size: var(--fs-callout); line-height: var(--lh-callout); color: var(--text-2); text-wrap: pretty; }
+
+/* "Recommended" is an invitation, not a status tone: it takes the accent. */
+.rec-tone-accent { --tone: var(--accent); --tone-text: var(--accent-text); --tone-bg: var(--accent-soft); }
+.rec-pill { flex: none; }
+/* The pill moves under a title that needs the width (a phone). */
+.rec-card .panel__header { flex-wrap: wrap; }
+.rec-card .panel__actions { margin: 0; }
+
+.rec-body { display: grid; gap: var(--space-5); font-size: var(--fs-callout); line-height: var(--lh-callout); }
+.rec-body > * { min-width: 0; }
+.rec-summary { text-wrap: pretty; }
+.rec-h { margin-bottom: var(--space-1); font-size: var(--fs-footnote); line-height: var(--lh-footnote); font-weight: 600; color: var(--text-2); }
+.rec-list { margin: 0; padding-left: 1.2em; display: grid; gap: var(--space-1); }
+
+/* one row per node */
+.rec-nodes { list-style: none; margin: 0; padding: 0; border: var(--hairline) solid var(--separator); border-radius: var(--radius-md); background: var(--fill-1); }
+.rec-node { display: grid; grid-template-columns: 10rem minmax(0, 1fr) auto; gap: var(--space-2) var(--space-4); align-items: start; padding: var(--space-3) var(--space-4); }
+.rec-node + .rec-node { border-top: var(--hairline) solid var(--separator); }
+.rec-node__head { display: grid; justify-items: start; gap: var(--space-1); }
+.rec-node__name { font-weight: 600; overflow-wrap: anywhere; }
+.rec-node__body { display: grid; gap: var(--space-1); }
+.rec-node__note, .rec-problem { color: var(--text-2); font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.rec-problem__message { font-weight: 600; color: var(--text-1); }
+.rec-node__failed { display: flex; gap: 6px; align-items: flex-start; color: var(--tone-text); }
+.rec-node__failed svg { flex: none; width: 1rem; height: 1rem; margin-top: 0.15em; color: var(--tone); }
+.rec-node__action[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; }
+@media (max-width: 52rem) {
+  .rec-node { grid-template-columns: minmax(0, 1fr) auto; }
+  .rec-node__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+  .rec-node__body { grid-row: 2; grid-column: 1 / -1; }
+}
+
+.rec-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--space-4) var(--space-6); }
+
+/* Evidence. Unmeasured is plain text with a neutral icon: nothing about it says "verified". */
+.rec-evidence { display: grid; gap: var(--space-2); }
+.rec-evidence__state { display: flex; gap: 6px; align-items: flex-start; font-weight: 560; color: var(--tone-text, var(--text-1)); }
+.rec-evidence__state svg { flex: none; width: 1rem; height: 1rem; margin-top: 0.15em; color: var(--tone, var(--text-2)); }
+.rec-evidence__meta { color: var(--text-2); font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+
+.rec-manual summary { width: fit-content; cursor: pointer; font-weight: 560; color: var(--accent-text); border-radius: var(--radius-xs); }
+.rec-cmd { margin-top: var(--space-3); }
+.rec-cmd__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.rec-cmd__head .rec-h { margin: 0; }
+.rec-cmd__pre { margin: var(--space-1) 0 0; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--fill-1); font-size: var(--fs-footnote); line-height: var(--lh-footnote); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rec-cmd__pre code { padding: 0; background: none; font-size: inherit; }
+
+/* the confirmation's commands and risks */
+.rec-confirm { display: grid; gap: var(--space-2); font-size: var(--fs-callout); line-height: var(--lh-callout); border-radius: var(--radius-xs); }
+.rec-confirm .rec-h { margin: 0; }
+.rec-confirm .rec-cmd__pre { margin: 0 0 var(--space-2); }
