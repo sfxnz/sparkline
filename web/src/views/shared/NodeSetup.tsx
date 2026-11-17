@@ -57,7 +57,8 @@ function Retry({ node }: { node: NodeState }) {
           <RotateCw aria-hidden="true" className={trying ? 'status__icon--spin' : undefined} />
           {trying ? <span>Trying now…</span> : <span>Trying again in <span className="num">{secs}&nbsp;s</span></span>}
         </span>
-        <Button size="sm" icon={<RotateCw />} disabled={askedFor === next} onClick={() => { setAskedFor(next); void api.retryNode(node.node_id).catch(() => { setAskedFor(undefined); }); }}>
+        {/* Never disabled: it may hold the keyboard focus, and asking twice does no harm. */}
+        <Button size="sm" icon={<RotateCw />} onClick={() => { setAskedFor(next); void api.retryNode(node.node_id).catch(() => { setAskedFor(undefined); }); }}>
           Retry now
         </Button>
       </div>

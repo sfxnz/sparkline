@@ -89,11 +89,10 @@ describe('a node that cannot be reached on a first run', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
     expect(fetch).toHaveBeenCalledWith('/api/v1/nodes/spark1/retry', expect.objectContaining({ method: 'POST' }));
     expect(screen.getByText('Trying now…')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Retry now' })).toBeDisabled();
+    expect(screen.getByText('Trying spark1 now')).toHaveAttribute('role', 'status');
     // The console reports the outcome as a new wait.
     act(() => { dispatch({ type: 'node_status', node: { ...refused('spark1'), next_retry_ts: now + 2 } }); });
     expect(screen.getByText(/Trying again in/)).toHaveTextContent('Trying again in 2 s');
-    expect(screen.getByRole('button', { name: 'Retry now' })).toBeEnabled();
   });
 
   it('puts one quiet line where totals, events and charts will be, until a node reports', () => {
