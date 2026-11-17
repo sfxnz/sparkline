@@ -19,6 +19,7 @@ CACHE_DIRS = {".ruff_cache", ".mypy_cache", ".pytest_cache", "__pycache__", "nod
 
 _TEST = "test address in the LAN and bind checks, which need non-documentation addresses"
 _RANGE_START = "first address of a special-purpose range, where code lists the ranges"
+_MULTICAST = "all-hosts multicast group, which the notification egress checks must refuse"
 CODE_ONLY_ADDRESSES = {
     "10.0.0.0/32": _RANGE_START,
     "172.16.0.0/32": _RANGE_START,
@@ -48,6 +49,8 @@ CODE_ONLY_ADDRESSES = {
     "fd00::5/128": _TEST,
     "fc::1/128": "lookalike of the fc00::/7 ULA prefix, which LAN checks must refuse",
     "fe80::1/128": _TEST,
+    "224.0.0.1/32": _MULTICAST,
+    "ff02::1/128": _MULTICAST,
 }
 PLACEHOLDERS = (
     "RFC 5737 IPv4 (192.0.2.x, 198.51.100.x, 203.0.113.x), 2001:db8:: IPv6, 02:00:00:xx:xx:xx MACs, "

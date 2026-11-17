@@ -349,6 +349,40 @@ export interface Event {
   acked: boolean;
 }
 
+// --- Notifications -----------------------------------------------------------------------------
+
+export type ChannelKind = 'ntfy' | 'discord' | 'slack' | 'webhook';
+
+export type NotifyFailure = 'dns' | 'address_refused' | 'connect' | 'tls' | 'timeout' | 'redirect' | 'rate_limited' | 'rejected' | 'server_error';
+
+export interface NotifyDelivery {
+  ts: number;
+  ok: boolean;
+  /** Made by "Send test". */
+  test: boolean;
+  /** Alerts and recoveries in the message (0 for a test). */
+  notices: number;
+  failure: NotifyFailure | null;
+  http_status: number | null;
+  problem: Problem | null;
+}
+
+/** One [[notify]] channel from console.toml. The console never sends its url or token. */
+export interface NotifyChannelStatus {
+  name: string;
+  kind: ChannelKind;
+  /** Host and port only. */
+  host: string;
+  min_severity: Severity;
+  send_resolved: boolean;
+  /** Notices waiting to be sent. */
+  pending: number;
+  /** When waiting notices are next tried, while the channel backs off or is rate limited. */
+  retry_at: number | null;
+  /** null until the first delivery since the console started. */
+  last: NotifyDelivery | null;
+}
+
 // --- Benchmarks --------------------------------------------------------------------------------
 
 export interface BenchParam {

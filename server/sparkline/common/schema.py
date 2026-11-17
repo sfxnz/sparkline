@@ -412,6 +412,48 @@ class Event(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+ChannelKind = Literal["ntfy", "discord", "slack", "webhook"]
+
+# A closed vocabulary: a delivery's failure is one of these words, never exception text, a URL or a
+# response body.
+NotifyFailure = Literal[
+    "dns",  # the host did not resolve
+    "address_refused",  # resolved to an address the scheme may not reach (http:// to a public address)
+    "connect",  # refused, unreachable, reset
+    "tls",  # the certificate did not verify for the configured host
+    "timeout",
+    "redirect",  # 3xx, never followed
+    "rate_limited",  # 429
+    "rejected",  # any other 4xx: a bad token, a deleted webhook
+    "server_error",  # 5xx
+]
+
+
+class NotifyDelivery(BaseModel):
+    ts: float
+    ok: bool
+    test: bool  # made by "Send test"
+    notices: int  # alerts and recoveries in the message (0 for a test)
+    failure: NotifyFailure | None = None
+    http_status: int | None = None
+    problem: Problem | None = None
+
+
+class NotifyChannelStatus(BaseModel):
+    name: str
+    kind: ChannelKind
+    host: str  # host and port only, never the path or the token
+    min_severity: Severity
+    send_resolved: bool
+    pending: int  # notices waiting to be sent
+    retry_at: float | None = None  # when waiting notices are next tried, while backing off or rate limited
+    last: NotifyDelivery | None = None  # None until the first delivery since the console started
+
+
+# ---------------------------------------------------------------------------
 # Benchmarks
 # ---------------------------------------------------------------------------
 

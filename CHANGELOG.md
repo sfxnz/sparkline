@@ -9,6 +9,12 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ### Added
 
+- Alert notifications. Each `[[notify]]` table in `console.toml` is a channel (`ntfy`, `discord`, `slack` or a
+  generic JSON `webhook`) that receives alerts and their recoveries when no browser is open, filtered by
+  `min_severity` and `send_resolved`. Alerts that fire together arrive as one message. The Alerts view lists
+  the channels with their last delivery and a **Send test** button, through `GET /api/v1/notify/channels`
+  and `POST /api/v1/notify/channels/{name}/test`. The console sends to the hosts in those
+  tables, which can be outside the LAN: see "Security model" in the README and `docs/adr/0003-outbound-notifications.md`.
 - **Model servers.** Each agent finds the model servers running on its own node, with no setup, and the node
   summary shows for each one whether it is up, which model is loaded, the requests running and waiting, tokens
   per second, time to first token, KV cache use and memory held. The overview card carries one line per
@@ -18,6 +24,12 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   `agent.toml` names a server on another port or one that needs an API key, and
   `model_server_discovery = false` stops the agent asking any port you did not list. See
   [Model servers](README.md#model-servers).
+
+### Changed
+
+- Editing, disabling or deleting an alert rule while its alert is open now adds a "Resolved" event that says
+  the rule was changed or removed, in the timeline and on every notification channel. Before, the alert was
+  closed with no recovery. If the edited rule still matches, its alert fires again.
 
 ## [0.1.2] - 2026-11-11
 

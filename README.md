@@ -151,6 +151,8 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   the normal interface counters), and errors and drops for both ConnectX-7 rails, plus LAN throughput.
 - **Alerts.** Editable thresholds (GPU temperature, throttling, memory, node offline, link down, disk full,
   NVMe temperature) and an event timeline with acknowledgement.
+- **Notifications.** Alerts and their recoveries go to ntfy, Discord, Slack or any JSON webhook, so you hear
+  about a node that dies, overheats or fills up when no browser is open. See [Notifications](#notifications).
 - **Benchmarks.** Nine whitelisted, parameter-validated jobs, from GEMM TFLOPS to a 30-minute thermal soak
   and a tool-calling evaluation of your served model. Each one states its duration and impact up front, asks
   for confirmation, shows live telemetry while it runs, cancels cleanly, and saves results with full
@@ -346,6 +348,7 @@ process list shows command-line arguments to every user.
 | `[[nodes]]` | none | One table per agent: `id = "spark1"`, `url = "http://192.168.1.11:9750"`. |
 | `[settings]` | see below | Initial values. Once you save in the app (Settings), the saved values in `console.sqlite` win. |
 | `trusted_proxies` | `[]` | IPs or networks of reverse proxies whose `X-Forwarded-For` / `X-Forwarded-Proto` headers are believed, e.g. `["127.0.0.1"]` for a proxy on the same host. See [Security model](#security-model). |
+| `[[notify]]` | none | One table per notification channel. See [Notifications](#notifications). |
 
 `[settings]` keys: `energy_rate_per_kwh` (0.28), `currency` ("£"), `stale_after_s` (5.0: a node with no
 sample for this long is shown as stale), `offline_after_s` (30.0) and `regression_pct` (5.0: a benchmark
@@ -354,6 +357,72 @@ result worse than its baseline by more than this is flagged).
 Console flags: `--config`, `--bind`, `--port`, `--data-dir`, `--web-dist`, `--allow-public`, `--log-level`,
 `--demo`, `--demo-speed` (compress the demo's failure schedule) and `--demo-empty-bench` (demo without seeded
 benchmark history).
+
+### Notifications
+
+The console sends each alert, and the recovery that follows it, to the channels you list in `console.toml`.
+Add one `[[notify]]` table per channel and restart the console. With no `[[notify]]` table the console
+sends no notification.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `name` | required | Your name for the channel, unique: letters, digits, `.`, `_` and `-`. |
+| `kind` | required | `"ntfy"`, `"discord"`, `"slack"` or `"webhook"`. |
+| `url` | required | Where to send. It is a credential. Use `https://`. `http://` is accepted only to a private address. |
+| `token` | none | `ntfy` and `webhook` only. Sent as `Authorization: Bearer <token>`. |
+| `min_severity` | `"warning"` | Send alerts at this severity and above: `"info"`, `"warning"` or `"critical"`. |
+| `send_resolved` | `true` | Also send when an alert clears. A channel hears a recovery only if it heard the alert. |
+
+```toml
+[[notify]]
+name = "phone"
+kind = "ntfy"                 # the url ends in the topic
+url = "https://ntfy.sh/<your-topic>"
+min_severity = "critical"
+
+[[notify]]
+name = "team"
+kind = "discord"              # the webhook URL Discord gives you
+url = "https://discord.com/api/webhooks/<id>/<token>"
+
+[[notify]]
+name = "ops"
+kind = "slack"                # an incoming-webhook URL
+url = "https://hooks.slack.com/services/<T>/<B>/<secret>"
+
+[[notify]]
+name = "home"
+kind = "webhook"              # Home Assistant, n8n, Node-RED
+url = "http://192.168.1.5:8123/api/webhook/<id>"
+send_resolved = false
+```
+
+What each kind sends, always as a JSON `POST`:
+
+- **`ntfy`**: ntfy's JSON publish, posted to the path above the topic, with `topic`, `title`, `message`,
+  `priority` (5 for a critical alert, 4 for a warning, 3 otherwise) and one tag. Anyone who knows an ntfy
+  topic can read it, so choose a long random one, or protect it with an access token in `token`.
+- **`discord`**: `content` (title in bold, then the detail), `username` "Sparkline", and `allowed_mentions`
+  set so that a node or rule named `@everyone` pings nobody. Discord's markdown characters in a title or a
+  detail are escaped with a backslash, so a name such as `[text](url)` shows as written and not as a link.
+- **`slack`**: `text`, with `&`, `<` and `>` escaped.
+- **`webhook`**: `{"source": "sparkline", "version": 1, "test": false, "title": …, "text": …, "more": 0,
+  "notices": [...]}`. Each notice is the event (`id`, `ts`, `node_id`, `kind`, `rule_id`, `title`, `detail`,
+  `metric`, `value`) plus `status` (`"firing"` or `"resolved"`) and `severity`, which is the alert's severity
+  also on its recovery. `notices` is a list even for one alert. `more` counts notices left out.
+
+Alerts that fire at the same moment arrive as one message: "3 alerts, 1 resolved" and one line for each. A
+channel gets at most one message a second. On HTTP 429 the console waits as long as `Retry-After` asks, up to
+15 minutes. On a 5xx answer or a network error it tries again after about 5 s, 15 s, 60 s, then every 5 minutes, and keeps up to 50
+notices meanwhile; the next message says how many more there were. Any other 4xx answer, or a redirect,
+drops the message, because sending it again cannot work. Waiting notices are not stored: when the console
+stops it tries each channel once more and drops the rest, and after a restart an alert that still holds
+fires again. An alert whose condition ended while the console was down gets no "Resolved" message, so check
+the console after a restart if a channel still shows an alert as open.
+
+The **Alerts** view lists the channels with the host, what each one sends, and how its last delivery went.
+**Send test** sends a test message now and shows the result, with the reason when it fails. Channels are
+edited only in `console.toml`.
 
 ### Environment variables
 
@@ -421,6 +490,20 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   `--enable-benchmarks`, that adds less than benchmarks already allow. On a monitor-only node it is the first
   thing the agent token can make run as root, and all it can do is install the latest checksum-verified
   release now. The agent's own unit and sandbox are unchanged. It refuses while a benchmark is running.
+- **Notifications leave the LAN only where you say.** Without a `[[notify]]` table the console sends no
+  notification. With one, it sends alerts to the hosts in those tables, and to no other host:
+  nothing in the API or the web app can add or change a channel. For every send the console resolves the
+  host name again, checks every address in the answer, and connects to a checked address by IP. TLS
+  verifies the certificate against the name in the url, so a DNS answer that changes between the check and
+  the connection (DNS rebinding) cannot move the request. `http://` is refused unless every resolved
+  address is private; anything else needs `https://`. A redirect is a failure and is never followed. No
+  proxy from the environment is used. A channel's url and token are credentials. They stay in
+  `console.toml` (mode 0640, root:sparkline), beside the tokens, and never reach `console.sqlite`, the API,
+  the web app, an error message or the log, even at `--log-level debug`. The browser sees a channel's name,
+  kind, host and last result. What leaves your LAN is the text of the alert: its title and detail, which
+  name the node and the measured value, and for a node that went offline the LAN address and port of its
+  agent (`host:port`). The `webhook` kind also sends the rule id and the metric key.
+  Nothing notifies you when the console itself is down, or when it cannot reach the service.
 - **systemd sandboxing.** Both services run as the unprivileged `sparkline` user, with no capabilities,
   `NoNewPrivileges`, a read-only filesystem except their state directory (`ProtectSystem=strict`), a private
   /tmp, a system-call filter, and network access limited to IPv4, IPv6, Unix and netlink sockets. The agent
@@ -711,6 +794,8 @@ One Python package (`server/`, package `sparkline`) provides both commands, `spa
 ## Limitations
 
 - There is no built-in TLS. Use a reverse proxy or VPN if traffic leaves the LAN.
+- Notifications come from the console. When the console is down nothing is sent, so a dead console is
+  silent. Notification channels do not use an HTTP proxy.
 - One shared agent token covers all nodes. Rotating it means editing every `agent.toml` and the console's
   `agent_token`.
 - Only GPU 0 is charted (a DGX Spark has one GPU). The cross-node benchmarks assume two nodes.
