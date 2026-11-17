@@ -358,6 +358,92 @@ def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
     return {**public_repo(), path: httpx.Response(status, json={"error": "Invalid username or password."})}
 
 
+# The repo's own weight file is small, and a server loads the rest from the repo its config names.
+SPEECH_INFO = repo_files({"config.json": 900, "model.safetensors": 1_365_000_000})
+SPEECH_CONFIG = {**QWEN_CONFIG, "text_model_id": "some-org/some-70b-model"}
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(SPEECH_CONFIG, id="text_model_id"),
+        pytest.param({**QWEN_CONFIG, "audio_model_id": "some-org/a-speech-model"}, id="audio_model_id"),
+        pytest.param({**QWEN_CONFIG, "vision_model_id": "some-org/a-vision-model"}, id="vision_model_id"),
+        pytest.param({**QWEN_CONFIG, "mm_vision_tower": "some-org/a-vision-model"}, id="mm_vision_tower"),
+        pytest.param(
+            {**QWEN_CONFIG, "text_config": {"audio_model_id": "some-org/a-speech-model"}}, id="nested"
+        ),
+        # The id does not have to be a repo id: the config still says the weights are somewhere else.
+        pytest.param({**QWEN_CONFIG, "text_model_id": "/model/model/a-70b-model"}, id="a-local-path"),
+    ],
+)
+async def test_a_repo_whose_config_names_another_repo_for_weights_gets_no_size(config):
+    hf = FakeHuggingFace(public_repo(info=SPEECH_INFO, config=config))
+    failure = await hf.lookup()
+    assert failure.found.weights_bytes is None, failure
+    assert "another repo" in failure.problem.message
+    assert "by hand" in failure.problem.fix
+
+
+async def test_the_repo_a_config_names_is_named_in_the_refusal():
+    failure = await FakeHuggingFace(public_repo(info=SPEECH_INFO, config=SPEECH_CONFIG)).lookup()
+    assert "some-org/some-70b-model" in failure.problem.cause
+    assert "text_model_id" in failure.problem.cause
+
+
+@pytest.mark.parametrize(
+    "key", ["_name_or_path", "base_model", "tokenizer_id", "model_type", "quantization_config"]
+)
+async def test_a_config_key_no_loader_reads_weights_from_still_gets_a_size(key):
+    facts = await FakeHuggingFace(public_repo(config={**QWEN_CONFIG, key: "some-org/a-model"})).lookup()
+    assert isinstance(facts, ModelFacts), facts
+
+
+async def test_an_adapter_gets_no_size_even_when_it_is_saved_as_model_safetensors():
+    files = {"config.json": 700, "adapter_config.json": 600, "model.safetensors": 4_987_796_928}
+    failure = await FakeHuggingFace(public_repo(info=repo_files(files))).lookup()
+    assert failure.found.weights_bytes is None, failure
+    assert "adapter" in failure.problem.message
+    assert "adapter_config.json" in failure.problem.cause
+
+
+async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():
+    hf = FakeHuggingFace(public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config=SPEECH_CONFIG))
+    failure = await hf.lookup()
+    assert failure.found.weights_bytes is None, failure
+    assert failure.found.weights_upper_bound is False
+    assert "another repo" in failure.problem.message
+
+
+@pytest.mark.parametrize(
+    ("routes", "message"),
+    [
+        (refused(CONFIG_PATH, 401), "is gated"),
+        (refused(CONFIG_PATH, 404), "no config.json"),
+        (refused(CONFIG_PATH, 500), "could not answer"),
+        ({**public_repo(), CACHED_PATH: httpx.Response(200, content=b"<html>")}, "not JSON"),
+        ({**public_repo(), CACHED_PATH: httpx.Response(200, json=["not an object"])}, "not a JSON object"),
+    ],
+)
+async def test_a_config_the_lookup_cannot_read_takes_the_size_with_it(routes, message):
+    failure = await FakeHuggingFace(routes).lookup()
+    assert failure.found.weights_bytes is None, failure
+    assert message in failure.problem.message
+    assert "another repo" in failure.problem.cause
+
+
+async def test_a_config_read_but_not_understood_still_gives_the_size_it_read():
+    failure = await FakeHuggingFace(public_repo(config={"num_attention_heads": 16})).lookup()
+    assert failure.found.weights_bytes == 16_381_470_720
+    assert "does not describe" in failure.problem.message
+
+
+async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
+    hf = FakeHuggingFace(indexed_repo({"model.safetensors": 5}, config=SPEECH_CONFIG))
+    assert (await hf.lookup()).found.weights_bytes is None
+    assert INDEX_PATH not in hf.paths
+
+
 @pytest.mark.parametrize(
     ("routes", "message"),
     [
