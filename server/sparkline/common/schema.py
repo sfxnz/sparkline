@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal, Self, get_args
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 SCHEMA_VERSION = 1
 
@@ -589,6 +589,89 @@ class NodeBenchState(BaseModel):
 
 
 BenchRun.model_rebuild()
+
+
+# ---------------------------------------------------------------------------
+# Recommendations (agent: GET /api/v1/recommendations for its node; console: the same path for every node)
+# ---------------------------------------------------------------------------
+
+RecGoal = Literal["cooler", "quieter", "roomier", "faster"]
+RecState = Literal["applied", "not-applied", "not-applicable", "unknown"]
+
+
+class RecSource(BaseModel):
+    title: str
+    url: str
+
+
+class RecMetric(BaseModel):
+    label: str
+    before: float
+    after: float
+    unit: str
+
+
+class RecMeasurement(BaseModel):
+    date: str
+    machine: str
+    method: str
+    results: list[RecMetric]
+    doc: str  # the evidence file, docs/recommendations/<id>.md
+
+
+class Recommendation(BaseModel):
+    """One community-recommended setting. Static: it ships in the release (common/recommendations.py)."""
+
+    id: str  # kebab-case; also the key of its root action (tune.TUNES) and of its probe
+    title: str
+    summary: str
+    goal: RecGoal
+    benefit: str
+    cost: str
+    sources: list[RecSource]
+    measurement: RecMeasurement | None  # None: a community claim that Sparkline has not measured
+    apply: list[str]  # the exact commands a person would type, shown to the reader
+    undo: list[str]
+    one_click: bool  # False: a firmware change or a reboot, and `apply` are the manual steps
+    persists: Literal["until-reboot", "persistent"]
+    risks: list[str]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def verified(self) -> bool:
+        return self.measurement is not None
+
+
+class TuneResult(BaseModel):
+    """What the root helper did last for one recommendation on one node."""
+
+    action: str  # "apply", "undo" or "reapply" (at boot)
+    ts: float
+    ok: bool
+    message: str
+
+
+class NodeRecState(BaseModel):
+    """One node, one recommendation, as that node's agent reads it."""
+
+    id: str
+    state: RecState
+    detail: str  # what the check read, e.g. "Capped at 2200 MHz by nvidia-lock-clocks.service"
+    managed: bool  # applied by Sparkline's helper, so Undo works. False: applied by other means
+    last: TuneResult | None = None
+
+
+class NodeRecommendations(BaseModel):
+    one_click: Problem | None  # None: this node accepts clicks. Else why not, with the fix
+    items: list[NodeRecState]
+
+
+class RecommendationsView(BaseModel):
+    """Console -> browser: GET /api/v1/recommendations."""
+
+    catalog: list[Recommendation]
+    nodes: dict[str, NodeRecommendations | None]  # None: the node is unreachable or its agent is too old
+    problems: dict[str, Problem]  # why, for each node that is None
 
 
 # ---------------------------------------------------------------------------
