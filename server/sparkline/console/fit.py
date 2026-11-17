@@ -368,12 +368,18 @@ _SHAPE_KEYS = {
 }
 
 
+def _whole(value: object) -> int | None:
+    """``value`` if it is a JSON whole number above 0. A JSON ``true`` is not 1: ``True // True`` is 1 in
+    Python, and a config holding a boolean where a dimension belongs describes no model."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
 def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Problem:
     """The model's shape, from the repo's ``config.json`` as decoded JSON."""
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
     head_dim = config.get("head_dim")
-    if head_dim is None and isinstance(heads, int) and isinstance(hidden, int) and heads > 0:
-        head_dim = hidden // heads
+    if head_dim is None and (h := _whole(heads)) is not None and (w := _whole(hidden)) is not None:
+        head_dim = w // h
     try:
         return ModelShape.model_validate(
             {

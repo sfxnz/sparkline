@@ -636,6 +636,27 @@ async def test_a_rate_limit_says_to_try_again_later():
     )
 
 
+BOOL_DIMS = {"num_hidden_layers": 4, "num_key_value_heads": 4, "num_attention_heads": 4, "hidden_size": 64}
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        # true // true is 1, and an explicit num_key_value_heads keeps the booleans out of the shape.
+        pytest.param({**BOOL_DIMS, "num_attention_heads": True, "hidden_size": True}, id="heads-and-hidden"),
+        pytest.param({**BOOL_DIMS, "num_attention_heads": True, "hidden_size": 64}, id="heads"),
+        pytest.param({**BOOL_DIMS, "num_attention_heads": 4, "hidden_size": True}, id="hidden"),
+        pytest.param({**BOOL_DIMS, "num_hidden_layers": True}, id="layers"),
+    ],
+)
+async def test_a_json_boolean_where_a_dimension_belongs_is_not_a_number(config):
+    # true // true is 1 in Python, which gave a head size of 1 and a full answer for a config that
+    # describes no model.
+    failure = await FakeHuggingFace(public_repo(config=config)).lookup()
+    assert not isinstance(failure, ModelFacts), failure
+    assert "does not describe" in failure.problem.message
+
+
 async def test_a_config_without_the_model_shape_names_the_keys_it_lacks():
     problem = (await FakeHuggingFace(public_repo(config={"num_attention_heads": 16})).lookup()).problem
     assert "num_hidden_layers" in problem.cause and "head_dim, or hidden_size" in problem.cause
