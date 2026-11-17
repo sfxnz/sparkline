@@ -92,19 +92,22 @@ asks for your password on each node.
 
 It installs `sparkline-agent` on both nodes with one shared agent token, and fills in the ConnectX-7 `peers`
 from each node's RDMA interfaces. It then installs the console on the first node and prints its URL
-(`http://<LAN IP>:9700`) and the sign-in token. `--peer` defaults to `spark2`. Benchmarks are enabled by
+(`http://<LAN IP>:9700`) and a sign-in link. `--peer` defaults to `spark2`. Benchmarks are enabled by
 default, so both nodes need Docker (DGX OS ships it). Add `--no-benchmarks` for monitor-only agents.
 
 **One Spark.**
 
 ```sh
-sudo ./install.sh agent                       # add --enable-benchmarks to allow benchmarks
-sudo ./install.sh console --nodes "$(hostname -s)=<the Agent URL printed by the line above>"
+sudo ./install.sh agent      # add --enable-benchmarks to allow benchmarks
+sudo ./install.sh console
 ```
 
-The console picks up the agent token from the agent's config on the same host.
+With no `--nodes`, the console shows the agent on the same host. It reads the node id, the address and the
+agent token from that agent's config. Each installer ends with the next command to run.
 
-**Then** open the URL the installer printed and type the console token. If you lose it, run
+**Then** open the sign-in link the console installer printed. It signs you in, and you see your nodes, live.
+The link carries the console token, so the installer prints it only on an interactive terminal. On another
+device, open the console URL and type the token. If you lose it, run
 `sudo grep ^token /etc/sparkline/console.toml`.
 
 > **What the installer changes.** It creates the system user `sparkline`, the code and venv in
@@ -188,9 +191,10 @@ The installer:
 4. Writes `/etc/sparkline/agent.toml` (mode 0640, root:sparkline) with a freshly generated token, but only if
    the file doesn't exist yet. It never overwrites config.
 5. Creates `/var/lib/sparkline-agent` (0750) for history.
-6. Installs, enables and starts `sparkline-agent.service`, then prints the agent's URL and token. The token
-   is printed only on an interactive terminal; when the output goes to a file or a pipe, the installer prints
-   where to read it (`sudo grep ^token /etc/sparkline/agent.toml`) instead.
+6. Installs, enables and starts `sparkline-agent.service`, then prints where the agent listens, the next
+   command to run and, on the first node, the agent token for the others. The token is printed only on an
+   interactive terminal; when the output goes to a file or a pipe, the installer prints where to read it
+   (`sudo grep ^token /etc/sparkline/agent.toml`) instead.
 
 All nodes and the console must share **one agent token**. Install the first node, then pass its token to the
 others. To keep the token out of the process list, use the environment:
@@ -200,6 +204,8 @@ read -rs SPARKLINE_AGENT_TOKEN && export SPARKLINE_AGENT_TOKEN       # paste the
 sudo --preserve-env=SPARKLINE_AGENT_TOKEN ./install.sh agent
 ```
 
+On such a node the installer ends with the node's `id=url` pair, ready for the console's `--nodes` list.
+
 Re-running the installer is safe. It refreshes the code and units and restarts the service, and keeps the
 config and data. The flags describe the state you want: running it again without `--enable-benchmarks`
 turns benchmarks back off.
@@ -207,7 +213,7 @@ turns benchmarks back off.
 | Option | Meaning |
 |---|---|
 | `--enable-benchmarks` | Allow benchmarks: Docker access for the agent and lifted CPU/memory caps. Asks for confirmation. |
-| `--nodes LIST` | Console: the agents to poll, as `id=url` pairs, e.g. `spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750`. |
+| `--nodes LIST` | Console: the agents to poll, as `id=url` pairs, e.g. `spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750`. Default: the agent installed on the same host. |
 | `--peers LIST` | Agent: the far ends of the ConnectX-7 rails as `id=ip` pairs, e.g. `spark2=10.0.8.2,spark2=10.0.9.2`. Written to `peers` in a new config. |
 | `--agent-token TOKEN` | Use this token instead of generating one (or set `SPARKLINE_AGENT_TOKEN`). |
 | `--bind ADDR`, `--port N` | Written into a new config. Defaults are `auto` and 9750 (agent) or 9700 (console). |
@@ -227,10 +233,15 @@ The console can run on one of the Sparks (spark1, say) or on any Linux box on th
 sudo ./install.sh console --nodes spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750
 ```
 
+Without `--nodes`, the console shows the agent installed on the same host. Without one, the installer stops
+and says so.
+
 The console's `agent_token` comes from `--agent-token` or `SPARKLINE_AGENT_TOKEN`. If neither is set and an
 agent is installed on the same host, it is read from `/etc/sparkline/agent.toml`. Otherwise a new one is
-generated, and the installer tells you to put it in each node's `agent.toml`. The installer prints the URL
-to open and the console token you type on the sign-in screen.
+generated, and the installer tells you to put it in each node's `agent.toml`. The installer ends with the
+nodes it will show, the console URL, the console token and a sign-in link
+(`http://<console>/login#token=<console token>`). The token and the link are printed only on an interactive
+terminal. Otherwise the installer prints where to read the token.
 
 ### With Docker Compose
 
