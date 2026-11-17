@@ -3,8 +3,8 @@ import { DASH, formatBytes } from '../../lib/format';
 import { ApiError } from '../../lib/api';
 import type { FitEstimate, FitRequest, FitVerdict, KvDtype, LookupFound, NodeBudget, NodeFit } from '../../lib/types';
 
-/** Bytes in the units a size is typed in: GB as the Files tab of a Hugging Face repo lists sizes, GiB as this page shows them. */
-export const SIZE_UNITS = { GB: 1e9, GiB: 2 ** 30 } as const;
+/** Bytes in the units a size is typed in: GiB as this page shows sizes, GB as the Files tab of a Hugging Face repo lists them. */
+export const SIZE_UNITS = { GiB: 2 ** 30, GB: 1e9 } as const;
 export type SizeUnit = keyof typeof SIZE_UNITS;
 
 export const KV_DTYPES: readonly { value: KvDtype; label: string }[] = [
@@ -40,7 +40,7 @@ export interface Draft {
 
 export const EMPTY_DRAFT: Draft = {
   repo: '',
-  weights: { kind: 'typed', size: '', unit: 'GB' },
+  weights: { kind: 'typed', size: '', unit: 'GiB' },
   layers: '',
   kvHeads: '',
   headDim: '',

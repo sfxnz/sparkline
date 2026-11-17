@@ -102,9 +102,10 @@ describe('Will it fit', () => {
 
     expect(screen.queryByRole('textbox', { name: 'Parameters' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Bits per weight' })).not.toBeInTheDocument();
-    expect(screen.getByText(/add up the \.safetensors files on the repo's Files tab/)).toBeInTheDocument();
+    expect(screen.getByText(/Files tab on Hugging Face lists each \.safetensors file in GB/)).toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Weights' }), '5.57');
-    expect(screen.getByRole('combobox', { name: 'Unit of the size' })).toHaveValue('GB');
+    // The page shows sizes in GiB, so a size read off it and typed back is the same size.
+    expect(screen.getByRole('combobox', { name: 'Unit of the size' })).toHaveValue('GiB');
     await user.type(screen.getByRole('textbox', { name: 'Layers' }), '36');
     await user.type(screen.getByRole('textbox', { name: 'KV heads' }), '8');
     await user.type(screen.getByRole('textbox', { name: 'Head size' }), '128');
@@ -115,7 +116,7 @@ describe('Will it fit', () => {
     await screen.findByRole('region', { name: 'Result' });
     expect(spy).toHaveBeenCalledTimes(1);
     expect(sent(spy)).toEqual({
-      facts: { repo: null, weights_bytes: 5_570_000_000, weights_upper_bound: false, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null },
+      facts: { repo: null, weights_bytes: 5_980_741_960, weights_upper_bound: false, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null },
       context_tokens: 8192,
       kv_dtype: 'fp8',
     });
@@ -167,6 +168,7 @@ describe('Will it fit', () => {
     expect(screen.getByText('This model supports up to 40,960 tokens.')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
 
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Unit of the size' }), 'GB');
     await user.type(screen.getByRole('textbox', { name: 'Weights' }), '464.9');
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     await screen.findByRole('region', { name: 'Result' });
@@ -280,6 +282,7 @@ describe('Will it fit', () => {
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
     await user.click(await screen.findByRole('button', { name: 'Enter a size' }));
     expect(screen.queryByText('Filled in from Qwen/Qwen3-8B.')).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Unit of the size' }), 'GB');
     await user.type(screen.getByRole('textbox', { name: 'Weights' }), '16.5');
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     await screen.findByRole('region', { name: 'Result' });

@@ -105,7 +105,7 @@ export default function Fit() {
             <Field
               id="fit-size"
               label="Weights"
-              hint="The total size of the model's weight files. On Hugging Face, add up the .safetensors files on the repo's Files tab, which lists them in GB. A parameter count gives too little for a quantised model."
+              hint="The total size of the model's weight files, in the unit beside the box. The repo's Files tab on Hugging Face lists each .safetensors file in GB, so switch the unit if you add those up. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
             >
               <div className="fit-weights">
                 <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { editFact({ weights: { ...weights, size } }); }} error={errors.size} width="9rem" />
