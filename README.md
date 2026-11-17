@@ -159,17 +159,20 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   a verdict per node (Fits, Tight, Does not fit, Unknown). Look a public safetensors repo up on Hugging Face,
   or type the size of its weight files, layers, KV heads and head size by hand.
 
-  **What a lookup fills in is the size of that repo's own weight files, and the page says so beside the
+  **What a lookup fills in is the size of that repo's safetensors files, and the page says so beside the
   number.** It is not the size of everything a server loads. A second model the repo loads, a draft model's
   target and the base model under an adapter are not counted: a server loads those as well, and nothing a
-  lookup reads says how large they are. Add them by hand.
+  lookup reads says how large they are. Add them by hand. A copy of the same weights in another format,
+  such as GGUF, is not counted either.
 
   A lookup reads the repo's file list and its `config.json`, and sometimes its
   `model.safetensors.index.json`. It fills in a size only when none of those is a sign that the model
   reaches outside the repo: the `config.json` can be read and holds no string that names another Hugging
   Face repo (`owner/name`, under any key, except `_name_or_path`, which records where a model was made
-  from, and an `auto_map` entry, which names where its code comes from); the repo holds no
-  `adapter_config.json`; every `.safetensors` file in it is one the lookup sized and none is listed twice;
+  from, and an `auto_map` entry, which names where its code comes from) and none of the keys a draft
+  model keeps about its target (`num_target_layers`, `target_layer_ids`, `draft_vocab_size`,
+  `target_hidden_size`, `target_model_type`); the repo holds no `adapter_config.json`; every `.safetensors`
+  file in it is one the lookup sized and none is listed twice;
   and every weight file in another format (`.bin`, `.pt`, `.pth`, `.ckpt`, `.gguf`, `.npz`) has a name that
   marks it as a copy of the same weights or as training state. The size is the files the index names, or
   `model.safetensors` where there is no index, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it
@@ -178,13 +181,21 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   `n_layer`, is typed in by hand. An index over 1 MiB is not read. If every safetensors file in the repo is
   then a shard of one set at its top level (`model-00001-of-00026.safetensors` and so on), the lookup shows
   their total and says so beside the number: a server loads those files or fewer of them. Anything else
-  shows no size and says what it found, naming the model the config names, the adapter, the left-over file
-  or the format it does not read, and what to add up by hand.
+  shows no size and says what it found, naming the string in the config, the adapter, the draft model's
+  keys, the left-over file or the format it does not read, and what to add up by hand.
+
+  A refusal over a second model fills in nothing, neither a size nor a shape. That is a config string naming
+  another repo, an adapter, or a draft model's keys. A draft model's own `config.json` holds the draft's
+  shape, often a single layer, and a server answers with the target model. So the refusal asks for both
+  numbers: the size of this repo's weight files plus the other model's, and the shape of the model the
+  server answers with. Any other refusal still fills in the shape it read and asks for the size.
 
   By hand the weights are the total of every weight file a server loads, in GiB as this page shows sizes or
   in GB as the repo's Files tab lists each file, and never a parameter count: for a 16-bit model the count
-  in GB is half of what its files hold, and a quantised model has no fixed ratio. A result built that way
-  says so, because the console read nothing and can check nothing.
+  in GB is half of what its files hold, and a quantised model has no fixed ratio. A result says where the
+  size and the shape each came from, read from the repo or typed by hand. A size the lookup read keeps its
+  label, and the sentence on what it leaves out, when you retype the shape. A result built from typed
+  numbers alone says that the console read nothing and can check nothing.
 
   A unified-memory node offers its available memory minus 4 GiB. A node with dedicated GPU memory offers the
   free memory of its emptiest GPU, so the verdict is for a model on one GPU. On a GB10, vLLM's

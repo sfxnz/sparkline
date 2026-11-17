@@ -13,27 +13,30 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   20 % on top for activations, so the total is a range) and compares it with what each node has free in its
   latest sample: available memory minus 4 GiB on a unified-memory node, or the free memory of the emptiest
   GPU on a node with dedicated GPU memory. Each node gets a verdict: Fits, Tight, Does not fit or Unknown.
-  Look up reads a public repo from huggingface.co and fills in the size of that repo's own weight files.
+  Look up reads a public repo from huggingface.co and fills in the size of that repo's safetensors files.
   The page says so where the number is, on the form and above the verdicts, and names what is not counted:
   a second model the repo loads, a draft model's target, the base model under an adapter. A lookup cannot
   see those, so they are added by hand.
 
   A size is filled in only when nothing the lookup read is a sign that the model reaches outside the repo:
   the `config.json` can be read and holds no string naming another Hugging Face repo (under any key, except
-  `_name_or_path` and an `auto_map` code pointer); there is no `adapter_config.json`; every `.safetensors`
-  file is one the lookup sized and none is listed twice; and every weight file in another format (`.bin`,
-  `.pt`, `.pth`, `.ckpt`, `.gguf`, `.npz`) is named as a copy of the same weights or as training state. The
+  `_name_or_path` and an `auto_map` code pointer) and none of the keys a draft model keeps about its
+  target; there is no `adapter_config.json`; every `.safetensors` file is one the lookup sized and none is
+  listed twice; and every weight file in another format (`.bin`, `.pt`, `.pth`, `.ckpt`, `.gguf`, `.npz`)
+  is named as a copy of the same weights or as training state. The
   weights are then the files that `model.safetensors.index.json` names, or `model.safetensors` where there
   is no index, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it is stored. The model's shape
   comes from the top level of that same `config.json`, and no size is filled in without it. An index over
   1 MiB is not read; when the repo's safetensors files are then one set of shards, the weights are their
   total, which a server never exceeds, and the page says so beside the number. Every other repo gets no
-  size and a refusal naming what the lookup found and what to add up by hand.
+  size and a refusal naming what the lookup found and what to add up by hand. A refusal over a second model
+  (a config string naming another repo, an adapter, a draft model's keys) fills in nothing and asks for the
+  size and for the shape of the model the server answers with. Any other refusal fills in the shape alone.
 
   The same facts can be typed instead, as the total of every weight file a server loads, in GiB or GB and
-  never as a parameter count, and a result built that way is marked as the user's own numbers. The KV cache
-  is sized as every layer at full width, so it is too high for sliding-window and latent-attention models,
-  which the page says. New endpoints `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new
+  never as a parameter count. A result says where the size and the shape each came from, read from the repo
+  or typed by hand. The KV cache is sized as every layer at full width, so it is too high for
+  sliding-window and latent-attention models, which the page says. New endpoints `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new
   `console.toml` key `hf_lookup` (default `true`) turns the lookup off.
 
 ## [0.1.2] - 2026-11-11
