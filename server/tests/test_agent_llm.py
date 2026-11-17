@@ -283,6 +283,17 @@ def test_llamacpp_without_metrics_is_listed_with_the_flag_that_turns_them_on(tmp
     assert (servers(c)[0].state, servers(c)[0].values) == ("loading", {"up": 0})
 
 
+def test_llamacpp_shows_the_context_a_request_can_use_not_the_one_the_model_was_trained_with(tmp_path):
+    listen(tmp_path, {9931: 41})
+    base = "http://127.0.0.1:9931"
+    listed = models("llamacpp", "/models/stories260K.gguf", meta={"n_ctx": 512, "n_ctx_train": 2048})
+    metrics = text("llamacpp:requests_processing 0\n")
+    http = FakeHttp({f"{base}/v1/models": listed, f"{base}/metrics": metrics})
+    c = collector(tmp_path, http)
+    c.poll_round(0.0)
+    assert [(m.name, m.context_len) for m in servers(c)[0].models] == [("stories260K.gguf", 512)]
+
+
 def test_a_server_that_lists_models_and_has_no_metrics_or_known_owner_is_left_out(tmp_path):
     listen(tmp_path, {8080: 41})
     base = "http://127.0.0.1:8080"
