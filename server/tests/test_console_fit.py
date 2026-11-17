@@ -736,6 +736,22 @@ async def test_a_config_without_the_model_shape_names_the_keys_it_lacks():
 
 
 @pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({"text_config": QWEN_CONFIG}, id="in-a-sub-object"),
+        pytest.param({"n_layer": 36, "n_head": 32, "n_embd": 4096}, id="under-an-older-name"),
+    ],
+)
+async def test_a_shape_the_lookup_does_not_look_for_is_refused_as_not_being_at_the_top_level(config):
+    # The refusal said the config has no whole number above 0 for these keys, which is false of a config
+    # that holds them one level down: 1,472 of 3,867 cached configs do.
+    problem = (await FakeHuggingFace(public_repo(config=config)).lookup()).problem
+    assert problem.cause.endswith("at its top level")
+    assert all(key not in config for key in ("num_hidden_layers", "num_attention_heads", "head_dim"))
+    assert "sub-object such as text_config" in problem.fix
+
+
+@pytest.mark.parametrize(
     "location",
     ["https://cdn.example/config.json", "http://huggingface.co/x", "https://huggingface.co.example/x"],
 )

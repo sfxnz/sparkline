@@ -450,9 +450,15 @@ def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Problem
         )
     except ValidationError as e:
         keys = "; ".join(_SHAPE_KEYS[str(err["loc"][0])] for err in e.errors())
+        # "at its top level" is the whole of what the lookup looked at. 1,472 of 3,867 cached configs keep
+        # the shape in a sub-object such as text_config, and the cause without those words is false of
+        # every one of them (.audit/evidence/verify/D4/nested_shape_census.out).
         return _problem(
             f"Hugging Face does not describe {repo} in a way this estimator reads",
-            f"Its config.json has no whole number above 0 for {keys}",
+            f"Its config.json has no whole number above 0 for {keys} at its top level",
+            f"{MANUAL_FIX}: the lookup reads the top level of config.json only, so a shape kept in a "
+            "sub-object such as text_config, or under an older name such as n_layer, is read off the "
+            "config and typed in",
         )
 
 
