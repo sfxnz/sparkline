@@ -223,6 +223,40 @@ describe('Will it fit', () => {
     expect(screen.getByRole('region', { name: 'Result' })).not.toHaveTextContent(/total of the repo's weight files/);
   });
 
+  it('says what the size covers and what it leaves out, on the form and beside the verdicts', async () => {
+    const user = userEvent.setup();
+    fakeConsole();
+    render(<Fit />);
+    const notCounted = /A second model the repo loads, a draft model's target and the base model under an adapter are not counted/;
+    expect(screen.getByText(/Type the total of every weight file a server loads/)).toBeInTheDocument();
+
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+    expect(screen.getByRole('status', { name: 'Weights' })).toHaveAccessibleDescription(/This is the size of this repo's own weight files/);
+    expect(screen.getByRole('status', { name: 'Weights' })).toHaveAccessibleDescription(notCounted);
+
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    const result = within(await screen.findByRole('region', { name: 'Result' }));
+    expect(result.getByText("this repo's own weight files")).toBeInTheDocument();
+    expect(result.getByText(/Every verdict below counts Qwen\/Qwen3-8B's own weight files and nothing else/)).toBeInTheDocument();
+    expect(result.getByText(notCounted, { exact: false })).toBeInTheDocument();
+  });
+
+  it('marks a result built from typed facts as the user\'s own numbers', async () => {
+    const user = userEvent.setup();
+    fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '12.5');
+    await user.type(screen.getByRole('textbox', { name: 'Layers' }), '36');
+    await user.type(screen.getByRole('textbox', { name: 'KV heads' }), '8');
+    await user.type(screen.getByRole('textbox', { name: 'Head size' }), '128');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    const result = within(await screen.findByRole('region', { name: 'Result' }));
+    expect(result.getByText(/This model at 32,768 tokens of context, bf16 KV cache, from facts typed by hand/)).toBeInTheDocument();
+    expect(result.getByText('typed by hand')).toBeInTheDocument();
+    expect(result.getByText(/The console did not read the model and cannot check them/)).toBeInTheDocument();
+  });
+
   it('does not leave one repo\'s size beside another repo\'s shape', async () => {
     const user = userEvent.setup();
     fakeConsole();

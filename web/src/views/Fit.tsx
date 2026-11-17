@@ -14,6 +14,10 @@ import { budgetText, EMPTY_DRAFT, filledFrom, foundOf, fromLookup, hasNvidiaUnif
 import './fit/fit.css';
 import './views.css';
 
+/** What a size a lookup filled in covers, and what it leaves out. Said wherever the number is shown. */
+const SCOPE = "This is the size of this repo's own weight files.";
+const NOT_COUNTED = "A second model the repo loads, a draft model's target and the base model under an adapter are not counted: a server loads those as well, and the lookup cannot see them.";
+
 type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem };
 type Run = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem } | { status: 'done'; request: FitRequest; response: FitResponse };
 
@@ -100,8 +104,8 @@ export default function Fit() {
               label="Weights"
               hint={
                 weights.upperBound
-                  ? "The total of the repo's weight files, which are one set of shards. The lookup could not read the repo's index, because it is too large, so a server may load fewer of these files and never more."
-                  : 'The size of the weight files a server loads from this repo, so quantised weights count as they are stored.'
+                  ? `${SCOPE} It is the total of the repo's weight files, which are one set of shards, because the lookup could not read the repo's index: it is too large, so a server may load fewer of these files and never more. ${NOT_COUNTED}`
+                  : `${SCOPE} They are the files a server loads from it, so quantised weights count as they are stored. ${NOT_COUNTED}`
               }
             >
               <div className="fit-weights fit-weights--files">
@@ -113,7 +117,7 @@ export default function Fit() {
             <Field
               id="fit-size"
               label="Weights"
-              hint="The total size of the model's weight files, in the unit beside the box. The repo's Files tab on Hugging Face lists each .safetensors file in GB, so switch the unit if you add those up. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
+              hint="Type the total of every weight file a server loads, in the unit beside the box: this repo's own files, plus a second model it loads, a draft model's target or an adapter's base model. The repo's Files tab on Hugging Face lists each .safetensors file in GB, so switch the unit if you add those up. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
             >
               <div className="fit-weights">
                 <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { typeSize({ size }); }} error={errors.size} width="9rem" />
@@ -162,8 +166,9 @@ export default function Fit() {
       {run.status === 'done' ? <Result request={run.request} response={run.response} /> : null}
 
       <p className="fit-scope t-footnote">
-        The total is a range because activations and the compute graph add 10 to 20 % on top of weights and KV cache. Not modelled: GGUF files, sliding-window attention
-        layers, a model split across GPUs, the AMD GTT limit and the macOS wired-memory limit.
+        The total is a range because activations and the compute graph add 10 to 20 % on top of weights and KV cache. The KV cache here is every layer at full width, so
+        it is too high for a model that keeps a smaller one: sliding-window layers halve it, and latent attention (MLA, as DeepSeek and Kimi use) needs a fraction of it,
+        25 times less for DeepSeek-V3. Not modelled: GGUF files, a model split across GPUs, the AMD GTT limit and the macOS wired-memory limit.
       </p>
     </div>
   );
@@ -199,14 +204,18 @@ const COLUMNS: readonly Column<NodeFit>[] = [
 
 function Result({ request, response }: { request: FitRequest; response: FitResponse }) {
   const { estimate, nodes } = response;
-  const what = `${request.facts.repo ?? 'This model'} at ${request.context_tokens.toLocaleString('en')} tokens of context, ${request.kv_dtype} KV cache`;
+  const repo = request.facts.repo;
+  const what = `${repo ?? 'This model'} at ${request.context_tokens.toLocaleString('en')} tokens of context, ${request.kv_dtype} KV cache`;
+  const typed = repo === null;
   return (
-    <Panel title="Result" subtitle={`${what}. Free memory is each node's latest sample.`}>
+    <Panel title="Result" subtitle={`${what}${typed ? ', from facts typed by hand' : ''}. Free memory is each node's latest sample.`}>
       <dl className="fit-sums">
         <div>
           <dt>Weights</dt>
           <dd className="num">{formatBytes(estimate.weights_bytes)}</dd>
-          {request.facts.weights_upper_bound ? <dd className="fit-sums__detail">the total of the repo's weight files, index not read</dd> : null}
+          <dd className="fit-sums__detail">
+            {typed ? 'typed by hand' : request.facts.weights_upper_bound ? "the total of the repo's weight files, index not read" : "this repo's own weight files"}
+          </dd>
         </div>
         <div>
           <dt>KV cache</dt>
@@ -219,6 +228,11 @@ function Result({ request, response }: { request: FitRequest; response: FitRespo
           <dd className="fit-sums__detail">with 10 to 20 % for activations</dd>
         </div>
       </dl>
+      <p className="fit-verdict-scope">
+        {typed
+          ? 'Every verdict below is built from the size and the shape typed on the form. The console did not read the model and cannot check them.'
+          : `Every verdict below counts ${repo}'s own weight files and nothing else. ${NOT_COUNTED}`}
+      </p>
       <Table caption="Whether the model fits on each node" columns={COLUMNS} rows={nodes} rowKey={(n) => n.node_id} empty="This console has no nodes." />
       {hasNvidiaUnifiedMemory(nodes) ? (
         <div className="fit-warning">
