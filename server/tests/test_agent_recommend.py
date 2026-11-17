@@ -32,6 +32,10 @@ WantedBy=multi-user.target
 """
 DISPLAY_2GB = bytes.fromhex("06 00 00 00 03 00 08 00 00")
 DISPLAY_AUTO = bytes.fromhex("06 00 00 00 00 00 02 00 00")
+COMES_BACK = (
+    "Sparkline applied this setting and will apply it again at the next boot, but it is not in effect now. "
+    "To remove it for good, press Apply and then Undo"
+)
 NO_ROOT = pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
 
 
@@ -170,9 +174,10 @@ def test_a_clock_reading_well_above_the_cap_contradicts_it(m: Machine, by: str) 
     else:
         m.unit(by)
     m.clock = 2411.0
+    read = f"{by} set a cap of 2200 MHz, but the GPU clock reads 2411 MHz: the cap is not in effect"
     assert m.read("gpu-clock-cap") == (
         "not-applied",
-        f"{by} set a cap of 2200 MHz, but the GPU clock reads 2411 MHz: the cap is not in effect",
+        f"{read}. {COMES_BACK}" if by == "Sparkline" else read,
         False,
     )
     m.clock = 2233.0  # within the margin of a clock step
@@ -370,6 +375,27 @@ def test_display_memory_is_unknown_when_the_variable_cannot_be_read(m: Machine) 
     (m.root / recommend.DISPLAY_STATUS).chmod(0)
     state, detail, _ = m.read("display-reserved-memory")
     assert state == "unknown" and detail.endswith("Permission denied")
+
+
+# --- a setting Sparkline applied that someone undid by hand -----------------------------------------------
+
+
+def test_a_cap_sparkline_recorded_that_is_not_in_effect_says_it_comes_back_at_boot(m: Machine) -> None:
+    m.record("cpu-pcore-cap")  # the limits are back at 3900 MHz, as after cpupower frequency-set -u 3900MHz
+    assert m.read("cpu-pcore-cap") == (
+        "not-applied",
+        f"The performance cores may run up to 3900 MHz. {COMES_BACK}",
+        False,
+    )
+
+
+def test_a_boot_target_set_back_by_hand_stays_set_back_and_is_not_said_to_come_back(m: Machine) -> None:
+    m.record("headless-boot")  # Sparkline never applies the boot target again: it survives a reboot
+    assert m.read("headless-boot") == (
+        "not-applied",
+        "Boots to the desktop (graphical.target). The desktop is not running now",
+        False,
+    )
 
 
 # --- what the helper did last, and whether the node takes clicks ------------------------------------------

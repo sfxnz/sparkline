@@ -19,7 +19,7 @@ from pydantic import ValidationError
 
 from ..common.recommendations import CATALOG, CPU_PCORE_CAP_MHZ, GPU_CLOCK_CAP_MHZ
 from ..common.schema import NodeRecommendations, NodeRecState, Problem, RecState, Sample, TuneResult
-from ..tune import APPLIED, CPUFREQ, RESULTS
+from ..tune import APPLIED, CPUFREQ, RESULTS, TUNES
 
 UNIT_DIR = Path("etc/systemd/system")
 TUNE_PATH_UNIT = UNIT_DIR / "sparkline-tune.path"
@@ -32,6 +32,12 @@ DISPLAY_SMALL = (0, 1)  # Auto, or the fixed 0.5 GB that Auto picks without a di
 # reads 2400 MHz and more.
 CLOCK_MARGIN_MHZ = 50
 NOT_GB10 = "This setting is for the DGX Spark, and this node has no GB10"
+# Undone by hand, a setting Sparkline applied keeps its record: the helper applies it again at boot, and only
+# Undo removes the record. Undo is offered once the setting is applied, hence Apply first.
+COMES_BACK = (
+    "Sparkline applied this setting and will apply it again at the next boot, but it is not in effect now. "
+    "To remove it for good, press Apply and then Undo"
+)
 
 Reading = tuple[RecState, str]  # the state, and what the probe read
 
@@ -247,7 +253,11 @@ def node_recommendations(h: Host, node_id: str) -> NodeRecommendations:
     items = []
     for rec in CATALOG:
         state, detail = read(h, rec.id)
-        managed = state == "applied" and h.recorded(rec.id)
+        recorded = h.recorded(rec.id)
+        tune = TUNES.get(rec.id)
+        if state == "not-applied" and recorded and tune is not None and tune.reapply_at_boot:
+            detail = f"{detail}. {COMES_BACK}"
+        managed = state == "applied" and recorded
         items.append(
             NodeRecState(
                 id=rec.id, state=state, detail=detail, managed=managed, last=last_result(h.root, rec.id)
