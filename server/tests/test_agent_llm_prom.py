@@ -91,6 +91,16 @@ def test_an_exposition_that_is_not_a_model_servers_has_no_namespace():
     assert pick_namespace({}) is None
 
 
+def test_metrics_that_must_prove_a_model_server_need_a_known_prefix_or_a_token_reading():
+    ordinary = "http_requests_processing 2\nhttp_requests_deferred 0\n"
+    assert pick_namespace(parse_exposition(ordinary)) == "http_"
+    assert pick_namespace(parse_exposition(ordinary), need_proof=True) is None
+    known = parse_exposition("llamacpp:requests_processing 2\n")
+    assert pick_namespace(known, need_proof=True) == "llamacpp:"
+    with_tokens = ordinary + "acme_prompt_tokens_total 9\n"
+    assert pick_namespace(parse_exposition(with_tokens), need_proof=True) == "acme_"
+
+
 def test_a_name_is_matched_whole_after_the_namespace_never_by_its_ending():
     lookalikes = "x:cached_prompt_tokens_total 9\nx:waiting_prompt_tokens 4\nx:my_num_requests_running 2\n"
     assert pick_namespace(parse_exposition(lookalikes)) is None

@@ -105,6 +105,9 @@ KNOWN_NAMESPACES: dict[str, str] = {
     "llamacpp:": "llama.cpp",
     "trtllm_": "TensorRT-LLM",
 }
+# Any HTTP service may export a gauge named like the request, preemption or memory rules. Only a model
+# server counts tokens or times the first one.
+PROOF_FIELDS = frozenset({"gen_tps", "prompt_tps", "ttft_p50_s", "ttft_p95_s"})
 SLEEP_GAUGES = ("engine_sleep_state", "engine_parked")
 INFO_GAUGES = ("server_info", "build_info")
 START_GAUGE = "process_start_time_seconds"
@@ -119,16 +122,20 @@ def _matching(series: Mapping[str, list[Series]], ns: str, rule: Rule) -> list[S
     return []
 
 
-def pick_namespace(series: Mapping[str, list[Series]]) -> str | None:
+def pick_namespace(series: Mapping[str, list[Series]], need_proof: bool = False) -> str | None:
+    """The namespace the most rules read. ``need_proof`` is for metrics that are the only sign of a model
+    server: it leaves out a namespace that is neither a known server's nor fills a PROOF_FIELDS rule."""
     candidates = {""}
     for name in series:
         head, colon, _ = name.partition(":")
         candidates.add(head + colon if colon else name.partition("_")[0] + "_")
     best, best_rank = None, (0, False, 0)
     for ns in candidates:
-        score = sum(1 for rule in FIELD_RULES if _matching(series, ns, rule))
-        rank = (score, ns.endswith(":"), len(ns))
-        if score and rank > best_rank:
+        fields = {rule.field for rule in FIELD_RULES if _matching(series, ns, rule)}
+        if need_proof and ns not in KNOWN_NAMESPACES and not fields & PROOF_FIELDS:
+            continue
+        rank = (len(fields), ns.endswith(":"), len(ns))
+        if fields and rank > best_rank:
             best, best_rank = ns, rank
     return best
 

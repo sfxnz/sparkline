@@ -576,6 +576,13 @@ socket receives afterwards:
 
 The agent sends no prompt and loads no model. A server that restarts is a new socket and is asked again.
 
+**What counts as a model server.** A socket is shown, and read every 2 seconds, only when it proves it is
+one. A model list from `/v1/models` is proof, together with metrics the agent can read or a server name it
+knows. When `/v1/models` answers 401 or 403, the metrics are the only proof: they must sit under a known
+server's prefix (`vllm:`, `sglang:`, `llamacpp:`, `trtllm_`), or count tokens, or time the first token. A
+count of running or waiting requests proves nothing, because any web service can export one. A service
+behind a login that gives no such proof gets those three requests and no more.
+
 **What is shown.** vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM, and any server that exports the same metric
 names under its own prefix. A value the server does not export reads "Not reported by this server". llama.cpp
 serves metrics only with `--metrics` and SGLang only with `--enable-metrics`; without the flag the server is

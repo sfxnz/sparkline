@@ -142,7 +142,7 @@ class PrometheusAdapter:
             paths = ("/metrics", "/v1/metrics")
         for path in paths:
             got = http(_url(at, path), auth)
-            ns = pick_namespace(_series(got))
+            ns = pick_namespace(_series(got), need_proof=locked)
             if ns is not None:
                 named = software or KNOWN_NAMESPACES.get(ns) or owner or ns.rstrip(":_") or None
                 return Identity(named, models, path, NEEDS_KEY if locked else None)
