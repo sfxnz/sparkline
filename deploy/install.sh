@@ -195,9 +195,9 @@ token_line() {
 }
 
 # The console URL that signs in: the console token rides in the fragment, which a browser never sends to a
-# server. Read from the config here, so the token is never on a command line. Printed only where token_line
-# prints the token.
+# server. Read from the config here, so the token is never on a command line.
 signin_link() {
+	[[ $TTY_OUT == 1 ]] || return 0
 	"$PY" - "$1" "$2" <<'PYEOF'
 import sys, tomllib
 from urllib.parse import quote

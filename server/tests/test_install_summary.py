@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import pty
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -197,6 +198,25 @@ def test_off_a_terminal_the_console_prints_no_token_and_says_where_it_is(host: H
         "    Next: open http://127.0.0.1:9828 and sign in with the console token.",
         f"    You should see {node}, live.",
     ]
+
+
+def test_signin_link_prints_nothing_off_a_terminal_whoever_calls_it(host: Host) -> None:
+    host.install("agent", *AGENT)
+    host.install("console", *CONSOLE)
+    config = host.stage / "etc/sparkline/console.toml"
+    script = (REPO / "deploy/install.sh").read_text()
+    function = (
+        "signin_link() {\n" + script.partition("\nsignin_link() {\n")[2].partition("\n}\n")[0] + "\n}\n"
+    )
+
+    def link(tty_out: int) -> str:
+        call = f'PY={shlex.quote(sys.executable)} TTY_OUT={tty_out}\n{function}signin_link http://c "$1"'
+        return subprocess.run(
+            ["bash", "-c", call, "bash", str(config)], capture_output=True, text=True, check=True
+        ).stdout
+
+    assert link(1) == f"http://c/login#token={host.config('console.toml')['token']}\n"
+    assert link(0) == ""
 
 
 def test_an_agent_token_the_console_made_up_is_shown_to_copy_to_the_nodes(host: Host) -> None:
