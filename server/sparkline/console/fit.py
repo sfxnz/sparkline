@@ -566,6 +566,29 @@ def read_config(repo: RepoId, answer: _Json | Problem) -> dict[str, object] | Pr
     )
 
 
+# Keys that measure a model the repo does not hold: how many layers it has, which of its layers this one
+# attaches to, how wide its vocabulary is. A draft model carries them, and a draft model is served beside
+# the target it drafts for, which its config need not name anywhere. Census over the 10,274 cached file
+# lists: 43 of 1,417 full answers hold one, every one of them a draft
+# (.audit/evidence/D/round-6/census_draft.out).
+TARGET_KEYS = (
+    "num_target_layers", "target_layer_ids", "draft_vocab_size", "target_hidden_size", "target_model_type",
+)  # fmt: skip
+
+
+def drafts_for_another_model(repo: RepoId, config: dict[str, object]) -> Problem | None:
+    """Why the lookup will not size a repo whose ``config.json`` measures a model it does not hold."""
+    keys = [key for key in TARGET_KEYS if key in config]
+    if not keys:
+        return None
+    return _problem(
+        f"The config.json of {repo} describes a second model the repo does not hold",
+        f"It has {_listed(keys)}, which measure another model. Keys like these are a draft model's record "
+        "of the target it drafts for, and a server loads that target as well",
+        f"{MANUAL_FIX}: the total of this repo's weight files and the target model's",
+    )
+
+
 def config_strings(config: dict[str, object]) -> Iterator[tuple[tuple[str, ...], str]]:
     """Every string in a decoded ``config.json``, with the dict keys above it.
 
@@ -638,10 +661,10 @@ async def weights_of(
     """The size of the weights a server loads from this repo, or why the lookup will not give one.
 
     A size needs no sign that the model reaches outside the repo's own weight files: the repo's
-    ``config.json`` was read and names no model outside the repo, the repo is not an adapter, every weight
-    file in another format is a copy or training state, and the file rules place every ``.safetensors``
-    file in the repo. Without all of that the lookup gives no size, because every way a server loads
-    weights from outside the files it sized ends in a number below what the server loads.
+    ``config.json`` was read, names no model outside the repo and measures none, the repo is not an adapter,
+    every weight file in another format is a copy or training state, and the file rules place every
+    ``.safetensors`` file in the repo. Without all of that the lookup gives no size, because every way a
+    server loads weights from outside the files it sized ends in a number below what the server loads.
     """
     if ADAPTER_FILE in sizes:
         return _problem(
@@ -652,7 +675,11 @@ async def weights_of(
         )
     if isinstance(config, Problem):
         return config
-    elsewhere = points_elsewhere(repo, config) or other_format_weights(repo, sizes)
+    elsewhere = (
+        points_elsewhere(repo, config)
+        or drafts_for_another_model(repo, config)
+        or other_format_weights(repo, sizes)
+    )
     if elsewhere is not None:
         return elsewhere
     if INDEX_FILE not in sizes:

@@ -482,6 +482,29 @@ async def test_an_adapter_gets_no_size_even_when_it_is_saved_as_model_safetensor
     assert "the base model's" in failure.problem.fix
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({"num_target_layers": 93}, id="num_target_layers"),
+        pytest.param({"target_layer_ids": [3, 11, 19]}, id="target_layer_ids"),
+        pytest.param({"draft_vocab_size": 248_144}, id="draft_vocab_size"),
+        pytest.param({"target_hidden_size": 8192}, id="target_hidden_size"),
+        pytest.param({"target_model_type": "qwen3"}, id="target_model_type"),
+    ],
+)
+async def test_a_draft_model_gets_no_size_even_when_it_names_no_target(config):
+    # A draft model is served beside a target its config need not name: 43 of 1,417 cached full answers
+    # were a draft, and each of them is a size far below what a server loads.
+    files = {"config.json": 726, "model.safetensors": 778_000_000}
+    failure = await FakeHuggingFace(
+        public_repo(info=repo_files(files), config={**QWEN_CONFIG, **config})
+    ).lookup()
+    assert failure.found.weights_bytes is None, failure
+    assert "describes a second model the repo does not hold" in failure.problem.message
+    assert next(iter(config)) in failure.problem.cause
+    assert "the target model's" in failure.problem.fix
+
+
 # A weight file in a format the lookup never reads, by whether its name marks it as a copy or as training
 # state. The names come from the census in .audit/evidence/D/round-6/census_formats.out.
 @pytest.mark.parametrize(
