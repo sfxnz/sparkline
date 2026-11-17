@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import { ApiError } from '../lib/api';
-import { captureSignInLink, hasSignInToken, takeSignInToken } from '../lib/signInLink';
+import { captureSignInLink, hasSignInToken, takeSignInToken, watchSignInLink } from '../lib/signInLink';
 import { useAuthInfo } from '../store/session';
 import { Login, loginErrorCopy, TOKEN_COMMAND } from './Login';
 
@@ -92,6 +92,19 @@ describe('sign-in link', () => {
     expect(screen.getByRole('button', { name: 'Signing in…' })).toBeDisabled();
     await waitFor(() => { expect(at.history).toContain('/'); });
     expect(sentToken(fetch)).toBe('link-token-0123456789');
+  });
+
+  it('signs in when the link is opened in a tab that already shows the sign-in page', async () => {
+    const fetch = reply(200, { ok: true });
+    vi.stubGlobal('fetch', fetch);
+    watchSignInLink();
+    const at = show(true);
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+    window.history.replaceState(null, '', '/login#token=pasted-link-token');
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await waitFor(() => { expect(at.history).toContain('/'); });
+    expect(sentToken(fetch)).toBe('pasted-link-token');
+    expect(window.location.hash).toBe('');
   });
 
   it('falls back to the form with the usual error when the link token is wrong', async () => {

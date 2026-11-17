@@ -17,6 +17,23 @@ export function captureSignInLink(loc: Pick<Location, 'hash' | 'pathname' | 'sea
   }
 }
 
+const listeners = new Set<() => void>();
+
+/** Call once at startup, after captureSignInLink. A link opened in a tab that already shows this app changes only
+ *  the fragment, so nothing reloads: the token is taken out of the address just the same. */
+export function watchSignInLink(): void {
+  window.addEventListener('hashchange', () => {
+    captureSignInLink();
+    if (pending !== null) for (const tell of listeners) tell();
+  });
+}
+
+/** Be told when a link token arrives while the page is open. Returns the unsubscribe function. */
+export function onSignInLink(tell: () => void): () => void {
+  listeners.add(tell);
+  return () => { listeners.delete(tell); };
+}
+
 /** True while a link token waits to be used (the sign-in page starts in its "Signing in…" state). */
 export const hasSignInToken = () => pending !== null;
 

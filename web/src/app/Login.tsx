@@ -5,7 +5,7 @@ import { Button, IconButton } from '../design/components/Button';
 import { CommandLine } from '../design/components/CommandLine';
 import { InlineCode } from '../design/components/InlineCode';
 import { ApiError, api, problemOf } from '../lib/api';
-import { hasSignInToken, takeSignInToken } from '../lib/signInLink';
+import { hasSignInToken, onSignInLink, takeSignInToken } from '../lib/signInLink';
 import { useConnection } from '../store/connection';
 import { retryConnection, useAuthInfo } from '../store/session';
 import { ConnectionIndicator } from './ConnectionIndicator';
@@ -78,6 +78,14 @@ export function Login() {
   useEffect(() => {
     const linked = takeSignInToken();
     if (linked) void finish(api.login(linked));
+    // The link opened in this tab while the sign-in page was already showing.
+    return onSignInLink(() => {
+      const later = takeSignInToken();
+      if (!later) return;
+      setBusy(true);
+      setError(null);
+      void finish(api.login(later));
+    });
     // Once, on arrival: the link token is consumed by the first read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

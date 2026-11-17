@@ -4,9 +4,10 @@ import { createRoot } from 'react-dom/client';
 import './design/global.css';
 import { App } from './app/App';
 import { reloadOnStaleBuild } from './app/staleBuild';
-import { captureSignInLink } from './lib/signInLink';
+import { captureSignInLink, watchSignInLink } from './lib/signInLink';
 
 captureSignInLink(); // first: a sign-in link's token leaves the address bar before anything reads the address
+watchSignInLink();
 reloadOnStaleBuild();
 
 const root = document.getElementById('root');
