@@ -1,5 +1,5 @@
 import { ArrowRight, Eye, EyeOff, KeyRound } from 'lucide-react';
-import { useEffect, useEffectEvent, useId, useState, type SubmitEvent } from 'react';
+import { useEffect, useEffectEvent, useId, useRef, useState, type SubmitEvent } from 'react';
 import { useLocation } from 'wouter';
 import { Button, IconButton } from '../design/components/Button';
 import { CommandLine } from '../design/components/CommandLine';
@@ -58,6 +58,7 @@ export function Login() {
   // /auth/me can answer while a link is signing in: the page under "Signing in…" stays as it is until that ends.
   const firstRun = useAuthInfo((s) => s.firstRun) && signingIn !== 'link';
   const [error, setError] = useState<LoginError>(null);
+  const field = useRef<HTMLInputElement>(null);
   const fieldId = useId();
   const errorId = useId();
   const hintId = useId();
@@ -70,7 +71,11 @@ export function Login() {
           retryConnection();
           navigate('/', { replace: true });
         },
-        (err: unknown) => { setError(loginErrorCopy(err)); },
+        (err: unknown) => {
+          setError(loginErrorCopy(err));
+          // A clicked "Sign in" loses focus when it is disabled for the request: the next thing to do is retype.
+          field.current?.focus();
+        },
       )
       .finally(() => { setSigningIn(null); });
   const signIn = (how: 'link' | 'typed', secret: string) => {
@@ -120,6 +125,7 @@ export function Login() {
             <KeyRound className="login__field-icon" aria-hidden="true" />
             <input
               id={fieldId}
+              ref={field}
               className="input login__input"
               type={reveal ? 'text' : 'password'}
               autoComplete="current-password"

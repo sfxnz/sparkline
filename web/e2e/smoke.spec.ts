@@ -71,6 +71,8 @@ test('wrong token shows a helpful error', async ({ page }) => {
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('That token wasn’t accepted.')).toBeVisible();
   await expect(page.getByLabel('Console token')).toHaveAttribute('aria-invalid', 'true');
+  // The clicked button was disabled for the request, which drops focus: it comes back to the field to retype in.
+  await expect(page.getByLabel('Console token')).toBeFocused();
 });
 
 test('with a console: hello populates the sidebar and the indicator goes Live', async ({ page }) => {

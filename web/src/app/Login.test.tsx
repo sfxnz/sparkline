@@ -71,6 +71,22 @@ describe('sign-in page', () => {
   });
 });
 
+describe('a wrong token', () => {
+  it('puts focus back in the token field, whether Sign in was clicked or Enter was pressed', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal('fetch', reply(401, { problem: { message: 'Wrong token', cause: '', fix: '' } }));
+    show(false);
+    const token = screen.getByLabelText('Console token');
+    await user.type(token, 'nope');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByText('That token wasn’t accepted.')).toBeInTheDocument();
+    expect(token).toHaveFocus();
+    await user.type(token, 'x{Enter}');
+    expect(await screen.findByText('That token wasn’t accepted.')).toBeInTheDocument();
+    expect(token).toHaveFocus();
+  });
+});
+
 describe('sign-in link', () => {
   const address = (hash: string) => {
     const state = { url: `/login${hash}` };
@@ -145,6 +161,7 @@ describe('sign-in link', () => {
     expect(await screen.findByText('That token wasn’t accepted.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
     expect(screen.getByLabelText('Console token')).toHaveValue('');
+    expect(screen.getByLabelText('Console token')).toHaveFocus();
     expect(at.history).not.toContain('/');
   });
 });
