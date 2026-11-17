@@ -386,6 +386,13 @@ def test_a_repo_with_no_index_and_no_model_safetensors_is_refused_with_what_it_d
     assert "no .safetensors files" in other_formats.cause
 
 
+async def test_a_file_list_that_names_one_file_twice_is_refused():
+    info = {"siblings": [{"rfilename": "model.safetensors", "size": size} for size in (5_000_000_000, 1)]}
+    failure = await FakeHuggingFace(public_repo(info=info)).lookup()
+    assert failure.found.weights_bytes is None, failure
+    assert "twice" in failure.problem.message and "model.safetensors" in failure.problem.cause
+
+
 def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
     return {**public_repo(), path: httpx.Response(status, json={"error": "Invalid username or password."})}
 

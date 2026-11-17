@@ -230,7 +230,14 @@ def file_sizes(repo: RepoId, info: object) -> dict[str, int] | Problem:
             f"Hugging Face does not list the files of {repo} in a way this estimator reads",
             "Its answer is not a list of file names with sizes",
         )
-    return {f.rfilename: f.size for f in files}
+    sizes = {f.rfilename: f.size for f in files}
+    if len(sizes) != len(files):
+        twice = sorted({f.rfilename for f in files if sum(g.rfilename == f.rfilename for g in files) > 1})
+        return _problem(
+            f"Hugging Face lists a file of {repo} twice",
+            f"{_listed(twice)} appears more than once with a size, so the lookup cannot tell how large it is",
+        )
+    return sizes
 
 
 def _safetensors(sizes: dict[str, int]) -> list[str]:
