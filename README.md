@@ -357,7 +357,7 @@ benchmark history).
 
 The console sends each alert, and the recovery that follows it, to the channels you list in `console.toml`.
 Add one `[[notify]]` table per channel and restart the console. With no `[[notify]]` table the console
-connects to nothing but its agents.
+sends no notification.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -483,8 +483,8 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   `--enable-benchmarks`, that adds less than benchmarks already allow. On a monitor-only node it is the first
   thing the agent token can make run as root, and all it can do is install the latest checksum-verified
   release now. The agent's own unit and sandbox are unchanged. It refuses while a benchmark is running.
-- **Notifications are the one exception to LAN-only.** Without a `[[notify]]` table the console connects
-  only to its agents. With one, it also sends alerts to the hosts in those tables, and to no other host:
+- **Notifications leave the LAN only where you say.** Without a `[[notify]]` table the console sends no
+  notification. With one, it sends alerts to the hosts in those tables, and to no other host:
   nothing in the API or the web app can add or change a channel. For every send the console resolves the
   host name again, checks every address in the answer, and connects to a checked address by IP. TLS
   verifies the certificate against the name in the url, so a DNS answer that changes between the check and

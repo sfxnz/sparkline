@@ -13,8 +13,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   generic JSON `webhook`) that receives alerts and their recoveries when no browser is open, filtered by
   `min_severity` and `send_resolved`. Alerts that fire together arrive as one message. The Alerts view lists
   the channels with their last delivery and a **Send test** button, through `GET /api/v1/notify/channels`
-  and `POST /api/v1/notify/channels/{name}/test`. This is the console's first connection to a host that is
-  not one of its agents: see "Security model" in the README and `docs/adr/0003-outbound-notifications.md`.
+  and `POST /api/v1/notify/channels/{name}/test`. The console sends to the hosts in those
+  tables, which can be outside the LAN: see "Security model" in the README and `docs/adr/0003-outbound-notifications.md`.
 
 ## [0.1.2] - 2026-11-11
 

@@ -1,12 +1,12 @@
-# Alert notifications are the console's one outbound connection
+# Alert notifications may leave the LAN, through one module
 
-Sparkline is LAN-only. Both services refuse to bind a public address, the browser's Content-Security-Policy allows connections to the console alone, and the LLM benchmarks refuse endpoints outside the LAN. Until now the console connected only to its own agents. Alert notifications break that on purpose: an alert that only shows in an open browser tab does not tell the owner that a node died overnight, and ntfy.sh, Discord and Slack are on the internet.
+Sparkline is LAN-only. Both services refuse to bind a public address, the browser's Content-Security-Policy allows connections to the console alone, and the LLM benchmarks refuse endpoints outside the LAN. The console's agents are on the LAN too. Alert notifications leave it on purpose: an alert that only shows in an open browser tab does not tell the owner that a node died overnight, and ntfy.sh, Discord and Slack are on the internet.
 
-So the console may connect to a host that is not an agent, under these rules. `server/sparkline/console/egress.py` is the only code that does it, and `server/tests/test_console_egress.py` holds the console to each rule.
+So the console may send a notification to a host that is not an agent, under these rules. `server/sparkline/console/egress.py` is the only code that sends one, and `server/tests/test_console_egress.py` holds the console to each rule.
 
 ## The rules
 
-- **Only hosts the operator wrote in `console.toml`.** Channels are `[[notify]]` tables. No API route and no web form can add or change one, so signing in to the console never lets anyone point it at a new host. With no `[[notify]]` table the console builds no sender and opens no such connection.
+- **Only hosts the operator wrote in `console.toml`.** Channels are `[[notify]]` tables. No API route and no web form can add or change one, so signing in to the console never lets anyone point it at a new host. With no `[[notify]]` table the console builds no sender and sends no notification.
 - **The console connects to the address it checked.** For every send it resolves the name, checks every address in the answer, and connects to a checked address by IP. The name goes in the `Host` header and in the TLS handshake, so the certificate is still verified against the name. No connection is kept between sends, so no send uses an address checked earlier. This closes DNS rebinding, where a name answers with a harmless address for the check and another one for the connection.
 - **`http://` only to private addresses.** If any address in the answer is public, the send is refused whole. `https://` may reach any address, because the certificate check is what makes a public address safe.
 - **No redirect is followed.** A 3xx answer is a failed delivery. A redirect would send the alert to a host the operator did not write down.

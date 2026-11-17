@@ -1,4 +1,4 @@
-"""The console's only outbound door to hosts that are not its agents, and the only code that unwraps a
+"""How the console sends alert notifications to hosts outside its agents, and the only code that unwraps a
 channel secret.
 
 Public API: ``Endpoint.parse``, ``address_allowed``, ``Egress.post``, ``Egress.aclose``, ``EgressError``.
