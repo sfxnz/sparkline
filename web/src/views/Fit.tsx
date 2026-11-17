@@ -139,7 +139,7 @@ export default function Fit() {
             <Field
               id="fit-size"
               label="Weights"
-              hint="Type the total of every weight file a server loads, in the unit beside the box: this repo's own files, plus a second model it loads, a draft model's target or an adapter's base model. The repo's Files tab on Hugging Face lists each .safetensors file in GB, so switch the unit if you add those up. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
+              hint="Type the total of every weight file the server loads, in every folder of the repo and in any other repo. This page shows sizes in GiB, so switch the unit beside the box to type a size given in GB. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
             >
               <div className="fit-weights">
                 <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { typeSize({ size }); }} error={errors.size} width="9rem" />
@@ -149,7 +149,7 @@ export default function Fit() {
               </div>
             </Field>
           )}
-          <Field id="fit-layers" label="Layers" hint="num_hidden_layers in config.json.">
+          <Field id="fit-layers" label="Layers" hint="num_hidden_layers of the language model that answers, in its config.">
             <NumberField id="fit-layers" describedBy="fit-layers-hint" value={shape.layers} onChange={(layers) => { typeShape({ layers }); }} error={errors.layers} />
           </Field>
           <Field id="fit-kv-heads" label="KV heads" hint="num_key_value_heads, or num_attention_heads when the model has no grouped attention.">

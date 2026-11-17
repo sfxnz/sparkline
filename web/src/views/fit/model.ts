@@ -3,7 +3,7 @@ import { DASH, formatBytes } from '../../lib/format';
 import { ApiError } from '../../lib/api';
 import type { FitEstimate, FitRequest, FitVerdict, KvDtype, LookupFailure, ModelFacts, ModelShape, NodeBudget, NodeFit } from '../../lib/types';
 
-/** Bytes in the units a size is typed in: GiB as this page shows sizes, GB as the Files tab of a Hugging Face repo lists them. */
+/** Bytes in the units a size is typed in: GiB as this page shows sizes, GB as Hugging Face lists a file's size. */
 export const SIZE_UNITS = { GiB: 2 ** 30, GB: 1e9 } as const;
 export type SizeUnit = keyof typeof SIZE_UNITS;
 

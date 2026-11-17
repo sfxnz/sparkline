@@ -123,7 +123,9 @@ describe('Will it fit', () => {
 
     expect(screen.queryByRole('textbox', { name: 'Parameters' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Bits per weight' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Files tab on Hugging Face lists each \.safetensors file in GB/)).toBeInTheDocument();
+    // The hint asks for the same total a refusal asks for, and names no page to copy a number from.
+    expect(screen.getByText(/Type the total of every weight file the server loads, in every folder of the repo and in any other repo\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Files tab/)).not.toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Weights' }), '5.57');
     // The page shows sizes in GiB, so a size read off it and typed back is the same size.
     expect(screen.getByRole('combobox', { name: 'Unit of the size' })).toHaveValue('GiB');
@@ -275,7 +277,7 @@ describe('Will it fit', () => {
     fakeConsole();
     render(<Fit />);
     const notCounted = /A second model the repo loads, a draft model's target and the base model under an adapter are not counted/;
-    expect(screen.getByText(/Type the total of every weight file a server loads/)).toBeInTheDocument();
+    expect(screen.getByText(/Type the total of every weight file the server loads/)).toBeInTheDocument();
 
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
     await screen.findByText('Filled in from Qwen/Qwen3-8B.');
