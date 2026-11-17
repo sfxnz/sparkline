@@ -141,8 +141,8 @@ describe('waitingLine', () => {
   });
 
   it('points at the card that holds the fix', () => {
-    expect(waitingLine([n('spark1', 'offline')])).toBe('spark1’s card says what to check. This page goes live by itself when it answers.');
-    expect(waitingLine([n('spark1', 'offline'), n('spark2', 'error')])).toBe('Each card says what to check. This page goes live by itself when a node answers.');
+    expect(waitingLine([n('spark1', 'offline')])).toBe('spark1’s card says what to do. This page goes live by itself when it answers.');
+    expect(waitingLine([n('spark1', 'offline'), n('spark2', 'error')])).toBe('Each card says what to do. This page goes live by itself when a node answers.');
   });
 
   it('is silent once any node has reported, and for a console that does not say', () => {

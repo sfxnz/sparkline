@@ -22,7 +22,7 @@ const refused: NodeState = {
 };
 const rejected: NodeState = {
   ...refused, node_id: 'spark2', url: 'http://192.168.1.12:9750', status: 'error',
-  error: { message: "Agent on spark2 rejected the console's token", cause: 'HTTP 403 from 192.168.1.12:9750: agent token mismatch', fix: 'agent_token in /etc/sparkline/console.toml must match token in /etc/sparkline/agent.toml on spark2' },
+  error: { message: 'Agent on spark2 rejected the console’s token', cause: 'HTTP 403 from 192.168.1.12:9750: agent token mismatch', fix: '`agent_token` in `/etc/sparkline/console.toml` must equal `token` in `/etc/sparkline/agent.toml` on spark2.' },
 };
 const BAD = /\b(offline|error|critical)\b/i;
 

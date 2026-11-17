@@ -21,8 +21,10 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   tokens the page shows the console's own explanation and fix, where it used to show raw JSON.
 - **Nodes that have not answered yet.** A node the console has never heard from reads "Not connected yet" on
   its card, its page, the sidebar, the wall and in Settings, in a neutral tone. Its card shows what the
-  console tried, the likely cause and the fix in full, with a copy button on each command, the time to the
-  next try and **Retry now**. The node's first reading arrives on the card in place.
+  console tried, the likely cause and the fix a step at a time, each command under its step with a copy
+  button, the time to the next try and **Retry now**. When the agent answered and turned the console away (a
+  wrong token), the card says that only the fix will connect it, where it would count down to the next try.
+  The node's first reading arrives on the card in place.
 - **Getting started.** The overview of a new install carries a short guide: connect your nodes, get told
   when something breaks, model servers, Prometheus and benchmarks. Each row opens the real page and shows
   what the cluster already has. Once you open a row the guide becomes one line, and **Dismiss** puts it away
@@ -44,6 +46,11 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   offline alerts as before.
 - Each installer ends with the one next step: the agent installer with the console command for that host,
   and the console installer with the nodes it will show and the sign-in link.
+- The fix for "Agent unreachable" on a refused connection says what to run: the command that starts the
+  agent, the command that shows why it did not stay up and, for a node that has never answered, the install
+  command. The fix for a rejected agent token says how to compare the two tokens and which service to
+  restart. A fix that edits `console.toml` now ends with the console restart, because the console reads its
+  config only when it starts.
 
 ## [0.2.0] - 2026-11-17
 

@@ -835,14 +835,16 @@ the same dialog.
 
 ## Troubleshooting
 
-**"Agent unreachable on spark2".** On that node, run `systemctl status sparkline-agent` and
-`journalctl -u sparkline-agent -n 50`. Check that the URL in `console.toml` uses the address the agent
-listens on: the agent logs `listening on <ip>:9750` at start-up, and `curl http://<ip>:9750/healthz`
-needs no token. A firewall must allow port 9750 from the console host.
+**"Agent unreachable on spark2".** On that node, run `sudo systemctl start sparkline-agent`. If it does not
+stay up, `journalctl -u sparkline-agent -n 50` says why. Check that the URL in `console.toml` uses the
+address the agent listens on: the agent logs `listening on <ip>:9750` at start-up, and
+`curl http://<ip>:9750/healthz` needs no token. A firewall must allow port 9750 from the console host.
 
-**"Agent on spark2 rejected the console's token".** The console's `agent_token` doesn't match the agent's
-`token`. Compare them with `sudo grep token /etc/sparkline/*.toml`, then restart whichever service you
-changed.
+**"Agent on spark2 rejected the console’s token".** The console's `agent_token` doesn't match the agent's
+`token`. Compare them with `sudo grep token /etc/sparkline/*.toml` on the console host and on the node, and
+edit one file so they match. Then restart the service whose file you edited:
+`sudo systemctl restart sparkline` for the console, `sudo systemctl restart sparkline-agent` for the agent.
+The console reads its config only when it starts, so its retries keep failing until then.
 
 **The service exits straight away.** A config problem exits with status 2, and systemd doesn't retry it.
 `journalctl -u sparkline-agent` shows the reason: invalid TOML, an unknown key, a refused public bind, or a

@@ -1,4 +1,4 @@
-import { agentAddress, fixCommands, guideStage, guideView, isNewNode, mergeOnboarding, needsSetup, reachOf, retryWait } from './onboarding';
+import { agentAddress, fixCommands, fixSteps, guideStage, guideView, isNewNode, mergeOnboarding, needsSetup, reachOf, retryWait } from './onboarding';
 import type { Onboarding } from './types';
 
 const ob = (over: Partial<Onboarding> = {}): Onboarding => ({ started: 100, finished: null, seen: [], ...over });
@@ -73,8 +73,26 @@ describe('a node that cannot be reached', () => {
     expect(fixCommands('Check `systemctl status sparkline-agent` on spark1')).toEqual(['systemctl status sparkline-agent']);
     expect(fixCommands('Check `journalctl -u sparkline-agent` on spark1 and `systemctl status sparkline-agent`; then `journalctl -u sparkline-agent` again'))
       .toEqual(['journalctl -u sparkline-agent', 'systemctl status sparkline-agent']);
-    expect(fixCommands('agent_token in /etc/sparkline/console.toml must match token in /etc/sparkline/agent.toml on spark2')).toEqual([]);
     expect(fixCommands(null)).toEqual([]);
+  });
+
+  it('takes a span of several words for a command, and a key or a path for a name', () => {
+    expect(fixCommands('`agent_token` in `/etc/sparkline/console.toml` must equal `token`. Run `sudo grep token /etc/sparkline/*.toml`.')).toEqual(['sudo grep token /etc/sparkline/*.toml']);
+  });
+
+  it('reads a fix as its steps, one per sentence, each with the commands it names', () => {
+    const fix = 'Start the agent on spark1: `sudo systemctl start sparkline-agent`. If it does not stay up, `journalctl -u sparkline-agent -n 50` says why. '
+      + 'If the agent was never installed on spark1, run `sudo ./install.sh agent` in the Sparkline folder there.';
+    expect(fixSteps(fix)).toEqual([
+      { text: 'Start the agent on spark1: `sudo systemctl start sparkline-agent`.', commands: ['sudo systemctl start sparkline-agent'] },
+      { text: 'If it does not stay up, `journalctl -u sparkline-agent -n 50` says why.', commands: ['journalctl -u sparkline-agent -n 50'] },
+      { text: 'If the agent was never installed on spark1, run `sudo ./install.sh agent` in the Sparkline folder there.', commands: ['sudo ./install.sh agent'] },
+    ]);
+    // A full stop in a path, an address or a command ends nothing; a fix of one sentence is one step, as written.
+    expect(fixSteps('Check that 192.168.1.11 is the `url` in `/etc/sparkline/console.toml`. Then run `sudo ./install.sh agent`').map((s) => s.text))
+      .toEqual(['Check that 192.168.1.11 is the `url` in `/etc/sparkline/console.toml`.', 'Then run `sudo ./install.sh agent`']);
+    expect(fixSteps('Check `journalctl -u sparkline-agent` on spark1')).toEqual([{ text: 'Check `journalctl -u sparkline-agent` on spark1', commands: ['journalctl -u sparkline-agent'] }]);
+    expect(fixSteps(null)).toEqual([]);
   });
 
   it('draws an error as an agent that answered and said no, and anything else as no answer', () => {

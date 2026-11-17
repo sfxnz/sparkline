@@ -59,9 +59,9 @@ describe('what is done comes from the cluster, not from clicks', () => {
     expect(row('connect-nodes', ctx({ nodes: [live('spark1'), live('spark2')] })).blurb).toBe('All 2 nodes are live.');
     expect(row('connect-nodes', ctx({ nodes: [connecting('spark1')] }))).toMatchObject({ done: false, blurb: 'Waiting for the first reading from spark1.', to: '/node/spark1' });
     expect(row('connect-nodes', ctx({ nodes: [live('spark1'), refused('spark2'), refused('spark3')] }))).toMatchObject({
-      done: false, tag: '1 of 3', to: '/node/spark2', blurb: 'Waiting for spark2 and spark3. Their cards say what to check.',
+      done: false, tag: '1 of 3', to: '/node/spark2', blurb: 'Waiting for spark2 and spark3. Their cards say what to do.',
     });
-    expect(row('connect-nodes', ctx({ nodes: [refused('spark1')] }))).toMatchObject({ tag: null, blurb: 'Waiting for spark1. Its card says what to check.' });
+    expect(row('connect-nodes', ctx({ nodes: [refused('spark1')] }))).toMatchObject({ tag: null, blurb: 'Waiting for spark1. Its card says what to do.' });
     // Opening the row does not tick it.
     expect(row('connect-nodes', ctx({ nodes: [refused('spark1')], seen: new Set(['connect-nodes']) })).done).toBe(false);
   });

@@ -70,7 +70,7 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
       if (!waiting.length) return nodes.length === 1 ? `${nodes[0]?.node_id ?? 'Your node'} is live. More nodes go in \`console.toml\`.` : `All ${String(nodes.length)} nodes are live.`;
       const stuck = nodes.filter(needsSetup).map((n) => n.node_id);
       if (!stuck.length) return `Waiting for the first reading from ${names(waiting)}.`;
-      return `Waiting for ${names(stuck)}. ${stuck.length === 1 ? 'Its card says' : 'Their cards say'} what to check.`;
+      return `Waiting for ${names(stuck)}. ${stuck.length === 1 ? 'Its card says' : 'Their cards say'} what to do.`;
     },
     to: ({ nodes }) => {
       const first = nodes.find(needsSetup) ?? nodes.find(isNewNode);

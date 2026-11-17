@@ -19,9 +19,24 @@ export function agentAddress(url: string): string {
   }
 }
 
-/** The commands a Problem's fix names: its `backtick` spans, in order, each once. */
+/** The commands a Problem's fix names, in order, each once. A `backtick` span of several words is something to run
+ *  (`sudo systemctl start sparkline-agent`); a single word is a name (a key, a path) and stays inline. */
 export function fixCommands(fix: string | null | undefined): string[] {
-  return [...new Set([...(fix ?? '').matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter((c): c is string => !!c))];
+  return [...new Set([...(fix ?? '').matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter((c): c is string => !!c && /\S\s+\S/.test(c)))];
+}
+
+export interface FixStep {
+  /** One sentence of the fix, with its `backtick` spans. */
+  text: string;
+  /** The commands that sentence names. */
+  commands: string[];
+}
+
+/** A fix as the steps it is written in: one per sentence, each with its own commands, so a command is read next to
+ *  the words that say when to run it. A full stop inside a `backtick` span or a name (`*.toml`) ends nothing. */
+export function fixSteps(fix: string | null | undefined): FixStep[] {
+  const sentences = (fix ?? '').match(/(?:`[^`]*`|[^`.]|\.(?!\s|$))+\.?/g) ?? [];
+  return sentences.map((s) => s.trim()).filter(Boolean).map((text) => ({ text, commands: fixCommands(text) }));
 }
 
 /** How far the console's request got. `no-answer`: nothing answered at the address (refused, timed out, no route).

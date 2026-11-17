@@ -171,7 +171,7 @@ export function waitingLine(nodes: readonly (Pick<NodeState, 'node_id' | 'status
   const waiting = nodes.filter(needsSetup);
   if (!waiting.length) return 'Waiting for the first reading. Nothing to do here.';
   const card = waiting.length === 1 ? `${waiting[0]?.node_id ?? ''}’s card says` : 'Each card says';
-  return `${card} what to check. This page goes live by itself when ${nodes.length === 1 ? 'it' : 'a node'} answers.`;
+  return `${card} what to do. This page goes live by itself when ${nodes.length === 1 ? 'it' : 'a node'} answers.`;
 }
 
 // ------------------------------------------------------------------------------------------------ recent events

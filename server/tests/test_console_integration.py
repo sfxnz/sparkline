@@ -103,11 +103,13 @@ def test_connect_errors_isolated_and_mapped(env):
     assert n1["info"]["hostname"] == "spark1" and n1["error"] is None
     bad = wait_for(lambda: (n := node(env, "bad"))["status"] == "error" and n, 10, "bad -> error")
     assert "token" in bad["error"]["cause"]
-    assert "agent_token in /etc/sparkline/console.toml must match" in bad["error"]["fix"]
+    assert "`agent_token` in `/etc/sparkline/console.toml` must equal" in bad["error"]["fix"]
+    assert "`sudo systemctl restart sparkline`" in bad["error"]["fix"]
     ghost = wait_for(lambda: (n := node(env, "ghost"))["status"] == "offline" and n, 10, "ghost offline")
     assert ghost["error"]["message"] == "Agent unreachable on ghost"
     assert ghost["error"]["cause"] == f"Connection refused at 127.0.0.1:{DEAD_PORT}"
-    assert "systemctl status sparkline-agent" in ghost["error"]["fix"]
+    assert "`sudo systemctl start sparkline-agent`" in ghost["error"]["fix"]
+    assert "`sudo ./install.sh agent`" in ghost["error"]["fix"]  # it has never answered this console
     assert ghost["next_retry_ts"] is not None
     # retry endpoint works and the good node is unaffected by the two failing ones
     r = env["http"].post("/api/v1/nodes/ghost/retry")

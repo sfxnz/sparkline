@@ -15,7 +15,8 @@ const PORT = Number(process.env.E2E_FIRSTRUN_PORT ?? 9704);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TOKEN = 'first-run-e2e-token-not-a-secret-0123456789';
 const LINK = `${BASE}/login#token=${TOKEN}`;
-const FIX = 'systemctl status sparkline-agent';
+// What the setup card of a node that refuses connections says to run, in order.
+const FIX = ['sudo systemctl start sparkline-agent', 'journalctl -u sparkline-agent -n 50', 'sudo ./install.sh agent'];
 
 // One console at a time on one port: the tests in this file run in order, in one worker.
 test.describe.configure({ mode: 'default' });
@@ -105,9 +106,13 @@ async function expectWholeFix(card: Locator) {
   await expect(card.getByText('Likely cause')).toBeVisible();
   await expect(card.getByText(/^Connection refused at /)).toBeVisible();
   await expect(card.getByText('How to fix')).toBeVisible();
-  await expect.poll(() => card.locator('.setup__fix-text').evaluate(shows, 'on spark3'), { message: 'the fix sentence is shown to its last word' }).toBe(true);
-  await expect.poll(() => card.locator('.cmd__text').evaluate(shows, FIX), { message: 'the command is shown to its last character' }).toBe(true);
-  await expect(card.getByRole('button', { name: 'Copy command' })).toBeVisible();
+  await expect(card.locator('.setup__fix-text').first()).toHaveText('Start the agent on spark3: sudo systemctl start sparkline-agent.');
+  await expect.poll(() => card.locator('.setup__fix-text').last().evaluate(shows, 'folder there.'), { message: 'the last step is shown to its last word' }).toBe(true);
+  await expect(card.locator('.cmd__text')).toHaveText(FIX);
+  for (const command of FIX) {
+    await expect.poll(() => card.locator('.cmd__text', { hasText: command }).evaluate(shows, command), { message: `${command} is shown to its last character` }).toBe(true);
+  }
+  await expect(card.getByRole('button', { name: 'Copy command' })).toHaveCount(FIX.length);
   await expect(card.getByText(/Trying again in \d+\s*s|Trying now…/)).toBeVisible();
   await expect(card.getByRole('button', { name: 'Retry now' })).toBeVisible();
 }
@@ -258,7 +263,7 @@ test('the main path with a keyboard only', async ({ page }) => {
 
   // The setup card: copy the command and retry, without a pointer.
   const card = setupCard(page);
-  await tabTo(card.getByRole('button', { name: 'Copy command' }));
+  await tabTo(card.getByRole('button', { name: 'Copy command' }).first());
   await page.keyboard.press('Enter');
   await expect(card.getByRole('button', { name: 'Copied command' })).toBeVisible();
   await tabTo(card.getByRole('button', { name: 'Retry now' }));
