@@ -379,6 +379,64 @@ async def test_each_lookup_failure_is_a_problem_that_says_to_enter_the_facts_by_
     assert "Input should be" not in problem.cause and "Field required" not in problem.cause
 
 
+QWEN_SHAPE = {"num_layers": 36, "num_kv_heads": 8, "head_dim": 128, "max_context": 40960}
+
+
+@pytest.mark.parametrize(
+    ("routes", "message", "found"),
+    [
+        pytest.param(
+            public_repo(config={"num_attention_heads": 16}),
+            "does not describe",
+            {"weights_bytes": 16_381_470_720, "shape": None},
+            id="weights-sized-and-no-shape-in-the-config",
+        ),
+        pytest.param(
+            refused(CONFIG_PATH, 401),
+            "is gated",
+            {"weights_bytes": 16_381_470_720, "shape": None},
+            id="weights-sized-and-a-gated-config",
+        ),
+        pytest.param(
+            public_repo(
+                info=repo_files({INDEX: fit.MAX_RESPONSE_BYTES + 1, "model-00001-of-00001.safetensors": 5})
+            ),
+            "too large",
+            {"weights_bytes": None, "shape": QWEN_SHAPE},
+            id="shape-read-and-an-index-too-large",
+        ),
+        pytest.param(
+            public_repo(info=repo_files({"model.Q4_K_M.gguf": 5})),
+            "no model.safetensors",
+            {"weights_bytes": None, "shape": QWEN_SHAPE},
+            id="shape-read-and-no-safetensors",
+        ),
+        pytest.param(
+            public_repo(info=repo_files({"model.Q4_K_M.gguf": 5}), config={}),
+            "no model.safetensors",
+            {"weights_bytes": None, "shape": None},
+            id="neither",
+        ),
+        pytest.param(
+            refused(INFO_PATH, 401), "no public model", {"weights_bytes": None, "shape": None}, id="no-repo"
+        ),
+    ],
+)
+async def test_a_refused_lookup_still_gives_the_part_it_read(routes, message, found):
+    failure = await FakeHuggingFace(routes).lookup()
+    assert message in failure.problem.message
+    assert failure.found.model_dump() == found
+
+
+def test_lookup_route_sends_the_part_a_refused_lookup_read(tmp_path, hf):
+    hf.routes = public_repo(config={"num_attention_heads": 16})
+    with TestClient(make(tmp_path)) as c:
+        r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
+    assert r.status_code == 502
+    assert "does not describe" in r.json()["problem"]["message"]
+    assert r.json()["found"] == {"weights_bytes": 16_381_470_720, "shape": None}
+
+
 async def test_a_rate_limit_says_to_try_again_later():
     assert "Try again in a few minutes" in (await FakeHuggingFace(refused(INFO_PATH, 429)).lookup()).fix
 

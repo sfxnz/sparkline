@@ -18,14 +18,27 @@ const RESPONSE: FitResponse = {
   ],
 };
 
+const SHAPE = { num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+const REFUSED: Record<string, unknown> = {
+  'some/big-index': {
+    problem: { message: 'The weight index of some/big-index is too large for the lookup to read', cause: 'model.safetensors.index.json is 24.0 MiB', fix: 'Enter the model facts by hand' },
+    found: { weights_bytes: null, shape: SHAPE },
+  },
+  'some/odd-config': {
+    problem: { message: 'Hugging Face does not describe some/odd-config in a way this estimator reads', cause: 'Its config.json has no whole number above 0 for num_hidden_layers', fix: 'Enter the model facts by hand' },
+    found: { weights_bytes: 9_980_000_000, shape: null },
+  },
+};
+const NO_REPO = {
+  problem: { message: 'Hugging Face has no public model nope/nope', cause: 'The repo does not exist or is private', fix: 'Check the repo id, or enter the model facts by hand' },
+  found: { weights_bytes: null, shape: null },
+};
+
 function fakeConsole(estimate: FitResponse = RESPONSE) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
     if (init?.method === 'POST') return Promise.resolve(json(estimate));
-    return Promise.resolve(
-      url === '/api/v1/fit/lookup?repo=Qwen%2FQwen3-8B'
-        ? json(QWEN)
-        : json({ problem: { message: 'Hugging Face has no public model nope/nope', cause: 'The repo does not exist or is private', fix: 'Check the repo id, or enter the model facts by hand' } }, 502),
-    );
+    const repo = new URL(url as string, 'http://console').searchParams.get('repo') ?? '';
+    return Promise.resolve(repo === 'Qwen/Qwen3-8B' ? json(QWEN) : json(REFUSED[repo] ?? NO_REPO, 502));
   });
 }
 
@@ -138,6 +151,61 @@ describe('Will it fit', () => {
     expect(alert).toHaveTextContent('enter the model facts by hand');
     expect(screen.getByRole('textbox', { name: 'Weights' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Look up' })).toBeEnabled();
+  });
+
+  it('fills in the shape a refused lookup still read, and asks for the size', async () => {
+    const user = userEvent.setup();
+    const spy = fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/big-index{Enter}');
+    expect(await screen.findByRole('alert')).toHaveTextContent('too large for the lookup to read');
+    expect(screen.getByText('Partly filled in from some/big-index.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('36');
+    expect(screen.getByText('This model supports up to 40,960 tokens.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
+
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '464.9');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    await screen.findByRole('region', { name: 'Result' });
+    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, weights_bytes: 464_900_000_000 });
+    expect(screen.getByText(/This model at 32,768 tokens/)).toBeInTheDocument();
+  });
+
+  it('fills in the size a refused lookup still read, and asks for the shape', async () => {
+    const user = userEvent.setup();
+    const spy = fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/odd-config{Enter}');
+    expect(await screen.findByRole('alert')).toHaveTextContent('does not describe some/odd-config');
+    expect(screen.getByText('Partly filled in from some/odd-config.')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Weights' })).toHaveTextContent('9.3 GiB');
+    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
+
+    await user.type(screen.getByRole('textbox', { name: 'Layers' }), '36');
+    await user.type(screen.getByRole('textbox', { name: 'KV heads' }), '8');
+    await user.type(screen.getByRole('textbox', { name: 'Head size' }), '128');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    await screen.findByRole('region', { name: 'Result' });
+    expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, weights_bytes: 9_980_000_000 });
+  });
+
+  it('does not leave one repo\'s size beside another repo\'s shape', async () => {
+    const user = userEvent.setup();
+    fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+    await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/big-index{Enter}');
+    await screen.findByText('Partly filled in from some/big-index.');
+    expect(screen.queryByRole('status', { name: 'Weights' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
+
+    await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/odd-config{Enter}');
+    await screen.findByText('Partly filled in from some/odd-config.');
+    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
+    expect(screen.queryByText(/This model supports up to/)).not.toBeInTheDocument();
   });
 
   it('says when the context is longer than the looked-up model supports', async () => {
