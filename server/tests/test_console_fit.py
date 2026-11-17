@@ -886,10 +886,10 @@ VISION_SHAPE = {"num_hidden_layers": 24, "num_attention_heads": 16, "hidden_size
             "that answers",
             id="in-two-sub-objects-and-not-a-third",
         ),
-        # llava-hf/llava-1.5-7b-hf: its text_config holds no layer count, and the hint sent the user there.
+        # A text_config that holds no layer count. The hint sent the user to it all the same.
         pytest.param(
             {
-                "text_config": {"model_type": "llama", "vocab_size": 32064},
+                "text_config": {"model_type": "some-text-model", "vocab_size": 32064},
                 "vision_config": {"image_size": 336},
             },
             "It found no shape one level down either. A shape under an older name such as n_layer is read "

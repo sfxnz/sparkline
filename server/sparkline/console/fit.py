@@ -17,8 +17,8 @@ then be an adapter's, a draft's or one part's, not that of the model a server an
 None of that proves the repo holds the whole model, and nothing here claims it does. A repo's own code can
 load a second model that no file the lookup reads names, a draft model whose config measures nothing is
 still served beside a target, and ``subfolder=``, ``variant=`` and a LoRA flag are the caller's. So what the
-page fills in is the size of this repo's own weight files, and the form and the result say that beside the
-number.
+page fills in is the size of this repo's safetensors files, and the form and the result say that beside
+the number. A copy of the weights in another format is not in it.
 
 Not modelled: GGUF repos, sliding-window attention, latent attention (the KV cache estimate is 25 times too
 high for DeepSeek-V3), splitting a model across GPUs, the AMD GTT limit and the macOS wired-memory limit.
@@ -468,8 +468,8 @@ def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Problem
         return _shape_in(config)
     except ValidationError as e:
         keys = "; ".join(_SHAPE_KEYS[str(err["loc"][0])] for err in e.errors())
-        # The hint names a sub-object only when it holds a shape. llava-1.5-7b-hf keeps a text_config with
-        # no layer count in it, and the hint used to send its user there.
+        # The hint names a sub-object only when it holds a shape. A text_config can hold no layer count,
+        # and the hint used to send every user to it.
         below = sorted(key for key, sub in config.items() if _holds_a_shape(sub))
         where = (
             f"It found a shape one level down, in {_listed(below)}. Type in the shape of the part that "
