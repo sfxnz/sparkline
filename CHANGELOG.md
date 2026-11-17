@@ -16,6 +16,12 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   and `POST /api/v1/notify/channels/{name}/test`. The console sends to the hosts in those
   tables, which can be outside the LAN: see "Security model" in the README and `docs/adr/0003-outbound-notifications.md`.
 
+### Changed
+
+- Editing, disabling or deleting an alert rule while its alert is open now adds a "Resolved" event that says
+  the rule was changed or removed, in the timeline and on every notification channel. Before, the alert was
+  closed with no recovery. If the edited rule still matches, its alert fires again.
+
 ## [0.1.2] - 2026-11-11
 
 ### Upgrading
