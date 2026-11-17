@@ -118,8 +118,9 @@ CATALOG: list[Recommendation] = [
         persists="until-reboot",
         takes_effect="now",
         risks=[
-            "The cap is forgotten at a reboot. Sparkline applies it again at boot when Sparkline applied it; "
-            "by hand it needs the unit above.",
+            "The cap is forgotten at a reboot. Sparkline applies it again at boot when Sparkline applied it. "
+            "Applied by hand, it lasts only with the boot unit that the commands for applying it by hand "
+            "install.",
             "It does not cool the CPU cores, which are often the hottest part: peter.h177 saw the SoC zone "
             "at 90 to 96 °C at every GPU clock.",
             f"{GPU_CLOCK_CAP_MHZ} MHz may not be low enough for every unit: azampatti's still throttled at "
@@ -178,8 +179,9 @@ CATALOG: list[Recommendation] = [
         persists="until-reboot",
         takes_effect="now",
         risks=[
-            "The cap is forgotten at a reboot. Sparkline applies it again at boot when Sparkline applied it; "
-            "by hand it needs the unit above.",
+            "The cap is forgotten at a reboot. Sparkline applies it again at boot when Sparkline applied it. "
+            "Applied by hand, it lasts only with the boot unit that the commands for applying it by hand "
+            "install.",
             "It lowers the heat of spinning cores without stopping them from spinning. see_spot_ruminate: "
             '"My "fix" doesn\'t really fix it, rather mask it".',
             "tsarihan loaded all 20 cores and saw the same 92 °C peak with and without a cap. The reports "

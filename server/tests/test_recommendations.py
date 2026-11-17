@@ -31,6 +31,13 @@ def test_every_entry_tells_the_reader_how_to_apply_and_undo_it_by_hand():
         assert all(c.startswith(("sudo ", "printf ")) for c in r.apply + r.undo), r.id
 
 
+def test_no_risk_points_at_another_place_on_the_page():
+    # A risk is shown on the card, above the commands, and in the confirmation, below them.
+    for r in CATALOG:
+        for risk in r.risks:
+            assert not re.search(r"\b(above|below)\b", risk), f"{r.id}: {risk}"
+
+
 def test_every_entry_says_when_it_takes_effect():
     assert {r.id: r.takes_effect for r in CATALOG} == {
         "gpu-clock-cap": "now",
