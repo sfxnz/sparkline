@@ -116,6 +116,7 @@ describe('welcomeSentence', () => {
     expect(say([fresh('spark1', 'online')])).toBe('Welcome to Sparkline. spark1 is live.');
     expect(say([fresh('spark1', 'online'), fresh('spark2', 'online'), fresh('spark3', 'online')])).toBe('Welcome to Sparkline. All 3 nodes are live.');
     expect(say([fresh('spark1', 'offline')])).toBe('Welcome to Sparkline. spark1 hasn’t connected yet.');
+    expect(say([fresh('spark1', 'connecting'), fresh('spark2', 'connecting'), fresh('spark3', 'offline')])).toBe('Welcome to Sparkline. Connecting to spark1 and spark2. spark3 hasn’t connected yet.');
     expect(say([fresh('spark1', 'online'), fresh('spark2', 'error'), fresh('spark3', 'offline')])).toBe('Welcome to Sparkline. spark1 is live, two more to connect.');
     expect(say([fresh('spark1', 'online'), fresh('spark2', 'online'), fresh('spark3', 'connecting')])).toBe('Welcome to Sparkline. spark1 and spark2 are live, one more to connect.');
   });

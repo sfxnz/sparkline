@@ -155,7 +155,11 @@ export function welcomeSentence(nodes: readonly NodeHealthInput[], health: Healt
   let tail: string;
   if (!waiting.length) tail = nodes.length === 1 ? `${live[0] ?? ''} is live.` : `All ${nodes.length} nodes are live.`;
   else if (live.length) tail = `${listNodes(live)} ${isAre(live)} live, ${countWord(waiting.length)} more to connect.`;
-  else if (setup.length) tail = `${listNodes(setup)} ${setup.length === 1 ? 'hasn’t' : 'haven’t'} connected yet.`;
+  else if (setup.length) {
+    // Nodes still being reached are named too, so the sentence is true of the whole screen.
+    const reaching = waiting.filter((n) => !stuck(n)).map((n) => n.id);
+    tail = `${reaching.length ? `Connecting to ${listNodes(reaching)}. ` : ''}${listNodes(setup)} ${setup.length === 1 ? 'hasn’t' : 'haven’t'} connected yet.`;
+  }
   else tail = `Connecting to ${listNodes(waiting.map((n) => n.id))}…`;
   return `Welcome to Sparkline. ${tail}`;
 }

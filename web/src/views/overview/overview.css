@@ -384,4 +384,5 @@
 .ov-card--dim .ov-card__values :is(svg, canvas),
 .ov-rail--stale :is(svg, canvas) { opacity: 0.5; }
 /* A stat's placeholder never outgrows its column (a narrow card, a phone). */
-.ov-stat > .skeleton { max-width: 100%; }
+.ov-stat:has(> .skeleton) { grid-template-columns: minmax(0, 1fr); }
+.ov-stat > .skeleton, .ov-totals .stat__footer > .skeleton { max-width: 100%; }
