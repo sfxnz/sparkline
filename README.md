@@ -244,7 +244,8 @@ agent is installed on the same host, it is read from `/etc/sparkline/agent.toml`
 generated, and the installer tells you to put it in each node's `agent.toml`. The installer ends with the
 nodes it will show, the console URL, the console token and a sign-in link
 (`http://<console>/login#token=<console token>`). The token and the link are printed only on an interactive
-terminal. Otherwise the installer prints where to read the token.
+terminal. Otherwise the installer prints where to read the token. The link is as secret as the token: a
+browser never sends that part of a link to a server, but it may keep the link you opened in its history.
 
 ### With Docker Compose
 

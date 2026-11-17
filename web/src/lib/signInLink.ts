@@ -1,6 +1,8 @@
-// The sign-in link the console installer prints: http://<console>/login#token=<console token>. A fragment never
-// reaches the server or its logs. The app takes the token out of the address bar before anything else runs, so it
-// is not left in the history, a screenshot or a bookmark, and the sign-in page exchanges it for the session cookie.
+// The sign-in link the console installer prints: http://<console>/login#token=<console token>. A browser never
+// sends a fragment, so the token is in no query string and reaches no server log. The app takes it out of the
+// address bar and out of this tab's history entry before anything else runs, and the sign-in page exchanges it for
+// the session cookie. The browser may already have recorded the link it was given as a visited address, token
+// included, so the link is as secret as the token.
 
 let pending: string | null = null;
 

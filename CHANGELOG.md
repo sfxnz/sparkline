@@ -14,8 +14,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   is nothing to edit.
 - **A sign-in link.** The console installer prints `http://<console>:9700/login#token=…` next to the token,
   on an interactive terminal only. Opening it signs you in, and the app takes the token out of the address
-  bar before anything else reads the address. The token is in the part of the link that is never sent to the
-  console, so it reaches no log.
+  bar before anything else reads the address. The token is in the part of the link that a browser never
+  sends, so it is in no query string and reaches no server log. The browser may keep the link you opened in
+  its own history, so the link is as secret as the token.
 - **A first-run sign-in.** A console that nobody has signed in to says so, and shows the command that prints
   its token with a copy button. Afterwards the same help is under "Where is the token?". After too many wrong
   tokens the page shows the console's own explanation and fix, where it used to show raw JSON.
