@@ -87,9 +87,9 @@ describe('a row is done when the person has opened it or the cluster’s own sta
   });
 
   it('model-servers: done when an agent found one, named from what it found, or once opened', () => {
-    expect(row('model-servers', ctx())).toMatchObject({ done: false, tag: null, to: '/node/spark1' });
+    expect(row('model-servers', ctx())).toMatchObject({ done: false, tag: null, to: '/node/spark1#model-servers' });
     const found = row('model-servers', ctx({ nodes: [live('spark1'), live('spark2')], servers: [{ node: 'spark2', name: 'Qwen3-32B-AWQ' }] }));
-    expect(found).toMatchObject({ done: true, tag: '1 found', to: '/node/spark2', blurb: 'Qwen3-32B-AWQ on spark2. Requests and speed are on the node’s page.' });
+    expect(found).toMatchObject({ done: true, tag: '1 found', to: '/node/spark2#model-servers', blurb: 'Qwen3-32B-AWQ on spark2. Requests and speed are on the node’s page.' });
     expect(row('model-servers', ctx({ seen: new Set(['model-servers']) })).done).toBe(true);
   });
 

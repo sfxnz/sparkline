@@ -112,9 +112,10 @@ export const GUIDE_ITEMS: readonly GuideItem[] = [
       const more = servers.length - 1;
       return `${first.name} on ${first.node}${more ? ` and ${String(more)} more` : ''}. Requests and speed are on the node’s page.`;
     },
+    // The panel on the node's page, not the top of the page: the node with a server, else one that has answered.
     to: ({ servers, nodes }) => {
       const node = servers[0]?.node ?? nodes.find((n) => !isNewNode(n))?.node_id ?? nodes[0]?.node_id;
-      return node ? paths.node(node) : paths.overview;
+      return node ? `${paths.node(node)}#model-servers` : paths.overview;
     },
   },
   {

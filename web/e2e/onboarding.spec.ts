@@ -245,6 +245,12 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await guidePanel(page).getByRole('link', { name: /^Prometheus export/ }).click();
   await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
   await expectJustUnderToolbar(page, '#prometheus');
+  // Model servers lands on the node's panel, which on a phone is far below the top of the node's page.
+  await page.goto(`${BASE}/`);
+  await guidePanel(page).getByRole('link', { name: /^Model servers/ }).click();
+  await expect(page).toHaveURL(/\/node\/spark\d#model-servers$/);
+  await expect(page.getByRole('heading', { level: 2, name: 'Model servers' })).toBeFocused();
+  await expectJustUnderToolbar(page, '#model-servers');
 });
 
 test('the main path with a keyboard only', async ({ page }) => {

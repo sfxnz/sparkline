@@ -3,6 +3,7 @@ import { Skeleton } from '../../../design/components/Skeleton';
 import { Stat } from '../../../design/components/Stat';
 import { StatusPill } from '../../../design/components/StatusPill';
 import { Unsupported } from '../../../design/components/Unsupported';
+import { useHashTarget } from '../../../design/useHashTarget';
 import { useNow } from '../../../design/useNow';
 import { notReported } from '../../../lib/capabilities';
 import { formatDuration } from '../../../lib/format';
@@ -22,9 +23,11 @@ export function ModelServersPanel({ nodeId }: { nodeId: string }) {
   const info = useCluster((s) => s.nodes[nodeId]?.info);
   const { stale, hasData, waiting } = useFreshness(nodeId);
   const declared = notReported(info, 'llm');
+  // `<node page>#model-servers` (the getting-started guide) lands on this panel, not on the top of the page.
+  useHashTarget('model-servers');
   if (!waiting && !hasData) return null;
   return (
-    <Panel title="Model servers" subtitle="Found on this node's listening ports, read every 2 s" busy={waiting || undefined}>
+    <Panel id="model-servers" title="Model servers" subtitle="Found on this node's listening ports, read every 2 s" busy={waiting || undefined}>
       {waiting ? (
         <Skeleton height={56} radius={8} />
       ) : servers?.length ? (

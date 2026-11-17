@@ -37,6 +37,28 @@ afterEach(() => {
 });
 
 describe('ModelServersPanel', () => {
+  it('is where "Model servers" in the getting-started guide lands: brought into view, its title focused', () => {
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this); };
+    window.history.replaceState(null, '', '/node/mtest#model-servers');
+    try {
+      const panel = open({});
+      expect(panel).toHaveAttribute('id', 'model-servers');
+      expect(scrolled).toEqual([panel]);
+      expect(within(panel as HTMLElement).getByRole('heading', { level: 2, name: 'Model servers' })).toHaveFocus();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it('stays where the person is when the page was opened without the hash', () => {
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this); };
+    const panel = open({});
+    expect(scrolled).toEqual([]);
+    expect(within(panel as HTMLElement).getByRole('heading', { level: 2, name: 'Model servers' })).not.toHaveFocus();
+  });
+
   it('shows each server with its model, what it is, and where it runs', () => {
     open({});
     const card = screen.getByRole('region', { name: 'Model server on port 8000' });
