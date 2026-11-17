@@ -31,6 +31,18 @@ def test_changelog_has_a_section_for_the_version() -> None:
     assert version in sections, f"CHANGELOG.md has no '## [{version}]' (docs/RELEASING.md): {sections}"
 
 
+def test_a_release_that_adds_or_changes_behaviour_raises_the_minor_number() -> None:
+    version = versions()["server/pyproject.toml"]
+    changelog = (ROOT / "CHANGELOG.md").read_text()
+    section = changelog.split(f"## [{version}]", 1)[1].split("\n## [", 1)[0]
+    more_than_fixes = sorted(
+        {"Added", "Changed", "Deprecated", "Removed"} & set(re.findall(r"^### (.+)$", section, re.M))
+    )
+    assert not more_than_fixes or version.endswith(".0"), (
+        f"{version} has {' and '.join(more_than_fixes)} entries, so it is a minor release (docs/RELEASING.md)"
+    )
+
+
 def test_demo_agents_report_the_installed_version(tmp_path: Path) -> None:
     dist = tmp_path / "sparkline-9.9.9.dist-info"
     dist.mkdir()
