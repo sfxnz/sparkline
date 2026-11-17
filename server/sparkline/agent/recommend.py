@@ -31,6 +31,7 @@ DISPLAY_SMALL = (0, 1)  # Auto, or the fixed 0.5 GB that Auto picks without a di
 # A capped clock sits on a step just under the cap (2177 or 2190 MHz for 2200). Uncapped under load it
 # reads 2400 MHz and more.
 CLOCK_MARGIN_MHZ = 50
+NOT_GB10 = "This setting is for the DGX Spark, and this node has no GB10"
 
 Reading = tuple[RecState, str]  # the state, and what the probe read
 
@@ -229,7 +230,7 @@ def last_result(root: Path, rec_id: str) -> TuneResult | None:
 
 def read(h: Host, rec_id: str) -> Reading:
     if not h.gb10:
-        return "not-applicable", "This setting is for the DGX Spark, and this node has no GB10"
+        return "not-applicable", NOT_GB10
     try:
         return PROBES[rec_id](h)
     except Unreadable as e:

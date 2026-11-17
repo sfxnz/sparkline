@@ -51,6 +51,7 @@ from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
 from .notify import Notifier, NotifierStopped
 from .prometheus import render
+from .recommend import AgentRecs, DemoRecs, RecBackend, recommend_router
 from .store import SESSION_TTL_S, Store
 
 log = logging.getLogger("sparkline.console.app")
@@ -592,6 +593,8 @@ def create_app(
                 await ws.close(code=1008)
 
     app.include_router(bench_router(bench, Auth))
+    recs: RecBackend = DemoRecs(cluster) if demo else AgentRecs(cluster, cfg.agent_token, lambda: http["c"])
+    app.include_router(recommend_router(cluster, recs, Auth))
 
     @app.get("/metrics", dependencies=[Depends(require_scrape_auth)])
     async def metrics() -> Response:
