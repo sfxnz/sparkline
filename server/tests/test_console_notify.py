@@ -579,6 +579,34 @@ def test_discord_sends_content_that_can_ping_nobody():
     assert render("discord", TEST)["content"] == "**Sparkline test**\nNotifications to 'ops' work."
 
 
+@pytest.mark.parametrize(
+    ("raw", "sent"),
+    [
+        ("[Click to re-auth](https://evil.example/x)", r"\[Click to re-auth\](https://evil.example/x)"),
+        ("**bold** _i_ ~~s~~ `code` ||spoiler||", r"\*\*bold\*\* \_i\_ \~\~s\~\~ \`code\` \|\|spoiler\|\|"),
+        ("<@&123> <#5> <https://evil.example>", r"\<@&123\> \<\#5\> \<https://evil.example\>"),
+        ("# heading", r"\# heading"),
+        ("> quote", r"\> quote"),
+        ("ends in \\", "ends in \\\\"),
+    ],
+)
+def test_discord_shows_markup_in_a_title_or_a_detail_as_plain_text(raw, sent):
+    one = Message((Notice("firing", "warning", alert(title=raw, detail=raw)),))
+    assert render("discord", one)["content"] == f"**{sent}**\n{sent}"
+    two, line = Message(one.notices * 2), f"Warning: {sent}: {sent}"
+    assert render("discord", two)["content"] == f"**2 alerts**\n{line}\n{line}"
+
+
+def test_discord_cuts_after_escaping_and_never_between_a_backslash_and_its_character():
+    long = "a" + "*" * 2000
+    one = Message((Notice("firing", "warning", alert(title=long, detail=long)),))
+    assert render("discord", one)["content"] == "**a" + r"\*" * 74 + "**\na" + r"\*" * 899
+    many = Message((Notice("firing", "warning", alert(detail="_" * 100)),) * 30)
+    line = "Warning: GPU temperature high on spark1: " + r"\_" * 100
+    content = render("discord", many)["content"]
+    assert content == "\n".join(["**30 alerts**", *[line] * 7, "… and 23 more"]) and len(content) <= 2000
+
+
 def test_slack_sends_text_with_its_three_characters_escaped():
     assert render("slack", ONE) == {
         "text": "*GPU temperature high on spark1*\n87 °C for 10 s (threshold 85 °C)"

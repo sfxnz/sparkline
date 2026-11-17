@@ -398,7 +398,8 @@ What each kind sends, always as a JSON `POST`:
   `priority` (5 for a critical alert, 4 for a warning, 3 otherwise) and one tag. Anyone who knows an ntfy
   topic can read it, so choose a long random one, or protect it with an access token in `token`.
 - **`discord`**: `content` (title in bold, then the detail), `username` "Sparkline", and `allowed_mentions`
-  set so that a node or rule named `@everyone` pings nobody.
+  set so that a node or rule named `@everyone` pings nobody. Discord's markdown characters in a title or a
+  detail are escaped with a backslash, so a name such as `[text](url)` shows as written and not as a link.
 - **`slack`**: `text`, with `&`, `<` and `>` escaped.
 - **`webhook`**: `{"source": "sparkline", "version": 1, "test": false, "title": …, "text": …, "more": 0,
   "notices": [...]}`. Each notice is the event (`id`, `ts`, `node_id`, `kind`, `rule_id`, `title`, `detail`,

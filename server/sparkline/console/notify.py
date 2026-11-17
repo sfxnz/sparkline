@@ -14,9 +14,10 @@ import asyncio
 import contextlib
 import logging
 import random
+import re
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
@@ -130,10 +131,35 @@ def _ntfy(msg: Message, now: float) -> dict[str, object]:
     return {"title": title, "message": body, "priority": _NTFY_PRIORITY[top], "tags": [_NTFY_TAG[top]]}
 
 
+_DISCORD_MARKUP = re.compile(r"[\\*_~`|\[\]<>#]")
+
+
+def _discord_escape(text: str) -> str:
+    return _DISCORD_MARKUP.sub(r"\\\g<0>", text)
+
+
+def _whole_escapes(text: str) -> str:
+    """``text`` without the backslash that a cut left at its end with no character to escape."""
+    trailing = len(text) - len(text.rstrip("\\"))
+    return text[:-1] if trailing % 2 else text
+
+
 def _discord(msg: Message, now: float) -> dict[str, object]:
-    title, body = compose_text(msg, now, 1800)
+    # A title or a detail can hold text an agent chose (an interface name), so Discord must show it as
+    # written: a masked link [text](url) hides where it leads. Escaped before composing, so the limits
+    # count what is sent. 2 + 150 + 3 + 1800 characters stay under Discord's 2000.
+    plain = tuple(
+        replace(
+            n,
+            event=n.event.model_copy(
+                update={"title": _discord_escape(n.event.title), "detail": _discord_escape(n.event.detail)}
+            ),
+        )
+        for n in msg.notices
+    )
+    title, body = compose_text(replace(msg, notices=plain), now, 1800)
     return {
-        "content": f"**{title[:150]}**\n{body}",
+        "content": f"**{_whole_escapes(title[:150])}**\n{_whole_escapes(body)}",
         "username": "Sparkline",
         "allowed_mentions": {"parse": []},  # a node or rule named "@everyone" pings nobody
     }
