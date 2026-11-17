@@ -168,6 +168,45 @@ async def test_lookup_falls_back_to_attention_heads_and_an_explicit_head_dim_win
     assert facts.head_dim == 256
 
 
+# What Hugging Face reports for four real 4-bit repos: its parameter counts and the size of the weight files.
+PACKED_REPOS = [
+    pytest.param(
+        {"I32": 6_525_288_448, "F16": 1_090_328_064},
+        {
+            "model-00001-of-00002.safetensors": 3_996_422_976,
+            "model-00002-of-00002.safetensors": 1_574_406_784,
+        },
+        id="awq",
+    ),
+    pytest.param(
+        {"F32": 225_344, "BF16": 394_177_536, "U8": 2_906_720_136},
+        {"model.safetensors": 2_242_762_780},
+        id="bitsandbytes",
+    ),
+    pytest.param(
+        {"I32": 6_979_321_856, "F16": 1_052_315_648},
+        {"model.safetensors": 5_735_720_552},
+        id="compressed-tensors",
+    ),
+    pytest.param(
+        {"U32": 7_615_283_200, "F16": 333_312},
+        {"model.safetensors": 4_284_346_255},
+        id="mlx",
+    ),
+]
+
+
+@pytest.mark.parametrize(("parameters", "files"), PACKED_REPOS)
+async def test_a_4_bit_repo_weighs_what_its_safetensors_files_hold(parameters, files):
+    info = {
+        "safetensors": {"parameters": parameters},
+        "siblings": [{"rfilename": name, "size": size} for name, size in files.items()],
+    }
+    facts = await FakeHuggingFace(public_repo(info=info)).lookup()
+    assert isinstance(facts, ModelFacts), facts
+    assert estimate(facts, 1, "bf16").weights_bytes == sum(files.values())
+
+
 def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
     return {**public_repo(), path: httpx.Response(status, json={"error": "Invalid username or password."})}
 
@@ -187,6 +226,7 @@ def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
         (public_repo(config=["not", "an", "object"]), "not a JSON object"),
         ({INFO_PATH: httpx.ConnectError("Name or service not known")}, "Could not reach huggingface.co"),
         ({INFO_PATH: httpx.Response(200, content=b"<html>")}, "not JSON"),
+        ({INFO_PATH: httpx.Response(200, content=b"[" * 200_000)}, "not JSON"),
         ({INFO_PATH: httpx.Response(200, content=b" " * (fit.MAX_RESPONSE_BYTES + 1))}, "more data"),
     ],
 )
