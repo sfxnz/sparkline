@@ -1,0 +1,122 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Router } from 'wouter';
+import { memoryLocation } from 'wouter/memory-location';
+import { ApiError } from '../lib/api';
+import { captureSignInLink, hasSignInToken, takeSignInToken } from '../lib/signInLink';
+import { useAuthInfo } from '../store/session';
+import { Login, loginErrorCopy, TOKEN_COMMAND } from './Login';
+
+const reply = (status: number, body: unknown = {}) =>
+  vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })));
+const sentToken = (fetch: ReturnType<typeof reply>) => (JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string) as { token: string }).token;
+
+function show(firstRun: boolean) {
+  useAuthInfo.setState({ firstRun });
+  const loc = memoryLocation({ path: '/login', record: true });
+  render(<Router hook={loc.hook}><Login /></Router>);
+  return loc;
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  takeSignInToken();
+});
+
+describe('sign-in page', () => {
+  it('welcomes the first person to sign in and says where the token is, with a command to copy', () => {
+    show(true);
+    expect(screen.getByRole('heading', { name: 'Welcome to Sparkline' })).toBeInTheDocument();
+    expect(screen.getByText(/This console is new/)).toBeInTheDocument();
+    expect(screen.getByText('The installer printed it')).toBeInTheDocument();
+    expect(screen.getByText(TOKEN_COMMAND)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Copy command' })).toBeInTheDocument();
+    // The field is described by where the token is, so a screen reader hears it on focus.
+    expect(screen.getByLabelText('Console token')).toHaveAccessibleDescription(/The installer printed it/);
+  });
+
+  it('is the plain sign-in for a console someone has signed in to, with the same help one click away', async () => {
+    const user = userEvent.setup();
+    show(false);
+    expect(screen.getByRole('heading', { name: 'Sign in to Sparkline' })).toBeInTheDocument();
+    expect(screen.queryByText(/This console is new/)).not.toBeInTheDocument();
+    const help = screen.getByText('Where is the token?');
+    expect(help.closest('details')).not.toHaveAttribute('open');
+    await user.click(help);
+    expect(help.closest('details')).toHaveAttribute('open');
+    expect(screen.getByText(TOKEN_COMMAND)).toBeInTheDocument();
+  });
+
+  it('signs in with a typed token and goes to the overview', async () => {
+    const user = userEvent.setup();
+    const fetch = reply(200, { ok: true });
+    vi.stubGlobal('fetch', fetch);
+    const loc = show(true);
+    await user.type(screen.getByLabelText('Console token'), '  the-console-token  ');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => { expect(loc.history).toContain('/'); });
+    expect(sentToken(fetch)).toBe('the-console-token');
+  });
+});
+
+describe('sign-in link', () => {
+  const address = (hash: string) => {
+    const state = { url: `/login${hash}` };
+    const loc = { hash, pathname: '/login', search: '' };
+    const hist = { state: null, replaceState: (_s: unknown, _t: string, url: string) => { state.url = url; } };
+    return { loc, hist, state };
+  };
+
+  it('takes the token out of the address bar and keeps it for one use', () => {
+    const { loc, hist, state } = address('#token=abc%2B123_-x');
+    captureSignInLink(loc, hist);
+    expect(state.url).toBe('/login');
+    expect(hasSignInToken()).toBe(true);
+    expect(takeSignInToken()).toBe('abc+123_-x');
+    expect(takeSignInToken()).toBeNull();
+  });
+
+  it('leaves an address without a token alone', () => {
+    const { loc, hist, state } = address('#getting-started');
+    captureSignInLink(loc, hist);
+    expect(state.url).toBe('/login#getting-started');
+    expect(hasSignInToken()).toBe(false);
+  });
+
+  it('signs in with the link token, with nothing to type', async () => {
+    const fetch = reply(200, { ok: true });
+    vi.stubGlobal('fetch', fetch);
+    const { loc, hist } = address('#token=link-token-0123456789');
+    captureSignInLink(loc, hist);
+    const at = show(true);
+    expect(screen.getByRole('button', { name: 'Signing in…' })).toBeDisabled();
+    await waitFor(() => { expect(at.history).toContain('/'); });
+    expect(sentToken(fetch)).toBe('link-token-0123456789');
+  });
+
+  it('falls back to the form with the usual error when the link token is wrong', async () => {
+    vi.stubGlobal('fetch', reply(401, { problem: { message: 'Wrong token', cause: '', fix: '' } }));
+    const { loc, hist } = address('#token=not-the-token');
+    captureSignInLink(loc, hist);
+    const at = show(false);
+    expect(await screen.findByText('That token wasn’t accepted.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+    expect(screen.getByLabelText('Console token')).toHaveValue('');
+    expect(at.history).not.toContain('/');
+  });
+});
+
+describe('sign-in errors', () => {
+  it('says what the console said when it refuses the request, never the JSON it came in', () => {
+    const body = JSON.stringify({ problem: { message: 'Too many sign-in attempts', cause: '10 attempts per minute allowed', fix: 'Wait a minute and try again' } });
+    const copy = loginErrorCopy(new ApiError('client', 429, body.slice(0, 300), body));
+    expect(copy).toEqual({ title: 'Too many sign-in attempts.', detail: '10 attempts per minute allowed. Wait a minute and try again.' });
+    expect(`${copy.title} ${copy.detail}`).not.toContain('{');
+  });
+
+  it('still says something useful for a refusal with no problem body', () => {
+    const copy = loginErrorCopy(new ApiError('client', 400, 'Bad Request', 'Bad Request'));
+    expect(copy.title).toBe("Couldn't sign in.");
+    expect(copy.detail).toContain('HTTP 400');
+  });
+});

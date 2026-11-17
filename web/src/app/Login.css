@@ -43,3 +43,18 @@
 .login__submit:hover .login__arrow { transform: translateX(2px); }
 .login__foot { font-size: var(--fs-footnote); color: var(--text-3); }
 .login__conn { min-height: 32px; display: flex; align-items: center; }
+
+/* Where the token is: on the first visit it is part of the card; afterwards a quiet disclosure under the button. */
+.login__where { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.login__where p { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); text-wrap: pretty; }
+.login__where p strong { color: var(--text-1); font-weight: 600; }
+.login__more { margin-top: var(--space-4); font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.login__more summary { width: fit-content; margin: 0 auto; padding: 2px var(--space-2); border-radius: var(--radius-xs); color: var(--text-2); font-weight: 520; cursor: pointer; }
+.login__more summary:hover { color: var(--text-1); }
+.login__more[open] summary { margin-bottom: 0; }
+
+/* First visit: a little wider, so the command fits on one line, and the lead reads as two even lines. */
+.login__card--first { width: min(100%, 456px); }
+.login__card--first .login__lead { max-width: 21rem; text-wrap: balance; }
+.login__card--first .login__form { margin-top: var(--space-6); }
+.login__card--first .login__message { min-height: 0; margin: var(--space-3) 0 var(--space-4); }
