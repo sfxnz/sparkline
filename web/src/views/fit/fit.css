@@ -20,3 +20,14 @@
 .fit-budget__detail { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); white-space: normal; }
 .fit-warning { margin-top: var(--space-4); }
 .fit-scope { color: var(--text-2); text-wrap: pretty; }
+
+/* At phone widths the verdict is the last column, and the three columns together were wider than the screen,
+   so "Does not fit" sat past the right edge and could only be read by swiping the table sideways. Narrower
+   gutters, a header that wraps and a detail line that breaks where it must keep every verdict in view. */
+@media (max-width: 27rem) {
+  .fit-view .table th, .fit-view .table td { padding-left: var(--space-2); padding-right: var(--space-2); }
+  .fit-view .table th:first-child, .fit-view .table td:first-child { padding-left: var(--space-3); }
+  .fit-view .table th:last-child, .fit-view .table td:last-child { padding-right: var(--space-3); }
+  .fit-view .table th { white-space: normal; }
+  .fit-view .fit-budget__detail { overflow-wrap: anywhere; }
+}
