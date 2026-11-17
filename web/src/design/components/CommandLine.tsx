@@ -10,11 +10,13 @@ interface Props {
   what?: string;
   /** Icon-only copy button, where the line has little room (the sign-in card). */
   compact?: boolean;
+  /** The `$` before a single line. False for something that is pasted, not run (an address). */
+  prompt?: boolean;
 }
 
 /** One thing to run or paste, whole and selectable, with a copy button. It wraps instead of truncating, so the
  *  text on screen is always the text that works. */
-export function CommandLine({ text, what = 'command', compact }: Props) {
+export function CommandLine({ text, what = 'command', compact, prompt = true }: Props) {
   const { copied, copy } = useCopy();
   const block = text.includes('\n');
   const done = copied?.ok === true;
@@ -29,7 +31,7 @@ export function CommandLine({ text, what = 'command', compact }: Props) {
         <pre className="cmd__text" tabIndex={0} aria-label={what}><code>{text}</code></pre>
       ) : (
         <>
-          <span className="cmd__prompt" aria-hidden="true">$</span>
+          {prompt ? <span className="cmd__prompt" aria-hidden="true">$</span> : null}
           <code className="cmd__text">{text}</code>
         </>
       )}

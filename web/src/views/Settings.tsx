@@ -10,6 +10,7 @@ import { Switch } from './alerts/parts/Switch';
 import { AboutSection } from './settings/AboutSection';
 import { DataSection } from './settings/DataSection';
 import { SettingRow, SettingRowSkeleton } from './settings/parts';
+import { PrometheusSection } from './settings/PrometheusSection';
 import { BenchSection, EnergySection, FreshnessSection } from './settings/ServerSections';
 import { useServerSettings } from './settings/useServerSettings';
 import './settings/settings.css';
@@ -49,6 +50,7 @@ export default function Settings() {
           </Panel>
         ))
       )}
+      <PrometheusSection />
       <DataSection />
       <AboutSection />
     </div>

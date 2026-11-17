@@ -36,3 +36,9 @@
 .set-table { margin: 0 calc(-1 * var(--space-5)); border-bottom: var(--hairline) solid var(--separator); padding-bottom: var(--space-3); }
 .set-code { background: none; padding: 0; font-size: var(--fs-footnote); color: var(--text-2); }
 .set-row__control .ops-numfield { align-items: flex-end; text-align: right; }
+
+/* Something to copy: an address beside its row, a snippet under its explanation. */
+.set-copy { width: min(100%, 22rem); }
+.set-block { display: grid; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: var(--hairline) solid var(--separator); }
+.set-rows > .set-block:last-child { border-bottom: 0; padding-bottom: 0; }
+.set-block .set-row__desc { max-width: 40rem; }
