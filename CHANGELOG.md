@@ -36,8 +36,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 - Editing, disabling or deleting an alert rule while its alert is open now adds a "Resolved" event that says
   the rule was changed or removed, in the timeline and on every notification channel. Before, the alert was
   closed with no recovery. If the edited rule still matches, its alert fires again.
-- An alert that is open when the console restarts stays open until its node reports again, then ends with a
-  "Resolved" event or fires again. Before, every open alert was closed at the start with no recovery.
+- An alert that is open when the console restarts stays open until a reading from its node decides it, then
+  ends with a "Resolved" event or fires again. Before, every open alert was closed at the start with no recovery.
 
 ## [0.1.2] - 2026-11-11
 

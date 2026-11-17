@@ -420,10 +420,13 @@ channel gets at most one message a second. On HTTP 429 the console waits as long
 notices meanwhile; the next message says how many more there were. Any other 4xx answer, or a redirect,
 drops the message, because sending it again cannot work. Waiting notices are not stored: when the console
 stops it tries each channel once more and drops the rest, and after a restart an alert that still holds
-fires again. An alert that was open when the console stopped stays open until its node reports again. If the
-condition ended while the console was down, the channels get its "Resolved" message at that node's first
-clear reading. If the alert's rule no longer exists or its node is no longer in `console.toml`, the channels
-get a "Resolved" message that says so when the console starts.
+fires again. An alert that was open when the console stopped stays open until a reading from its node shows
+that it is over. If the condition ended while the console was down, the channels get its "Resolved" message
+at that node's first clear reading. If the alert's rule no longer exists or its node is no longer in
+`console.toml`, the channels get a "Resolved" message that says so when the console starts. A channel added
+in that restart gets those "Resolved" messages too, for alerts it never announced. An alert whose metric
+never reports again, such as one on a GPU that was removed, stays open: switch its rule off and on, or edit
+it, to close it.
 
 The **Alerts** view lists the channels with the host, what each one sends, and how its last delivery went.
 **Send test** sends a test message now and shows the result, with the reason when it fails. Channels are
@@ -592,7 +595,8 @@ one. A model list from `/v1/models` is proof, together with metrics the agent ca
 knows. When `/v1/models` answers 401 or 403, the metrics are the only proof: they must sit under a known
 server's prefix (`vllm:`, `sglang:`, `llamacpp:`, `trtllm_`), or count tokens, or time the first token. A
 count of running or waiting requests proves nothing, because any web service can export one. A service
-behind a login that gives no such proof gets those three requests and no more.
+behind a login that gives no such proof gets those three requests and no more. If it is a model server, list
+it under `[[model_servers]]` with its `api_key`: its card then says what the port answered.
 
 **What is shown.** vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM, and any server that exports the same metric
 names under its own prefix. A value the server does not export reads "Not reported by this server". llama.cpp
