@@ -469,11 +469,12 @@ def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Problem
     except ValidationError as e:
         keys = "; ".join(_SHAPE_KEYS[str(err["loc"][0])] for err in e.errors())
         # The hint names a sub-object only when it holds a shape. A text_config can hold no layer count,
-        # and the hint used to send every user to it.
+        # and the hint used to send every user to it. It also says whose shape is wanted, because the only
+        # sub-object with one can be a vision tower, whose fewer layers give a KV cache that is too small.
         below = sorted(key for key, sub in config.items() if _holds_a_shape(sub))
         where = (
-            f"It found a shape one level down, in {_listed(below)}. Type in the shape of the part that "
-            "answers"
+            f"The same keys are one level down in {_listed(below)}. Type in the shape of the language "
+            "model, which writes the answer, and not that of a vision or audio tower"
             if below
             else "It found no shape one level down either. A shape under an older name such as n_layer is "
             "read off the config and typed in"

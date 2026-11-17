@@ -877,14 +877,23 @@ VISION_SHAPE = {"num_hidden_layers": 24, "num_attention_heads": 16, "hidden_size
     [
         pytest.param(
             {"text_config": QWEN_CONFIG},
-            "It found a shape one level down, in text_config. Type in the shape of the part that answers",
+            "The same keys are one level down in text_config. Type in the shape of the language model, "
+            "which writes the answer, and not that of a vision or audio tower",
             id="in-a-sub-object",
         ),
         pytest.param(
             {"vision_config": VISION_SHAPE, "text_config": QWEN_CONFIG, "audio_config": {"d_model": 1280}},
-            "It found a shape one level down, in text_config, vision_config. Type in the shape of the part "
-            "that answers",
+            "The same keys are one level down in text_config, vision_config. Type in the shape of the "
+            "language model, which writes the answer, and not that of a vision or audio tower",
             id="in-two-sub-objects-and-not-a-third",
+        ),
+        # A vision tower's shape is the only one in the file. Typed in for the language model's, its fewer
+        # layers give a KV cache that is too small, so the hint says whose shape is wanted.
+        pytest.param(
+            {"text_config": {"model_type": "some-text-model"}, "vision_config": VISION_SHAPE},
+            "The same keys are one level down in vision_config. Type in the shape of the language model, "
+            "which writes the answer, and not that of a vision or audio tower",
+            id="only-in-a-vision-tower",
         ),
         # A text_config that holds no layer count. The hint sent the user to it all the same.
         pytest.param(
