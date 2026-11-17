@@ -168,8 +168,8 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   from the repo. Anything else shows no size and says why, naming the second repo, the adapter or the file
   left over, and it still fills in the part it read. By hand the weights are a size in GiB, as this page
   shows sizes, or in GB, as the repo's Files tab lists each file, and never a parameter count: for a 16-bit
-  model the count in GB is half of what its files hold, and a quantised model has no fixed ratio. A unified-memory node offers its
-  available memory minus 4 GiB. A node with dedicated GPU memory offers the free memory of its emptiest GPU,
+  model the count in GB is half of what its files hold, and a quantised model has no fixed ratio. A
+  unified-memory node offers its available memory minus 4 GiB. A node with dedicated GPU memory offers the free memory of its emptiest GPU,
   so the verdict is for a model on one GPU. On a GB10, vLLM's `--gpu-memory-utilization` is not a hard cap,
   and the page says so. Not modelled: GGUF files, sliding-window attention layers, a model split across
   GPUs, the AMD GTT limit and the macOS wired-memory limit.
@@ -418,11 +418,11 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   nothing the model asks for is executed.
 - **Hugging Face lookup, only on request.** The console contacts `https://huggingface.co` when a signed-in user
   presses Look up on the Will it fit? page, and at no other time. A lookup asks for three files: the repo's
-  file list, its `config.json` and its `model.safetensors.index.json`. Hugging Face answers each of the last
-  two with a redirect to a cache path on the same host, so a lookup usually sends five GET requests. A repo
-  with no index, with one over 1 MiB, or with a config that rules a size out sends three, because the index
-  is not asked for. The console follows at most three redirects per file, so no lookup sends more than
-  twelve requests whatever Hugging Face answers. The repo id must match `owner/name`, the host is fixed,
+  file list, its `config.json` and its `model.safetensors.index.json`. Hugging Face answers a file read with
+  a redirect to a cache path on the same host as often as not, so a lookup usually sends five GET requests,
+  and three or fewer when the index is not asked for: a repo with no index, with one over 1 MiB, or with a
+  config that rules a size out. The console follows at most three redirects per file, so no lookup sends
+  more than twelve requests whatever Hugging Face answers. The repo id must match `owner/name`, the host is fixed,
   a redirect is followed only while it stays on `https://huggingface.co`, each response is read up to 1 MiB,
   and no token or cookie of yours is sent. Hugging Face sees the console host's address and the repo id.
   `hf_lookup = false` in `console.toml` turns it off.
