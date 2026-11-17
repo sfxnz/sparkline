@@ -111,9 +111,11 @@ class Hub:
     def __init__(self, routes: dict[str, httpx.Response | Exception]):
         self.routes = routes
         self.hosts: list[str] = []
+        self.credentials: set[str] = set()
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.hosts.append(f"{request.url.scheme}://{request.url.host}")
+        self.credentials |= {"authorization", "cookie"} & set(request.headers)
         answer = self.routes[request.url.path]
         if isinstance(answer, Exception):
             raise answer
@@ -304,6 +306,7 @@ def test_lookup_route_returns_the_facts(tmp_path, hub):
     assert ModelFacts.model_validate(r.json()) == QWEN.model_copy(
         update={"repo": "Qwen/Qwen3-8B", "max_context": 40960}
     )
+    assert len(hub.hosts) == 3 and hub.credentials == set()
 
 
 def test_lookup_route_reports_a_missing_repo_as_a_problem(tmp_path, hub):
