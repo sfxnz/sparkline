@@ -25,7 +25,7 @@ from sparkline.common.metrics import flatten
 from sparkline.common.schema import ProcSample
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent" / "llm"
-RECORDED = (FIXTURES / "acmeserve_metrics.txt").read_text()
+ACMESERVE = (FIXTURES / "acmeserve_metrics.txt").read_text()
 VLLM = (FIXTURES / "vllm_metrics.txt").read_text()
 KEY = "sk-local-0123456789abcdef"
 BASE = "http://127.0.0.1:8000"
@@ -86,7 +86,7 @@ def collector(
 
 def acmeserve(**more: Route) -> FakeHttp:
     listed = models("acmeserve", context_length=1048576, max_model_len=1048576)
-    return FakeHttp({f"{BASE}/v1/models": listed, f"{BASE}/metrics": text(RECORDED), **more})
+    return FakeHttp({f"{BASE}/v1/models": listed, f"{BASE}/metrics": text(ACMESERVE), **more})
 
 
 def servers(c: ModelServerCollector) -> list:
@@ -112,17 +112,17 @@ def test_a_server_on_a_default_port_is_found_with_no_configuration(tmp_path):
         8000,
         "prometheus",
         "acmeserve",
-        "1.2.5",
+        "0.0.0",
         "acmeserve:",
     )
-    assert (s.state, s.problem, s.mem_source, s.started_ts) == ("ready", None, "server", 1794251153)
+    assert (s.state, s.problem, s.mem_source, s.started_ts) == ("ready", None, "server", 1700000000)
     assert [(m.name, m.context_len) for m in s.models] == [("example-model", 1048576)]
     assert s.values == {
         "up": 1,
-        "running": 0,
-        "waiting": 0,
-        "kv_cache_pct": 0,
-        "mem_bytes": 108943095160,
+        "running": 2,
+        "waiting": 1,
+        "kv_cache_pct": 50,
+        "mem_bytes": 68719476736,
         "gen_tps": 0,
         "prompt_tps": 0,
         "preempt_per_s": 0,
@@ -343,7 +343,7 @@ def test_a_server_that_stops_answering_reads_down_before_the_next_look(tmp_path)
     http.routes[f"{BASE}/metrics"] = TimeoutError("no answer in time")
     c.poll_round(4.0)
     assert "No answer within" in servers(c)[0].problem
-    http.routes[f"{BASE}/metrics"] = text(RECORDED)
+    http.routes[f"{BASE}/metrics"] = text(ACMESERVE)
     c.poll_round(6.0)
     assert (servers(c)[0].state, servers(c)[0].problem) == ("ready", None)
 
@@ -467,7 +467,7 @@ def test_the_process_behind_the_port_gives_the_pid_the_container_and_memory_the_
     c.poll_round(0.0)
     reported, joined = servers(c)
     assert (reported.pid, reported.container, reported.mem_source) == (11, "tf", "server")
-    assert reported.values["mem_bytes"] == 108943095160
+    assert reported.values["mem_bytes"] == 68719476736
     assert (joined.pid, joined.container, joined.mem_source) == (12, "vllm-qwen3", "process")
     assert joined.values["mem_bytes"] == 24 << 30 and "mem_bytes" not in joined.reports
     procs.rows = []
@@ -482,7 +482,7 @@ def test_a_hung_server_does_not_delay_the_sampling_tick(tmp_path):
     def hang() -> HttpReply:
         asked.set()
         release.wait(10)
-        return text(RECORDED)
+        return text(ACMESERVE)
 
     c = collector(tmp_path, acmeserve(**{f"{BASE}/metrics": hang}))
     c.start()
