@@ -31,6 +31,15 @@ def test_every_entry_tells_the_reader_how_to_apply_and_undo_it_by_hand():
         assert all(c.startswith(("sudo ", "printf ")) for c in r.apply + r.undo), r.id
 
 
+def test_every_entry_says_when_it_takes_effect():
+    assert {r.id: r.takes_effect for r in CATALOG} == {
+        "gpu-clock-cap": "now",
+        "cpu-pcore-cap": "now",
+        "headless-boot": "next-boot",
+        "display-reserved-memory": "next-boot",
+    }
+
+
 def test_a_measured_entry_has_its_evidence_file():
     for r in CATALOG:
         if r.measurement is not None:

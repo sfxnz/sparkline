@@ -18,6 +18,7 @@ export const gpuCap: Recommendation = {
   undo: ['sudo nvidia-smi -rgc', 'sudo systemctl disable --now gpu-clock-cap.service'],
   one_click: true,
   persists: 'until-reboot',
+  takes_effect: 'now',
   risks: ['It does not cool the CPU cores.', '2200 MHz may not be low enough for every unit.'],
   verified: false,
 };
@@ -35,6 +36,7 @@ export const headless: Recommendation = {
   undo: ['sudo systemctl set-default graphical.target'],
   one_click: true,
   persists: 'persistent',
+  takes_effect: 'next-boot',
   risks: ['On old firmware a unit without a display could stop its fans.'],
   verified: false,
 };
@@ -52,6 +54,7 @@ export const displayMemory: Recommendation = {
   undo: ["printf '\\x03' | sudo tee /sys/firmware/efi/efivars/NvidiaDispFrmSizeRequest", 'sudo reboot'],
   one_click: false,
   persists: 'persistent',
+  takes_effect: 'next-boot',
   risks: ['Auto looks for displays only at boot.'],
   verified: false,
 };

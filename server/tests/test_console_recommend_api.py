@@ -248,6 +248,25 @@ def test_demo_takes_apply_only_where_recommended_and_undo_only_for_what_sparklin
     assert {n: states(demo, n) for n in before} == before
 
 
+def test_demo_boot_target_changes_at_a_click_and_the_desktop_only_at_a_restart(demo):
+    def detail(node: str) -> str:
+        view = RecommendationsView.model_validate(demo.get("/api/v1/recommendations").json())
+        recs = view.nodes[node]
+        assert recs is not None
+        return next(i.detail for i in recs.items if i.id == "headless-boot")
+
+    def click(node: str, verb: str) -> None:
+        body = {"node": node, "confirm": True}
+        assert demo.post(f"/api/v1/recommendations/headless-boot/{verb}", json=body).status_code == 202
+
+    assert detail("spark1") == "Boots to the desktop (graphical.target). The desktop is running now"
+    click("spark1", "apply")  # no restart since: the desktop that was running still is
+    assert detail("spark1") == "Boots without the desktop (multi-user.target). The desktop is running now"
+    assert detail("spark2") == "Boots without the desktop (multi-user.target). The desktop is not running now"
+    click("spark2", "undo")
+    assert detail("spark2") == "Boots to the desktop (graphical.target). The desktop is not running now"
+
+
 def test_demo_refuses_what_a_real_fleet_would(demo):
     r = demo.post(f"/api/v1/recommendations/{ONE_CLICK}/apply", json={"node": "spark3", "confirm": True})
     assert r.status_code == 501

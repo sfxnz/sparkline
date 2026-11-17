@@ -634,6 +634,7 @@ class Recommendation(BaseModel):
     undo: list[str]
     one_click: bool  # False: a firmware change or a reboot, and `apply` are the manual steps
     persists: Literal["until-reboot", "persistent"]
+    takes_effect: Literal["now", "next-boot"]  # next-boot: nothing changes until the node is restarted
     risks: list[str]
 
     @computed_field  # type: ignore[prop-decorator]

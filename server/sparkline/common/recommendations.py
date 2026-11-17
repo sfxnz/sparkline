@@ -116,6 +116,7 @@ CATALOG: list[Recommendation] = [
         undo=["sudo nvidia-smi -rgc", *remove_boot_unit("gpu-clock-cap")],
         one_click=True,
         persists="until-reboot",
+        takes_effect="now",
         risks=[
             "The cap is forgotten at a reboot. Sparkline applies it again at boot when Sparkline applied it; "
             "by hand it needs the unit above.",
@@ -175,6 +176,7 @@ CATALOG: list[Recommendation] = [
         undo=["sudo cpupower -c 5-9,15-19 frequency-set -u 3900MHz", *remove_boot_unit("cpu-pcore-cap")],
         one_click=True,
         persists="until-reboot",
+        takes_effect="now",
         risks=[
             "The cap is forgotten at a reboot. Sparkline applies it again at boot when Sparkline applied it; "
             "by hand it needs the unit above.",
@@ -226,6 +228,7 @@ CATALOG: list[Recommendation] = [
         undo=["sudo systemctl set-default graphical.target"],
         one_click=True,
         persists="persistent",
+        takes_effect="next-boot",
         risks=[
             "On firmware older than October 2026 (embedded controller 3.13.7), a unit idling without a "
             "display could stop its fans and overheat. NVIDIA's release notes list the fix: update the "
@@ -276,6 +279,7 @@ CATALOG: list[Recommendation] = [
         ],
         one_click=False,
         persists="persistent",
+        takes_effect="next-boot",
         risks=[
             "Auto looks for displays only at boot. A display plugged in later keeps the small reservation "
             "until the next restart.",

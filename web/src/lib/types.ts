@@ -562,6 +562,8 @@ export interface Recommendation {
   /** false: a firmware change or a reboot, and `apply` are the manual steps. */
   one_click: boolean;
   persists: 'until-reboot' | 'persistent';
+  /** next-boot: nothing changes until the node is restarted. */
+  takes_effect: 'now' | 'next-boot';
   risks: string[];
   /** Derived by the console: true only with a measurement. */
   verified: boolean;

@@ -126,8 +126,8 @@ DEMO_DETAIL: dict[str, dict[bool, str]] = {
         False: "The performance cores may run up to 3900 MHz",
     },
     "headless-boot": {
-        True: "Boots without the desktop (multi-user.target). The desktop is not running now",
-        False: "Boots to the desktop (graphical.target). The desktop is running now",
+        True: "Boots without the desktop (multi-user.target). {desktop}",
+        False: "Boots to the desktop (graphical.target). {desktop}",
     },
     "display-reserved-memory": {
         True: "Set to Auto: 512 MiB reserved",
@@ -143,6 +143,9 @@ DEMO_APPLIED: dict[str, dict[str, bool]] = {
 }
 DEMO_NO_HELPER = "spark3"  # installed without --enable-tune: it shows the commands instead of a button
 DEMO_UNIT = "nvidia-lock-clocks.service"
+# Whether the desktop runs was decided when the node booted, so a click on headless-boot leaves it as it is.
+# Keyed by whether the node booted without the desktop.
+DEMO_DESKTOP = {True: "The desktop is not running now", False: "The desktop is running now"}
 DEMO_MESSAGE = "Simulated: nothing was changed"
 
 
@@ -153,8 +156,13 @@ class DemoRecs:
         self.cluster = cluster
         self.states: dict[str, dict[str, NodeRecState]] = {}
 
-    def _state(self, rec_id: str, applied: bool, managed: bool, last: TuneResult | None) -> NodeRecState:
-        detail = DEMO_DETAIL[rec_id][applied].format(by="Sparkline" if managed else DEMO_UNIT)
+    def _state(
+        self, node: str, rec_id: str, applied: bool, managed: bool, last: TuneResult | None
+    ) -> NodeRecState:
+        detail = DEMO_DETAIL[rec_id][applied].format(
+            by="Sparkline" if managed else DEMO_UNIT,
+            desktop=DEMO_DESKTOP["headless-boot" in DEMO_APPLIED.get(node, {})],
+        )
         state: Literal["applied", "not-applied"] = "applied" if applied else "not-applied"
         return NodeRecState(id=rec_id, state=state, detail=detail, managed=managed, last=last)
 
@@ -169,7 +177,7 @@ class DemoRecs:
         items = {}
         for r in CATALOG:
             managed = applied.get(r.id, False)
-            items[r.id] = self._state(r.id, r.id in applied, managed, earlier if managed else None)
+            items[r.id] = self._state(node, r.id, r.id in applied, managed, earlier if managed else None)
         return items
 
     def _items(self, node: str) -> dict[str, NodeRecState]:
@@ -195,7 +203,7 @@ class DemoRecs:
         if refusal is not None:
             raise RecError(409, refusal)
         done = TuneResult(action=verb, ts=time.time(), ok=True, message=DEMO_MESSAGE)
-        items[rec_id] = self._state(rec_id, verb == "apply", verb == "apply", done)
+        items[rec_id] = self._state(node, rec_id, verb == "apply", verb == "apply", done)
 
 
 def recommend_router(cluster: Cluster, backend: RecBackend, dependencies: list) -> APIRouter:

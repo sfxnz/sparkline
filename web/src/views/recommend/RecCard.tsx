@@ -9,7 +9,7 @@ import '../../design/components/StatusPill.css';
 import { Table, type Column } from '../../design/components/Table';
 import { copyText } from '../../lib/clipboard';
 import type { NodeRecState, Problem, RecGoal, RecMeasurement, RecMetric, RecState, Recommendation } from '../../lib/types';
-import { actionFor, byHandNote, survivesReboot, type NodeRow, type Standing, type Verb } from './model';
+import { actionFor, byHandNote, survivesReboot, takesEffect, type NodeRow, type Standing, type Verb } from './model';
 import type { RowStatus } from './useRecommendations';
 
 /** Where the evidence files (docs/recommendations/<id>.md) can be read. */
@@ -222,6 +222,10 @@ export function RecCard({ rec, rows, standing, statusOf, onAsk }: Props) {
           <div>
             <dt className="rec-h">Claimed cost</dt>
             <dd>{rec.cost}</dd>
+          </div>
+          <div>
+            <dt className="rec-h">Takes effect</dt>
+            <dd>{takesEffect(rec)}</dd>
           </div>
           <div>
             <dt className="rec-h">Survives a reboot</dt>

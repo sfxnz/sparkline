@@ -63,6 +63,10 @@ export function survivesReboot(rec: Recommendation): string {
     : 'No. It has to be applied again after every reboot.';
 }
 
+export function takesEffect(rec: Recommendation): string {
+  return rec.takes_effect === 'now' ? 'At once.' : 'At the next restart. Nothing changes until the node is next restarted, and Sparkline does not restart it.';
+}
+
 /** Shown with the by-hand commands of a one-click setting: they do not undo a click. The helper records what it
  *  applied, and applies again at boot what a reboot forgets, whatever was typed since. */
 export function byHandNote(rec: Recommendation): string | null {
@@ -83,7 +87,11 @@ export function confirmCopy(rec: Recommendation, node: string, verb: Verb): { ti
         : 'Sparkline stops applying the setting at boot.';
   return {
     title: `${apply ? 'Apply' : 'Undo'} “${rec.title}” on ${node}?`,
-    consequences: [`Change ${node}: Sparkline's root helper on ${node} ${apply ? 'applies' : 'removes'} this setting.`, reboot],
+    consequences: [
+      `Change ${node}: Sparkline's root helper on ${node} ${apply ? 'applies' : 'removes'} this setting.`,
+      ...(rec.takes_effect === 'next-boot' ? [`Take effect only when ${node} is next restarted: nothing changes until then, and Sparkline does not restart it.`] : []),
+      reboot,
+    ],
     commands: apply ? rec.apply : rec.undo,
     confirmLabel: `${apply ? 'Apply' : 'Undo'} on ${node}`,
   };

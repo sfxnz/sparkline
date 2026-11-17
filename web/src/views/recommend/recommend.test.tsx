@@ -22,6 +22,7 @@ const tick = (ms = 0) => act(() => vi.advanceTimersByTimeAsync(ms));
 const commands = (lines: string[]) => (_text: string, el: Element | null) => el?.tagName === 'CODE' && el.textContent === lines.join('\n');
 
 const GPU = gpuCap.title;
+const NEXT_BOOT = 'Take effect only when spark2 is next restarted: nothing changes until then, and Sparkline does not restart it.';
 const BY_HAND = 'These commands are for making the change by hand, without Sparkline. A setting that Sparkline applied must be undone with Undo, not by hand:';
 const BY_HAND_CAP = `${BY_HAND} Sparkline keeps its own record and applies the setting again at every boot.`;
 const BY_HAND_BOOT = `${BY_HAND} Sparkline keeps its own record of what it applied.`;
@@ -174,6 +175,8 @@ describe('Recommendations', () => {
     for (const risk of gpuCap.risks) expect(gpu.getByText(risk)).toBeInTheDocument();
     expect(gpu.getByText(/^Not on its own\. When Sparkline applies it, Sparkline applies it again at every boot/)).toBeInTheDocument();
     expect(card(headless.title).getByText('Yes. It stays until it is undone.')).toBeInTheDocument();
+    expect(gpu.getByText('At once.')).toBeInTheDocument();
+    expect(card(headless.title).getByText('At the next restart. Nothing changes until the node is next restarted, and Sparkline does not restart it.')).toBeInTheDocument();
     for (const source of gpuCap.sources) {
       const link = gpu.getByRole('link', { name: (name) => name.startsWith(source.title) });
       expect(link).toHaveTextContent('(opens in a new tab)');
@@ -253,12 +256,21 @@ describe('Recommendations', () => {
       expect(dialog.getByText(commands(gpuCap.apply))).toBeInTheDocument();
       expect(dialog.getByText(BY_HAND_CAP)).toBeInTheDocument();
       expect(dialog.getByText('The setting is forgotten at a reboot, so Sparkline applies it again at every boot until it is undone.')).toBeInTheDocument();
+      expect(dialog.queryByText(/next restarted/)).not.toBeInTheDocument();
       for (const risk of gpuCap.risks) expect(dialog.getByText(risk)).toBeInTheDocument();
       expect(dialog.getByRole('button', { name: 'Cancel' })).toHaveFocus();
 
       await userEvent.click(dialog.getByRole('button', { name: 'Cancel' }));
       expect(screen.queryByRole('dialog', { name: /Apply/ })).not.toBeInTheDocument();
       expect(fetchSpy.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
+    });
+
+    it('says before applying a setting that waits for a restart that nothing changes until then', async () => {
+      serve(view([headless], { spark2: node([item(headless.id, 'not-applied', 'Boots to the desktop')]) }));
+      render(<Recommendations />);
+      await userEvent.click(await screen.findByRole('button', { name: `Apply ${headless.title} on spark2` }));
+      const dialog = within(screen.getByRole('dialog', { name: `Apply “${headless.title}” on spark2?` }));
+      expect(dialog.getByText(NEXT_BOOT)).toBeInTheDocument();
     });
 
     it('lists the undo commands before an undo, and says a persistent change survives a reboot', async () => {
@@ -270,6 +282,7 @@ describe('Recommendations', () => {
       expect(dialog.getByText(commands(headless.undo))).toBeInTheDocument();
       expect(dialog.getByText(BY_HAND_BOOT)).toBeInTheDocument();
       expect(dialog.getByText('The change survives a reboot.')).toBeInTheDocument();
+      expect(dialog.getByText(NEXT_BOOT)).toBeInTheDocument();
 
       await userEvent.click(dialog.getByRole('button', { name: 'Undo on spark2' }));
       expect(fetchSpy).toHaveBeenCalledWith(`/api/v1/recommendations/${headless.id}/undo`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ node: 'spark2', confirm: true }) }));
