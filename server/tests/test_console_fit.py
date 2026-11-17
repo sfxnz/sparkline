@@ -122,10 +122,12 @@ class FakeHuggingFace:
     def __init__(self, routes: dict[str, httpx.Response | Exception]):
         self.routes = routes
         self.hosts: list[str] = []
+        self.paths: list[str] = []
         self.credentials: set[str] = set()
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.hosts.append(f"{request.url.scheme}://{request.url.host}")
+        self.paths.append(request.url.path)
         self.credentials |= {"authorization", "cookie"} & set(request.headers)
         answer = self.routes[request.url.path]
         if isinstance(answer, Exception):
@@ -142,15 +144,34 @@ class FakeHuggingFace:
 INFO_PATH = "/api/models/Qwen/Qwen3-8B"
 CONFIG_PATH = "/Qwen/Qwen3-8B/resolve/main/config.json"
 CACHED_PATH = "/api/resolve-cache/models/Qwen/Qwen3-8B/abc/config.json"
+INDEX = "model.safetensors.index.json"
+INDEX_PATH = f"/Qwen/Qwen3-8B/resolve/main/{INDEX}"
+CACHED_INDEX_PATH = f"/api/resolve-cache/models/Qwen/Qwen3-8B/abc/{INDEX}"
 
 
-def public_repo(info=QWEN_INFO, config=QWEN_CONFIG) -> dict[str, httpx.Response | Exception]:
+def weight_index(*files: str) -> dict[str, object]:
     return {
+        "metadata": {"total_size": 1},
+        "weight_map": {f"layers.{i}.weight": f for i, f in enumerate(files)},
+    }
+
+
+def public_repo(info=QWEN_INFO, config=QWEN_CONFIG, index=None) -> dict[str, httpx.Response | Exception]:
+    routes: dict[str, httpx.Response | Exception] = {
         INFO_PATH: httpx.Response(200, json=info),
         # Hugging Face answers /resolve/ with a relative redirect to its own cache path.
         CONFIG_PATH: httpx.Response(307, headers={"location": f"{CACHED_PATH}?etag=x"}),
         CACHED_PATH: httpx.Response(200, json=config),
     }
+    if index is not None:
+        routes[INDEX_PATH] = httpx.Response(307, headers={"location": f"{CACHED_INDEX_PATH}?etag=x"})
+        routes[CACHED_INDEX_PATH] = httpx.Response(200, json=index)
+    return routes
+
+
+def indexed_repo(sizes: dict[str, int], *named: str, config=QWEN_CONFIG):
+    """A repo whose index names ``named``, or every file in ``sizes`` when none is given."""
+    return public_repo(repo_files({INDEX: 400, **sizes}), config, weight_index(*(named or sizes)))
 
 
 async def test_lookup_reads_the_size_of_the_weights_and_the_model_shape():
@@ -198,19 +219,97 @@ PACKED_REPOS = [
 
 @pytest.mark.parametrize(("parameters", "files"), PACKED_REPOS)
 async def test_a_4_bit_repo_weighs_what_its_safetensors_files_hold(parameters, files):
-    info = {"safetensors": {"parameters": parameters}, **repo_files(files)}
-    facts = await FakeHuggingFace(public_repo(info=info)).lookup()
+    routes = indexed_repo(files) if len(files) > 1 else public_repo(info=repo_files(files))
+    routes[INFO_PATH] = httpx.Response(
+        200, json={"safetensors": {"parameters": parameters}, **json.loads(routes[INFO_PATH].content)}
+    )
+    facts = await FakeHuggingFace(routes).lookup()
     assert isinstance(facts, ModelFacts), facts
     assert estimate(facts, 1, "bf16").weights_bytes == sum(files.values())
 
 
-async def test_only_the_weights_a_server_loads_are_counted_not_other_copies_in_the_repo():
-    copies = {"consolidated.safetensors": 7, "original/model.safetensors": 7, "model.fp32.safetensors": 14}
+COPIES = {"consolidated.safetensors": 7, "original/model.safetensors": 7, "model.fp32.safetensors": 14}
+
+
+async def test_a_repo_with_no_index_weighs_its_model_safetensors_and_not_the_copies_beside_it():
+    hf = FakeHuggingFace(public_repo(info=repo_files({**COPIES, "model.safetensors": 7})))
+    assert (await hf.lookup()).weights_bytes == 7
+    assert len(hf.hosts) == 3
+
+
+async def test_an_indexed_repo_weighs_the_files_its_index_names_and_not_the_copies_beside_them():
     shards = {"model-00001-of-000002.safetensors": 3, "model-00002-of-000002.safetensors": 4}
     from_zero = {f"model-0000{i}-of-00002.safetensors": size for i, size in enumerate((3, 2, 2))}
-    for weights in ({"model.safetensors": 7}, shards, from_zero):
-        facts = await FakeHuggingFace(public_repo(info=repo_files({**copies, **weights}))).lookup()
-        assert facts.weights_bytes == 7
+    under_another_name = {"model.safetensors-00001-of-00002.safetensors": 6, "layers-0.safetensors": 1}
+    for weights in (shards, from_zero, under_another_name):
+        hf = FakeHuggingFace(indexed_repo({**COPIES, **weights}, *weights))
+        assert (await hf.lookup()).weights_bytes == 7
+        assert len(hf.hosts) == 5
+
+
+async def test_an_index_that_names_several_shard_families_weighs_every_one_of_them():
+    families = {
+        **{f"model-0000{i}-of-00002.safetensors": 5 for i in (1, 2)},
+        **{f"packed_experts-0000{i}-of-00003.safetensors": 100 for i in (1, 2, 3)},
+        **{f"extra_head-0000{i}-of-00002.safetensors": 20 for i in (1, 2)},
+    }
+    facts = await FakeHuggingFace(indexed_repo(families)).lookup()
+    assert facts.weights_bytes == 350
+
+
+@pytest.mark.parametrize(
+    ("sizes", "named", "want"),
+    [
+        pytest.param(
+            {"model.safetensors": 890, "model_extra.safetensors": 110},
+            ["model.safetensors", "model_extra.safetensors"],
+            1000,
+            id="one-file-and-a-second-file-beside-it",
+        ),
+        pytest.param(
+            {"model.safetensors": 897, "model_extra.safetensors": 60, "model_visual.safetensors": 43},
+            ["model.safetensors", "model_extra.safetensors", "model_visual.safetensors"],
+            1000,
+            id="one-file-and-two-files-beside-it",
+        ),
+        pytest.param(
+            {
+                "model-00001-of-00002.safetensors": 500,
+                "model-00002-of-00002.safetensors": 390,
+                "extra.safetensors": 110,
+            },
+            ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors", "extra.safetensors"],
+            1000,
+            id="shards-and-a-file-under-another-name",
+        ),
+    ],
+)
+def test_weights_the_index_names_outside_the_usual_file_names_are_counted(sizes, named, want):
+    repo = parse_repo_id("an-owner/a-model")
+    assert fit.indexed_weights(repo, {INDEX: 400, **sizes}, weight_index(*named)) == want
+
+
+async def test_an_index_too_large_to_read_is_refused_without_asking_for_it():
+    shards = {f"model-0000{i}-of-00003.safetensors": 4_000_000_000 for i in (1, 2, 3)}
+    hf = FakeHuggingFace(public_repo(info=repo_files({INDEX: fit.MAX_RESPONSE_BYTES + 1, **shards})))
+    problem = await hf.lookup()
+    assert "too large" in problem.message
+    assert "1.0 MiB" in problem.cause and "which files a server loads" in problem.cause
+    assert "by hand" in problem.fix and "at most 12.0 GB" in problem.fix
+    assert INDEX_PATH not in hf.paths
+
+
+def test_a_repo_with_no_index_and_no_model_safetensors_is_refused_with_what_it_does_hold():
+    repo = parse_repo_id("an-owner/a-model")
+    shards = fit.unindexed_weights(repo, {f"model-0000{i}-of-00002.safetensors": 5 for i in (1, 2)})
+    assert "no model.safetensors and no model.safetensors.index.json" in shards.message
+    assert "2 .safetensors files" in shards.cause and "model-00001-of-00002.safetensors" in shards.cause
+    nested = fit.unindexed_weights(
+        repo, {"unet/diffusion_pytorch_model.safetensors": 5, "model_index.json": 1}
+    )
+    assert "unet/diffusion_pytorch_model.safetensors" in nested.cause
+    other_formats = fit.unindexed_weights(repo, {"model.Q4_K_M.gguf": 5, "pytorch_model.bin": 5})
+    assert "no .safetensors files" in other_formats.cause
 
 
 def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
@@ -225,23 +324,45 @@ def refused(path: str, status: int) -> dict[str, httpx.Response | Exception]:
         (refused(CONFIG_PATH, 401), "is gated"),
         (refused(CONFIG_PATH, 404), "no config.json"),
         (refused(INFO_PATH, 500), "could not answer"),
-        (public_repo(info=repo_files({"model.Q4_K_M.gguf": 5, "pytorch_model.bin": 5})), "no safetensors"),
+        (refused(INFO_PATH, 429), "rate limit"),
+        ({**indexed_repo({"model.safetensors": 5}), INDEX_PATH: httpx.Response(401)}, "is gated"),
+        (
+            public_repo(info=repo_files({"model.Q4_K_M.gguf": 5, "pytorch_model.bin": 5})),
+            "no model.safetensors",
+        ),
         (
             {**refused(CONFIG_PATH, 404), INFO_PATH: httpx.Response(200, json=repo_files({}))},
-            "no safetensors",
+            "no model.safetensors",
         ),
         (
-            public_repo(info=repo_files({f"model-00001-of-0000{n}.safetensors": 5 for n in (2, 3)})),
-            "more than one",
+            public_repo(info=repo_files({f"model-0000{i}-of-00002.safetensors": 5 for i in (1, 2)})),
+            "no model.safetensors",
         ),
         (
-            public_repo(info=repo_files({f"model{x}.safetensors": 5 for x in ("", "-00001-of-00001")})),
-            "more than one",
+            indexed_repo({"model-00001-of-00002.safetensors": 5}, "model-00002-of-00002.safetensors"),
+            "does not hold",
         ),
-        (public_repo(info={"id": "Qwen/Qwen3-8B"}), "does not describe"),
+        (
+            indexed_repo(
+                {"model.safetensors": 5, "model-00001-of-00001.safetensors": 5},
+                "model-00001-of-00001.safetensors",
+            ),
+            "two sets",
+        ),
+        (public_repo(repo_files({INDEX: 9, "model.safetensors": 5}), index={"metadata": {}}), "weight index"),
+        (
+            public_repo(repo_files({INDEX: 9, "model.safetensors": 5}), index={"weight_map": {"a": 1}}),
+            "weight index",
+        ),
+        (
+            public_repo(repo_files({INDEX: 9, "model.safetensors": 5}), index={"weight_map": {}}),
+            "weight index",
+        ),
+        (public_repo(info=repo_files({"model.safetensors": 0})), "are empty"),
+        (public_repo(info={"id": "Qwen/Qwen3-8B"}), "does not list"),
         (
             public_repo(info={"siblings": [{"rfilename": "model.safetensors", "size": "big"}]}),
-            "does not describe",
+            "does not list",
         ),
         (public_repo(config={"num_hidden_layers": 36}), "does not describe"),
         (public_repo(config=["not", "an", "object"]), "not a JSON object"),
@@ -255,6 +376,17 @@ async def test_each_lookup_failure_is_a_problem_that_says_to_enter_the_facts_by_
     problem = await FakeHuggingFace(routes).lookup()
     assert message in problem.message
     assert "nter the model facts by hand" in problem.fix
+    assert "Input should be" not in problem.cause and "Field required" not in problem.cause
+
+
+async def test_a_rate_limit_says_to_try_again_later():
+    assert "Try again in a few minutes" in (await FakeHuggingFace(refused(INFO_PATH, 429)).lookup()).fix
+
+
+async def test_a_config_without_the_model_shape_names_the_keys_it_lacks():
+    problem = await FakeHuggingFace(public_repo(config={"num_attention_heads": 16})).lookup()
+    assert "num_hidden_layers" in problem.cause and "head_dim, or hidden_size" in problem.cause
+    assert "num_key_value_heads" not in problem.cause
 
 
 @pytest.mark.parametrize(
@@ -364,6 +496,8 @@ def test_estimate_route_refuses_facts_it_cannot_size(tmp_path):
             body(context_tokens=0),
             body(facts={**body()["facts"], "weights_bytes": 0}),
             body(facts={**body()["facts"], "num_layers": 0}),
+            body(facts={**body()["facts"], "weights_bytes": True}),
+            body(context_tokens=True),
         ):
             r = c.post("/api/v1/fit/estimate", json=bad, headers=BEARER)
             assert r.status_code == 422, bad
