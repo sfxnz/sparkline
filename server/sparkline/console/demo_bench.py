@@ -111,7 +111,7 @@ def _env(node: str, info: NodeInfo | None) -> probes.Env:
         env.rdma = Problem(
             message=f"{node} has no ConnectX-7 peer",
             cause="Its ConnectX-7 ports have no cable or address, so it cannot reach another Spark",
-            fix="Run this benchmark on spark1 + spark2, or cable this node’s ConnectX-7 port to a peer",
+            fix="Run this benchmark on spark1 + spark2, or cable this node's ConnectX-7 port to a peer",
         )
     return env
 
@@ -139,7 +139,7 @@ def _not_gb10(node: str, info: NodeInfo | None) -> Problem | None:
         return None
     return Problem(
         message="Demo results are modelled on GB10 only",
-        cause=f"The demo reports numbers measured on a DGX Spark, which would be false for {node}’s hardware",
+        cause=f"The demo reports numbers measured on a DGX Spark, which would be false for {node}'s hardware",
         fix="Run this benchmark on a DGX Spark demo node, such as spark1",
     )
 

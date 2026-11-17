@@ -842,7 +842,7 @@ stay up, `journalctl -u sparkline-agent -n 50` says why. Check that the URL in `
 address the agent listens on: the agent logs `listening on <ip>:9750` at start-up, and
 `curl http://<ip>:9750/healthz` needs no token. A firewall must allow port 9750 from the console host.
 
-**"Agent on spark2 rejected the console’s token".** The console's `agent_token` doesn't match the agent's
+**"Agent on spark2 rejected the console's token".** The console's `agent_token` doesn't match the agent's
 `token`. Compare them with `sudo grep token /etc/sparkline/*.toml` on the console host and on the node, and
 edit one file so they match. Then restart the service whose file you edited:
 `sudo systemctl restart sparkline` for the console, `sudo systemctl restart sparkline-agent` for the agent.

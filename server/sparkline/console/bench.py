@@ -625,14 +625,14 @@ class BenchManager:
             return Problem(
                 message=f"{spec.name} is not offered by {node}",
                 cause=f"The agent on {node} does not list this benchmark",
-                fix=f"Upgrade sparkline-agent on {node} to the console’s release",
+                fix=f"Upgrade sparkline-agent on {node} to the console's release",
             )
         p = _own(mine.availability, node)
         if p is None and spec.min_nodes >= 2 and not has_rail_ip(self.cluster.sources[node].state.info):
             p = Problem(
                 message=f"{node} has no ConnectX-7 peer",
                 cause="None of its ConnectX-7 interfaces has an IPv4 address: it cannot reach another Spark",
-                fix=f"Cable {node}’s ConnectX-7 port to another Spark and give the rails addresses",
+                fix=f"Cable {node}'s ConnectX-7 port to another Spark and give the rails addresses",
             )
         return p
 

@@ -62,6 +62,10 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   command. The fix for a rejected agent token says how to compare the two tokens and which service to
   restart. A fix that edits `console.toml` now ends with the console restart, because the console reads its
   config only when it starts.
+- On the benchmark cards, a node on its first connection attempt reads "Connecting".
+- A dialog that closes no longer pulls focus back to the control that opened it when focus has already
+  moved on, as it has after a Search command that opens a panel.
+- The web app uses one apostrophe style, the typographic one (’), in everything it says.
 
 ### Fixed
 
