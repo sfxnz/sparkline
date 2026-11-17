@@ -5,6 +5,7 @@ import { Stat } from '../../design/components/Stat';
 import { gapAcross, notReported, type NotReported } from '../../lib/capabilities';
 import { formatBytes, formatPercent, percentParts, wattsParts, type Formatter } from '../../lib/format';
 import { memoryLayout } from '../../lib/memoryLayout';
+import { isNewNode } from '../../lib/onboarding';
 import { gpuList, gpuProcessesGap, gpuSetGap, gpusWithUnknownProcesses, nodeGpuKey, nodeTotalGap } from '../../lib/gpu';
 import type { NodeTotal } from '../../lib/metrics';
 import type { NodeState } from '../../lib/types';
@@ -86,7 +87,8 @@ export function Totals() {
     `${Object.keys(infos).join()}|${String(stale)}`,
   );
   const staleProps = { stale, updatedAt: totals.updatedAt };
-  const energy = useEnergyToday(order);
+  // A node that has never answered has no history to ask for, and no energy to leave out of the total.
+  const energy = useEnergyToday(order.filter((id) => !isNewNode(infos[id])));
   const rate = useCluster((s) => s.cluster?.settings);
   const allOnline = !stale && online.length === order.length;
   const of = stale ? 'No node is reporting live data' : `${allOnline ? 'All' : `${online.length} of`} ${order.length} ${order.length === 1 ? 'node' : 'nodes'} reporting`;

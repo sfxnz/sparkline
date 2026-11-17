@@ -1,4 +1,4 @@
-import { guideStage, guideView, isNewNode, mergeOnboarding, needsSetup } from './onboarding';
+import { agentAddress, fixCommands, guideStage, guideView, isNewNode, mergeOnboarding, needsSetup, reachOf, retryWait } from './onboarding';
 import type { Onboarding } from './types';
 
 const ob = (over: Partial<Onboarding> = {}): Onboarding => ({ started: 100, finished: null, seen: [], ...over });
@@ -59,5 +59,36 @@ describe('the guide follows the console state', () => {
     expect(guideView('first', false)).toBe('strip');
     expect(guideView('resumed', true)).toBe('full');
     expect(guideView('finished', true)).toBe('gone');
+  });
+});
+
+describe('a node that cannot be reached', () => {
+  it('names the address the console tried', () => {
+    expect(agentAddress('http://192.168.1.11:9750')).toBe('192.168.1.11:9750');
+    expect(agentAddress('https://spark2.example')).toBe('spark2.example');
+    expect(agentAddress('not a url')).toBe('not a url');
+  });
+
+  it('finds every command a fix names, once each, in order', () => {
+    expect(fixCommands('Check `systemctl status sparkline-agent` on spark1')).toEqual(['systemctl status sparkline-agent']);
+    expect(fixCommands('Check `journalctl -u sparkline-agent` on spark1 and `systemctl status sparkline-agent`; then `journalctl -u sparkline-agent` again'))
+      .toEqual(['journalctl -u sparkline-agent', 'systemctl status sparkline-agent']);
+    expect(fixCommands('agent_token in /etc/sparkline/console.toml must match token in /etc/sparkline/agent.toml on spark2')).toEqual([]);
+    expect(fixCommands(null)).toEqual([]);
+  });
+
+  it('draws an error as an agent that answered and said no, and anything else as no answer', () => {
+    expect(reachOf('error')).toBe('turned-away');
+    expect(reachOf('offline')).toBe('no-answer');
+  });
+
+  it('counts down to the next attempt and says how much of the wait is left', () => {
+    expect(retryWait(130, 100, 100)).toEqual({ secs: 30, left: 1 });
+    expect(retryWait(130, 100, 115)).toEqual({ secs: 15, left: 0.5 });
+    expect(retryWait(130, 100, 129.2)).toMatchObject({ secs: 1 });
+    expect(retryWait(130, 100, 130)).toEqual({ secs: 0, left: 0 });
+    expect(retryWait(null, 100, 100)).toEqual({ secs: 0, left: 0 });
+    // Learned after a reload, part way through the wait: the bar starts full and still ends on time.
+    expect(retryWait(130, 120, 125)).toEqual({ secs: 5, left: 0.5 });
   });
 });

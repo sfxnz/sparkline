@@ -1,8 +1,9 @@
 // Overview ('/'): is my cluster healthy and what is it doing?
 // Hero sentence -> living node cards -> cluster totals + interconnect -> recent events -> GPU activity over time.
-import { ServerOff } from 'lucide-react';
-import { useMemo } from 'react';
+import { Activity, ServerOff } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { EmptyState } from '../design/components/EmptyState';
+import { isNewNode, needsSetup } from '../lib/onboarding';
 import { useCluster } from '../store/cluster';
 import { ClusterChart, ClusterChartSkeleton } from './overview/ClusterChart';
 import { Hero, HeroSkeleton } from './overview/Hero';
@@ -10,6 +11,7 @@ import { InterconnectPanel, InterconnectSkeleton } from './overview/Interconnect
 import { interconnectLinks } from './overview/model';
 import { NodeCard, NodeCardSkeleton } from './overview/NodeCard';
 import { RecentEvents, RecentEventsSkeleton } from './overview/RecentEvents';
+import { SetupCard } from './overview/SetupCard';
 import { Totals, TotalsSkeleton } from './overview/Totals';
 import './views.css';
 import './overview/overview.css';
@@ -30,23 +32,44 @@ export default function Overview() {
     [infoKey],
   );
 
+  // Nodes that had never answered at some point while this page was open: their first reading is an arrival.
+  const fresh = order.filter((id) => isNewNode(nodes[id]));
+  const [arriving, setArriving] = useState<ReadonlySet<string>>(() => new Set(fresh));
+  if (fresh.some((id) => !arriving.has(id))) setArriving(new Set([...arriving, ...fresh]));
+
   if (!ready) return <OverviewSkeleton />;
   if (!order.length) return <NoNodes />;
 
+  // No node has ever reported: totals, events and charts would be a page of dashes. One quiet line instead.
+  const nothingYet = fresh.length === order.length;
   return (
     <div className="view ov">
       <Hero />
       <div className="ov-cards">
-        {order.map((id) => (
-          <NodeCard key={id} id={id} />
-        ))}
+        {order.map((id) => (needsSetup(nodes[id]) ? <SetupCard key={id} id={id} /> : <NodeCard key={id} id={id} arriving={arriving.has(id)} />))}
       </div>
-      <div className={`ov-pair${links.length ? '' : ' ov-pair--single'}`}>
-        <Totals />
-        {links.length ? <InterconnectPanel links={links} /> : null}
-      </div>
-      <RecentEvents />
-      <ClusterChart nodes={order} />
+      {nothingYet ? (
+        <NothingYet nodes={order} />
+      ) : (
+        <>
+          <div className={`ov-pair${links.length ? '' : ' ov-pair--single'}`}>
+            <Totals />
+            {links.length ? <InterconnectPanel links={links} /> : null}
+          </div>
+          <RecentEvents />
+          <ClusterChart nodes={order} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function NothingYet({ nodes }: { nodes: readonly string[] }) {
+  return (
+    <div className="ov-quiet">
+      <EmptyState icon={Activity} title="Totals, events and charts start with the first reading" compact>
+        Nothing is missing from this page. It fills in by itself the moment {nodes.length === 1 ? nodes[0] : 'a node'} answers.
+      </EmptyState>
     </div>
   );
 }

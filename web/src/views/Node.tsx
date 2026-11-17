@@ -18,6 +18,7 @@ import { notReported } from '../lib/capabilities';
 import { formatAgo, formatDuration } from '../lib/format';
 import { nicHeading, nicModel } from '../lib/interconnect';
 import { memoryLayout } from '../lib/memoryLayout';
+import { needsSetup } from '../lib/onboarding';
 import { sentence } from '../lib/gpu';
 import { gpuHeadline } from '../lib/platform';
 import type { NodeInfo, NodeState } from '../lib/types';
@@ -25,6 +26,7 @@ import { serverNow, useCluster } from '../store/cluster';
 import { useConnection } from '../store/connection';
 import { useNodeDisplayStatus } from '../store/attention';
 import { TAB_COMPONENTS } from './node/tabs';
+import { NodeSetup } from './shared/NodeSetup';
 import { PlatformSheet } from './node/parts/PlatformSheet';
 import { SummarySkeleton } from './node/parts/SummarySkeleton';
 import { ChartPanelSkeleton, StatSkeleton } from './placeholders';
@@ -48,8 +50,21 @@ export default function Node() {
   const info = useCluster((s) => s.nodes[id]?.info);
   const gaps = tabMetrics(tab, info).map((m) => notReported(info, m));
   const gap = gaps.length && gaps.every(Boolean) ? gaps[0] : null;
+  const setup = useCluster((s) => { const n = s.nodes[id]; return needsSetup(n) ? n : undefined; });
 
   if (known && !exists) return <NodeNotFound id={id} />;
+  // Never connected: the fix, in place of eight tabs of dashes. The tabs appear with the first reading.
+  if (setup) {
+    return (
+      <div className="view node">
+        <NodeHeader id={id} />
+        <Panel className="node-setup" material="thin" label={`${id} is not connected yet`}>
+          <NodeSetup node={setup} headingLevel={2} />
+        </Panel>
+        <p className="node-setup__note">This page fills in by itself when {id} answers. Nothing else needs doing here.</p>
+      </div>
+    );
+  }
 
   const TabComponent = TAB_COMPONENTS[tab];
   return (

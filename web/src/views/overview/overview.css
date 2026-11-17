@@ -220,6 +220,17 @@
 .ov-notice__fix code { font-size: 0.95em; }
 .ov-notice__meta { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* A node that has never answered: a dashed, quieter card sized to what it says (never stretched to a live card's
+   height, never clipped). */
+.ov-card--setup { cursor: default; align-self: start; }
+.ov-card--setup .ov-card__panel { border-style: dashed; border-color: var(--separator-strong); }
+.ov-card--setup .panel__body { display: flex; flex-direction: column; padding-top: var(--space-5); }
+
+/* No node has reported yet: one quiet line where totals, events and charts will be. */
+.ov-quiet { border-radius: var(--radius-lg); border: var(--hairline) dashed var(--separator-strong); }
+.ov-quiet .state { padding-block: var(--space-6); }
+.ov-quiet .state__title { text-wrap: balance; }
+
 /* -------------------------------------------------------------- totals */
 .ov-totals .panel__body { padding: var(--space-5); }
 .ov-totals__row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -372,3 +383,5 @@
 .ov-rail--stale.ov-rail--stale * { color: var(--text-3); }
 .ov-card--dim .ov-card__values :is(svg, canvas),
 .ov-rail--stale :is(svg, canvas) { opacity: 0.5; }
+/* A stat's placeholder never outgrows its column (a narrow card, a phone). */
+.ov-stat > .skeleton { max-width: 100%; }
