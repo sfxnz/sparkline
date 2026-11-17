@@ -41,6 +41,15 @@ describe('Clear history', () => {
     render(<DataSection />);
     expect(screen.getByText('spark3 has not connected yet. It has no history to clear.')).toBeInTheDocument();
     expect(screen.queryByText(/offline/)).not.toBeInTheDocument();
+    // Nothing to clear, so there is no button: not even a dimmed one.
+    expect(screen.queryByRole('button', { name: /Clear history/ })).toBeNull();
+  });
+
+  it('a node that has answered before and is down keeps its button, disabled, and is named as its status pill names it', () => {
+    useCluster.setState({ order: ['spark3'], nodes: { spark3: { ...node('spark3', 'offline'), first_seen: 100 } } });
+    render(<DataSection />);
+    expect(screen.getByText('spark3 is offline. Its history can be cleared once the agent is reachable.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear history for spark3…' })).toBeDisabled();
   });
 });
 

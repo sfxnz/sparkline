@@ -56,6 +56,16 @@ describe('a node that has never answered', () => {
     const tile = screen.getByRole('region', { name: 'Node spark2' });
     expect(within(tile).getByText('Not connected yet')).toBeInTheDocument();
     expect(tile.querySelector('.status')?.textContent).not.toMatch(BAD);
+    // The line under it says what the console met, without the slash that marks a node gone offline.
+    expect(within(tile).getByText('Agent on spark2 rejected the console’s token').closest('p')?.querySelector('svg')).toBeNull();
+  });
+
+  it('keeps the slash on the wall tile of a node that has answered before and is down', () => {
+    useCluster.setState({ nodes: { spark1: { ...refused, first_seen: now - 60 } } });
+    render(<WallTile id="spark1" />);
+    const tile = screen.getByRole('region', { name: 'Node spark1' });
+    expect(within(tile).getByText('Offline')).toBeInTheDocument();
+    expect(within(tile).getByText('Agent unreachable on spark1').closest('p')?.querySelector('svg')).not.toBeNull();
   });
 
   it('reads "Not connected yet" in the header of its own page', () => {

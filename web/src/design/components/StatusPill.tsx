@@ -45,6 +45,9 @@ export function nodeDisplayStatus(status: NodeStatus | undefined, alert: 'warnin
   }
 }
 
+/** The words for a display status ("Not connected yet"), for a surface that says it in a sentence. */
+export const statusLabel = (status: Status): string => META[status].label;
+
 interface Props {
   status: Status;
   /** Override the default label ("Healthy"), e.g. "Offline for 2 min". */

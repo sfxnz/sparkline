@@ -143,6 +143,15 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await expect(spark1.getByRole('img', { name: /^GPU utilisation \d+%/ })).toBeVisible({ timeout: 10_000 });
   await expectNoAlarm(page);
 
+  // Benchmarks and Settings > Data say the same of spark3: not connected yet, never offline, and nothing to clear.
+  await page.goto(`${BASE}/benchmarks`);
+  await expect(page.locator('.bench-avail', { hasText: 'spark3' }).first()).toContainText('Not connected yet');
+  await expectNoAlarm(page);
+  await page.goto(`${BASE}/settings`);
+  await expect(page.getByText('spark3 has not connected yet. It has no history to clear.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear history for spark3…' })).toHaveCount(0);
+  await page.goto(`${BASE}/`);
+
   // The guide is open in full under the node cards, and the sidebar counts it.
   const panel = guidePanel(page);
   await expect(panel.getByRole('listitem')).toHaveCount(5);

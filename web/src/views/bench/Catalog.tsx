@@ -65,7 +65,7 @@ function BenchCard({ spec, last, onConfigure }: { spec: BenchSpec; last: BenchRu
       <p className="bench-card__desc">{splitDescription(spec.description).summary}</p>
       <ImpactChips impact={spec.impact} />
       <ul className="bench-avails" aria-label={`${spec.name} availability`}>
-        {nodes.map((id) => <Availability key={id} node={id} problem={spec.availability[id]} nodeStatus={statuses[id]?.status} />)}
+        {nodes.map((id) => <Availability key={id} node={id} problem={spec.availability[id]} state={statuses[id]} />)}
       </ul>
       <footer className="bench-card__foot">
         {last ? (

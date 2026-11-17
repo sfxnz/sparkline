@@ -117,6 +117,19 @@ def test_connect_errors_isolated_and_mapped(env):
     assert node(env, "n1")["status"] == "online"
 
 
+def test_the_benchmark_catalog_says_not_connected_yet_of_a_node_that_has_never_answered(env):
+    wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
+    wait_for(lambda: node(env, "bad")["status"] == "error", 10, "bad -> error")
+    wait_for(lambda: node(env, "ghost")["status"] == "offline", 10, "ghost offline")
+    specs = env["http"].get("/api/v1/bench/catalog").json()
+    assert specs, "n1 offers no benchmarks"
+    for spec in specs:
+        assert spec["availability"]["n1"] is None or "n1 is" not in spec["availability"]["n1"]["message"]
+        assert spec["availability"]["ghost"]["message"] == "ghost is not connected yet"
+        assert spec["availability"]["bad"]["message"] == "bad is not connected yet"
+        assert "Start the agent on ghost" in spec["availability"]["ghost"]["fix"]
+
+
 def test_live_and_history_proxy(env):
     wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
     time.sleep(0.5)

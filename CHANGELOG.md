@@ -20,11 +20,12 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   its token with a copy button. Afterwards the same help is under "Where is the token?". After too many wrong
   tokens the page shows the console's own explanation and fix, where it used to show raw JSON.
 - **Nodes that have not answered yet.** A node the console has never heard from reads "Not connected yet" on
-  its card, its page, the sidebar, the wall and in Settings, in a neutral tone. Its card shows what the
-  console tried, the likely cause and the fix a step at a time, each command under its step with a copy
-  button, the time to the next try and **Retry now**. When the agent answered and turned the console away (a
-  wrong token), the card says that only the fix will connect it, where it would count down to the next try.
-  The node's first reading arrives on the card in place.
+  its card, its page, the sidebar, the wall, the benchmark cards and in Settings, in a neutral tone, and
+  Settings > Data offers no "Clear history" for it. Its card shows what the console tried, the likely cause
+  and the fix a step at a time, each command under its step with a copy button, the time to the next try and
+  **Retry now**. When the agent answered and turned the console away (a wrong token), the card says that
+  only the fix will connect it, where it would count down to the next try. The node's first reading arrives
+  on the card in place.
 - **Getting started.** The overview of a new install carries a short guide: connect your nodes, get told
   when something breaks, model servers, Prometheus and benchmarks. Each row opens the real page and shows
   what the cluster already has. A row is ticked once you have opened it, or when the cluster already has
