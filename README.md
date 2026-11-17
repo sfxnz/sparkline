@@ -412,8 +412,10 @@ channel gets at most one message a second. On HTTP 429 the console waits as long
 notices meanwhile; the next message says how many more there were. Any other 4xx answer, or a redirect,
 drops the message, because sending it again cannot work. Waiting notices are not stored: when the console
 stops it tries each channel once more and drops the rest, and after a restart an alert that still holds
-fires again. An alert whose condition ended while the console was down gets no "Resolved" message, so check
-the console after a restart if a channel still shows an alert as open.
+fires again. An alert that was open when the console stopped stays open until its node reports again. If the
+condition ended while the console was down, the channels get its "Resolved" message at that node's first
+clear reading. If the alert's rule no longer exists or its node is no longer in `console.toml`, the channels
+get a "Resolved" message that says so when the console starts.
 
 The **Alerts** view lists the channels with the host, what each one sends, and how its last delivery went.
 **Send test** sends a test message now and shows the result, with the reason when it fails. Channels are
