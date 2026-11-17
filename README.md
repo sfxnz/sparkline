@@ -816,7 +816,8 @@ make one.
 **Each node is checked.** The agent reads, without root, whether a setting is applied on its node. A setting
 that is applied is not recommended for that node. The GPU driver does not report a clock cap, so the agent
 looks for Sparkline's own record or for an active systemd unit that runs `nvidia-smi -lgc`, and compares the
-live GPU clock with the cap. A cap that you typed by hand is not visible to the agent.
+live GPU clock with the cap. A unit that sets a cap above 2200 MHz does not count as applied. A cap that
+you typed by hand is not visible to the agent.
 
 **One click needs the node's consent.** Install the agent with `--enable-tune` to get the **Apply** and
 **Undo** buttons for that node. On a node that is already installed, run `install.sh agent` again with
