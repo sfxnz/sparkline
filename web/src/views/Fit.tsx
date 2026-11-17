@@ -21,8 +21,12 @@ function sourceNote({ size, shape }: ReadFrom): string | null {
   return shape !== null ? `Shape read from ${shape}. The size is typed by hand.` : null;
 }
 
-/** What a size a lookup filled in covers, and what it leaves out. Said wherever the number is shown. */
-const SCOPE = "This is the size of this repo's own weight files.";
+/**
+ * What a size a lookup filled in covers, and what it leaves out. Said wherever the number is shown. It names
+ * the safetensors files because those are what the lookup counted: a repo can hold the same weights again in
+ * another format, and a GGUF copy is not in the number.
+ */
+const SCOPE = "This is the size of this repo's safetensors files.";
 const NOT_COUNTED = "A second model the repo loads, a draft model's target and the base model under an adapter are not counted: a server loads those as well, and the lookup cannot see them.";
 
 type Lookup = { status: 'idle' } | { status: 'loading' } | { status: 'error'; problem: Problem };
@@ -112,8 +116,8 @@ export default function Fit() {
               label="Weights"
               hint={
                 weights.upperBound
-                  ? `${SCOPE} It is the total of the repo's weight files, which are one set of shards, because the lookup could not read the repo's index: it is too large, so a server may load fewer of these files and never more. ${NOT_COUNTED}`
-                  : `${SCOPE} They are the files a server loads from it, so quantised weights count as they are stored. ${NOT_COUNTED}`
+                  ? `${SCOPE} It is the total of every safetensors file in the repo, which are one set of shards, because the lookup could not read the repo's index: it is too large, so a server may load fewer of these files and never more. ${NOT_COUNTED}`
+                  : `${SCOPE} They are the files a server that reads safetensors loads from it, so quantised weights count as they are stored. ${NOT_COUNTED}`
               }
             >
               <div className="fit-weights fit-weights--files">
@@ -212,7 +216,7 @@ const COLUMNS: readonly Column<NodeFit>[] = [
 
 /** The sentence above the verdicts: what they count, part by part, and which part the console cannot check. */
 function verdictScope({ size, shape }: ReadFrom): string {
-  if (size !== null) return `Every verdict below counts ${size}'s own weight files and nothing else. ${NOT_COUNTED}${shape === null ? ' The shape was typed on the form, and the console cannot check it.' : ''}`;
+  if (size !== null) return `Every verdict below counts ${size}'s safetensors files and nothing else. ${NOT_COUNTED}${shape === null ? ' The shape was typed on the form, and the console cannot check it.' : ''}`;
   if (shape !== null) return `Every verdict below is built from a size typed on the form, which the console cannot check. The shape was read from ${shape}.`;
   return 'Every verdict below is built from the size and the shape typed on the form. The console did not read the model and cannot check them.';
 }
@@ -228,7 +232,7 @@ function Result({ from, request, response }: { from: ReadFrom; request: FitReque
           <dt>Weights</dt>
           <dd className="num">{formatBytes(estimate.weights_bytes)}</dd>
           <dd className="fit-sums__detail">
-            {from.size === null ? 'typed by hand' : `read from ${from.size}: ${request.facts.weights_upper_bound ? 'the total of its weight files, index not read' : 'its own weight files'}`}
+            {from.size === null ? 'typed by hand' : `read from ${from.size}: ${request.facts.weights_upper_bound ? 'the total of its safetensors files, index not read' : 'its safetensors files'}`}
           </dd>
         </div>
         <div>

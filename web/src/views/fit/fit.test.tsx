@@ -245,25 +245,25 @@ describe('Will it fit', () => {
     expect(spy.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
   });
 
-  it('says beside the size when it is the total of the repo\'s weight files, and not when it is the files a server loads', async () => {
+  it('says beside the size when it is the total of every safetensors file in the repo, and not when it is the files a server loads', async () => {
     const user = userEvent.setup();
     const spy = fakeConsole();
     render(<Fit />);
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/sharded{Enter}');
     expect(await screen.findByText('Filled in from some/sharded.')).toBeInTheDocument();
     expect(screen.getByRole('status', { name: 'Weights' })).toHaveTextContent('11.2 GiB');
-    expect(screen.getByRole('status', { name: 'Weights' })).toHaveAccessibleDescription(/total of the repo's weight files.*could not read the repo's index/);
+    expect(screen.getByRole('status', { name: 'Weights' })).toHaveAccessibleDescription(/total of every safetensors file in the repo.*could not read the repo's index/);
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
-    expect(await screen.findByRole('region', { name: 'Result' })).toHaveTextContent(/read from some\/sharded: the total of its weight files, index not read/);
+    expect(await screen.findByRole('region', { name: 'Result' })).toHaveTextContent(/read from some\/sharded: the total of its safetensors files, index not read/);
     expect(sent(spy).facts.weights_upper_bound).toBe(true);
 
     await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
     await screen.findByText('Filled in from Qwen/Qwen3-8B.');
-    expect(screen.getByRole('status', { name: 'Weights' })).not.toHaveAccessibleDescription(/total of the repo's weight files/);
+    expect(screen.getByRole('status', { name: 'Weights' })).not.toHaveAccessibleDescription(/total of every safetensors file/);
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     await screen.findByText(/Qwen\/Qwen3-8B at 32,768 tokens/);
-    expect(screen.getByRole('region', { name: 'Result' })).not.toHaveTextContent(/the total of its weight files/);
+    expect(screen.getByRole('region', { name: 'Result' })).not.toHaveTextContent(/the total of its safetensors files/);
   });
 
   it('says what the size covers and what it leaves out, on the form and beside the verdicts', async () => {
@@ -275,14 +275,16 @@ describe('Will it fit', () => {
 
     await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
     await screen.findByText('Filled in from Qwen/Qwen3-8B.');
-    expect(screen.getByRole('status', { name: 'Weights' })).toHaveAccessibleDescription(/This is the size of this repo's own weight files/);
+    expect(screen.getByRole('status', { name: 'Weights' })).toHaveAccessibleDescription(/This is the size of this repo's safetensors files/);
     expect(screen.getByRole('status', { name: 'Weights' })).toHaveAccessibleDescription(notCounted);
 
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     const result = within(await screen.findByRole('region', { name: 'Result' }));
-    expect(result.getByText('read from Qwen/Qwen3-8B: its own weight files')).toBeInTheDocument();
+    expect(result.getByText('read from Qwen/Qwen3-8B: its safetensors files')).toBeInTheDocument();
     expect(result.getByText('shape read from Qwen/Qwen3-8B')).toBeInTheDocument();
-    expect(result.getByText(/Every verdict below counts Qwen\/Qwen3-8B's own weight files and nothing else/)).toBeInTheDocument();
+    expect(result.getByText(/Every verdict below counts Qwen\/Qwen3-8B's safetensors files and nothing else/)).toBeInTheDocument();
+    // A repo can hold the same weights again as GGUF, so no label on the page says every weight file was counted.
+    expect(screen.queryByText(/own weight files/)).not.toBeInTheDocument();
     expect(result.getByText(notCounted, { exact: false })).toBeInTheDocument();
   });
 
@@ -318,9 +320,9 @@ describe('Will it fit', () => {
     await user.click(screen.getByRole('button', { name: 'Estimate' }));
     const result = within(await screen.findByRole('region', { name: 'Result' }));
     expect(sent(spy).facts).toEqual({ ...QWEN, repo: null, max_context: null, head_dim: 129 });
-    expect(result.getByText('read from Qwen/Qwen3-8B: its own weight files')).toBeInTheDocument();
+    expect(result.getByText('read from Qwen/Qwen3-8B: its safetensors files')).toBeInTheDocument();
     expect(result.getByText('shape typed by hand')).toBeInTheDocument();
-    expect(result.getByText(/Every verdict below counts Qwen\/Qwen3-8B's own weight files and nothing else/)).toBeInTheDocument();
+    expect(result.getByText(/Every verdict below counts Qwen\/Qwen3-8B's safetensors files and nothing else/)).toBeInTheDocument();
     expect(result.getByText(/A second model the repo loads, a draft model's target and the base model under an adapter are not counted/)).toBeInTheDocument();
     expect(result.getByText(/The shape was typed on the form, and the console cannot check it/)).toBeInTheDocument();
     expect(result.queryByText(/The console did not read the model/)).not.toBeInTheDocument();
