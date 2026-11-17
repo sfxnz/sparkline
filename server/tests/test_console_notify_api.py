@@ -56,7 +56,7 @@ def make(tmp_path, *channels: NotifyConfig):
     return create_app(cfg, tmp_path / "data")
 
 
-def hook(sink, name: str = "home", **kw) -> NotifyConfig:
+def hook(sink, name: str = "relay", **kw) -> NotifyConfig:
     url = f"http://127.0.0.1:{sink.server_port}/api/webhook/{CANARY}"
     return NotifyConfig(name=name, kind="webhook", url=url, **kw)
 
@@ -70,11 +70,11 @@ def until(done, timeout: float = 5.0) -> None:
 
 def test_both_routes_need_a_sign_in_and_the_test_route_refuses_another_origin(tmp_path, sink):
     with TestClient(make(tmp_path, hook(sink))) as c:
-        for method, path in [("GET", CHANNELS), ("POST", f"{CHANNELS}/home/test")]:
+        for method, path in [("GET", CHANNELS), ("POST", f"{CHANNELS}/relay/test")]:
             r = c.request(method, path)
             assert r.status_code == 401 and r.json()["problem"]["message"] == "Sign in required", path
             assert c.request(method, path, headers={"Authorization": "Bearer wrong"}).status_code == 401
-        r = c.post(f"{CHANNELS}/home/test", headers={**AUTH, "Origin": "http://evil.example"})
+        r = c.post(f"{CHANNELS}/relay/test", headers={**AUTH, "Origin": "http://evil.example"})
         assert r.status_code == 403 and r.json()["problem"]["message"] == "Cross-site request blocked"
         assert sink.seen == []
 
@@ -82,7 +82,7 @@ def test_both_routes_need_a_sign_in_and_the_test_route_refuses_another_origin(tm
 def test_no_notify_table_lists_no_channel(tmp_path):
     with TestClient(make(tmp_path)) as c:
         assert c.get(CHANNELS, headers=AUTH).json() == []
-        assert c.post(f"{CHANNELS}/home/test", headers=AUTH).status_code == 404
+        assert c.post(f"{CHANNELS}/relay/test", headers=AUTH).status_code == 404
 
 
 def test_channels_are_listed_in_config_order_without_their_url_or_token(tmp_path, sink):
@@ -104,7 +104,7 @@ def test_channels_are_listed_in_config_order_without_their_url_or_token(tmp_path
                 "last": None,
             },
             {
-                "name": "home",
+                "name": "relay",
                 "kind": "webhook",
                 "host": f"127.0.0.1:{sink.server_port}",
                 "min_severity": "warning",
@@ -118,11 +118,11 @@ def test_channels_are_listed_in_config_order_without_their_url_or_token(tmp_path
 
 def test_send_test_delivers_to_the_channel_and_returns_its_row(tmp_path, sink):
     with TestClient(make(tmp_path, hook(sink, token="tk_1"))) as c:
-        r = c.post(f"{CHANNELS}/home/test", headers=AUTH)
+        r = c.post(f"{CHANNELS}/relay/test", headers=AUTH)
         assert r.status_code == 200 and CANARY not in r.text
         row = r.json()
         assert (row["name"], row["last"]["ok"], row["last"]["test"], row["last"]["problem"]) == (
-            "home",
+            "relay",
             True,
             True,
             None,
@@ -158,14 +158,14 @@ def test_a_redirect_that_repeats_the_url_is_not_followed_and_not_logged_even_at_
     caplog.set_level(logging.DEBUG)
     sink.status = 302
     with TestClient(make(tmp_path, hook(sink, token=CANARY))) as c:
-        r = c.post(f"{CHANNELS}/home/test", headers=AUTH)
+        r = c.post(f"{CHANNELS}/relay/test", headers=AUTH)
         assert r.status_code == 200 and CANARY not in r.text
         last = r.json()["last"]
         assert (last["ok"], last["failure"]) == (False, "redirect")
         assert "never follows" in last["problem"]["cause"]
     assert len(sink.seen) == 1
     assert "connect_tcp.started host='127.0.0.1'" in caplog.text
-    assert "notify 'home': test not sent: redirect" in caplog.text
+    assert "notify 'relay': test not sent: redirect" in caplog.text
     assert CANARY not in caplog.text
 
 
