@@ -588,9 +588,9 @@ behind a login that gives no such proof gets those three requests and no more.
 names under its own prefix. A value the server does not export reads "Not reported by this server". llama.cpp
 serves metrics only with `--metrics` and SGLang only with `--enable-metrics`; without the flag the server is
 listed with its model and a note naming the flag. A server that lists its models to anyone and answers 401
-or 403 on its metrics path is listed the same way, with a note asking for the API key. Ollama, LM Studio and mlx_lm are not read yet. Memory held
-is the server's own figure when it exports one, otherwise the GPU memory of the process (or of every process
-in its container) whose arguments name the port.
+or 403 on its metrics path is listed the same way, with a note asking for the API key. Ollama, LM Studio and
+mlx_lm are not read yet. Memory held is the server's own figure when it exports one, otherwise the GPU memory
+of the process (or of every process in its container) whose arguments name the port.
 
 Each reading is also a history and alert key: `llm.<port>.up`, `.running`, `.waiting`, `.gen_tps`,
 `.prompt_tps`, `.ttft_p50_s`, `.ttft_p95_s`, `.kv_cache_pct`, `.preempt_per_s` and `.mem_bytes`.
@@ -610,10 +610,13 @@ instead: it is not listening, it is loading (HTTP 503), it wants an API key or r
 (HTTP 401 or 403), or it did not answer as a model server.
 
 **Turning it off.** `model_server_discovery = false` stops the agent asking any port you did not list. With
-no `[[model_servers]]` either, it asks nothing. Do this on a node with a llama.cpp server that should stay
-asleep: it is not confirmed whether `GET /v1/models` wakes a sleeping llama.cpp model. llama.cpp's
-documentation says `/health`, `/props`, `/models` and `/metrics` do not wake it, and does not mention
-`/v1/models`.
+no `[[model_servers]]` either, it asks nothing.
+
+**llama.cpp.** A server started with `--sleep-idle-seconds` goes to sleep on time and stays asleep while the
+agent reads it: `GET /v1/models`, `/metrics` and `/health` neither wake its model nor restart its idle
+timer (checked against llama.cpp build 12464). Its metrics carry no sleep state, so a sleeping llama.cpp
+server reads Ready. llama.cpp adds a request's tokens to its counters when the request finishes, so
+Generation reads 0 during a long completion and jumps when it ends.
 
 ## Benchmarks
 
