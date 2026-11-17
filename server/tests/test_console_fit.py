@@ -471,10 +471,18 @@ async def test_a_config_the_lookup_cannot_read_takes_the_size_with_it(routes, me
     assert "another repo" in failure.problem.cause
 
 
-async def test_a_config_read_but_not_understood_still_gives_the_size_it_read():
+async def test_a_config_read_but_not_understood_keeps_neither_the_shape_nor_the_size():
+    # The shape and the sign that the model reaches outside the repo come from the same config.json, so a
+    # size the lookup cannot pair with a shape is a size it cannot say the model's own files hold.
     failure = await FakeHuggingFace(public_repo(config={"num_attention_heads": 16})).lookup()
-    assert failure.found.weights_bytes == 16_381_470_720
+    assert failure.found.weights_bytes is None, failure
+    assert failure.found.shape is None
     assert "does not describe" in failure.problem.message
+
+
+async def test_a_shape_read_without_a_size_is_still_filled_in():
+    failure = await FakeHuggingFace(public_repo(info=repo_files({"model.Q4_K_M.gguf": 5}))).lookup()
+    assert failure.found.shape is not None and failure.found.weights_bytes is None
 
 
 async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
@@ -559,7 +567,7 @@ QWEN_SHAPE = {"num_layers": 36, "num_kv_heads": 8, "head_dim": 128, "max_context
         pytest.param(
             public_repo(config={"num_attention_heads": 16}),
             "does not describe",
-            {"weights_bytes": 16_381_470_720, "weights_upper_bound": False, "shape": None},
+            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
             id="weights-sized-and-no-shape-in-the-config",
         ),
         pytest.param(
@@ -571,7 +579,7 @@ QWEN_SHAPE = {"num_layers": 36, "num_kv_heads": 8, "head_dim": 128, "max_context
         pytest.param(
             public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config={"num_attention_heads": 16}),
             "does not describe",
-            {"weights_bytes": 12_000_000_000, "weights_upper_bound": True, "shape": None},
+            {"weights_bytes": None, "weights_upper_bound": False, "shape": None},
             id="weights-bounded-and-no-shape-in-the-config",
         ),
         pytest.param(
@@ -607,12 +615,12 @@ async def test_a_refused_lookup_still_gives_the_part_it_read(routes, message, fo
 
 
 def test_lookup_route_sends_the_part_a_refused_lookup_read(tmp_path, hf):
-    hf.routes = public_repo(config={"num_attention_heads": 16})
+    hf.routes = public_repo(info=repo_files({"model.Q4_K_M.gguf": 5}))
     with TestClient(make(tmp_path)) as c:
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
     assert r.status_code == 502
-    assert "does not describe" in r.json()["problem"]["message"]
-    assert r.json()["found"] == {"weights_bytes": 16_381_470_720, "weights_upper_bound": False, "shape": None}
+    assert "no model.safetensors" in r.json()["problem"]["message"]
+    assert r.json()["found"] == {"weights_bytes": None, "weights_upper_bound": False, "shape": QWEN_SHAPE}
 
 
 async def test_a_file_too_large_to_read_is_named_in_the_refusal():

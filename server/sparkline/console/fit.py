@@ -66,7 +66,12 @@ class ModelFacts(ModelShape):
 
 
 class Found(BaseModel):
-    """The part of the facts a refused lookup still read. The page fills it in and asks for the rest."""
+    """The part of the facts a refused lookup still read. The page fills it in and asks for the rest.
+
+    A size never comes without a shape. Both are read from the same ``config.json``, which is also the only
+    place the repo says that a server loads weights from somewhere else, so a size the lookup cannot pair
+    with a shape is a size it cannot say covers the model. ``found_by`` is the one way to build this.
+    """
 
     weights_bytes: int | None = None
     weights_upper_bound: bool = False
@@ -444,6 +449,15 @@ class _Weights(NamedTuple):
     upper_bound: bool
 
 
+def found_by(weights: _Weights | Problem, shape: ModelShape | Problem) -> Found:
+    """What one lookup read, as the page fills it in. No size without the shape it belongs to."""
+    if isinstance(shape, Problem):
+        return Found()
+    if isinstance(weights, Problem):
+        return Found(shape=shape)
+    return Found(weights_bytes=weights.bytes, weights_upper_bound=weights.upper_bound, shape=shape)
+
+
 def read_config(repo: RepoId, answer: _Json | Problem) -> dict[str, object] | Problem:
     """The repo's ``config.json`` as an object, or why the lookup has none.
 
@@ -568,11 +582,7 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
     )
     shape = config if isinstance(config, Problem) else parse_shape(repo, config)
     weights = await weights_of(client, repo, sizes, config, gated)
-    found = Found(
-        weights_bytes=None if isinstance(weights, Problem) else weights.bytes,
-        weights_upper_bound=not isinstance(weights, Problem) and weights.upper_bound,
-        shape=None if isinstance(shape, Problem) else shape,
-    )
+    found = found_by(weights, shape)
     if found.weights_bytes is not None and found.shape is not None:
         return ModelFacts(
             repo=repo,
