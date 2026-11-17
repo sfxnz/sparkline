@@ -19,6 +19,7 @@ export const paths = {
   node: (id: string, tab?: NodeTab) => `/node/${encodeURIComponent(id)}${tab && tab !== 'summary' ? `/${tab}` : ''}`,
   alerts: '/alerts',
   benchmarks: '/benchmarks',
+  recommendations: '/recommendations',
   settings: '/settings',
   wall: '/wall',
   login: '/login',
@@ -27,6 +28,7 @@ export const paths = {
 /** The benchmark suite is its own chunk. So are the pages the first paint never needs (the startup bundle stays
  *  lean: overview, node shell and the stream plumbing). */
 export const Benchmarks = lazy(() => import('../views/Benchmarks'));
+export const Recommendations = lazy(() => import('../views/Recommendations'));
 export const Alerts = lazy(() => import('../views/Alerts'));
 export const Settings = lazy(() => import('../views/Settings'));
 export const Wall = lazy(() => import('../views/Wall'));
@@ -39,6 +41,7 @@ export function pageTitle(location: string): string {
   if (node?.[1]) return decodeURIComponent(node[1]);
   if (location.startsWith('/alerts')) return 'Alerts';
   if (location.startsWith('/benchmarks')) return 'Benchmarks';
+  if (location.startsWith('/recommendations')) return 'Recommendations';
   if (location.startsWith('/settings')) return 'Settings';
   return 'Sparkline';
 }

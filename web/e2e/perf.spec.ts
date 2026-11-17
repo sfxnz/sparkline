@@ -57,7 +57,7 @@ test('startup JavaScript stays within the gzip budget, with the benchmark suite 
   const kb = files.reduce((n, f) => n + gzipSync(readFileSync(join(DIST, f)), { level: 9 }).length, 0) / 1024;
   expect(kb, `startup JS ${kb.toFixed(1)} KB gzip: ${files.join(', ')}`).toBeLessThan(STARTUP_JS_BUDGET_KB);
   // The lazy pages are not in the startup graph.
-  for (const lazy of ['Benchmarks', 'Alerts', 'Settings', 'Wall', 'Login', 'motionFeatures']) {
+  for (const lazy of ['Benchmarks', 'Recommendations', 'Alerts', 'Settings', 'Wall', 'Login', 'motionFeatures']) {
     expect(files.some((f) => f.startsWith(`assets/${lazy}-`)), `${lazy} chunk loaded at startup`).toBe(false);
   }
   // Checked by source module, not chunk name: an eager import merges a module into a startup chunk instead of loading a
