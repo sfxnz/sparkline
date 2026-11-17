@@ -2,6 +2,7 @@
 # Sparkline installer. One command per node:
 #
 #   sudo ./deploy/install.sh agent [--enable-benchmarks]                 # every DGX Spark
+#   sudo ./deploy/install.sh console                                     # shows the agent on this host, or:
 #   sudo ./deploy/install.sh console --nodes spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750
 #   sudo ./deploy/install.sh uninstall [--purge]
 #
@@ -22,6 +23,7 @@ Modes:
 
 Options:
   --nodes LIST          console: id=url pairs, e.g. spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750
+                        (default: the agent installed on this host).
   --agent-token TOKEN   Use this agent token instead of generating one (or set SPARKLINE_AGENT_TOKEN, which keeps
                         it out of the process list). Every agent and the console must share one agent token.
   --peers LIST          agent: far ends of the ConnectX-7 rails as id=ip pairs, one per rail, so the UI can
@@ -186,6 +188,14 @@ show_secret() {
 	else
 		printf '(not printed: stdout is not a terminal) sudo grep ^%s %s' "$key" "$file"
 	fi
+}
+
+# This installer's command line for a next step, with the options that have to stay the same.
+self_cmd() {
+	local cmd="$0 $*"
+	[[ $PREFIX == /opt/sparkline ]] || cmd+=" --prefix $PREFIX"
+	if [[ -n $DESTDIR ]]; then cmd+=" --destdir $DESTDIR"; else cmd="sudo $cmd"; fi
+	printf '%s' "$cmd"
 }
 
 # Write a file from stdin with mode/owner. Owner root:sparkline only when making system changes.
@@ -459,9 +469,17 @@ write_console_config() {
 		[[ -z $BIND && -z $PORT && -z $NODES ]] || warn "--bind/--port/--nodes ignored: edit $ETC/console.toml instead"
 		return
 	fi
-	[[ -n $NODES ]] || die "--nodes is required for a new console, e.g. --nodes spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750"
-	nodes=$(nodes_toml)
 	local_agent=$(p "$ETC/agent.toml")
+	if [[ -z $NODES ]]; then # install_console has checked that this host has an agent config
+		NODES=$(local_node)
+		if [[ $NODES == *'<'* ]]; then
+			[[ -x $(p "$VENV")/bin/python ]] ||
+				die "a dry run can't tell where the agent on this host listens before the code is in $(p "$PREFIX"). To preview, pass --nodes ${NODES%%=*}=http://ADDRESS:PORT"
+			die "can't tell where the agent on this host listens (see bind in $local_agent). Pass --nodes ${NODES%%=*}=http://ADDRESS:PORT"
+		fi
+		info "no --nodes: showing the agent on this host, ${NODES%%=*} at ${NODES#*=}"
+	fi
+	nodes=$(nodes_toml)
 	if [[ -n $AGENT_TOKEN ]]; then
 		agent_token=$AGENT_TOKEN
 	elif [[ -f $local_agent ]] && agent_token=$(toml_get "$local_agent" token) && [[ -n $agent_token ]]; then
@@ -564,6 +582,14 @@ except ValueError:
 	printf 'http://%s:%s' "$host" "${port:-$default_port}"
 }
 
+# The agent installed on this host as an id=url pair, the form --nodes takes.
+local_node() {
+	local file id
+	file=$(p "$ETC/agent.toml")
+	id=$(toml_get "$file" node_id)
+	printf '%s=%s' "${id:-$(hostname -s)}" "$(service_url "$file" 9750)"
+}
+
 wait_healthy() {
 	local unit=$1 url=$2
 	[[ $SYSTEM == 1 && $DRY_RUN == 0 ]] || return 0
@@ -640,6 +666,12 @@ install_agent() {
 }
 
 install_console() {
+	# A new console needs nodes to show. Say so before anything is installed.
+	if [[ -z $NODES && ! -f $(p "$ETC/console.toml") && ! -f $(p "$ETC/agent.toml") ]]; then
+		die "a new console needs nodes to show, and there is no agent on this host (no $(p "$ETC/agent.toml")).
+  Install the agent here first:   $(self_cmd agent)
+  Or name the agents elsewhere:   $(self_cmd console) --nodes spark1=http://192.168.1.11:9750,spark2=http://192.168.1.12:9750"
+	fi
 	check_platform
 	build_web
 	ensure_user
