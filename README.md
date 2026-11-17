@@ -154,6 +154,14 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   metadata. The LLM benchmark shows every concurrent stream as it generates and can sweep concurrency levels;
   the tool-calling evaluation shows each scenario's verdict as it finishes. Baselines, regression flags,
   side-by-side comparison, JSON/CSV export and a shareable summary card are included.
+- **Will it fit?** Before you download a model: what it needs at a context length (weights, KV cache, plus
+  10 to 20 % for activations, so a range and not one number) against what each node has free right now, with
+  a verdict per node (Fits, Tight, Does not fit, Unknown). Look a public safetensors repo up on Hugging Face,
+  or type the parameter count, layers, KV heads and head size by hand. A unified-memory node offers its
+  available memory minus 4 GiB. A node with dedicated GPU memory offers the free memory of its emptiest GPU,
+  so the verdict is for a model on one GPU. On a GB10, vLLM's `--gpu-memory-utilization` is not a hard cap,
+  and the page says so. Not modelled: GGUF files, sliding-window attention layers, a model split across
+  GPUs, the AMD GTT limit and the macOS wired-memory limit.
 - **Wall mode, command palette and keyboard shortcuts.** Dark and light themes that follow the system, with
   reduced-motion and reduced-transparency support.
 - **Demo mode** (`--demo`): three simulated nodes, including a thermal episode, a stalled stream and a node
@@ -341,6 +349,7 @@ process list shows command-line arguments to every user.
 | `[[nodes]]` | none | One table per agent: `id = "spark1"`, `url = "http://192.168.1.11:9750"`. |
 | `[settings]` | see below | Initial values. Once you save in the app (Settings), the saved values in `console.sqlite` win. |
 | `trusted_proxies` | `[]` | IPs or networks of reverse proxies whose `X-Forwarded-For` / `X-Forwarded-Proto` headers are believed, e.g. `["127.0.0.1"]` for a proxy on the same host. See [Security model](#security-model). |
+| `hf_lookup` | `true` | Whether Look up on the Will it fit? page may read a public model repo from `https://huggingface.co`. Set `false` on a site with no internet access; the model facts are then typed by hand. See [Security model](#security-model). |
 
 `[settings]` keys: `energy_rate_per_kwh` (0.28), `currency` ("£"), `stale_after_s` (5.0: a node with no
 sample for this long is shown as stale), `offline_after_s` (30.0) and `regression_pct` (5.0: a benchmark
@@ -396,6 +405,12 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   with the run in `console.sqlite`, included in its JSON export and visible to anyone signed in to the
   console. The web app shows it as plain text, never as HTML or Markdown. tool-eval-bench's tools are mocks:
   nothing the model asks for is executed.
+- **One outbound call, only on request.** The running console contacts the internet in one case: a signed-in user
+  presses Look up on the Will it fit? page. It then sends two GET requests to `https://huggingface.co`, for
+  the repo's parameter counts and its `config.json`. The repo id must match `owner/name`, the host is fixed,
+  a redirect is followed only while it stays on `https://huggingface.co`, each response is read up to 1 MiB,
+  and no token or cookie of yours is sent. Hugging Face sees the console host's address and the repo id.
+  `hf_lookup = false` in `console.toml` turns it off.
 - **An agent without a token** starts only on a loopback address, and then answers only local, non-browser
   requests.
 - **No shell execution.** No endpoint runs commands. Benchmarks are a fixed registry, and every parameter is

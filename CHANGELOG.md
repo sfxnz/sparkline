@@ -7,6 +7,16 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+### Added
+
+- **Will it fit?** A new page estimates what a model needs at a context length (weights, KV cache, and 10 to
+  20 % on top for activations, so the total is a range) and compares it with what each node has free in its
+  latest sample: available memory minus 4 GiB on a unified-memory node, or the free memory of the emptiest
+  GPU on a node with dedicated GPU memory. Each node gets a verdict: Fits, Tight, Does not fit or Unknown.
+  Look up reads a public safetensors repo's parameter counts and `config.json` from huggingface.co, and the
+  same facts can be typed by hand. New endpoints `GET /api/v1/fit/lookup?repo=` and
+  `POST /api/v1/fit/estimate`. The new `console.toml` key `hf_lookup` (default `true`) turns the lookup off.
+
 ## [0.1.2] - 2026-11-11
 
 ### Upgrading

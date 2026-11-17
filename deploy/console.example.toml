@@ -10,6 +10,10 @@ token = ""
 # Must equal token in /etc/sparkline/agent.toml on every node. Or leave empty and set SPARKLINE_AGENT_TOKEN.
 agent_token = ""
 
+# The Will it fit? page can read a public model's size from https://huggingface.co when you press Look up.
+# Set false on a site with no internet access: the model facts are then typed by hand.
+# hf_lookup = true
+
 # [settings]                  # also editable in the app (Settings)
 # energy_rate_per_kwh = 0.28
 # currency = "£"
