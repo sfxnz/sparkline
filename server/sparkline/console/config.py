@@ -9,9 +9,10 @@ import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..common.schema import ConsoleSettings
+from .notify import NotifyConfig
 
 DEFAULT_CONFIG = Path("/etc/sparkline/console.toml")
 # console/config.py -> console -> sparkline -> server -> <repo>
@@ -24,6 +25,9 @@ class NodeConfig(BaseModel):
 
 
 class ConsoleConfig(BaseModel):
+    # On the outermost model: set only on NotifyConfig, a load error still prints the channel url.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     bind: str = "auto"
     port: int = 9700
     token: str = ""  # browser token
@@ -35,6 +39,18 @@ class ConsoleConfig(BaseModel):
     # Reverse proxies (IPs or CIDRs) whose X-Forwarded-For / -Proto are believed: behind a TLS proxy the
     # session cookie is then Secure, and sign-in limits count the real client, not the proxy.
     trusted_proxies: list[str] = Field(default_factory=list)
+    # Outbound alert channels. With none, the console opens no connection except to its agents.
+    notify: list[NotifyConfig] = Field(default_factory=list)
+
+    @field_validator("notify")
+    @classmethod
+    def _unique_names(cls, v: list[NotifyConfig]) -> list[NotifyConfig]:
+        seen: set[str] = set()
+        for c in v:
+            if c.name in seen:
+                raise ValueError(f"notify {c.name!r} appears twice")
+            seen.add(c.name)
+        return v
 
     @field_validator("trusted_proxies")
     @classmethod
@@ -84,13 +100,17 @@ def load_config(path: Path | None, env: Mapping[str, str] | None = None) -> Cons
         except OSError:
             data = {}
     unknown = [k for k in data if k not in ConsoleConfig.model_fields]
-    settings, nodes = data.get("settings"), data.get("nodes")
+    settings, nodes, notify = data.get("settings"), data.get("nodes"), data.get("notify")
     if isinstance(settings, dict):
         unknown += [f"settings.{k}" for k in settings if k not in ConsoleSettings.model_fields]
     if isinstance(nodes, list):
         for i, node in enumerate(nodes):
             if isinstance(node, dict):
                 unknown += [f"nodes.{i}.{k}" for k in node if k not in NodeConfig.model_fields]
+    if isinstance(notify, list):
+        for i, channel in enumerate(notify):
+            if isinstance(channel, dict):
+                unknown += [f"notify.{i}.{k}" for k in channel if k not in NotifyConfig.model_fields]
     if unknown:
         raise ValueError(f"unknown config keys in {path or DEFAULT_CONFIG}: {', '.join(unknown)}")
     data.update({key: env[name] for name, key in ENV_KEYS.items() if env.get(name)})

@@ -8,6 +8,7 @@ import json
 import logging
 import ssl
 import traceback
+from pathlib import Path
 
 import httpx
 import pytest
@@ -362,3 +363,12 @@ async def test_the_secret_is_sent_where_the_service_expects_it():
     await Egress(target, resolver=resolver([PUBLIC]), transport=transport).post({})
     assert seen[0].url.path == f"/services/{CANARY}"
     assert seen[0].headers["authorization"] == f"Bearer {CANARY}"
+
+
+def test_secrets_are_unwrapped_in_egress_only_and_egress_uses_no_httpx_client():
+    package = Path(__file__).resolve().parents[1] / "sparkline"
+    unwrapping = {
+        str(f.relative_to(package)) for f in package.rglob("*.py") if "get_secret_value" in f.read_text()
+    }
+    assert unwrapping == {"console/egress.py"}
+    assert "AsyncClient" not in (package / "console/egress.py").read_text()

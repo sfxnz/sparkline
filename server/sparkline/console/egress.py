@@ -3,7 +3,7 @@ channel secret.
 
 Public API: ``Endpoint.parse``, ``address_allowed``, ``Egress.post``, ``Egress.aclose``, ``EgressError``.
 
-``Egress`` calls ``httpx.AsyncHTTPTransport`` directly and never ``httpx.AsyncClient``: the client logs every
+``Egress`` calls ``httpx.AsyncHTTPTransport`` directly and never an httpx client: the client logs every
 request URL at INFO (a Discord or Slack URL is its own credential), follows redirects when asked, and reads
 proxies from the environment, which would connect somewhere other than the checked address.
 """
