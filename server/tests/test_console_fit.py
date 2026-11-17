@@ -746,6 +746,34 @@ async def test_lookup_never_follows_a_redirect_off_huggingface_co(location):
     assert set(hf.hosts) == {"https://huggingface.co"}
 
 
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://user:pass@huggingface.co/steal",
+        "https://evil.example%5C@huggingface.co/steal",
+        "//user@huggingface.co/steal",
+    ],
+)
+async def test_lookup_never_follows_a_redirect_whose_url_carries_a_user_name(location):
+    # httpx reads the user info out of the URL and sends Authorization: Basic with it. The host is right,
+    # so the off-host check does not see this one.
+    hf = FakeHuggingFace({**public_repo(), CONFIG_PATH: httpx.Response(302, headers={"location": location})})
+    problem = (await hf.lookup()).problem
+    assert problem.message == "Hugging Face redirected the lookup to a URL carrying a user name"
+    assert hf.credentials == set()
+    assert "/steal" not in hf.paths
+
+
+async def test_a_lookup_sends_no_cookie_an_earlier_answer_set():
+    cookie = httpx.Response(200, json=QWEN_CONFIG, headers={"set-cookie": "session=abc; Path=/"})
+    hf = FakeHuggingFace({**public_repo(), CACHED_PATH: cookie})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(hf.handle)) as client:
+        for _ in range(3):
+            await fetch_facts(client, parse_repo_id("Qwen/Qwen3-8B"))
+    assert hf.credentials == set()
+    assert len(hf.paths) == 9
+
+
 async def test_lookup_gives_up_on_a_redirect_loop():
     hf = FakeHuggingFace({INFO_PATH: httpx.Response(307, headers={"location": INFO_PATH})})
     assert "kept redirecting" in (await hf.lookup()).problem.message

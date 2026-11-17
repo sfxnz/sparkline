@@ -467,6 +467,9 @@ async def _get_hf_json(
     url = httpx.URL(HF_ORIGIN + path)
     try:
         for _ in range(MAX_REDIRECTS + 1):
+            # The lookup signs in to nothing, so it keeps no cookie from an earlier answer or an earlier
+            # lookup. httpx stores every Set-Cookie on the client and would send them back.
+            client.cookies.clear()
             async with client.stream("GET", url, follow_redirects=False) as r:
                 if r.has_redirect_location:
                     url = url.join(r.headers["location"])
@@ -474,6 +477,14 @@ async def _get_hf_json(
                         return _problem(
                             "Hugging Face redirected the lookup to another host",
                             f"The console only reads from {HF_ORIGIN} and does not follow {url.host}",
+                        )
+                    # netloc leaves out the user info, so a redirect to user:pass@huggingface.co is on
+                    # the right host. httpx would turn it into an Authorization: Basic header.
+                    if url.userinfo:
+                        return _problem(
+                            "Hugging Face redirected the lookup to a URL carrying a user name",
+                            f"The console reads {HF_ORIGIN} without signing in, and following that "
+                            "redirect would make it send credentials",
                         )
                     continue
                 if r.status_code == 429:
