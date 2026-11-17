@@ -81,6 +81,21 @@ def test_flatten_omits_none():
         assert k not in f
 
 
+def test_a_model_server_flattens_only_the_readings_it_has():
+    sample = Sample.model_validate_json((WEB_FIXTURES / "sample.json").read_text())
+    f = flatten(sample)
+    assert f["llm.8000.up"] == 1 and f["llm.8000.gen_tps"] == 212.4
+    assert "ttft_p50_s" in sample.llm[0].reports and "llm.8000.ttft_p50_s" not in f  # idle, not 0
+    assert "llm.8000.kv_cache_pct" not in f  # not reported by this server
+    assert f["llm.8000.itl_p50_s"] == 0.021  # a field from a newer agent keeps its history
+    assert {k: v for k, v in f.items() if k.startswith("llm.9931.")} == {"llm.9931.up": 0.0}
+
+
+def test_a_sample_from_an_agent_without_model_servers_flattens_no_llm_key():
+    assert make_sample().llm is None
+    assert [k for k in flatten(make_sample()) if k.startswith("llm.")] == []
+
+
 def test_mount_key():
     assert mount_key("/") == "root" and mount_key("/data/models") == "data_models"
 

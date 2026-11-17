@@ -128,4 +128,9 @@ def flatten(s: Sample) -> dict[str, float]:
     for t in s.temps:
         put(f"temp.{t.id}", t.c)
 
+    # No field list: a field a newer agent adds is flattened by an older console too.
+    for srv in s.llm or []:
+        for name, value in srv.values.items():
+            put(f"llm.{srv.port}.{name}", value)
+
     return out
