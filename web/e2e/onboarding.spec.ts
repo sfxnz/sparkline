@@ -58,6 +58,25 @@ const shows = (el: Element, text: string) => {
   return false;
 };
 
+/** The character each line of `el` after its first starts with. */
+const lineStarts = (el: Element) => {
+  const starts: string[] = [];
+  let last: number | null = null;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n.textContent ?? '';
+    for (let i = 0; i < text.length; i++) {
+      const range = document.createRange();
+      range.setStart(n, i);
+      range.setEnd(n, i + 1);
+      const top = range.getBoundingClientRect().top;
+      if (last !== null && top - last > 4) starts.push(text.charAt(i));
+      last = top;
+    }
+  }
+  return starts;
+};
+
 async function axe(page: Page, within?: string): Promise<string[]> {
   await page.waitForFunction(() => [...document.querySelectorAll('.shell__page')].every((el) => getComputedStyle(el).opacity === '1'));
   await page.waitForTimeout(300);
@@ -328,25 +347,19 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await expectJustUnderToolbar(page, '#prometheus');
   // The scrape address is wider than its box at 360 px: it breaks before a slash, not inside a word.
   await page.setViewportSize({ width: 360, height: 844 });
-  const address = page.getByRole('region', { name: 'Prometheus' }).locator('.cmd__text', { hasText: `${BASE}/metrics` });
-  await expect.poll(() => address.evaluate((el) => {
-    const starts: string[] = [];
-    let last: number | null = null;
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-      const text = n.textContent ?? '';
-      for (let i = 0; i < text.length; i++) {
-        const range = document.createRange();
-        range.setStart(n, i);
-        range.setEnd(n, i + 1);
-        const top = range.getBoundingClientRect().top;
-        if (last !== null && top - last > 4) starts.push(text.charAt(i));
-        last = top;
-      }
-    }
-    return starts;
-  }), { message: 'what each further line of the address starts with' }).toEqual(['/']);
-  await page.setViewportSize({ width: 390, height: 844 });
+  const address = (base: string) => page.getByRole('region', { name: 'Prometheus' }).locator('.cmd__text', { hasText: `${base}/metrics` });
+  await expect.poll(() => address(BASE).evaluate(lineStarts), { message: 'what each further line of the address starts with' }).toEqual(['/']);
+  // A console reached by a name as long as a LAN address (28 characters before the path) is too wide before its
+  // slash: the address breaks before the port, not inside the name or the port.
+  const named = `http://spark1.localhost:${PORT}`;
+  await page.goto(`${named}/login#token=${TOKEN}`);
+  await expect(page).toHaveURL(`${named}/`);
+  await page.goto(`${named}/settings#prometheus`);
+  for (const width of [360, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(() => address(named).evaluate(lineStarts), { message: `what each further line of the long address starts with at ${width} px` }).toEqual([':']);
+    expect(await address(named).evaluate((el) => { getSelection()?.selectAllChildren(el); return getSelection()?.toString(); })).toBe(`${named}/metrics`);
+  }
   // Model servers lands on the node's panel, which on a phone is far below the top of the node's page.
   await page.goto(`${BASE}/`);
   await guidePanel(page).getByRole('link', { name: /^Model servers/ }).click();

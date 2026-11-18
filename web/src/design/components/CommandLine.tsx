@@ -14,8 +14,9 @@ interface Props {
   prompt?: boolean;
 }
 
-/** A word wider than its line breaks before a slash of a path when one fits there, and anywhere only after that. */
-const breakable = (word: string) => word.split(/(?<=[^/:])(?=\/)/).flatMap((piece, i) => (i ? [<wbr key={i} />, piece] : [piece]));
+/** A word wider than its line breaks before a slash of a path or the colon of a port when one fits there, and
+ *  anywhere (inside a host name, an address or a port number) only after that. */
+const breakable = (word: string) => word.split(/(?<=[^/:])(?=\/|:\d+(?:\/|$))/).flatMap((piece, i) => (i ? [<wbr key={i} />, piece] : [piece]));
 
 /** One thing to run or paste, whole and selectable, with a copy button. It wraps instead of truncating, so the
  *  text on screen is always the text that works. A line wraps at its spaces: each word is a box that moves to the
