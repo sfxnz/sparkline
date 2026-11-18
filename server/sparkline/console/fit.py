@@ -10,8 +10,9 @@ weight files, and names the sign it found when it will not. The signs are: a str
 names another repo, a key in it that measures a model the repo does not hold, an ``adapter_config.json``, a
 ``.safetensors`` file the sizing leaves out, a weight file in another format whose name does not mark it as
 a copy or as training state, and a ``config.json`` it could not read at all. The model's shape is worked
-out from the top-level keys of that same ``config.json``, and a size is never filled in without it. A
-config that gives its layers one by one and not all alike has no such shape. A refusal fills in the shape
+out from the top-level keys of that same ``config.json``, and a size is never filled in without it. The
+lookup vouches for that shape only when the config names a model in ``KNOWN_MODELS``. A config that names
+any other, or gives its layers one by one and not all alike, has no such shape. A refusal fills in the shape
 alone, and not even that after a sign of a second model (the first three above): the shape in the config
 may then be an adapter's, a draft's or one part's, not that of the model a server answers with.
 
@@ -25,10 +26,12 @@ still served beside a target, and ``subfolder=``, ``variant=`` and a LoRA flag a
 page fills in is the size of this repo's safetensors files, and the form and the result say that beside
 the number. A copy of the weights in another format is not in it.
 
-The KV cache counts every layer as an attention layer of one width. That is too high, sometimes several
-times, for a model that windows its attention, shares a latent cache (25 times for DeepSeek-V3), mixes in
-layers that keep no keys (Mamba, convolution, linear attention), or keeps its KV head count under a key the
-lookup does not read. Nothing here lowers the estimate for such a model. The page says it is high.
+The KV cache counts every layer as an attention layer of one width, run once per token. For a shape the
+lookup fills in that is what a server keeps or more: more for a model that windows its attention in some
+layers, or whose code gives it fewer KV heads than its config.json holds. For a typed shape it is as right
+as the numbers typed: too low for a model whose layers are wider than typed or run more than once, too
+high, sometimes several times, for one that shares a latent cache (25 times for DeepSeek-V3) or mixes in
+layers that keep no keys (Mamba, convolution, linear attention). The page says both.
 
 Not modelled: GGUF repos, splitting a model across GPUs, the AMD GTT limit and the macOS wired-memory limit.
 """
@@ -374,6 +377,30 @@ class Reason(Enum):
         "it does not size this model",
     )
 
+    UNKNOWN_MODEL = (
+        "The lookup fills in a shape only for the models it knows, and the config.json of {repo} does not "
+        "name one",
+        "It holds {model_type} under model_type and {architecture} first under architectures. The lookup "
+        "knows a model by that pair of names, and reads no code to learn another",
+    )
+    OWN_MODEL_CODE = (
+        "The config.json of {repo} names a model class under auto_map",
+        "It holds {model_class} under {key} in auto_map. The lookup reads no code, and cannot tell how many "
+        "layers that class runs or how wide it makes them",
+    )
+    HEAD_DIM_ABSENT = (
+        "The config.json of {repo} holds no head_dim",
+        "It holds {model_type} under model_type. The lookup works a head size out as hidden_size divided "
+        "by num_attention_heads only where it knows the model's code does the same, and for {model_type} "
+        "it knows the code does not",
+    )
+    HEAD_SIZE_NOT_WHOLE = (
+        "The config.json of {repo} holds no head_dim, and its hidden_size is not a whole multiple of its "
+        "num_attention_heads",
+        "The lookup works a missing head size out as hidden_size divided by num_attention_heads, and "
+        "{hidden_size} divided by {heads} is not a whole number",
+    )
+
     def of(self, **read: object) -> Refusal:
         message, cause = self.value
         return Refusal(message.format(**read), cause.format(**read))
@@ -624,8 +651,91 @@ def layers_one_by_one(config: dict[str, object], layers: int) -> tuple[str, str]
     return None
 
 
+class KnownModel(NamedTuple):
+    """What the lookup knows of one model's code, read from the reference server's model file."""
+
+    # When the config holds no head_dim, the code takes hidden_size // num_attention_heads, the number
+    # the lookup works out. False where it takes a default of its own.
+    works_out_head_size: bool
+    # vLLM has no model file for it and builds the model with transformers, which runs the class that
+    # auto_map names in place of its own.
+    auto_map_replaces_it: bool
+
+
+_VLLM = KnownModel(works_out_head_size=True, auto_map_replaces_it=False)
+_VLLM_OWN_HEAD_SIZE = KnownModel(works_out_head_size=False, auto_map_replaces_it=False)
+_TRANSFORMERS = KnownModel(works_out_head_size=True, auto_map_replaces_it=True)
+
+# The models the lookup vouches a shape for, by the pair a server picks its model file with: model_type and
+# the first entry of architectures. A pair is here only when that file, read at a pinned commit of vLLM
+# (transformers where vLLM has none), gives each of num_hidden_layers layers one KV cache slot, run once per
+# token and no wider than the KV heads times the head size the lookup reads. A file that windows some
+# layers is in: the estimate is then high. One that runs its layers more than once, sizes them one by one,
+# keeps a latent cache or mixes in a second stack is not. Read at vLLM b197db7d95be and transformers
+# e7e568dc7673. A model that is not here was not read, or its file needs a number the lookup does not hold.
+KNOWN_MODELS = {
+    ("gemma2", "Gemma2ForCausalLM"): _VLLM_OWN_HEAD_SIZE,
+    ("gpt_neox", "GPTNeoXForCausalLM"): _TRANSFORMERS,
+    ("granite", "GraniteForCausalLM"): _VLLM,
+    ("llama", "LlamaForCausalLM"): _TRANSFORMERS,
+    ("mistral", "MistralForCausalLM"): _VLLM,
+    ("mixtral", "MixtralForCausalLM"): _VLLM,
+    ("olmo2", "Olmo2ForCausalLM"): _TRANSFORMERS,
+    ("olmoe", "OlmoeForCausalLM"): _TRANSFORMERS,
+    ("phi", "PhiForCausalLM"): _TRANSFORMERS,
+    ("phi3", "Phi3ForCausalLM"): _TRANSFORMERS,
+    ("qwen2", "Qwen2ForCausalLM"): _TRANSFORMERS,
+    ("qwen2_moe", "Qwen2MoeForCausalLM"): _TRANSFORMERS,
+    ("qwen3", "Qwen3ForCausalLM"): _VLLM_OWN_HEAD_SIZE,
+    ("qwen3_moe", "Qwen3MoeForCausalLM"): _VLLM,
+    ("starcoder2", "Starcoder2ForCausalLM"): _TRANSFORMERS,
+}
+
+
+def _name(value: object) -> str:
+    """A name the config holds, quoted, or that it holds none."""
+    return json.dumps(value) if isinstance(value, str) and value else "no name"
+
+
+def not_vouched_for(repo: RepoId, config: dict[str, object]) -> Refusal | None:
+    """Why the lookup does not vouch for the shape this config's top-level keys hold, or None.
+
+    The keys of a config say nothing of what the model's code does with them. One family runs its layers
+    twice per token under a key no list of weights shows, and the top-level keys gave it half its KV cache.
+    So the shape is filled in only for a model whose code was read, and only where the config leaves that
+    code no number to settle that the lookup does not hold.
+    """
+    model_type, architectures = config.get("model_type"), config.get("architectures")
+    architecture = architectures[0] if isinstance(architectures, list) and architectures else None
+    known = (
+        KNOWN_MODELS.get((model_type, architecture))
+        if isinstance(model_type, str) and isinstance(architecture, str)
+        else None
+    )
+    if known is None:
+        return Reason.UNKNOWN_MODEL.of(
+            repo=repo, model_type=_name(model_type), architecture=_name(architecture)
+        )
+    auto_map = config.get("auto_map")
+    if known.auto_map_replaces_it and isinstance(auto_map, dict):
+        for key, value in sorted(auto_map.items()):
+            if key.startswith("AutoModel"):
+                model_class = value if isinstance(value, str) else json.dumps(value)
+                return Reason.OWN_MODEL_CODE.of(repo=repo, model_class=model_class, key=key)
+    if config.get("head_dim") is None:
+        if not known.works_out_head_size:
+            return Reason.HEAD_DIM_ABSENT.of(repo=repo, model_type=model_type)
+        hidden_size, heads = _whole(config.get("hidden_size")), _whole(config.get("num_attention_heads"))
+        if hidden_size is not None and heads is not None and hidden_size % heads:
+            return Reason.HEAD_SIZE_NOT_WHOLE.of(repo=repo, hidden_size=hidden_size, heads=heads)
+    return None
+
+
 def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Refusal:
     """The model's shape, from the repo's ``config.json`` as decoded JSON.
+
+    A shape is returned for a model in ``KNOWN_MODELS`` and for no other: every return below that is not a
+    refusal passes ``not_vouched_for``.
 
     A null ``num_key_value_heads`` beside a config class the config names for itself gets no shape. Only
     the config classes of transformers are known to read that null as the attention heads. One family's
@@ -647,7 +757,9 @@ def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Refusal
         # one that holds a shape can be a vision tower or a waveform decoder.
         return Reason.NO_SHAPE.of(repo=repo, keys=keys)
     unlike = layers_one_by_one(config, shape.num_layers)
-    return Reason.LAYERS_DIFFER.of(repo=repo, key=unlike[0], held=unlike[1]) if unlike else shape
+    if unlike:
+        return Reason.LAYERS_DIFFER.of(repo=repo, key=unlike[0], held=unlike[1])
+    return not_vouched_for(repo, config) or shape
 
 
 class _Json(NamedTuple):
