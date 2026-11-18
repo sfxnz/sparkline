@@ -38,8 +38,12 @@ def repo_files(sizes: dict[str, int]) -> dict[str, object]:
     return {"siblings": [{"rfilename": name, "size": size} for name, size in sizes.items()]}
 
 
+# A model the lookup knows: vLLM has a model file for it, and that file works a missing head size out.
+KNOWN = {"model_type": "mistral", "architectures": ["MistralForCausalLM"]}
+
 QWEN_INFO = repo_files({"config.json": 726, "model.safetensors": 16_381_470_720})
 QWEN_CONFIG = {
+    **KNOWN,
     "hidden_size": 4096,
     "max_position_embeddings": 40960,
     "num_attention_heads": 32,
@@ -203,7 +207,7 @@ async def test_lookup_reads_the_size_of_the_weights_and_the_model_shape():
 
 
 async def test_lookup_falls_back_to_attention_heads_and_an_explicit_head_dim_wins():
-    config = {"num_hidden_layers": 2, "num_attention_heads": 16, "hidden_size": 1024}
+    config = {**KNOWN, "num_hidden_layers": 2, "num_attention_heads": 16, "hidden_size": 1024}
     facts = await FakeHuggingFace(public_repo(config=config)).lookup()
     assert (facts.num_kv_heads, facts.head_dim, facts.max_context) == (16, 64, None)
     facts = await FakeHuggingFace(public_repo(config={**config, "head_dim": 256})).lookup()
@@ -212,6 +216,7 @@ async def test_lookup_falls_back_to_attention_heads_and_an_explicit_head_dim_win
 
 # The top level of a config.json the seventh verifier's lookup was refused for. vLLM's docs name the model.
 NULL_KV_CONFIG = {
+    **KNOWN,
     "num_hidden_layers": 24,
     "num_attention_heads": 32,
     "num_key_value_heads": None,
@@ -304,6 +309,7 @@ async def test_a_shape_refusal_names_only_the_keys_that_hold_no_number(config, k
 # A repo no one has, for the configs below: 12 layers, 8 KV heads, and no head_dim.
 LAYERED = "made-up-org/layers-one-by-one"
 LAYERED_CONFIG = {
+    **KNOWN,
     "num_hidden_layers": 12,
     "num_attention_heads": 32,
     "num_key_value_heads": 8,
@@ -400,6 +406,182 @@ async def test_a_list_of_token_ids_as_long_as_the_layer_count_keeps_its_answer(k
 async def test_a_config_with_no_shape_is_refused_for_that_before_its_layers_are_compared():
     config = {"num_hidden_layers": 12, "head_sizes": [256] * 11 + [64]}
     assert "holds no shape" in (await made_up_repo(config).lookup(LAYERED)).problem.message
+
+
+# A model no table knows: the keys of its config are the usual ones, and say nothing of what its code does.
+MADE_UP = {"model_type": "made_up", "architectures": ["MadeUpForCausalLM"]}
+KNOWS_ONLY = (
+    "The lookup fills in a shape only for the models it knows, and the config.json of {repo} does not "
+    "name one"
+)
+BY_THAT_PAIR = "The lookup knows a model by that pair of names, and reads no code to learn another"
+
+
+@pytest.mark.parametrize(
+    ("names", "read"),
+    [
+        pytest.param(MADE_UP, '"made_up" under model_type and "MadeUpForCausalLM" first', id="neither-known"),
+        pytest.param(
+            {"model_type": "mistral", "architectures": ["MadeUpDraftModel"]},
+            '"mistral" under model_type and "MadeUpDraftModel" first',
+            id="a-known-model_type-under-another-architecture",
+        ),
+        pytest.param(
+            {"model_type": "made_up", "architectures": ["MistralForCausalLM"]},
+            '"made_up" under model_type and "MistralForCausalLM" first',
+            id="a-known-architecture-under-another-model_type",
+        ),
+        pytest.param(
+            {"model_type": "llama", "architectures": ["MistralForCausalLM"]},
+            '"llama" under model_type and "MistralForCausalLM" first',
+            id="two-known-names-that-are-no-pair",
+        ),
+        pytest.param(
+            {"architectures": ["MistralForCausalLM"]},
+            'no name under model_type and "MistralForCausalLM" first',
+            id="no-model_type",
+        ),
+        pytest.param(
+            {"model_type": "mistral"}, '"mistral" under model_type and no name first', id="no-architectures"
+        ),
+        pytest.param(
+            {"model_type": "mistral", "architectures": []},
+            '"mistral" under model_type and no name first',
+            id="an-empty-architectures",
+        ),
+        pytest.param(
+            {"model_type": "mistral", "architectures": "MistralForCausalLM"},
+            '"mistral" under model_type and no name first',
+            id="architectures-that-is-no-list",
+        ),
+        pytest.param(
+            {"model_type": ["mistral"], "architectures": [None, "MistralForCausalLM"]},
+            "no name under model_type and no name first",
+            id="names-that-are-not-strings",
+        ),
+        pytest.param({}, "no name under model_type and no name first", id="neither-key"),
+    ],
+)
+async def test_a_model_the_lookup_does_not_know_is_refused_with_nothing_filled_in(names, read):
+    shape_keys = {k: v for k, v in LAYERED_CONFIG.items() if k not in KNOWN}
+    failure = await made_up_repo({**shape_keys, "head_dim": 128, **names}).lookup(LAYERED)
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
+    assert failure.problem.message == KNOWS_ONLY.format(repo=LAYERED)
+    assert failure.problem.cause == f"It holds {read} under architectures. {BY_THAT_PAIR}"
+    assert failure.problem.fix == ASK_BOTH
+
+
+@pytest.mark.parametrize("pair", sorted(fit.KNOWN_MODELS))
+async def test_every_model_the_lookup_knows_still_gets_its_answer(pair):
+    names = {"model_type": pair[0], "architectures": [pair[1]]}
+    facts = await made_up_repo({**LAYERED_CONFIG, **names, "head_dim": 128}).lookup(LAYERED)
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim, facts.head_dim_worked_out) == (
+        12,
+        8,
+        128,
+        False,
+    )
+
+
+# Two kinds of model the lookup knows that are not KNOWN's kind.
+OWN_HEAD_SIZE = {"model_type": "qwen3", "architectures": ["Qwen3ForCausalLM"]}
+THROUGH_TRANSFORMERS = {"model_type": "llama", "architectures": ["LlamaForCausalLM"]}
+
+
+async def test_no_head_size_is_worked_out_for_a_model_whose_code_takes_its_own_default():
+    failure = await made_up_repo({**LAYERED_CONFIG, **OWN_HEAD_SIZE}).lookup(LAYERED)
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
+    assert failure.problem.message == f"The config.json of {LAYERED} holds no head_dim"
+    assert failure.problem.cause == (
+        "It holds qwen3 under model_type. The lookup works a head size out as hidden_size divided by "
+        "num_attention_heads only where it knows the model's code does the same, and for qwen3 it knows "
+        "the code does not"
+    )
+    assert failure.problem.fix == ASK_BOTH
+    facts = await made_up_repo({**LAYERED_CONFIG, **OWN_HEAD_SIZE, "head_dim": 128}).lookup(LAYERED)
+    assert (facts.head_dim, facts.head_dim_worked_out) == (128, False)
+
+
+async def test_a_head_size_that_does_not_divide_evenly_is_not_worked_out():
+    uneven = {**LAYERED_CONFIG, "hidden_size": 2048, "num_attention_heads": 20, "num_key_value_heads": 20}
+    failure = await made_up_repo(uneven).lookup(LAYERED)
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
+    assert failure.problem.message == (
+        f"The config.json of {LAYERED} holds no head_dim, and its hidden_size is not a whole multiple of its "
+        "num_attention_heads"
+    )
+    assert failure.problem.cause == (
+        "The lookup works a missing head size out as hidden_size divided by num_attention_heads, and 2048 "
+        "divided by 20 is not a whole number"
+    )
+    assert failure.problem.fix == ASK_BOTH
+    # A head size the config holds is read, whatever the other two keys divide to.
+    facts = await made_up_repo({**uneven, "head_dim": 64}).lookup(LAYERED)
+    assert (facts.head_dim, facts.head_dim_worked_out) == (64, False)
+
+
+@pytest.mark.parametrize(
+    ("auto_map", "held"),
+    [
+        pytest.param(
+            {"AutoConfig": "configuration_x.XConfig", "AutoModelForCausalLM": "modeling_x.XForCausalLM"},
+            "modeling_x.XForCausalLM under AutoModelForCausalLM",
+            id="a-causal-lm-class",
+        ),
+        pytest.param(
+            {"AutoModel": "some-org/code--modeling_x.XModel"},
+            "some-org/code--modeling_x.XModel under AutoModel",
+            id="a-class-in-another-repo",
+        ),
+        pytest.param({"AutoModel": None}, "null under AutoModel", id="a-key-that-holds-no-class"),
+    ],
+)
+async def test_a_model_class_of_the_repos_own_is_refused_where_transformers_would_run_it(auto_map, held):
+    config = {**LAYERED_CONFIG, **THROUGH_TRANSFORMERS, "auto_map": auto_map}
+    failure = await made_up_repo(config).lookup(LAYERED)
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
+    assert failure.problem.message == f"The config.json of {LAYERED} names a model class under auto_map"
+    assert failure.problem.cause == (
+        f"It holds {held} in auto_map. The lookup reads no code, and cannot tell how many layers that class "
+        "runs or how wide it makes them"
+    )
+    assert failure.problem.fix == ASK_BOTH
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(
+            {**THROUGH_TRANSFORMERS, "auto_map": {"AutoConfig": "configuration_x.XConfig"}},
+            id="a-config-class",
+        ),
+        pytest.param(
+            {**THROUGH_TRANSFORMERS, "auto_map": {"AutoTokenizer": ["tok.X", None]}}, id="a-tokenizer"
+        ),
+        pytest.param(
+            {**THROUGH_TRANSFORMERS, "auto_map": "modeling_x.XModel"}, id="an-auto_map-that-is-no-object"
+        ),
+        pytest.param(
+            {**KNOWN, "auto_map": {"AutoModelForCausalLM": "modeling_x.XForCausalLM"}},
+            id="vllm-has-the-model-file",
+        ),
+    ],
+)
+async def test_an_auto_map_that_replaces_no_model_code_keeps_the_answer(config):
+    facts = await made_up_repo({**LAYERED_CONFIG, **config}).lookup(LAYERED)
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim) == (12, 8, 80)
+
+
+async def test_an_older_refusal_is_given_before_the_model_is_looked_for():
+    # A config refused before this rule keeps the words it had, whatever model it names.
+    config = {**LAYERED_CONFIG, **MADE_UP, "head_sizes": [256] * 11 + [64]}
+    assert "holds head_sizes" in (await made_up_repo(config).lookup(LAYERED)).problem.message
 
 
 async def test_a_head_size_the_config_does_not_hold_is_marked_as_worked_out():
@@ -1288,6 +1470,12 @@ REFUSALS: dict[str, dict[str, httpx.Response | Exception]] = {
     "NO_SHAPE": public_repo(config=PARTS_CONFIG),
     "NULL_KV_HEADS": public_repo(config={**NULL_KV_CONFIG, **OWN_CONFIG_CLASS}),
     "LAYERS_DIFFER": public_repo(config={**QWEN_CONFIG, "head_sizes": [256] * 12 + [64] * 24}),
+    "UNKNOWN_MODEL": public_repo(config={**QWEN_CONFIG, **MADE_UP}),
+    "OWN_MODEL_CODE": public_repo(
+        config={**QWEN_CONFIG, **THROUGH_TRANSFORMERS, "auto_map": {"AutoModel": "modeling_x.XModel"}}
+    ),
+    "HEAD_DIM_ABSENT": public_repo(config={**QWEN_CONFIG, **OWN_HEAD_SIZE}),
+    "HEAD_SIZE_NOT_WHOLE": public_repo(config={**QWEN_CONFIG, "hidden_size": 4100}),
 }
 
 # What the words a refusal writes for itself may never hold. Advice that is true of one repo is untrue of
@@ -1330,6 +1518,27 @@ async def test_a_refusal_says_what_the_lookup_read_and_ends_with_one_of_two_fixe
     assert broken_rules(re.sub(r"\{\w+\}", "...", f"{message}. {cause}")) == []
     for words, said in ((message, problem.message), (cause, problem.cause)):
         assert re.match(re.sub(r"\\\{\w+\\\}", ".+", re.escape(words)), said), said
+
+
+def with_a_model_the_lookup_does_not_know(routes):
+    """The same repo, its config.json naming a model outside the table where it is an object."""
+    config = routes.get(CACHED_PATH)
+    if not isinstance(config, httpx.Response) or not isinstance(json.loads(config.content), dict):
+        return routes
+    return {**routes, CACHED_PATH: httpx.Response(200, json={**json.loads(config.content), **MADE_UP})}
+
+
+@pytest.mark.parametrize("reason", REFUSALS)
+async def test_no_refusal_fills_in_a_shape_for_a_model_the_lookup_does_not_know(reason):
+    failure = await FakeHuggingFace(with_a_model_the_lookup_does_not_know(REFUSALS[reason])).lookup()
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
+    assert failure.problem.fix == ASK_BOTH
+
+
+async def test_the_lookup_fills_in_nothing_at_all_for_a_model_it_does_not_know():
+    failure = await FakeHuggingFace(with_a_model_the_lookup_does_not_know(public_repo())).lookup()
+    assert failure.model_dump() == {"problem": failure.problem.model_dump(), "shape": None}
 
 
 def test_every_reason_the_lookup_refuses_for_is_walked():

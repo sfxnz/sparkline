@@ -152,16 +152,16 @@ export default function Fit() {
               </div>
             </Field>
           )}
-          <Field id="fit-layers" label="Layers" hint="num_hidden_layers of the language model that answers, in its config.">
+          <Field id="fit-layers" label="Layers" hint={`${WHEN_ALIKE} num_hidden_layers of the language model that answers, in its config.`}>
             <NumberField id="fit-layers" describedBy="fit-layers-hint" value={shape.layers} onChange={(layers) => { typeShape({ layers }); }} error={errors.layers} />
           </Field>
-          <Field id="fit-kv-heads" label="KV heads" hint="num_key_value_heads, or num_attention_heads when the model has no grouped attention.">
+          <Field id="fit-kv-heads" label="KV heads" hint={`${WHEN_ALIKE} num_key_value_heads, or num_attention_heads when the model has no grouped attention.`}>
             <NumberField id="fit-kv-heads" describedBy="fit-kv-heads-hint" value={shape.kvHeads} onChange={(kvHeads) => { typeShape({ kvHeads }); }} error={errors.kvHeads} />
           </Field>
           <Field
             id="fit-head-dim"
             label="Head size"
-            hint={headDimWorkedOut(draft) ? 'Not read from the repo: its config.json gives no head_dim, so this is hidden_size divided by num_attention_heads.' : 'head_dim, or hidden_size divided by num_attention_heads.'}
+            hint={headDimWorkedOut(draft) ? 'Not read from the repo: its config.json gives no head_dim, so this is hidden_size divided by num_attention_heads.' : `${WHEN_ALIKE} head_dim, or hidden_size divided by num_attention_heads where the model's code works it out that way and takes no default of its own.`}
           >
             <NumberField id="fit-head-dim" describedBy="fit-head-dim-hint" value={shape.headDim} onChange={(headDim) => { typeShape({ headDim }); }} error={errors.headDim} />
           </Field>
@@ -196,13 +196,21 @@ export default function Fit() {
 
       <p className="fit-scope t-footnote">
         The total is a range because activations and the compute graph add 10 to 20 % on top of weights and KV cache. The KV cache counts every layer as an attention
-        layer of one width, the KV heads times the head size above. That is too high, sometimes several times, for a model that windows its attention, shares a latent
-        cache (MLA, as DeepSeek and Kimi use: 25 times less for DeepSeek-V3), mixes in layers that keep no keys (Mamba, convolution, linear attention), or keeps its KV
-        head count under a key the lookup does not read. Not modelled: GGUF files, a model split across GPUs, the AMD GTT limit and the macOS wired-memory limit.
+        layer of one width, the KV heads times the head size above, run once per token. With a shape a lookup filled in, that is what vLLM keeps at its defaults or
+        more: vLLM can keep less for a model that windows its attention in some layers. With a typed shape it is
+        as right as the numbers typed: too low for a model whose layers are wider than typed or run more than once, and too high, sometimes several times, for a
+        model that windows its attention, shares a latent cache (MLA, as DeepSeek and Kimi use: 25 times less for DeepSeek-V3) or mixes in layers that keep no keys
+        (Mamba, convolution, linear attention). Not modelled: GGUF files, a model split across GPUs, the AMD GTT limit and the macOS wired-memory limit.
       </p>
     </div>
   );
 }
+
+/** The condition every hint under a shape box holds under: the keys it names describe no other model. */
+const WHEN_ALIKE = 'For a model whose layers are all alike and each run once per token:';
+
+/** What a KV cache built on a typed shape can be, said beside it: the console read no layer of the model. */
+const TYPED_SHAPE = 'Too low for a model whose layers are wider than typed or run more than once. It may be too high for the kinds of model the note at the foot of this page names.';
 
 function Field({ id, label, hint, wide, children }: { id: string; label: string; hint?: string; wide?: boolean; children: ReactNode }) {
   return (
@@ -262,6 +270,7 @@ function Result({ from, request, response }: { from: ReadFrom; request: FitReque
           <dd className="num">{formatBytes(estimate.kv_bytes)}</dd>
           <dd className="fit-sums__detail">{formatBytes(estimate.kv_bytes_per_token)} per token</dd>
           <dd className="fit-sums__detail">{from.shape === null ? 'shape typed by hand' : `shape ${shapeSource(from.shape, workedOut)}`}</dd>
+          {from.shape === null ? <dd className="fit-sums__detail">{TYPED_SHAPE}</dd> : null}
         </div>
         <div>
           <dt>Needs in total</dt>

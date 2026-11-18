@@ -344,6 +344,7 @@ describe('Will it fit', () => {
     expect(result.getByText(/This model at 32,768 tokens of context, bf16 KV cache, from facts typed by hand/)).toBeInTheDocument();
     expect(result.getByText('typed by hand')).toBeInTheDocument();
     expect(result.getByText('shape typed by hand')).toBeInTheDocument();
+    expect(result.getByText('Too low for a model whose layers are wider than typed or run more than once. It may be too high for the kinds of model the note at the foot of this page names.')).toBeInTheDocument();
     expect(result.getByText(/The console did not read the model and cannot check them/)).toBeInTheDocument();
   });
 
@@ -389,7 +390,46 @@ describe('Will it fit', () => {
   });
 
   const WORKED_OUT_HINT = 'Not read from the repo: its config.json gives no head_dim, so this is hidden_size divided by num_attention_heads.';
-  const READ_HINT = 'head_dim, or hidden_size divided by num_attention_heads.';
+  const WHEN_ALIKE = 'For a model whose layers are all alike and each run once per token:';
+  const READ_HINT = `${WHEN_ALIKE} head_dim, or hidden_size divided by num_attention_heads where the model's code works it out that way and takes no default of its own.`;
+  const TYPED_SHAPE = 'Too low for a model whose layers are wider than typed or run more than once. It may be too high for the kinds of model the note at the foot of this page names.';
+
+  it('says under each shape box which models the keys it names describe', () => {
+    render(<Fit />);
+    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveAccessibleDescription(`${WHEN_ALIKE} num_hidden_layers of the language model that answers, in its config.`);
+    expect(screen.getByRole('textbox', { name: 'KV heads' })).toHaveAccessibleDescription(`${WHEN_ALIKE} num_key_value_heads, or num_attention_heads when the model has no grouped attention.`);
+    expect(screen.getByRole('textbox', { name: 'Head size' })).toHaveAccessibleDescription(READ_HINT);
+  });
+
+  it('keeps the condition under the boxes after a lookup that filled in nothing', async () => {
+    const user = userEvent.setup();
+    fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/odd-config{Enter}');
+    await screen.findByRole('alert');
+    for (const box of ['Layers', 'KV heads', 'Head size']) {
+      expect(screen.getByRole('textbox', { name: box })).toHaveValue('');
+      expect(screen.getByRole('textbox', { name: box }).getAttribute('aria-describedby')).toBeTruthy();
+      expect(screen.getByRole('textbox', { name: box })).toHaveAccessibleDescription(new RegExp(`^${WHEN_ALIKE}`));
+    }
+  });
+
+  it('says beside a typed shape in which direction its KV cache can be wrong, and not beside a looked-up one', async () => {
+    const user = userEvent.setup();
+    fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    expect(within(await screen.findByRole('region', { name: 'Result' })).queryByText(TYPED_SHAPE)).not.toBeInTheDocument();
+
+    await user.clear(screen.getByRole('textbox', { name: 'Layers' }));
+    await user.type(screen.getByRole('textbox', { name: 'Layers' }), '44');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    const result = within(await screen.findByRole('region', { name: 'Result' }));
+    await waitFor(() => { expect(result.getByText('shape typed by hand')).toBeInTheDocument(); });
+    expect(result.getByText(TYPED_SHAPE)).toBeInTheDocument();
+  });
 
   it('says on the form and in the result when the head size was worked out, not read', async () => {
     const user = userEvent.setup();
@@ -443,13 +483,15 @@ describe('Will it fit', () => {
     expect(result.queryByText(/worked out/)).not.toBeInTheDocument();
   });
 
-  it('says what the KV cache estimate counts and where it is too high', () => {
+  it('says what the KV cache estimate counts, and for a looked-up and a typed shape apart where it is off', () => {
     render(<Fit />);
     const note = screen.getByText(/The total is a range/);
-    expect(note).toHaveTextContent('The KV cache counts every layer as an attention layer of one width');
-    expect(note).toHaveTextContent('too high, sometimes several times');
-    for (const kind of ['windows its attention', 'shares a latent cache', 'Mamba, convolution, linear attention', 'under a key the lookup does not read']) expect(note).toHaveTextContent(kind);
-    expect(note).not.toHaveTextContent(/every layer at full width|halve/);
+    expect(note).toHaveTextContent('The KV cache counts every layer as an attention layer of one width, the KV heads times the head size above, run once per token.');
+    // A looked-up shape is never called low, and a typed one is never called high as a flat fact.
+    expect(note).toHaveTextContent('With a shape a lookup filled in, that is what vLLM keeps at its defaults or more: vLLM can keep less for a model that windows its attention in some layers.');
+    expect(note).toHaveTextContent('With a typed shape it is as right as the numbers typed: too low for a model whose layers are wider than typed or run more than once, and too high, sometimes several times, for a model that');
+    for (const kind of ['windows its attention', 'shares a latent cache', 'Mamba, convolution, linear attention']) expect(note).toHaveTextContent(kind);
+    expect(note).not.toHaveTextContent(/every layer at full width|halve|That is too high|under a key the lookup does not read|fewer KV heads/);
   });
 
   it('does not leave one repo\'s size beside another repo\'s shape', async () => {
