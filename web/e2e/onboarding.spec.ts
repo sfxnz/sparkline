@@ -302,6 +302,12 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await expect(guidePanel(page)).toBeFocused();
   // Taller than the screen: it starts at its title, under the toolbar.
   await expectJustUnderToolbar(page, '#getting-started');
+  // Its lead ends, at the latest, as far from the panel's right edge as it starts from the left one.
+  expect(await guidePanel(page).evaluate((panel) => {
+    const lead = panel.querySelector('.panel__subtitle')?.getBoundingClientRect();
+    const box = panel.getBoundingClientRect();
+    return lead ? Math.round(lead.right - box.right + lead.left - box.left) : null;
+  }), 'how far the lead may run past its padding, px').toBeLessThanOrEqual(0);
 
   await guidePanel(page).getByRole('link', { name: /^Alerts on your phone/ }).click();
   await expect(page).toHaveURL(`${BASE}/alerts#notifications`);

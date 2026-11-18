@@ -54,6 +54,8 @@ a.guide-tile:hover { background: var(--fill-1); text-decoration: none; }
 .guide-tile.is-done .guide-tag { background: var(--fill-2); color: var(--text-2); }
 @container (max-width: 34rem) {
   .guide__head { padding-right: var(--space-2); }
+  /* The head's right padding is the buttons' inset. The lead is text: it ends where the rows' text ends. */
+  .guide__titles { padding-right: calc(var(--space-5) - var(--space-2)); }
   .guide__right { flex: 1; justify-content: space-between; }
   .guide__collapse-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .guide__actions .btn { width: var(--btn-h); padding: 0; }
