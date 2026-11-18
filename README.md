@@ -184,8 +184,9 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   read in vLLM, or in transformers where vLLM builds the model with it (Llama, Qwen2, Qwen3, Mistral,
   Mixtral, Phi, Granite, Gemma 2 and a few more, listed as `KNOWN_MODELS` in
   `server/sparkline/console/fit.py`). For any other pair, or a config that lacks either name, it refuses
-  and fills in nothing. The keys of a config do not say what the model's code does with them: one model
-  runs its layers twice per token, and its config holds the same keys as a model that runs them once.
+  and fills in nothing. The keys of a config do not say what the model's code does with them: a model that
+  runs its layers twice per token holds the same layer count, heads and head size in its config as one
+  that runs them once.
   Where transformers builds the model and `auto_map` names a model class, the repo's own code is what
   runs, so the lookup refuses that too. Where the config has no `head_dim`, the head size is
   `hidden_size` divided by `num_attention_heads`, a number no file of the repo holds, and the form and the
@@ -220,7 +221,9 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   config string naming another repo, an `adapter_config.json`, a draft model's keys), because the shape in
   that config can be a draft's, often a single layer, or one part's. It fills in nothing when the repo, its
   file list or its `config.json` could not be read, when the config's top level holds no shape, when
-  it gives its layers one by one, or when the lookup does not know the model. Any other refusal fills in the shape it read and asks for the size. A
+  it gives its layers one by one, or when the lookup does not fill in the shape for a reason above (a
+  model it does not know, a model class under `auto_map`, a head size it does not work out). Any other
+  refusal fills in the shape it read and asks for the size. A
   sentence about a file the repo lacks says where the lookup looked: at the repo's top level.
 
   By hand the weights are the total of every weight file the server loads, in every folder of the repo and
@@ -246,8 +249,8 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   (Gemma 2 among the models the lookup knows). A config with no `num_key_value_heads` gets its
   `num_attention_heads` as KV heads. Where the model's config class takes a lower default of its own the
   estimate is high. With a typed shape it is as right as the
-  numbers typed, and the result says so beside the number: too low for a model whose layers are wider
-  than typed or run more than once, and too high, sometimes several times, for a model that windows its
+  numbers typed: too low for a model whose layers are wider than typed or run more than once, which the
+  result says beside the number, and too high, sometimes several times, for a model that windows its
   attention, shares a latent cache (MLA, 25 times less for DeepSeek-V3) or mixes in layers that keep no
   keys (Mamba, convolution, linear attention). The page does not try to lower the number. Not modelled: GGUF files, a model split across GPUs, the AMD GTT limit
   and the macOS wired-memory limit.
