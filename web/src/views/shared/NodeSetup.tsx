@@ -74,17 +74,20 @@ function Retry({ node }: { node: NodeState }) {
           ) : null}
         </span>
         {/* Never disabled: it may hold the keyboard focus, and asking twice does no harm. The console answers with
-            the node: a time in it is when it will try, because an agent takes only so many wrong tokens a minute. */}
-        <Button
-          size="sm"
-          icon={<RotateCw />}
-          onClick={() => {
-            setAskedFor(next);
-            void api.retryNode(node.node_id).then((answer) => { if (answer.next_retry_ts !== null) setAskedFor(undefined); }, () => { setAskedFor(undefined); });
-          }}
-        >
-          Retry
-        </Button>
+            the node: a time in it is when it will try, because an agent takes only so many wrong tokens a minute.
+            Not there while the stream is down: the console cannot be asked, and the toolbar's Retry reconnects. */}
+        {live ? (
+          <Button
+            size="sm"
+            icon={<RotateCw />}
+            onClick={() => {
+              setAskedFor(next);
+              void api.retryNode(node.node_id).then((answer) => { if (answer.next_retry_ts !== null) setAskedFor(undefined); }, () => { setAskedFor(undefined); });
+            }}
+          >
+            Retry
+          </Button>
+        ) : null}
       </div>
       <span className="visually-hidden" role="status">{live && asked ? `Trying ${node.node_id} now` : ''}</span>
     </div>

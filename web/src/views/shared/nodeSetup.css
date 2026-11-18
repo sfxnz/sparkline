@@ -62,7 +62,8 @@
 .setup-retry { margin-top: auto; display: grid; gap: var(--space-3); }
 .setup-retry__bar { height: 2px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
 .setup-retry__bar i { display: block; height: 100%; width: 100%; background: var(--setup); opacity: 0.8; transform-origin: left; transition: transform 1s linear; }
-.setup-retry__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); flex-wrap: wrap; }
+/* As tall as its button, also while the stream is down and the button is not there: the card keeps its height. */
+.setup-retry__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); flex-wrap: wrap; min-height: 1.625rem; }
 .setup-retry__status { flex: 1 1 12rem; display: flex; align-items: flex-start; gap: 6px; text-wrap: pretty; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
 .setup-retry__status svg { width: 14px; height: 14px; margin-top: calc((var(--lh-footnote) - 14px) / 2); color: var(--text-3); flex: none; }
 .setup-retry__status .num { color: var(--text-1); font-weight: 560; }

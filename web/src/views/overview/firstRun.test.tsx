@@ -157,15 +157,18 @@ describe('a node that cannot be reached on a first run', () => {
     expect(screen.queryByText('Trying spark2 now')).toBeNull();
   });
 
-  it('says nothing about tries while the console cannot be reached', () => {
+  it('says nothing about tries, and offers no retry, while the console cannot be reached', () => {
     show([{ ...refused('spark1'), next_retry_ts: now - 1 }]);
     const status = screen.getByRole('region', { name: 'Node spark1, not connected yet' }).querySelector('.setup-retry__status');
     expect(status).toHaveTextContent('Trying now…');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     act(() => { useConnection.setState({ status: 'reconnecting' }); });
     expect(status).toBeEmptyDOMElement();
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    // The console cannot be asked for a try: the toolbar's Retry is the one that reconnects.
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
     act(() => { useConnection.setState({ status: 'live' }); });
     expect(status).toHaveTextContent('Trying now…');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
   it('puts one quiet line where totals, events and charts will be, until a node reports', () => {
