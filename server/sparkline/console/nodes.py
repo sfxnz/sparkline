@@ -14,6 +14,7 @@ import logging
 import random
 import socket
 import time
+from collections import deque
 from collections.abc import Callable
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -39,9 +40,12 @@ log = logging.getLogger("sparkline.console.nodes")
 BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 30.0
 BACKOFF_NEW_CAP_S = 5.0  # a node that has never answered: someone is setting it up and watching the page
-# ...and whose agent answered and turned the console away. Each try with a wrong token counts toward the
-# agent's limit (agent/app.py, FAIL_LIMIT a minute per IP). At the limit it refuses the right token too.
-BACKOFF_TURNED_AWAY_CAP_S = 10.0
+BACKOFF_TURNED_AWAY_CAP_S = 10.0  # ...and whose agent turned the console away: leaves tries for "Retry now"
+# The agent counts the wrong tokens a client IP sent in the last minute and, once it holds FAIL_LIMIT of them
+# (agent/app.py token_check), turns every request away without looking at its token. The console sends at
+# most one fewer in a minute and a second, so every answer it gets is a check of its token.
+WRONG_TOKEN_TRIES = 9
+WRONG_TOKEN_WINDOW_S = 61.0
 RING_S = 900.0
 SKEW_WARN_S = 5.0
 
@@ -77,6 +81,13 @@ def _host_port(url: str) -> tuple[str, int]:
     return u.hostname or url, u.port or 9750
 
 
+def http_status(exc: BaseException) -> int | None:
+    """The HTTP status the agent answered a request with, when that is why it failed."""
+    if isinstance(exc, AuthRejected):
+        return exc.status
+    return getattr(getattr(exc, "response", None), "status_code", None)  # websockets InvalidStatus
+
+
 def classify(exc: BaseException, node: str, url: str, new: bool = False) -> tuple[NodeStatus, Problem]:
     """Map a connection failure to a status and a human Problem (message, likely cause, concrete fix).
 
@@ -90,9 +101,7 @@ def classify(exc: BaseException, node: str, url: str, new: bool = False) -> tupl
     console_toml = "`/etc/sparkline/console.toml`"
     restart_console = "restart the console: `sudo systemctl restart sparkline`."
     agent_log = f"read the agent’s log on {node}: `journalctl -u sparkline-agent -n 50`."
-    status = getattr(getattr(exc, "response", None), "status_code", None)  # websockets InvalidStatus
-    if isinstance(exc, AuthRejected):
-        status = exc.status
+    status = http_status(exc)
     if status in (401, 403):
         return "error", Problem(
             message=f"Agent on {node} rejected the console’s token",
@@ -215,6 +224,9 @@ class NodeSource:
         self._latest: Sample | None = None
         self._procs: tuple[int, list[ProcSample]] | None = None
         self._attempt = 0
+        self._next_try = 0.0
+        # when the agent refused this console's token, oldest first
+        self._turned_away: deque[float] = deque(maxlen=WRONG_TOKEN_TRIES)
         self.connected_at: float | None = None  # when the current session connected; None between sessions
         self._skew_warned = False
         self._wake = asyncio.Event()
@@ -288,10 +300,24 @@ class NodeSource:
         if self._session_task and not self._session_task.done():
             self._session_task.cancel()
 
+    def _room_at(self) -> float:
+        """The earliest time a try is not the wrong token that fills the agent's limit."""
+        q = self._turned_away
+        return q[0] + WRONG_TOKEN_WINDOW_S if len(q) == q.maxlen else 0.0
+
     def retry_now(self) -> None:
-        if self.state.status != "online" and self._session_task and not self._session_task.done():
-            self._session_task.cancel()
-        self._attempt = 0
+        """One try, at once or as soon as the agent's limit has room for it, and the state says which: no
+        time for the next try, or that time. A try that is under way is that try. The doubling goes on."""
+        task = self._session_task
+        if self.state.status == "online" or task is None:
+            return
+        if not task.done():
+            if self.connected_at is not None:  # a stream that is open and silent: start over
+                task.cancel()
+            return
+        now = time.time()
+        self._next_try = max(now, self._room_at())
+        self.set_status(self.state.status, self.state.error, self._next_try if self._next_try > now else None)
         self._wake.set()
 
     def backoff_delay(self, status: NodeStatus) -> float:
@@ -324,11 +350,15 @@ class NodeSource:
             if failure is not None:
                 status, problem = classify(failure, self.node_id, self.url, self.state.first_seen is None)
                 log.debug("%s: session failed: %r", self.node_id, failure)
-            delay = self.backoff_delay(status)
+                if http_status(failure) in (401, 403):
+                    self._turned_away.append(time.time())
+            self._next_try = max(time.time() + self.backoff_delay(status), self._room_at())
             self._wake.clear()
-            self.set_status(status, problem, time.time() + delay)
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._wake.wait(), delay)
+            self.set_status(status, problem, self._next_try)
+            while (wait := self._next_try - time.time()) > 0:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._wake.wait(), wait)
+                self._wake.clear()
             self._attempt += 1
 
 

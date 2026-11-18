@@ -3,16 +3,17 @@ from __future__ import annotations
 import asyncio
 import errno
 import json
-import random
 import re
 import socket
 import time
 from pathlib import Path
+from typing import cast
 
 import httpx
 import pytest
 
-from sparkline.agent.app import FAIL_LIMIT
+from sparkline.agent.app import create_app as create_agent_app
+from sparkline.agent.sampler import Sampler
 from sparkline.common.schema import ConsoleSettings, NodeInfo, NodeStatus, Sample
 from sparkline.console.cluster import Cluster
 from sparkline.console.hub import Hub
@@ -245,17 +246,85 @@ async def test_a_new_node_that_rejects_the_token_is_tried_again_later_than_one_t
         assert src.state.next_retry_ts - time.time() == pytest.approx(wait, abs=0.5), source.__name__
 
 
-def test_a_console_with_the_wrong_token_never_fills_the_agents_wrong_token_limit(tmp_path, monkeypatch):
-    """The agent counts wrong tokens per client IP and, at FAIL_LIMIT in a minute, turns the next request
-    away before it looks at its token. A console that retried that often would have its corrected token
-    refused too. So even with the shortest waits it can draw, from its first try, a console leaves room."""
-    monkeypatch.setattr(random, "uniform", lambda low, high: low)
-    src = NodeSource("n", URL, Cluster(Store(tmp_path / "c.sqlite"), Hub(), ConsoleSettings()))
-    tries = [0.0]
-    for src._attempt in range(40):
-        tries.append(tries[-1] + src.backoff_delay("error"))
-    busiest_minute = max(sum(start <= t < start + 60 for t in tries) for start in tries)
-    assert busiest_minute < FAIL_LIMIT, (busiest_minute, tries)
+async def test_retry_now_is_one_try_at_once_and_does_not_restart_the_doubling(tmp_path):
+    tries: list[float] = []
+
+    class Rejecting(NodeSource):
+        async def session(self) -> None:
+            tries.append(time.time())
+            raise AuthRejected(403)
+
+    async def waiting_after(n: int) -> None:
+        while len(tries) < n or (src.state.next_retry_ts or 0) <= time.time():
+            await asyncio.sleep(0.01)
+
+    src = Rejecting("n", URL, Cluster(Store(tmp_path / "c.sqlite"), Hub(), ConsoleSettings()))
+    src._attempt = 8  # well into its retries
+    task = asyncio.create_task(src.run())
+    try:
+        await asyncio.wait_for(waiting_after(1), 2)
+        src.retry_now()
+        assert src.state.next_retry_ts is None  # the card has nothing to count down to: it is trying
+        await asyncio.wait_for(waiting_after(2), 2)
+    finally:
+        task.cancel()
+    assert len(tries) == 2
+    assert src.state.next_retry_ts - time.time() == pytest.approx(10.0, abs=0.5)
+
+
+async def test_a_console_with_the_wrong_token_never_spends_the_agents_last_wrong_try(tmp_path, monkeypatch):
+    """The agent counts wrong tokens per client IP and, once it holds FAIL_LIMIT of the last minute, turns
+    the next request away before it looks at its token: a corrected token is refused too. Here the agent's
+    own app answers a console that has the wrong token for ten minutes, while "Retry now" is pressed twice a
+    second. Whenever the token is corrected, the agent accepts it, and each try starts when the node's state
+    said it would."""
+    info = NodeInfo.model_validate_json(
+        (Path(__file__).parent / "fixtures/console/node_info.json").read_text()
+    )
+    app = create_agent_app(cast(Sampler, None), lambda: info, "the-agent-token", manage_sampler=False)
+    agent = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://agent")
+    start = now = 1000.0
+    monkeypatch.setattr(time, "time", lambda: now)
+    answers: list[int] = []
+    right_token: list[int] = []
+    late: list[float] = []
+    over = asyncio.Event()
+
+    async def ask(token: str) -> int:
+        return (await agent.get("/api/v1/info", headers={"Authorization": f"Bearer {token}"})).status_code
+
+    class WrongToken(NodeSource):
+        async def session(self) -> None:
+            if now - start > 600:
+                over.set()
+                await asyncio.Event().wait()
+            if self.state.next_retry_ts is not None:
+                late.append(now - self.state.next_retry_ts)
+            answers.append(await ask("not-the-agent-token"))
+            right_token.append(await ask("the-agent-token"))
+            raise AuthRejected(answers[-1])
+
+    async def time_passes(waiting, timeout: float) -> None:
+        nonlocal now
+        waiting.close()
+        step = min(timeout, 0.5)
+        now += step
+        if step == timeout:
+            raise TimeoutError
+        src.retry_now()
+
+    src = WrongToken("n", URL, Cluster(Store(tmp_path / "c.sqlite"), Hub(), ConsoleSettings()))
+    monkeypatch.setattr(asyncio, "wait_for", time_passes)
+    task = asyncio.create_task(src.run())
+    try:
+        await over.wait()
+    finally:
+        task.cancel()
+        await agent.aclose()
+    assert set(right_token) == {200}, right_token  # asked after every try, as a corrected console would
+    assert set(answers) == {401}  # each one a check of the token, none the agent's "too many"
+    assert len(answers) > 80  # the console still uses the tries it has: 9 in a minute and a second
+    assert max(map(abs, late)) < 1e-6  # each try started when the state said it would
 
 
 def test_stale_threshold_respects_the_agent_interval(tmp_path):
