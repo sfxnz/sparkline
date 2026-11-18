@@ -51,6 +51,37 @@ test('on a narrow screen the overview keeps its text inside its padding and star
     });
     await expect.poll(layout, `${String(width)} px`).toEqual({ separatorStartsALine: false, pastThePadding: [] });
   }
+  // A total's footer is a sentence too ("Today 0.012 kWh · £0.01"). However narrow its column, the "·" stays on
+  // the line of the word before it.
+  await page.setViewportSize({ width: 360, height: 844 });
+  await expect(page.locator('.ov-totals .stat__footer', { hasText: '·' }).first()).toBeVisible();
+  const linesThatStartWithTheDot = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.ov-totals .stat__footer')].flatMap((footer) => {
+    const dotStartsALine = () => {
+      let before: number | null = null;
+      const walker = document.createTreeWalker(footer, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const text = n.textContent ?? '';
+        for (let i = 0; i < text.length; i++) {
+          if (!text.charAt(i).trim()) continue;
+          const range = document.createRange();
+          range.setStart(n, i);
+          range.setEnd(n, i + 1);
+          const top = range.getBoundingClientRect().top;
+          if (text.charAt(i) === '·' && before !== null && top - before > 4) return true;
+          before = top;
+        }
+      }
+      return false;
+    };
+    const found: string[] = [];
+    for (let width = 240; width >= 48 && !found.length; width -= 2) {
+      footer.style.width = `${String(width)}px`;
+      if (dotStartsALine()) found.push(`${footer.textContent} at ${String(width)} px`);
+    }
+    footer.style.width = '';
+    return found;
+  }));
+  await expect.poll(linesThatStartWithTheDot).toEqual([]);
 });
 
 test('node tabs are reachable from the keyboard and keep the URL in step', async ({ page }) => {

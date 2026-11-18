@@ -29,7 +29,8 @@ function leftOut(ids: readonly string[], gapOf: (id: string) => NotReported | nu
 
 const droppedOut = (ids: readonly string[], nodes: Record<string, NodeState>, field: NodeTotal) =>
   ids.filter((id) => nodeTotalGap(nodes[id]?.info, liveStore.latest(id), field)).join('\n');
-const exclText = (ids: readonly string[]) => (ids.length ? ` · ${excl(ids)}` : '');
+// A footer's "·" keeps to the word before it (a no-break space), so no line starts with one.
+const exclText = (ids: readonly string[]) => (ids.length ? `\u00a0· ${excl(ids)}` : '');
 
 export function Totals() {
   const online = useOnlineIds();
@@ -103,16 +104,16 @@ export function Totals() {
   const energyGaps = leftOut(ids, (id) => gpuSetGap(infos[id]?.info, 'energy_j', 'every'));
   const energyExcl = [...new Set([...energyGaps.excl, ...energy.missing])];
   const powerOnly = power.excl.filter((id) => !energyExcl.includes(id));
-  const nowExcl = powerOnly.length ? `Now ${excl(powerOnly)} · ` : '';
+  const nowExcl = powerOnly.length ? `Now ${excl(powerOnly)}\u00a0· ` : '';
   const today = (prefix: string) =>
     energy.joules === null ? null : (
       <span className="num">
         {prefix}Today {formatKwh(energy.joules)}
         {exclText(energyExcl)}
-        {energy.empty.length ? ` · ${excl(energy.empty)} (no energy reading today)` : ''}
-        {rate ? ` · ${formatEnergyCost(energy.joules, rate.energy_rate_per_kwh, rate.currency)}` : ''}
-        {Object.entries(energy.until).map(([id, ts]) => ` · ${id} until ${formatHm(ts)}`).join('')}
-        {Object.entries(energy.stops).map(([id, stops]) => ` · ${id} ${(infos[id]?.info?.gpus.length ?? 0) > 1 ? stopsText(stops) : untilText(stops[0]?.at ?? null)}`).join('')}
+        {energy.empty.length ? `\u00a0· ${excl(energy.empty)} (no energy reading today)` : ''}
+        {rate ? `\u00a0· ${formatEnergyCost(energy.joules, rate.energy_rate_per_kwh, rate.currency)}` : ''}
+        {Object.entries(energy.until).map(([id, ts]) => `\u00a0· ${id} until ${formatHm(ts)}`).join('')}
+        {Object.entries(energy.stops).map(([id, stops]) => `\u00a0· ${id} ${(infos[id]?.info?.gpus.length ?? 0) > 1 ? stopsText(stops) : untilText(stops[0]?.at ?? null)}`).join('')}
       </span>
     );
   const unified = ids.every((id) => memoryLayout(infos[id]?.info).name === 'Unified memory');
@@ -120,7 +121,7 @@ export function Totals() {
   return (
     <Panel label="Cluster totals" className="ov-totals">
       <div className="ov-totals__row">
-        <Stat label="Cluster compute" size="lg" value={totals.util} format={percentParts} unsupported={util.gap} footer={`Mean GPU utilisation${totals.utilFrom ? ` (${totals.utilFrom})` : ''}${exclText(util.excl)}${util.excl.length && allOnline ? '' : ` · ${of}`}`} {...staleProps} />
+        <Stat label="Cluster compute" size="lg" value={totals.util} format={percentParts} unsupported={util.gap} footer={`Mean GPU utilisation${totals.utilFrom ? ` (${totals.utilFrom})` : ''}${exclText(util.excl)}${util.excl.length && allOnline ? '' : `\u00a0· ${of}`}`} {...staleProps} />
         <Stat
           label="GPU power"
           size="lg"
@@ -143,7 +144,7 @@ export function Totals() {
               <span className="num">
                 {formatBytes(totals.memUsed).replace(/\s?GiB$/, '')} of {formatBytes(totals.memTotal)}
                 {exclText(memMissing)}
-                {totals.psi !== null ? (totals.psi < 0.05 ? ' · no memory pressure' : ` · waiting on memory ${formatPercent(totals.psi, totals.psi < 10 ? 1 : 0)} of the time`) : ''}
+                {totals.psi !== null ? (totals.psi < 0.05 ? '\u00a0· no memory pressure' : `\u00a0· waiting on memory ${formatPercent(totals.psi, totals.psi < 10 ? 1 : 0)} of the time`) : ''}
               </span>
             ) : stale ? (
               of

@@ -850,7 +850,7 @@ describe('node stats and cluster sums say why a node reads less than its GPUs', 
       liveStore.flush();
     });
     render(<Overview />);
-    expect(tile('Active GPU processes').querySelector('.stat__footer')?.textContent).toBe('No containers · excl.\u00a0spark2');
+    expect(tile('Active GPU processes').querySelector('.stat__footer')?.textContent).toBe('No containers\u00a0· excl.\u00a0spark2');
   });
 });
 
@@ -1016,7 +1016,7 @@ describe("GPU processes while some or all of a node's GPUs send nothing", () => 
     const spark2 = { ...gb10, node_id: 'spark2', hostname: 'spark2' };
     show([[gb10, idle(reading(gb10))], [spark2, failing(idle(reading(spark2)), UNKNOWN)], [ws4Lost, idle(gpu0Lost(reading(ws4)))]]);
     expect(workload()).toHaveTextContent(/^No GPU workloads on spark1 and ws4 \(4 of 5 GPUs\)$/);
-    expect(footer('Active GPU processes')).toBe('No containers · excl.\u00a0spark2 and ws4: GPU 0');
+    expect(footer('Active GPU processes')).toBe('No containers\u00a0· excl.\u00a0spark2 and ws4: GPU 0');
   });
 });
 
