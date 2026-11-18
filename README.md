@@ -179,8 +179,9 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   is stored. The model's shape comes from the top level of that same `config.json`, and no size is filled
   in without it: a shape kept in a sub-object such as `text_config`, or under an older name such as
   `n_layer`, is typed in by hand. A key that holds `null` is read as a key the config lacks, so a
-  `num_key_value_heads` of `null` gives the model's `num_attention_heads` as its KV heads. That is too
-  high for a model whose own code groups its heads in another key, and never too low. An index over 1 MiB is not read. If every safetensors file in the repo is
+  `num_key_value_heads` of `null` gives the model's `num_attention_heads` as its KV heads. Where the
+  config also names its own config class under `auto_map`, the lookup refuses and fills in nothing: it
+  reads no code and cannot tell how many KV heads a layer has. An index over 1 MiB is not read. If every safetensors file in the repo is
   then a shard of one set at its top level (`model-00001-of-00026.safetensors` and so on), the lookup shows
   their total and says so beside the number: a server loads those files or fewer of them. Anything else
   shows no size and a refusal.
