@@ -9,10 +9,11 @@ index. It fills in a size only when nothing it read is a sign that the model rea
 weight files, and names the sign it found when it will not. The signs are: a string in ``config.json`` that
 names another repo, a key in it that measures a model the repo does not hold, an ``adapter_config.json``, a
 ``.safetensors`` file the sizing leaves out, a weight file in another format whose name does not mark it as
-a copy or as training state, and a ``config.json`` it could not read at all. The model's shape comes from
-that same ``config.json``, and a size is never filled in without it. A refusal fills in the shape alone,
-and not even that after a sign of a second model (the first three above): the shape in the config may
-then be an adapter's, a draft's or one part's, not that of the model a server answers with.
+a copy or as training state, and a ``config.json`` it could not read at all. The model's shape is worked
+out from the top-level keys of that same ``config.json``, and a size is never filled in without it. A
+config that gives its layers one by one and not all alike has no such shape. A refusal fills in the shape
+alone, and not even that after a sign of a second model (the first three above): the shape in the config
+may then be an adapter's, a draft's or one part's, not that of the model a server answers with.
 
 A refusal is what the lookup read (``Reason``), then one of two fixed instructions (``Ask``). It never says
 what a server loads, what kind of model the repo is, or where a number can be read: advice that is true
@@ -24,8 +25,12 @@ still served beside a target, and ``subfolder=``, ``variant=`` and a LoRA flag a
 page fills in is the size of this repo's safetensors files, and the form and the result say that beside
 the number. A copy of the weights in another format is not in it.
 
-Not modelled: GGUF repos, sliding-window attention, latent attention (the KV cache estimate is 25 times too
-high for DeepSeek-V3), splitting a model across GPUs, the AMD GTT limit and the macOS wired-memory limit.
+The KV cache counts every layer as an attention layer of one width. That is too high, sometimes several
+times, for a model that windows its attention, shares a latent cache (25 times for DeepSeek-V3), mixes in
+layers that keep no keys (Mamba, convolution, linear attention), or keeps its KV head count under a key the
+lookup does not read. Nothing here lowers the estimate for such a model. The page says it is high.
+
+Not modelled: GGUF repos, splitting a model across GPUs, the AMD GTT limit and the macOS wired-memory limit.
 """
 
 from __future__ import annotations
@@ -63,7 +68,11 @@ REPO_ID_FORM = (
 
 
 class ModelShape(BaseModel):
-    """What sizes the KV cache. A lookup reads it from ``config.json``."""
+    """What sizes the KV cache: every layer counted as an attention layer of one width.
+
+    A lookup reads it from the top-level keys of ``config.json``. It is an upper estimate for a model
+    whose layers are not all attention layers of that width.
+    """
 
     # Strict, so that JSON true is not read as 1 byte or 1 layer.
     model_config = ConfigDict(strict=True)
@@ -72,6 +81,9 @@ class ModelShape(BaseModel):
     num_kv_heads: int = Field(gt=0)
     head_dim: int = Field(gt=0)
     max_context: int | None = Field(default=None, gt=0)
+    # Set by a lookup whose config holds no head_dim: head_dim is then hidden_size // num_attention_heads,
+    # a number no file of the repo holds, and the page says so beside it.
+    head_dim_worked_out: bool = False
 
 
 class ModelFacts(ModelShape):
@@ -286,7 +298,10 @@ class Reason(Enum):
         "{repo} is gated on Hugging Face",
         "Its files are only served to accounts that accepted the model's terms",
     )
-    NO_CONFIG = ("{repo} has no config.json", "The estimator reads the model's shape from it")
+    NO_CONFIG = (
+        "{repo} has no config.json at its top level",
+        "The estimator reads the model's shape from that file",
+    )
     FILE_LIST = (
         "Hugging Face does not list the files of {repo} in a way this estimator reads",
         "Its answer is not a list of file names with sizes",
@@ -315,15 +330,15 @@ class Reason(Enum):
     )
     NO_WEIGHTS_FILE = (
         "{repo} has no {weights} and no {index} at its top level",
-        "It holds other .safetensors files ({files}), and without an index the lookup cannot tell which of "
-        "them, if any, a server loads",
+        "It holds other .safetensors files ({files}), and with no {index} there the lookup cannot tell "
+        "which of them, if any, a server loads",
     )
     NO_SAFETENSORS = (
         "{repo} has no {weights} and no {index} at its top level",
         "It holds no .safetensors files. GGUF, PyTorch .bin and other formats are not read",
     )
     BESIDE_WEIGHTS_FILE = (
-        "{repo} holds other safetensors files beside its {weights}, and no index",
+        "{repo} holds other safetensors files beside its {weights}, and no {index} at its top level",
         "The lookup cannot tell whether a server loads only {weights} or {files} as well",
     )
     INDEX_UNREADABLE = (
@@ -352,6 +367,11 @@ class Reason(Enum):
         "The config.json of {repo} holds null under num_key_value_heads and names its own config class",
         "It holds {config_class} under AutoConfig in auto_map. The lookup reads no code, and cannot tell "
         "how many KV heads a layer has",
+    )
+    LAYERS_DIFFER = (
+        "The config.json of {repo} holds {key}, {held}",
+        "The lookup sizes every layer alike and cannot tell whether an entry changes a layer's KV cache, so "
+        "it does not size this model",
     )
 
     def of(self, **read: object) -> Refusal:
@@ -488,7 +508,9 @@ def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Refusal:
         reason = Reason.NO_WEIGHTS_FILE if others else Reason.NO_SAFETENSORS
         return reason.of(repo=repo, weights=WEIGHTS_FILE, index=INDEX_FILE, files=_listed(others))
     if others:
-        return Reason.BESIDE_WEIGHTS_FILE.of(repo=repo, weights=WEIGHTS_FILE, files=_listed(others))
+        return Reason.BESIDE_WEIGHTS_FILE.of(
+            repo=repo, weights=WEIGHTS_FILE, index=INDEX_FILE, files=_listed(others)
+        )
     return _total(repo, sizes, {WEIGHTS_FILE})
 
 
@@ -553,7 +575,8 @@ def _shape_in(config: dict[str, object]) -> ModelShape:
     """
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
     kv_heads, head_dim = config.get("num_key_value_heads"), config.get("head_dim")
-    if head_dim is None and (h := _whole(heads)) is not None and (w := _whole(hidden)) is not None:
+    worked_out = head_dim is None
+    if worked_out and (h := _whole(heads)) is not None and (w := _whole(hidden)) is not None:
         head_dim = w // h
     return ModelShape.model_validate(
         {
@@ -561,8 +584,44 @@ def _shape_in(config: dict[str, object]) -> ModelShape:
             "num_kv_heads": heads if kv_heads is None else kv_heads,
             "head_dim": head_dim,
             "max_context": config.get("max_position_embeddings"),
+            "head_dim_worked_out": worked_out,
         }
     )
+
+
+def _number_or_object(value: object) -> bool:
+    return isinstance(value, int | float | dict) and not isinstance(value, bool)
+
+
+def layers_one_by_one(config: dict[str, object], layers: int) -> tuple[str, str] | None:
+    """The first top-level key that gives the layers one by one and not all alike, and what it holds.
+
+    Two values count: a list as long as the model has layers, and an object whose every key is the number
+    of a layer. The entries are numbers or objects. Names do not count: 181 of 3,867 cached configs hold a
+    ``layer_types`` list whose names differ, and a name gives no width. An object with fewer entries than
+    the model has layers counts whatever its entries are. A key whose name ends in ``token_id`` or
+    ``token_ids`` holds vocabulary ids and is skipped: two end-of-sequence ids in a model of two layers
+    are no layer's setting.
+    """
+    for key, value in config.items():
+        if key.endswith(("token_id", "token_ids")):
+            continue
+        if isinstance(value, list):
+            entries, held = value, "a list of"
+        elif isinstance(value, dict) and all(
+            re.fullmatch(r"[0-9]{1,9}", k) and int(k) < layers for k in value
+        ):
+            entries, held = list(value.values()), "an object keyed by layer number with"
+        else:
+            continue
+        if not entries or not all(map(_number_or_object, entries)):
+            continue
+        if len(entries) == layers and any(entry != entries[0] for entry in entries):
+            return key, f"{held} {layers} entries, as many as num_hidden_layers, that are not all alike"
+        if isinstance(value, dict) and len(entries) < layers:
+            fewer = f"fewer than the {layers} layers num_hidden_layers counts"
+            return key, f"an object keyed by layer number with {len(entries)} entries, {fewer}"
+    return None
 
 
 def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Refusal:
@@ -571,18 +630,24 @@ def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Refusal
     A null ``num_key_value_heads`` beside a config class the config names for itself gets no shape. Only
     the config classes of transformers are known to read that null as the attention heads. One family's
     own class groups its heads per layer, and the attention heads gave it a KV cache 13 times too large.
+
+    Nor does a config that gives its layers one by one and not all alike: the shape is one width for every
+    layer. One family holds a head size per layer, 256 in a third of its layers and 64 in the rest, and
+    the top-level keys gave it 80, a KV cache below what its weights hold.
     """
     auto_map = config.get("auto_map")
     config_class = auto_map.get("AutoConfig") if isinstance(auto_map, dict) else None
     if config.get("num_key_value_heads", 0) is None and isinstance(config_class, str) and config_class:
         return Reason.NULL_KV_HEADS.of(repo=repo, config_class=config_class)
     try:
-        return _shape_in(config)
+        shape = _shape_in(config)
     except ValidationError as e:
         keys = "; ".join(_SHAPE_KEYS[str(err["loc"][0])] for err in e.errors())
         # The refusal names no sub-object. 1,472 of 3,867 cached configs keep a shape in one, and the only
         # one that holds a shape can be a vision tower or a waveform decoder.
         return Reason.NO_SHAPE.of(repo=repo, keys=keys)
+    unlike = layers_one_by_one(config, shape.num_layers)
+    return Reason.LAYERS_DIFFER.of(repo=repo, key=unlike[0], held=unlike[1]) if unlike else shape
 
 
 class _Json(NamedTuple):
@@ -784,7 +849,7 @@ async def weights_of(
         index = await _get_hf_json(
             client,
             f"/{repo}/resolve/main/{INDEX_FILE}",
-            {401: gated, 403: gated},
+            {401: gated},
             f"The weight index of {repo}",
         )
         weights = index if isinstance(index, Refusal) else indexed_weights(repo, sizes, index.value)
@@ -820,7 +885,7 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
         await _get_hf_json(
             client,
             f"/{repo}/resolve/main/config.json",
-            {401: gated, 403: gated, 404: no_config},
+            {401: gated, 404: no_config},
             f"The config.json of {repo}",
         ),
     )

@@ -28,9 +28,12 @@ export const VERDICTS: Record<FitVerdict, { status: Status; label: string }> = {
  */
 export type DraftWeights = { from: 'lookup'; repo: string; bytes: number; upperBound: boolean } | { from: 'hand'; size: string; unit: SizeUnit };
 
-/** What sizes the KV cache, under the same rule: a shape a lookup read carries its repo, a typed one has none. */
+/**
+ * What sizes the KV cache, under the same rule: a shape a lookup read carries its repo, a typed one has none.
+ * A looked-up shape also says whether its head size was read or worked out, which a typed one cannot be asked.
+ */
 export type DraftShape =
-  | { from: 'lookup'; repo: string; layers: string; kvHeads: string; headDim: string; maxContext: number | null }
+  | { from: 'lookup'; repo: string; layers: string; kvHeads: string; headDim: string; maxContext: number | null; headDimWorkedOut: boolean }
   | { from: 'hand'; layers: string; kvHeads: string; headDim: string };
 
 export interface Draft {
@@ -60,7 +63,7 @@ export function fromLookup(draft: Draft, repo: string, read: ModelFacts | ModelS
     ...draft,
     weights: read && 'weights_bytes' in read ? { from: 'lookup', repo, bytes: read.weights_bytes, upperBound: read.weights_upper_bound } : EMPTY_DRAFT.weights,
     shape: read
-      ? { from: 'lookup', repo, layers: String(read.num_layers), kvHeads: String(read.num_kv_heads), headDim: String(read.head_dim), maxContext: read.max_context }
+      ? { from: 'lookup', repo, layers: String(read.num_layers), kvHeads: String(read.num_kv_heads), headDim: String(read.head_dim), maxContext: read.max_context, headDimWorkedOut: read.head_dim_worked_out }
       : EMPTY_DRAFT.shape,
   };
 }
@@ -81,6 +84,11 @@ export const readFrom = ({ weights, shape }: Draft): ReadFrom => ({
 
 /** The longest context the looked-up model supports, when a lookup read the shape. */
 export const maxContextOf = (draft: Draft) => (draft.shape.from === 'lookup' ? draft.shape.maxContext : null);
+
+/** Whether the head size on the form is one a lookup worked out, as hidden_size divided by num_attention_heads, and did not read. */
+export const headDimWorkedOut = (draft: Draft) => draft.shape.from === 'lookup' && draft.shape.headDimWorkedOut;
+
+export const WORKED_OUT = 'worked out as hidden_size divided by num_attention_heads';
 
 /**
  * What a lookup the console made and refused still read: its shape, or none. Null when the error is no refusal
@@ -138,6 +146,7 @@ export function toRequest(draft: Draft): { ok: true; request: FitRequest } | { o
       num_kv_heads: need('kvHeads', draft.shape.kvHeads),
       head_dim: need('headDim', draft.shape.headDim),
       max_context: maxContextOf(draft),
+      head_dim_worked_out: headDimWorkedOut(draft),
     },
     context_tokens: need('context', draft.context),
     kv_dtype: draft.kvDtype,

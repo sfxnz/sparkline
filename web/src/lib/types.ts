@@ -574,6 +574,8 @@ export interface ModelShape {
   num_kv_heads: number;
   head_dim: number;
   max_context: number | null;
+  /** True when a lookup's config held no head_dim, and head_dim is hidden_size divided by num_attention_heads: a number no file of the repo holds. */
+  head_dim_worked_out: boolean;
 }
 
 export interface ModelFacts extends ModelShape {

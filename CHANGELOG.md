@@ -47,9 +47,15 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   is named as a copy of the same weights or as training state. The
   weights are then the files that `model.safetensors.index.json` names, or `model.safetensors` where there
   is no index, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it is stored. The model's shape
-  comes from the top level of that same `config.json`, and no size is filled in without it. A
+  is worked out from the top-level keys of that same `config.json`, and no size is filled in without it.
+  Where the config has no `head_dim`, the head size is `hidden_size` divided by `num_attention_heads`, and
+  the form and the result say it was worked out, not read. A
   `num_key_value_heads` of `null` beside a config class the config names under `auto_map` is refused,
-  because the lookup reads no code and cannot tell how many KV heads a layer has. An index over
+  because the lookup reads no code and cannot tell how many KV heads a layer has. A config that gives its
+  layers one by one and not all alike (a top-level list with as many entries as `num_hidden_layers`, or
+  an object keyed by layer number, whose entries are numbers or objects) is refused too, because the
+  lookup sizes every layer alike and cannot tell whether an entry changes a layer's KV cache. A key whose
+  name ends in `token_id` or `token_ids` holds vocabulary ids and is skipped. An index over
   1 MiB is not read; when the repo's safetensors files are then one set of shards, the weights are their
   total, which a server never exceeds, and the page says so beside the number. Every other repo gets no
   size and a refusal in two parts: what the lookup read, then one of two instructions that are the same
@@ -63,8 +69,10 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   The same facts can be typed instead, as the total of every weight file the server loads, in GiB or GB and
   never as a parameter count. A result says where the size and the shape each came from, read from the repo
   or typed by hand. A lookup replaces the model on the form and takes an earlier result off the page. The
-  KV cache is sized as every layer at full width, so it is too high for
-  sliding-window and latent-attention models, which the page says. New endpoints `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new
+  KV cache is an estimate that counts every layer as an attention layer of one width. It is too high,
+  sometimes several times, for a model that windows its attention, shares a latent cache (MLA, 25 times less for DeepSeek-V3), mixes in layers
+  that keep no keys (Mamba, convolution, linear attention), or keeps its KV head count under a key the
+  lookup does not read, which the page says. New endpoints `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new
   `console.toml` key `hf_lookup` (default `true`) turns the lookup off.
 
 ### Changed

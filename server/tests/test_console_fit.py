@@ -46,6 +46,8 @@ QWEN_CONFIG = {
     "num_hidden_layers": 36,
     "num_key_value_heads": 8,
 }
+# What a lookup of that config adds to the shape: QWEN_CONFIG holds no head_dim.
+QWEN_LOOKED_UP = {"max_context": 40960, "head_dim_worked_out": True}
 
 
 def test_the_worked_example_qwen3_8b_at_32k_context():
@@ -196,7 +198,7 @@ def indexed_repo(sizes: dict[str, int], *named: str, config=QWEN_CONFIG):
 async def test_lookup_reads_the_size_of_the_weights_and_the_model_shape():
     hf = FakeHuggingFace(public_repo())
     facts = await hf.lookup()
-    assert facts == QWEN.model_copy(update={"repo": "Qwen/Qwen3-8B", "max_context": 40960})
+    assert facts == QWEN.model_copy(update={"repo": "Qwen/Qwen3-8B", **QWEN_LOOKED_UP})
     assert set(hf.hosts) == {"https://huggingface.co"}
 
 
@@ -299,6 +301,132 @@ async def test_a_shape_refusal_names_only_the_keys_that_hold_no_number(config, k
 
 
 # Hugging Face's parameter counts and weight file sizes for four real 4-bit repos.
+# A repo no one has, for the configs below: 12 layers, 8 KV heads, and no head_dim.
+LAYERED = "made-up-org/layers-one-by-one"
+LAYERED_CONFIG = {
+    "num_hidden_layers": 12,
+    "num_attention_heads": 32,
+    "num_key_value_heads": 8,
+    "hidden_size": 2560,
+    "max_position_embeddings": 4096,
+}
+
+
+def made_up_repo(config: dict[str, object], repo: str = LAYERED) -> FakeHuggingFace:
+    return FakeHuggingFace(
+        {
+            f"/api/models/{repo}": httpx.Response(200, json=QWEN_INFO),
+            f"/{repo}/resolve/main/config.json": httpx.Response(200, json=config),
+        }
+    )
+
+
+PER_LAYER = "12 entries, as many as num_hidden_layers, that are not all alike"
+LIST_PER_LAYER = f"a list of {PER_LAYER}"
+BY_NUMBER = "an object keyed by layer number"
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "held"),
+    [
+        # The eighth verifier's defect: a head size per layer, and hidden_size // num_attention_heads is
+        # the head size of no layer.
+        pytest.param(
+            "head_sizes", [256, 256, 64, 64, 64, 256, 64, 64, 64, 256, 256, 256], LIST_PER_LAYER, id="numbers"
+        ),
+        pytest.param(
+            "block_configs",
+            [{"attention": {"n_heads_in_group": 4 if i % 3 else None}} for i in range(12)],
+            LIST_PER_LAYER,
+            id="objects",
+        ),
+        pytest.param(
+            "per_layer_config",
+            {"03": {"head_dim": 512}, "07": {"head_dim": 512}, "11": {"head_dim": 512}},
+            f"{BY_NUMBER} with 3 entries, fewer than the 12 layers num_hidden_layers counts",
+            id="an-object-for-some-layers",
+        ),
+        pytest.param(
+            "layer_head_dim",
+            {str(i): 256 if i < 2 else 64 for i in range(12)},
+            f"{BY_NUMBER} with {PER_LAYER}",
+            id="an-object-for-every-layer",
+        ),
+    ],
+)
+async def test_a_config_that_gives_its_layers_one_by_one_and_not_all_alike_is_refused(key, value, held):
+    failure = await made_up_repo({**LAYERED_CONFIG, key: value}).lookup(LAYERED)
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
+    assert failure.problem.message == f"The config.json of {LAYERED} holds {key}, {held}"
+    assert failure.problem.cause == (
+        "The lookup sizes every layer alike and cannot tell whether an entry changes a layer's KV cache, so "
+        "it does not size this model"
+    )
+    assert failure.problem.fix == ASK_BOTH
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param({"layer_types": ["full_attention", "sliding_attention"] * 6}, id="type-names"),
+        pytest.param({"moe_topk": [8] * 12}, id="numbers-all-alike"),
+        pytest.param({"block_configs": [{"n_heads_in_group": 4}] * 12}, id="objects-all-alike"),
+        pytest.param({"eos_token_id": [1, 107]}, id="a-list-of-another-length"),
+        pytest.param({"window_sizes": [[-1, 0], [1024, 0]] * 6}, id="a-list-of-lists"),
+        pytest.param({"id2label": {"0": "LABEL_0", "1": "LABEL_1"}}, id="an-object-of-strings"),
+        pytest.param(
+            {"layer_head_dim": {str(i): 320 for i in range(12)}}, id="an-object-alike-for-every-layer"
+        ),
+        pytest.param({"pruned_heads": {"0": [1, 2], "5": [3]}}, id="an-object-of-lists"),
+        pytest.param({"bins": {"64": 1, "128": 2}}, id="an-object-keyed-past-the-last-layer"),
+        pytest.param({"task_specific_params": {"summarization": {"length_penalty": 1.0}}}, id="an-object"),
+    ],
+)
+async def test_a_config_whose_layers_are_alike_or_only_named_keeps_its_answer(extra):
+    facts = await made_up_repo({**LAYERED_CONFIG, **extra}).lookup(LAYERED)
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim) == (12, 8, 80)
+
+
+@pytest.mark.parametrize("key", ["eos_token_id", "stop_token_ids"])
+async def test_a_list_of_token_ids_as_long_as_the_layer_count_keeps_its_answer(key):
+    config = {**LAYERED_CONFIG, "num_hidden_layers": 2, key: [1, 107]}
+    facts = await made_up_repo(config).lookup(LAYERED)
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim) == (2, 8, 80)
+
+
+async def test_a_config_with_no_shape_is_refused_for_that_before_its_layers_are_compared():
+    config = {"num_hidden_layers": 12, "head_sizes": [256] * 11 + [64]}
+    assert "holds no shape" in (await made_up_repo(config).lookup(LAYERED)).problem.message
+
+
+async def test_a_head_size_the_config_does_not_hold_is_marked_as_worked_out():
+    facts = await made_up_repo(LAYERED_CONFIG).lookup(LAYERED)
+    assert (facts.head_dim, facts.head_dim_worked_out) == (80, True)
+    facts = await made_up_repo({**LAYERED_CONFIG, "head_dim": None}).lookup(LAYERED)
+    assert (facts.head_dim, facts.head_dim_worked_out) == (80, True)
+
+
+async def test_a_head_size_the_config_holds_is_marked_as_read():
+    facts = await made_up_repo({**LAYERED_CONFIG, "head_dim": 256}).lookup(LAYERED)
+    assert (facts.head_dim, facts.head_dim_worked_out) == (256, False)
+
+
+async def test_a_refusal_that_fills_in_the_shape_says_whether_its_head_size_was_worked_out():
+    gguf_only = repo_files({"model.Q4_K_M.gguf": 5})
+    for config, worked_out in ((LAYERED_CONFIG, True), ({**LAYERED_CONFIG, "head_dim": 256}, False)):
+        hf = made_up_repo(config)
+        hf.routes[f"/api/models/{LAYERED}"] = httpx.Response(200, json=gguf_only)
+        failure = await hf.lookup(LAYERED)
+        assert failure.shape is not None and failure.shape.head_dim_worked_out is worked_out
+
+
+def test_a_typed_shape_is_not_marked_as_worked_out():
+    assert QWEN.head_dim_worked_out is False
+
+
 PACKED_REPOS = [
     pytest.param(
         {"I32": 6_525_288_448, "F16": 1_090_328_064},
@@ -849,7 +977,13 @@ async def test_each_lookup_failure_is_a_problem_that_says_what_to_enter_by_hand(
     assert "Input should be" not in problem.cause and "Field required" not in problem.cause
 
 
-QWEN_SHAPE = {"num_layers": 36, "num_kv_heads": 8, "head_dim": 128, "max_context": 40960}
+QWEN_SHAPE = {
+    "num_layers": 36,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "max_context": 40960,
+    "head_dim_worked_out": True,
+}
 
 # Every one of these configs holds a whole shape at its top level, and the lookup read it.
 SECOND_MODEL = [
@@ -878,6 +1012,55 @@ def test_lookup_route_sends_nothing_to_fill_in_after_a_refusal_over_a_second_mod
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
     assert r.status_code == 502
     assert r.json() == {"problem": r.json()["problem"], "shape": None}
+
+
+TWO_FOLDERS = repo_files({"model.safetensors": 5, "v1.0/model.safetensors": 5, f"v1.0/{INDEX}": 9})
+SHARDS_NO_INDEX = repo_files({f"model-0000{i}-of-00002.safetensors": 5 for i in (1, 2)})
+
+
+@pytest.mark.parametrize(
+    ("routes", "said"),
+    [
+        # Each of these repos can hold the file the sentence speaks of in a sub-folder, where the lookup
+        # never looks: the eighth verifier found an index under v1.0/ and a config.json beside a GGUF file.
+        pytest.param(
+            refused(CONFIG_PATH, 404), "Qwen/Qwen3-8B has no config.json at its top level", id="no-config"
+        ),
+        pytest.param(
+            public_repo(info=TWO_FOLDERS),
+            "Qwen/Qwen3-8B holds other safetensors files beside its model.safetensors, and no "
+            "model.safetensors.index.json at its top level",
+            id="no-index-beside-the-weights",
+        ),
+        pytest.param(
+            public_repo(info=SHARDS_NO_INDEX),
+            "It holds other .safetensors files (model-00001-of-00002.safetensors, "
+            "model-00002-of-00002.safetensors), and with no model.safetensors.index.json there the lookup "
+            "cannot tell which of them, if any, a server loads",
+            id="no-index-and-no-weights-file",
+        ),
+    ],
+)
+async def test_a_sentence_about_a_file_the_repo_lacks_says_where_the_lookup_looked(routes, said):
+    problem = (await FakeHuggingFace(routes).lookup()).problem
+    assert said in (problem.message, problem.cause)
+
+
+@pytest.mark.parametrize(
+    ("routes", "shape"),
+    [
+        pytest.param(refused(CONFIG_PATH, 403), None, id="config"),
+        pytest.param(
+            {**indexed_repo({"model.safetensors": 5}), INDEX_PATH: httpx.Response(403)},
+            QWEN_SHAPE,
+            id="index",
+        ),
+    ],
+)
+async def test_a_403_for_a_file_says_its_status_and_not_that_the_repo_is_gated(routes, shape):
+    failure = await FakeHuggingFace(routes).lookup()
+    assert failure.problem.message == "Hugging Face answered the lookup with HTTP 403"
+    assert failure.model_dump()["shape"] == shape
 
 
 @pytest.mark.parametrize(
@@ -1104,6 +1287,7 @@ REFUSALS: dict[str, dict[str, httpx.Response | Exception]] = {
     "EMPTY_WEIGHTS": public_repo(info=repo_files({"model.safetensors": 0})),
     "NO_SHAPE": public_repo(config=PARTS_CONFIG),
     "NULL_KV_HEADS": public_repo(config={**NULL_KV_CONFIG, **OWN_CONFIG_CLASS}),
+    "LAYERS_DIFFER": public_repo(config={**QWEN_CONFIG, "head_sizes": [256] * 12 + [64] * 24}),
 }
 
 # What the words a refusal writes for itself may never hold. Advice that is true of one repo is untrue of
@@ -1300,7 +1484,7 @@ def test_lookup_route_returns_the_facts(tmp_path, hf):
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
     assert r.status_code == 200
     assert ModelFacts.model_validate(r.json()) == QWEN.model_copy(
-        update={"repo": "Qwen/Qwen3-8B", "max_context": 40960}
+        update={"repo": "Qwen/Qwen3-8B", **QWEN_LOOKED_UP}
     )
     assert len(hf.hosts) == 3 and hf.credentials == set()
 
