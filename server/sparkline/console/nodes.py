@@ -41,6 +41,8 @@ BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 30.0
 BACKOFF_NEW_CAP_S = 5.0  # a node that has never answered: someone is setting it up and watching the page
 BACKOFF_TURNED_AWAY_CAP_S = 10.0  # ...and whose agent turned the console away: leaves tries for "Retry"
+# ...and the shortest wait after any agent refused the token. A try a second later gets the same answer, and
+# a console restarted on a wrong token would spend five of the agent's ten in its first 15 s.
 # The agent counts the wrong tokens a client IP sent in the last minute and, once it holds FAIL_LIMIT of them
 # (agent/app.py token_check), turns every request away without looking at its token. The console sends at
 # most one fewer in a minute and a second, so every answer it gets is a check of its token.
@@ -320,15 +322,16 @@ class NodeSource:
         self.set_status(self.state.status, self.state.error, self._next_try if self._next_try > now else None)
         self._wake.set()
 
-    def backoff_delay(self, status: NodeStatus) -> float:
+    def backoff_delay(self, status: NodeStatus, token_refused: bool = False) -> float:
         """The wait before the next try, after one that ended in ``status``: doubling, up to 30 s for a node
         that has answered before. Until a node's first answer the wait stays short, so starting its agent
-        shows on the page within seconds."""
+        shows on the page within seconds. After the agent refused the token it is never under 10 s."""
         if self.state.first_seen is not None:
             cap = BACKOFF_CAP_S
         else:
             cap = BACKOFF_TURNED_AWAY_CAP_S if status == "error" else BACKOFF_NEW_CAP_S
-        return min(cap, BACKOFF_BASE_S * 2 ** min(self._attempt, 10) * random.uniform(0.8, 1.2))
+        wait = min(cap, BACKOFF_BASE_S * 2 ** min(self._attempt, 10) * random.uniform(0.8, 1.2))
+        return max(wait, BACKOFF_TURNED_AWAY_CAP_S) if token_refused else wait
 
     async def run(self) -> None:
         while True:
@@ -347,12 +350,13 @@ class NodeSource:
                 failure = e
             self.connected_at = None
             status, problem = self.state.status, self.state.error
+            token_refused = failure is not None and http_status(failure) in (401, 403)
             if failure is not None:
                 status, problem = classify(failure, self.node_id, self.url, self.state.first_seen is None)
                 log.debug("%s: session failed: %r", self.node_id, failure)
-                if http_status(failure) in (401, 403):
+                if token_refused:
                     self._turned_away.append(time.time())
-            self._next_try = max(time.time() + self.backoff_delay(status), self._room_at())
+            self._next_try = max(time.time() + self.backoff_delay(status, token_refused), self._room_at())
             self._wake.clear()
             self.set_status(status, problem, self._next_try)
             while (wait := self._next_try - time.time()) > 0:

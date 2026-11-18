@@ -56,13 +56,19 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   output is not a terminal, put the command that reads the token on a line of its own.
 - The console tries a node that has never answered every 5 s at most, so starting its agent shows on the
   page within seconds. While that node's agent turns the console away (a wrong token), it is tried every
-  10 s at most. A node that has answered before is tried up to 30 s apart, as before.
+  10 s at most. A node that has answered before is tried up to 30 s apart, as before. After an agent has
+  refused the console's token, the next automatic try is 10 s later at the earliest, for a new node and
+  for one that has answered before: a try a second later only gets the same answer.
 - An agent that has had 10 wrong tokens from one address in a minute refuses the next token unread, right
   or wrong. The console now never sends the tenth: its own tries and **Retry** together stop at nine in
   a minute, and the next one waits until there is room, which the card's countdown shows. So a corrected
   token is accepted on the first try, however often **Retry** was pressed. **Retry** is one try. It
   no longer restarts the retry schedule, and a try that is already under way is that try. The console's
-  count starts again when it restarts, so a console restarted with a wrong token can still reach the limit.
+  count starts again when it restarts, and a restarted console tries at once and then every 10 s. So,
+  with nothing pressed, the console can be restarted three times in a minute on a wrong token, and the
+  restart with the right token is still accepted on its first try. Five console starts on a wrong token
+  inside one minute can still reach the limit, and so can a restart on a wrong token after **Retry** was
+  pressed many times. The right token is then refused until that minute has passed.
 - The fix for "Agent unreachable" on a refused connection says what to run: the command that starts the
   agent, the command that shows why it did not stay up and, for a node that has never answered, the install
   command. The fix for a rejected agent token says how to compare the two tokens and which service to

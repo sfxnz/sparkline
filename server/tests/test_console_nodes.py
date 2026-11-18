@@ -206,22 +206,25 @@ def test_a_node_is_retried_within_seconds_until_its_first_answer_and_backs_off_t
     src = NodeSource("n", URL, cluster)
     cluster.add_source(src)
 
-    def waits(status: NodeStatus) -> list[float]:
+    def waits(status: NodeStatus, token_refused: bool = False) -> list[float]:
         out = []
         for src._attempt in range(12):
-            out.append(src.backoff_delay(status))
+            out.append(src.backoff_delay(status, token_refused))
         return out
 
     never_answered = waits("offline")
     assert never_answered[0] <= 1.2 and max(never_answered) == 5.0, never_answered
     turned_away = waits("error")
     assert turned_away[0] <= 1.2 and max(turned_away) == 10.0, turned_away
+    assert set(waits("error", token_refused=True)) == {10.0}  # a second try at once gets the same answer
     src.got_hello(NodeInfo.model_validate(info))
     src.got_sample(Sample.model_validate(sample))
     assert src.state.first_seen is not None
     for status in ("offline", "error"):
         answered_once = waits(status)
         assert answered_once[0] <= 1.2 and max(answered_once) == 30.0, answered_once
+    token_refused = waits("error", token_refused=True)
+    assert min(token_refused) == token_refused[0] == 10.0 and max(token_refused) == 30.0, token_refused
 
 
 async def test_a_new_node_that_rejects_the_token_is_tried_again_later_than_one_that_does_not_answer(tmp_path):
@@ -272,12 +275,20 @@ async def test_retry_now_is_one_try_at_once_and_does_not_restart_the_doubling(tm
     assert src.state.next_retry_ts - time.time() == pytest.approx(10.0, abs=0.5)
 
 
-async def test_a_console_with_the_wrong_token_never_spends_the_agents_last_wrong_try(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("pressed", "restart_every", "fewest_tries"),
+    [(True, 600.0, 80), (False, 20.0, 55)],
+    ids=["retry-pressed-twice-a-second", "console-restarted-every-20-s"],
+)
+async def test_a_console_with_the_wrong_token_never_spends_the_agents_last_wrong_try(
+    tmp_path, monkeypatch, pressed, restart_every, fewest_tries
+):
     """The agent counts wrong tokens per client IP and, once it holds FAIL_LIMIT of the last minute, turns
     the next request away before it looks at its token: a corrected token is refused too. Here the agent's
-    own app answers a console that has the wrong token for ten minutes, while "Retry" is pressed twice a
-    second. Whenever the token is corrected, the agent accepts it, and each try starts when the node's state
-    said it would."""
+    own app answers a console that has the wrong token for ten minutes. In one run "Retry" is pressed twice
+    a second. In the other nothing is pressed and the console is restarted every 20 s: a new NodeSource,
+    which knows nothing of the tries before it. Whenever the token is corrected, the agent accepts it, and
+    each try starts when the node's state said it would."""
     info = NodeInfo.model_validate_json(
         (Path(__file__).parent / "fixtures/console/node_info.json").read_text()
     )
@@ -288,16 +299,14 @@ async def test_a_console_with_the_wrong_token_never_spends_the_agents_last_wrong
     answers: list[int] = []
     right_token: list[int] = []
     late: list[float] = []
-    over = asyncio.Event()
+    stop_at = 0.0
+    stopped = asyncio.Event()
 
     async def ask(token: str) -> int:
         return (await agent.get("/api/v1/info", headers={"Authorization": f"Bearer {token}"})).status_code
 
     class WrongToken(NodeSource):
         async def session(self) -> None:
-            if now - start > 600:
-                over.set()
-                await asyncio.Event().wait()
             if self.state.next_retry_ts is not None:
                 late.append(now - self.state.next_retry_ts)
             answers.append(await ask("not-the-agent-token"))
@@ -309,21 +318,29 @@ async def test_a_console_with_the_wrong_token_never_spends_the_agents_last_wrong
         waiting.close()
         step = min(timeout, 0.5)
         now += step
+        if now >= stop_at:  # this console process ends here
+            stopped.set()
+            await asyncio.Event().wait()
         if step == timeout:
             raise TimeoutError
-        src.retry_now()
+        if pressed:
+            src.retry_now()
 
-    src = WrongToken("n", URL, Cluster(Store(tmp_path / "c.sqlite"), Hub(), ConsoleSettings()))
+    cluster = Cluster(Store(tmp_path / "c.sqlite"), Hub(), ConsoleSettings())
     monkeypatch.setattr(asyncio, "wait_for", time_passes)
-    task = asyncio.create_task(src.run())
     try:
-        await over.wait()
+        while now - start < 600:
+            src = WrongToken("n", URL, cluster)
+            stop_at = now + restart_every
+            stopped.clear()
+            task = asyncio.create_task(src.run())
+            await stopped.wait()
+            task.cancel()
     finally:
-        task.cancel()
         await agent.aclose()
     assert set(right_token) == {200}, right_token  # asked after every try, as a corrected console would
     assert set(answers) == {401}  # each one a check of the token, none the agent's "too many"
-    assert len(answers) > 80  # the console still uses the tries it has: 9 in a minute and a second
+    assert len(answers) > fewest_tries  # the console still uses the tries it has: 9 a minute, 2 a process
     assert max(map(abs, late)) < 1e-6  # each try started when the state said it would
 
 
