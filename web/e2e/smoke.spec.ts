@@ -25,7 +25,7 @@ for (const scheme of ['dark', 'light'] as const) {
       await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Can’t reach Sparkline' })).toBeVisible();
       await expect(page.getByText('sparkline --demo')).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Retry now' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
       await expect(page.getByRole('status').filter({ hasText: /^(Reconnecting in \d+ s|Reconnecting…)$/ })).toBeVisible();
       expect(await seriousViolations(page)).toEqual([]);
     });

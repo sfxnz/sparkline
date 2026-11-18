@@ -123,7 +123,7 @@ async function expectWholeFix(card: Locator) {
   }
   await expect(card.getByRole('button', { name: 'Copy command' })).toHaveCount(FIX.length);
   await expect(card.getByText(/Trying again in \d+\s*s|Trying now…/)).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Retry now' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Retry' })).toBeVisible();
 }
 
 test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, and a guide that stays put away', async ({ page, browser }) => {
@@ -404,7 +404,7 @@ test('the main path with a keyboard only', async ({ page }) => {
   await tabTo(card.getByRole('button', { name: 'Copy command' }).first());
   await page.keyboard.press('Enter');
   await expect(card.getByRole('button', { name: 'Copied command' })).toBeVisible();
-  await tabTo(card.getByRole('button', { name: 'Retry now' }));
+  await tabTo(card.getByRole('button', { name: 'Retry' }));
   await page.keyboard.press('Enter');
   await expect(card.getByText(/Trying now…|Trying again in/)).toBeVisible();
 
@@ -486,7 +486,7 @@ for (const scheme of ['dark', 'light'] as const) {
         expect(await axe(page), `sign-in, ${width} px`).toEqual([]);
 
         await signInByLink(page);
-        await expect(setupCard(page).getByRole('button', { name: 'Retry now' })).toBeVisible();
+        await expect(setupCard(page).getByRole('button', { name: 'Retry' })).toBeVisible();
         await expect(page.locator('#getting-started')).toBeVisible();
         expect(await axe(page), `overview, ${width} px`).toEqual([]);
 

@@ -261,7 +261,7 @@ export function NodeNotice({ id }: { id: string }) {
       </div>
       {down ? (
         <Button size="sm" variant="secondary" icon={<RotateCw />} onClick={() => { void api.retryNode(id).catch(() => undefined); }}>
-          Retry now
+          Retry
         </Button>
       ) : null}
     </section>

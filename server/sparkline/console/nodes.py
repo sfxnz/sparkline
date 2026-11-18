@@ -40,7 +40,7 @@ log = logging.getLogger("sparkline.console.nodes")
 BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 30.0
 BACKOFF_NEW_CAP_S = 5.0  # a node that has never answered: someone is setting it up and watching the page
-BACKOFF_TURNED_AWAY_CAP_S = 10.0  # ...and whose agent turned the console away: leaves tries for "Retry now"
+BACKOFF_TURNED_AWAY_CAP_S = 10.0  # ...and whose agent turned the console away: leaves tries for "Retry"
 # The agent counts the wrong tokens a client IP sent in the last minute and, once it holds FAIL_LIMIT of them
 # (agent/app.py token_check), turns every request away without looking at its token. The console sends at
 # most one fewer in a minute and a second, so every answer it gets is a check of its token.

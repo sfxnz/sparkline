@@ -24,7 +24,7 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   its card, its page, the sidebar, the wall, the benchmark cards and in Settings, in a neutral tone, and
   Settings > Data offers no "Clear history" for it. Its card shows what the console tried, the likely cause
   and the fix a step at a time, each command once, in a box under its step with a copy button, the time to
-  the next try and **Retry now**. A command box wraps at its spaces, also on a phone. When the agent
+  the next try and **Retry**. A command box wraps at its spaces, also on a phone. When the agent
   answered and turned the console away (a wrong token), the card says that only the fix will connect it,
   where it would count down to the next try. While the browser cannot reach the console, the card says
   nothing about tries. The node's first reading arrives on the card in place.
@@ -58,9 +58,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   page within seconds. While that node's agent turns the console away (a wrong token), it is tried every
   10 s at most. A node that has answered before is tried up to 30 s apart, as before.
 - An agent that has had 10 wrong tokens from one address in a minute refuses the next token unread, right
-  or wrong. The console now never sends the tenth: its own tries and **Retry now** together stop at nine in
+  or wrong. The console now never sends the tenth: its own tries and **Retry** together stop at nine in
   a minute, and the next one waits until there is room, which the card's countdown shows. So a corrected
-  token is accepted on the first try, however often **Retry now** was pressed. **Retry now** is one try. It
+  token is accepted on the first try, however often **Retry** was pressed. **Retry** is one try. It
   no longer restarts the retry schedule, and a try that is already under way is that try. The console's
   count starts again when it restarts, so a console restarted with a wrong token can still reach the limit.
 - The fix for "Agent unreachable" on a refused connection says what to run: the command that starts the
@@ -79,6 +79,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 - A dialog that closes no longer pulls focus back to the control that opened it when focus has already
   moved on, as it has after a Search command that opens a panel.
 - The web app uses one apostrophe style, the typographic one (’), in everything it says.
+- The button that asks for another try is named **Retry** everywhere. On a node's page and on the page
+  shown when the console cannot be reached it was "Retry now".
 
 ### Fixed
 

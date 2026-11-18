@@ -45,7 +45,7 @@ function Retry({ node }: { node: NodeState }) {
   // When this wait was first seen, so the bar can show how much of it is left.
   const [wait, setWait] = useState({ next, learned: now });
   if (wait.next !== next) setWait({ next, learned: now });
-  // "Retry now" was pressed for this wait: say so until the console answers.
+  // "Retry" was pressed for this wait: say so until the console answers.
   const [askedFor, setAskedFor] = useState<number | null | undefined>(undefined);
   const { secs, left } = retryWait(next, wait.learned, now);
   // No time for the next try: the console is making one that was asked for.
@@ -83,7 +83,7 @@ function Retry({ node }: { node: NodeState }) {
             void api.retryNode(node.node_id).then((answer) => { if (answer.next_retry_ts !== null) setAskedFor(undefined); }, () => { setAskedFor(undefined); });
           }}
         >
-          Retry now
+          Retry
         </Button>
       </div>
       <span className="visually-hidden" role="status">{live && asked ? `Trying ${node.node_id} now` : ''}</span>

@@ -105,7 +105,7 @@ describe('a node that cannot be reached on a first run', () => {
     expect(status).toHaveTextContent('It goes live once the fix above is done. Until then every try gets the same answer (next in 30 s).');
     expect(status?.textContent).not.toMatch(/Trying again/);
     expect(card.querySelector<HTMLElement>('.setup-retry__bar i')?.style.transform).toBe('scaleX(0)');
-    expect(within(card).getByRole('button', { name: 'Retry now' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
   it('never calls it offline, critical or an error, anywhere on the page', () => {
@@ -124,7 +124,7 @@ describe('a node that cannot be reached on a first run', () => {
     expect(within(card).queryByRole('button', { name: 'Copy command' })).toBeNull();
   });
 
-  /** The console's answer to "Retry now": the node, with no time for its next try (it is trying) or with one. */
+  /** The console's answer to "Retry": the node, with no time for its next try (it is trying) or with one. */
   const consoleAnswers = (node: NodeState) => {
     vi.mocked(fetch).mockImplementation(() => Promise.resolve(new Response(JSON.stringify(node), { status: 200, headers: { 'content-type': 'application/json' } })));
   };
@@ -132,7 +132,7 @@ describe('a node that cannot be reached on a first run', () => {
   it('retries on demand and says it is trying', async () => {
     show([refused('spark1')]);
     consoleAnswers({ ...refused('spark1'), next_retry_ts: null });
-    await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(fetch).toHaveBeenCalledWith('/api/v1/nodes/spark1/retry', expect.objectContaining({ method: 'POST' }));
     expect(screen.getByText('Trying now…')).toBeInTheDocument();
     expect(screen.getByText('Trying spark1 now')).toHaveAttribute('role', 'status');
@@ -145,11 +145,11 @@ describe('a node that cannot be reached on a first run', () => {
     expect(screen.queryByText('Trying spark1 now')).toBeNull();
   });
 
-  it('does not say it is trying when the console answers "Retry now" with a time', async () => {
+  it('does not say it is trying when the console answers "Retry" with a time', async () => {
     // An agent takes only so many wrong tokens a minute, and the console keeps the last one: it tries when there is room.
     show([rejected('spark2')]);
     consoleAnswers(rejected('spark2'));
-    await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(fetch).toHaveBeenCalledWith('/api/v1/nodes/spark2/retry', expect.objectContaining({ method: 'POST' }));
     const status = screen.getByRole('region', { name: 'Node spark2, not connected yet' }).querySelector('.setup-retry__status');
     await waitFor(() => { expect(status).toHaveTextContent('Until then every try gets the same answer (next in 30 s).'); });
@@ -163,7 +163,7 @@ describe('a node that cannot be reached on a first run', () => {
     expect(status).toHaveTextContent('Trying now…');
     act(() => { useConnection.setState({ status: 'reconnecting' }); });
     expect(status).toBeEmptyDOMElement();
-    expect(screen.getByRole('button', { name: 'Retry now' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     act(() => { useConnection.setState({ status: 'live' }); });
     expect(status).toHaveTextContent('Trying now…');
   });
@@ -216,7 +216,7 @@ describe('a node that cannot be reached on a first run', () => {
     render(<Router hook={memoryLocation({ path: '/node/spark1' }).hook}><Route path="/node/:id/:tab?" component={Node} /></Router>);
     const block = screen.getByRole('region', { name: 'spark1 is not connected yet' });
     expect(within(block).getByRole('heading', { level: 2, name: 'Agent unreachable on spark1' })).toBeInTheDocument();
-    expect(within(block).getByRole('button', { name: 'Retry now' })).toBeInTheDocument();
+    expect(within(block).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(screen.queryByRole('tablist')).toBeNull();
     // The fix above is for the person to do: the note under it says only that no reload is needed afterwards.
     expect(screen.getByText('This page fills in by itself when spark1 answers.')).toBeInTheDocument();

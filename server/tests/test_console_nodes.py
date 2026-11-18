@@ -275,7 +275,7 @@ async def test_retry_now_is_one_try_at_once_and_does_not_restart_the_doubling(tm
 async def test_a_console_with_the_wrong_token_never_spends_the_agents_last_wrong_try(tmp_path, monkeypatch):
     """The agent counts wrong tokens per client IP and, once it holds FAIL_LIMIT of the last minute, turns
     the next request away before it looks at its token: a corrected token is refused too. Here the agent's
-    own app answers a console that has the wrong token for ten minutes, while "Retry now" is pressed twice a
+    own app answers a console that has the wrong token for ten minutes, while "Retry" is pressed twice a
     second. Whenever the token is corrected, the agent accepts it, and each try starts when the node's state
     said it would."""
     info = NodeInfo.model_validate_json(

@@ -64,7 +64,7 @@ describe('NodeNotice', () => {
     expect(screen.getByText(/retrying in [45]\ss/)).toBeInTheDocument();
     // One compact banner, labelled for the node, with identity above it on the page.
     expect(screen.getByRole('region', { name: 'spark2 status' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(fetchSpy).toHaveBeenCalledWith('/api/v1/nodes/spark2/retry', expect.objectContaining({ method: 'POST' }));
     fetchSpy.mockRestore();
   });
