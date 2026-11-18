@@ -214,8 +214,11 @@ def parse_repo_id(raw: str) -> RepoId | None:
     return RepoId(raw) if re.fullmatch(REPO_ID_PATTERN, raw) and ".." not in raw else None
 
 
+# What a refusal asks for as the size. The second sentence is there because the first, read to the letter,
+# counts a repo's copies of its weights: 38.4 GiB for one popular repo whose weights are 12.8 GiB.
 _SIZE_ASKED = (
-    "the total of every weight file the server loads, in every folder of this repo and in any other repo"
+    "the total of every weight file the server loads, in every folder of this repo and in any other repo. "
+    "Where a repo holds the same weights more than once, count them once"
 )
 
 

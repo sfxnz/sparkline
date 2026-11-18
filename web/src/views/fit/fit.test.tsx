@@ -21,7 +21,7 @@ const RESPONSE: FitResponse = {
 
 const SHAPE = { num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
 // The two instructions a refusal ends with, as the console sends them.
-const SIZE_ASKED = 'the total of every weight file the server loads, in every folder of this repo and in any other repo';
+const SIZE_ASKED = 'the total of every weight file the server loads, in every folder of this repo and in any other repo. Where a repo holds the same weights more than once, count them once';
 const ASK_SIZE = `Enter the size by hand: ${SIZE_ASKED}`;
 const ASK_BOTH = `Enter the size and the shape by hand. The size is ${SIZE_ASKED}. The shape is that of the language model that answers, not of a vision, audio or other part`;
 const REFUSED: Record<string, unknown> = {
@@ -124,7 +124,7 @@ describe('Will it fit', () => {
     expect(screen.queryByRole('textbox', { name: 'Parameters' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Bits per weight' })).not.toBeInTheDocument();
     // The hint asks for the same total a refusal asks for, and names no page to copy a number from.
-    expect(screen.getByText(/Type the total of every weight file the server loads, in every folder of the repo and in any other repo\./)).toBeInTheDocument();
+    expect(screen.getByText(/Type the total of every weight file the server loads, in every folder of the repo and in any other repo\. Where a repo holds the same weights more than once, count them once\./)).toBeInTheDocument();
     expect(screen.queryByText(/Files tab/)).not.toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Weights' }), '5.57');
     // The page shows sizes in GiB, so a size read off it and typed back is the same size.

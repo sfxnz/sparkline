@@ -158,7 +158,8 @@ CACHED_INDEX_PATH = f"/api/resolve-cache/models/Qwen/Qwen3-8B/abc/{INDEX}"
 
 # The two instructions a refusal can end with, as a user reads them.
 SIZE_ASKED = (
-    "the total of every weight file the server loads, in every folder of this repo and in any other repo"
+    "the total of every weight file the server loads, in every folder of this repo and in any other repo. "
+    "Where a repo holds the same weights more than once, count them once"
 )
 ASK_SIZE = f"Enter the size by hand: {SIZE_ASKED}"
 ASK_BOTH = (

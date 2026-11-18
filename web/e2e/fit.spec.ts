@@ -29,7 +29,7 @@ test('a looked-up model gets an estimate and a verdict for every node', async ({
 
 test('facts typed by hand need no lookup, and a refused lookup says what to do', async ({ page }) => {
   await page.route('**/api/v1/fit/lookup?*', (route) =>
-    route.fulfill({ status: 502, json: { problem: { message: 'Could not reach huggingface.co from the console host', cause: 'ConnectError', fix: 'Enter the size and the shape by hand. The size is the total of every weight file the server loads, in every folder of this repo and in any other repo. The shape is that of the language model that answers, not of a vision, audio or other part' } } }),
+    route.fulfill({ status: 502, json: { problem: { message: 'Could not reach huggingface.co from the console host', cause: 'ConnectError', fix: 'Enter the size and the shape by hand. The size is the total of every weight file the server loads, in every folder of this repo and in any other repo. Where a repo holds the same weights more than once, count them once. The shape is that of the language model that answers, not of a vision, audio or other part' } } }),
   );
   await page.goto('/fit');
   await page.getByRole('textbox', { name: 'Hugging Face repo' }).fill('Qwen/Qwen3-8B');

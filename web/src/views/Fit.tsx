@@ -139,7 +139,7 @@ export default function Fit() {
             <Field
               id="fit-size"
               label="Weights"
-              hint="Type the total of every weight file the server loads, in every folder of the repo and in any other repo. This page shows sizes in GiB, so switch the unit beside the box to type a size given in GB. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
+              hint="Type the total of every weight file the server loads, in every folder of the repo and in any other repo. Where a repo holds the same weights more than once, count them once. This page shows sizes in GiB, so switch the unit beside the box to type a size given in GB. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
             >
               <div className="fit-weights">
                 <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { typeSize({ size }); }} error={errors.size} width="9rem" />
