@@ -30,6 +30,29 @@ test('overview renders every demo node with a health sentence', async ({ page })
   await expect(page.locator('.ov-hero__sentence')).toHaveText(/healthy|stale|offline|alert|critical|warning|temperature/i); // the demo's thermal episode reads "at its GPU slowdown temperature"
 });
 
+test('on a narrow screen the overview keeps its text inside its padding and starts no line with "·"', async ({ page }) => {
+  await page.goto('/');
+  await ready(page);
+  await expect(page.locator('.ov-hero__sep')).toBeVisible();
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const layout = () => page.evaluate(() => {
+      const sep = document.querySelector('.ov-hero__sep');
+      const said = sep?.closest('p')?.querySelector('.ov-hero__workload');
+      const lastLine = said ? [...said.getClientRects()].at(-1) : undefined;
+      return {
+        // The separator is on the line the workload's last word is on.
+        separatorStartsALine: !sep || !lastLine || Math.abs(sep.getBoundingClientRect().top - lastLine.top) > 4,
+        // A card's subtitle ends where the card's own content ends, at the latest.
+        pastThePadding: [...document.querySelectorAll('.ov-card__workload')]
+          .filter((el) => el.getBoundingClientRect().right > (el.closest('.panel__header')?.getBoundingClientRect().right ?? 0) - parseFloat(getComputedStyle(el.closest('.panel__header') ?? el).paddingRight) + 0.5)
+          .map((el) => el.textContent),
+      };
+    });
+    await expect.poll(layout, `${String(width)} px`).toEqual({ separatorStartsALine: false, pastThePadding: [] });
+  }
+});
+
 test('node tabs are reachable from the keyboard and keep the URL in step', async ({ page }) => {
   await page.goto('/');
   await ready(page);

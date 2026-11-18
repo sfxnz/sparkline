@@ -22,7 +22,9 @@
   color: var(--text-2);
 }
 .ov-hero__workload { color: var(--text-1); font-weight: 500; }
-.ov-hero__sep { color: var(--text-3); }
+.ov-hero__sep { color: var(--text-3); margin-left: var(--space-2); }
+/* With a workload it is a sentence, not a row: it wraps as text, so "·" ends a line and never starts one. */
+.ov-hero__activity:has(.ov-hero__sep) { display: block; }
 .ov-hero__numbers { font-variant-numeric: tabular-nums; }
 .ov-hero__numbers .num { color: var(--text-1); font-weight: 560; }
 
@@ -130,10 +132,11 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  max-width: 100%;
+  /* The header's width, not the title column's: the line may run under the status pill, and stops at the padding. */
+  max-width: 100cqi;
 }
 .ov-card .panel__titles { gap: 1px; }
-.ov-card .panel__header { min-height: 0; }
+.ov-card .panel__header { min-height: 0; container-type: inline-size; }
 .ov-card .panel__actions { margin: 0; }
 
 .ov-card .panel__body { display: flex; flex-direction: column; gap: var(--space-4); }
