@@ -353,6 +353,12 @@ class Reason(Enum):
         "It holds {config_class} under AutoConfig in auto_map. The lookup reads no code, and cannot tell "
         "how many KV heads a layer has",
     )
+    LAYERS_DIFFER = (
+        "The config.json of {repo} holds {key}, which the lookup reads as one entry per layer, and the "
+        "layers do not all get the same entry",
+        "{key} is {held}. The lookup sizes every layer alike and cannot tell what an entry changes in a "
+        "layer, so it cannot size this model",
+    )
 
     def of(self, **read: object) -> Refusal:
         message, cause = self.value
@@ -565,24 +571,61 @@ def _shape_in(config: dict[str, object]) -> ModelShape:
     )
 
 
+def _number_or_object(value: object) -> bool:
+    return isinstance(value, int | float | dict) and not isinstance(value, bool)
+
+
+def layers_one_by_one(config: dict[str, object], layers: int) -> tuple[str, str] | None:
+    """The first top-level key that gives the layers one by one and not all alike, and what it holds.
+
+    Two values are read as one entry per layer: a list as long as the model has layers, and an object
+    whose every key is the number of a layer. The entries are numbers or objects. Names do not count: 181
+    of 3,867 cached configs hold a ``layer_types`` list whose names differ, and a name gives no width. An
+    object that names only some of the layers gives those layers something the others lack.
+    """
+    for key, value in config.items():
+        if isinstance(value, list):
+            entries, held = value, "a list of"
+        elif isinstance(value, dict) and all(
+            re.fullmatch(r"[0-9]{1,9}", k) and int(k) < layers for k in value
+        ):
+            entries, held = list(value.values()), "an object keyed by layer number with"
+        else:
+            continue
+        if not entries or not all(map(_number_or_object, entries)):
+            continue
+        if len(entries) == layers and any(entry != entries[0] for entry in entries):
+            return key, f"{held} {layers} entries, as many as num_hidden_layers, that are not all alike"
+        if isinstance(value, dict) and len(entries) < layers:
+            named = f"an entry for {len(entries)} of the {layers} layers num_hidden_layers counts"
+            return key, f"an object keyed by layer number that holds {named}"
+    return None
+
+
 def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Refusal:
     """The model's shape, from the repo's ``config.json`` as decoded JSON.
 
     A null ``num_key_value_heads`` beside a config class the config names for itself gets no shape. Only
     the config classes of transformers are known to read that null as the attention heads. One family's
     own class groups its heads per layer, and the attention heads gave it a KV cache 13 times too large.
+
+    Nor does a config that gives its layers one by one and not all alike: the shape is one width for every
+    layer. One family holds a head size per layer, 256 in a third of its layers and 64 in the rest, and
+    the top-level keys gave it 80, a KV cache below what its weights hold.
     """
     auto_map = config.get("auto_map")
     config_class = auto_map.get("AutoConfig") if isinstance(auto_map, dict) else None
     if config.get("num_key_value_heads", 0) is None and isinstance(config_class, str) and config_class:
         return Reason.NULL_KV_HEADS.of(repo=repo, config_class=config_class)
     try:
-        return _shape_in(config)
+        shape = _shape_in(config)
     except ValidationError as e:
         keys = "; ".join(_SHAPE_KEYS[str(err["loc"][0])] for err in e.errors())
         # The refusal names no sub-object. 1,472 of 3,867 cached configs keep a shape in one, and the only
         # one that holds a shape can be a vision tower or a waveform decoder.
         return Reason.NO_SHAPE.of(repo=repo, keys=keys)
+    unlike = layers_one_by_one(config, shape.num_layers)
+    return Reason.LAYERS_DIFFER.of(repo=repo, key=unlike[0], held=unlike[1]) if unlike else shape
 
 
 class _Json(NamedTuple):

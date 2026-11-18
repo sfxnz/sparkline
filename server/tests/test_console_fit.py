@@ -299,6 +299,102 @@ async def test_a_shape_refusal_names_only_the_keys_that_hold_no_number(config, k
 
 
 # Hugging Face's parameter counts and weight file sizes for four real 4-bit repos.
+# A repo no one has, for the configs below: 12 layers, 8 KV heads, and no head_dim.
+LAYERED = "made-up-org/layers-one-by-one"
+LAYERED_CONFIG = {
+    "num_hidden_layers": 12,
+    "num_attention_heads": 32,
+    "num_key_value_heads": 8,
+    "hidden_size": 2560,
+    "max_position_embeddings": 4096,
+}
+
+
+def made_up_repo(config: dict[str, object], repo: str = LAYERED) -> FakeHuggingFace:
+    return FakeHuggingFace(
+        {
+            f"/api/models/{repo}": httpx.Response(200, json=QWEN_INFO),
+            f"/{repo}/resolve/main/config.json": httpx.Response(200, json=config),
+        }
+    )
+
+
+PER_LAYER = "12 entries, as many as num_hidden_layers, that are not all alike"
+LIST_PER_LAYER = f"a list of {PER_LAYER}"
+BY_NUMBER = "an object keyed by layer number"
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "held"),
+    [
+        # The eighth verifier's defect: a head size per layer, and hidden_size // num_attention_heads is
+        # the head size of no layer.
+        pytest.param(
+            "head_sizes", [256, 256, 64, 64, 64, 256, 64, 64, 64, 256, 256, 256], LIST_PER_LAYER, id="numbers"
+        ),
+        pytest.param(
+            "block_configs",
+            [{"attention": {"n_heads_in_group": 4 if i % 3 else None}} for i in range(12)],
+            LIST_PER_LAYER,
+            id="objects",
+        ),
+        pytest.param(
+            "per_layer_config",
+            {"03": {"head_dim": 512}, "07": {"head_dim": 512}, "11": {"head_dim": 512}},
+            f"{BY_NUMBER} that holds an entry for 3 of the 12 layers num_hidden_layers counts",
+            id="an-object-for-some-layers",
+        ),
+        pytest.param(
+            "layer_head_dim",
+            {str(i): 256 if i < 2 else 64 for i in range(12)},
+            f"{BY_NUMBER} with {PER_LAYER}",
+            id="an-object-for-every-layer",
+        ),
+    ],
+)
+async def test_a_config_that_gives_its_layers_one_by_one_and_not_all_alike_is_refused(key, value, held):
+    failure = await made_up_repo({**LAYERED_CONFIG, key: value}).lookup(LAYERED)
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
+    assert failure.problem.message == (
+        f"The config.json of {LAYERED} holds {key}, which the lookup reads as one entry per layer, and the "
+        "layers do not all get the same entry"
+    )
+    assert failure.problem.cause == (
+        f"{key} is {held}. The lookup sizes every layer alike and cannot tell what an entry changes in a "
+        "layer, so it cannot size this model"
+    )
+    assert failure.problem.fix == ASK_BOTH
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param({"layer_types": ["full_attention", "sliding_attention"] * 6}, id="type-names"),
+        pytest.param({"moe_topk": [8] * 12}, id="numbers-all-alike"),
+        pytest.param({"block_configs": [{"n_heads_in_group": 4}] * 12}, id="objects-all-alike"),
+        pytest.param({"eos_token_id": [1, 107]}, id="a-list-of-another-length"),
+        pytest.param({"window_sizes": [[-1, 0], [1024, 0]] * 6}, id="a-list-of-lists"),
+        pytest.param({"id2label": {"0": "LABEL_0", "1": "LABEL_1"}}, id="an-object-of-strings"),
+        pytest.param(
+            {"layer_head_dim": {str(i): 320 for i in range(12)}}, id="an-object-alike-for-every-layer"
+        ),
+        pytest.param({"pruned_heads": {"0": [1, 2], "5": [3]}}, id="an-object-of-lists"),
+        pytest.param({"bins": {"64": 1, "128": 2}}, id="an-object-keyed-past-the-last-layer"),
+        pytest.param({"task_specific_params": {"summarization": {"length_penalty": 1.0}}}, id="an-object"),
+    ],
+)
+async def test_a_config_whose_layers_are_alike_or_only_named_keeps_its_answer(extra):
+    facts = await made_up_repo({**LAYERED_CONFIG, **extra}).lookup(LAYERED)
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim) == (12, 8, 80)
+
+
+async def test_a_config_with_no_shape_is_refused_for_that_before_its_layers_are_compared():
+    config = {"num_hidden_layers": 12, "head_sizes": [256] * 11 + [64]}
+    assert "holds no shape" in (await made_up_repo(config).lookup(LAYERED)).problem.message
+
+
 PACKED_REPOS = [
     pytest.param(
         {"I32": 6_525_288_448, "F16": 1_090_328_064},
@@ -1104,6 +1200,7 @@ REFUSALS: dict[str, dict[str, httpx.Response | Exception]] = {
     "EMPTY_WEIGHTS": public_repo(info=repo_files({"model.safetensors": 0})),
     "NO_SHAPE": public_repo(config=PARTS_CONFIG),
     "NULL_KV_HEADS": public_repo(config={**NULL_KV_CONFIG, **OWN_CONFIG_CLASS}),
+    "LAYERS_DIFFER": public_repo(config={**QWEN_CONFIG, "head_sizes": [256] * 12 + [64] * 24}),
 }
 
 # What the words a refusal writes for itself may never hold. Advice that is true of one repo is untrue of
