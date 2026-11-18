@@ -248,8 +248,11 @@ describe('what the person does is kept by the console', () => {
     act(() => { dispatch({ type: 'onboarding', onboarding: { ...first, seen: EVERY_ROW, reopened: true } }); });
     await waitFor(() => { expect(useGuideFacts.getState().benchRuns).not.toBeNull(); });
     await act(() => new Promise<void>((done) => { setTimeout(done, 50); }));
-    expect(strip()).toHaveAccessibleName(`Getting started, ${ROWS} of ${ROWS} done`);
     expect(sent).toEqual([]);
+    // It is what the browser that asked shows: every row, ticked. This browser's own Collapse still makes it one line.
+    for (const row of within(panel()).getAllByRole('listitem')) expect(row).toHaveTextContent('(done)');
+    await userEvent.click(within(panel()).getByRole('button', { name: 'Collapse' }));
+    expect(strip()).toHaveAccessibleName(`Getting started, ${ROWS} of ${ROWS} done`);
   });
 
   it('Settings brings a guide still in progress into view and leaves it to finish itself', async () => {

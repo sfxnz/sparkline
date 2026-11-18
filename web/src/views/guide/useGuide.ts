@@ -41,5 +41,5 @@ export function useGuide(): { stage: GuideStage; view: GuideView; guide: Guide; 
       }),
     [order, nodes, found, facts, streamedRuns, onboarding],
   );
-  return { stage, view: guideView(stage, open), guide, ready: facts.notifyChannels !== null && facts.benchRuns !== null };
+  return { stage, view: guideView(onboarding, open), guide, ready: facts.notifyChannels !== null && facts.benchRuns !== null };
 }

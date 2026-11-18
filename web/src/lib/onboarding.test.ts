@@ -57,15 +57,20 @@ describe('the guide follows the console state', () => {
   });
 
   it('draws the full panel first, one line when resumed, and nothing once finished', () => {
-    expect(guideView('first', null)).toBe('full');
-    expect(guideView('resumed', null)).toBe('strip');
-    expect(guideView('finished', null)).toBe('gone');
+    expect(guideView(ob(), null)).toBe('full');
+    expect(guideView(ob({ seen: ['prometheus'] }), null)).toBe('strip');
+    expect(guideView(ob({ finished: 200 }), null)).toBe('gone');
+  });
+
+  it('draws a guide that was brought back in full, in a browser that did not ask for it too', () => {
+    expect(guideView(ob({ seen: ['prometheus'], reopened: true }), null)).toBe('full');
+    expect(guideView(ob({ seen: ['prometheus'], reopened: true }), false)).toBe('strip');
   });
 
   it("this browser's Collapse and Show all win while the guide is unfinished, and never bring a finished one back", () => {
-    expect(guideView('first', false)).toBe('strip');
-    expect(guideView('resumed', true)).toBe('full');
-    expect(guideView('finished', true)).toBe('gone');
+    expect(guideView(ob(), false)).toBe('strip');
+    expect(guideView(ob({ seen: ['prometheus'] }), true)).toBe('full');
+    expect(guideView(ob({ finished: 200 }), true)).toBe('gone');
   });
 });
 

@@ -71,9 +71,11 @@ export function guideStage(ob: Onboarding | null | undefined): GuideStage {
 
 export type GuideView = 'full' | 'strip' | 'gone';
 
-/** How the overview draws the guide. `open` is this browser's choice (Collapse, Show all); null follows the stage:
- *  the full panel on a first visit, one line once the person has been somewhere. */
-export function guideView(stage: GuideStage, open: boolean | null): GuideView {
+/** How the overview draws the guide. `open` is this browser's choice (Collapse, Show all); null follows the console:
+ *  the full panel on a first visit and for a guide someone brought back, one line once the person has been
+ *  somewhere. */
+export function guideView(ob: Onboarding | null | undefined, open: boolean | null): GuideView {
+  const stage = guideStage(ob);
   if (stage === 'finished') return 'gone';
-  return (open ?? stage === 'first') ? 'full' : 'strip';
+  return (open ?? (stage === 'first' || ob?.reopened === true)) ? 'full' : 'strip';
 }

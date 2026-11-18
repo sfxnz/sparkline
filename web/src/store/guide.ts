@@ -3,7 +3,7 @@
 // state the guide writes is the console's Onboarding (store/onboarding.ts) and one per-browser preference.
 import { create } from 'zustand';
 import { api, benchApi } from '../lib/api';
-import { guideStage, guideView } from '../lib/onboarding';
+import { guideView } from '../lib/onboarding';
 import { useCluster } from './cluster';
 import { patchOnboarding } from './onboarding';
 import { usePrefs } from './prefs';
@@ -45,7 +45,7 @@ export const setGuideOpen = (open: boolean) => { usePrefs.getState().set({ guide
 /** Bring the guide to the person: the overview scrolls to it (the caller navigates there). One line becomes every
  *  row, since they asked for it; a guide already shown in full leaves this browser's preference alone. */
 export function wantGuide(): void {
-  const view = guideView(guideStage(useCluster.getState().onboarding), usePrefs.getState().guideOpen);
+  const view = guideView(useCluster.getState().onboarding, usePrefs.getState().guideOpen);
   if (view === 'strip') setGuideOpen(true);
   useUi.setState({ guideWanted: true, guideLeft: null });
 }

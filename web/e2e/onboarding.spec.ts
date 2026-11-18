@@ -215,7 +215,7 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await expect(guidePanel(page).getByRole('listitem')).toHaveCount(total);
 });
 
-test('a guide that finished itself comes back from Settings and from Search, and stays until it is dismissed', { annotation: { type: 'demo-speed', description: '4' } }, async ({ page, context }) => {
+test('a guide that finished itself comes back from Settings and from Search, and stays until it is dismissed', { annotation: { type: 'demo-speed', description: '4' } }, async ({ page, browser }) => {
   await signInByLink(page);
   const panel = guidePanel(page);
   // Every node has answered (spark3 about 10 s in at this speed), so what is left is rows to open.
@@ -243,9 +243,10 @@ test('a guide that finished itself comes back from Settings and from Search, and
   await expect(guidePanel(page)).toBeFocused();
   await everyRowTicked(page);
   await expect(guidePanel(page).getByRole('link', { name: /^Prometheus export/ })).toHaveAttribute('href', '/settings#prometheus');
-  // A second tab on the same console shows it too, and neither puts it away.
-  const second = await context.newPage();
-  await second.goto(`${BASE}/`);
+  // Another browser on the same console, which never asked for it, shows it in full too, and neither puts it away.
+  const other = await browser.newContext();
+  const second = await other.newPage();
+  await signInByLink(second);
   await everyRowTicked(second);
   await page.waitForTimeout(1500);
   await everyRowTicked(page);
@@ -263,6 +264,7 @@ test('a guide that finished itself comes back from Settings and from Search, and
   await second.waitForTimeout(1500);
   await everyRowTicked(second);
   await everyRowTicked(page);
+  await other.close();
 });
 
 test('a link with a wrong token falls back to the form with the usual error, and the token leaves the address bar', async ({ page }) => {
