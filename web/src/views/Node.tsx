@@ -62,7 +62,7 @@ export default function Node() {
           <NodeSetup node={setup} headingLevel={2} />
         </Panel>
         {/* An agent that answered and said no stays that way until the fix is done, and the card says so. */}
-        {reachOf(setup.status) === 'turned-away' ? null : <p className="node-setup__note">This page fills in by itself when {id} answers. Nothing else needs doing here.</p>}
+        {reachOf(setup.status) === 'turned-away' ? null : <p className="node-setup__note">This page fills in by itself when {id} answers.</p>}
       </div>
     );
   }

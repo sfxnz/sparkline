@@ -185,15 +185,16 @@ describe('a node that cannot be reached on a first run', () => {
     expect(within(block).getByRole('heading', { level: 2, name: 'Agent unreachable on spark1' })).toBeInTheDocument();
     expect(within(block).getByRole('button', { name: 'Retry now' })).toBeInTheDocument();
     expect(screen.queryByRole('tablist')).toBeNull();
-    expect(screen.getByText(/This page fills in by itself when spark1 answers/)).toBeInTheDocument();
+    // The fix above is for the person to do: the note under it says only that no reload is needed afterwards.
+    expect(screen.getByText('This page fills in by itself when spark1 answers.')).toBeInTheDocument();
   });
 
-  it('does not follow a rejected token’s fix with "nothing else needs doing"', () => {
+  it('does not follow a rejected token’s fix with a note about when it answers', () => {
     useCluster.getState().setHello(cluster([rejected('spark2')]));
     render(<Router hook={memoryLocation({ path: '/node/spark2' }).hook}><Route path="/node/:id/:tab?" component={Node} /></Router>);
     expect(screen.getByRole('region', { name: 'spark2 is not connected yet' })).toBeInTheDocument();
     // The agent answered and said no: the fix is what needs doing, and the card already says what it brings.
     expect(screen.getByText(/It goes live once the fix above is done/)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/Nothing else needs doing/);
+    expect(document.body.textContent).not.toMatch(/fills in by itself/);
   });
 });
