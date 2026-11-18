@@ -243,8 +243,8 @@ def test_a_rerun_on_an_existing_install_stays_short(host: Host) -> None:
     rerun = host.install_on_a_terminal("console")
     assert ending(rerun) == [
         "    Console:        http://127.0.0.1:9828",
-        "    Sign in:        with the console token, which is unchanged "
-        f"(sudo grep ^token {host.stage}/etc/sparkline/console.toml)",
+        "    Sign in:        with the console token, which is unchanged. To read it:",
+        f"                    sudo grep ^token {host.stage}/etc/sparkline/console.toml",
     ]
     assert host.config("console.toml")["token"] not in rerun
 

@@ -745,7 +745,8 @@ install_console() {
 	wait_healthy sparkline.service "$url"
 	if [[ $CONFIG_KEPT == 1 ]]; then
 		info "Console:        $url"
-		info "Sign in:        with the console token, which is unchanged (sudo grep ^token $file)"
+		info "Sign in:        with the console token, which is unchanged. To read it:"
+		info "                sudo grep ^token $file"
 		return 0
 	fi
 	IFS=',' read -r -a pairs <<<"$NODES"

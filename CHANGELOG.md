@@ -51,8 +51,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   offline alerts as before.
 - Each installer ends with the one next step: the agent installer with the console command for that host,
   and the console installer with the nodes it will show and the sign-in link. Re-running the console
-  installer ends with the console's address and how to sign in. Where the output is not a terminal, a token
-  line says so, with the command that reads the token on a line of its own.
+  installer ends with the console's address and how to sign in. That line, and a token line where the
+  output is not a terminal, put the command that reads the token on a line of its own.
 - The console tries a node that has never answered every 5 s at most, so starting its agent shows on the
   page within seconds. While that node's agent turns the console away (a wrong token), it is tried every
   10 s at most. That stays under the agent's limit of 10 wrong tokens a minute, so a corrected token is
