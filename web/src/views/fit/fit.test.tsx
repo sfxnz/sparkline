@@ -21,7 +21,7 @@ const RESPONSE: FitResponse = {
 
 const SHAPE = { num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
 // The two instructions a refusal ends with, as the console sends them.
-const SIZE_ASKED = 'the total of every weight file the server loads, in every folder of this repo and in any other repo';
+const SIZE_ASKED = 'the total of every weight file the server loads, in every folder of this repo and in any other repo. Where a repo holds the same weights more than once, count them once';
 const ASK_SIZE = `Enter the size by hand: ${SIZE_ASKED}`;
 const ASK_BOTH = `Enter the size and the shape by hand. The size is ${SIZE_ASKED}. The shape is that of the language model that answers, not of a vision, audio or other part`;
 const REFUSED: Record<string, unknown> = {
@@ -52,7 +52,7 @@ const REFUSED: Record<string, unknown> = {
   },
 };
 const NO_REPO = {
-  problem: { message: 'Hugging Face has no public model nope/nope', cause: 'The repo does not exist or is private', fix: ASK_BOTH },
+  problem: { message: 'Hugging Face has no public model nope/nope', cause: 'The lookup cannot tell whether nothing has that id, or whether a private model, a dataset or a space has it', fix: ASK_BOTH },
   shape: null,
 };
 
@@ -124,7 +124,7 @@ describe('Will it fit', () => {
     expect(screen.queryByRole('textbox', { name: 'Parameters' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Bits per weight' })).not.toBeInTheDocument();
     // The hint asks for the same total a refusal asks for, and names no page to copy a number from.
-    expect(screen.getByText(/Type the total of every weight file the server loads, in every folder of the repo and in any other repo\./)).toBeInTheDocument();
+    expect(screen.getByText(/Type the total of every weight file the server loads, in every folder of the repo and in any other repo\. Where a repo holds the same weights more than once, count them once\./)).toBeInTheDocument();
     expect(screen.queryByText(/Files tab/)).not.toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Weights' }), '5.57');
     // The page shows sizes in GiB, so a size read off it and typed back is the same size.
@@ -166,21 +166,56 @@ describe('Will it fit', () => {
     expect(sent(spy).facts.weights_bytes).toBe(2.5 * GIB);
   });
 
-  it('leaves nothing of an earlier repo on the form when it cannot read the answer at all', async () => {
-    const user = userEvent.setup();
-    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
-      const repo = new URL(url as string, 'http://console').searchParams.get('repo') ?? '';
-      return Promise.resolve(repo === 'Qwen/Qwen3-8B' ? json(QWEN) : new Response('<html>502</html>', { status: 502 }));
+  // The seventh verifier's orders 20, 25 and 26: an answer given without a lookup wiped what was typed.
+  describe.each([
+    ['text that is not of the form the lookup takes', () => Promise.resolve(json({ problem: { message: 'The lookup takes a repo id of the form owner/name', cause: 'The text typed does not have that form', fix: 'Type an id of that form' } }, 422))],
+    ['a console with the lookup turned off', () => Promise.resolve(json({ problem: { message: 'The Hugging Face lookup is turned off on this console', cause: '`hf_lookup = false`', fix: 'Enter the model facts by hand' } }, 403))],
+    ['a console the browser cannot reach', () => Promise.reject(new TypeError('Failed to fetch'))],
+    ['a gateway that answers for a console that is down', () => Promise.resolve(new Response('<html>502</html>', { status: 502 }))],
+  ])('an answer given without a lookup: %s', (_what, noLookup) => {
+    const consoleThatMakesNoLookup = () =>
+      vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
+        if (init?.method === 'POST') return Promise.resolve(json(RESPONSE));
+        return new URL(url as string, 'http://console').searchParams.get('repo') === 'Qwen/Qwen3-8B' ? Promise.resolve(json(QWEN)) : noLookup();
+      });
+
+    it('leaves typed values and their result as they were', async () => {
+      const user = userEvent.setup();
+      consoleThatMakesNoLookup();
+      render(<Fit />);
+      await user.type(screen.getByRole('textbox', { name: 'Weights' }), '3.5');
+      await user.type(screen.getByRole('textbox', { name: 'Layers' }), '12');
+      await user.type(screen.getByRole('textbox', { name: 'KV heads' }), '4');
+      await user.type(screen.getByRole('textbox', { name: 'Head size' }), '64');
+      await user.click(screen.getByRole('button', { name: 'Estimate' }));
+      await screen.findByRole('region', { name: 'Result' });
+
+      await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'gpt2{Enter}');
+      await screen.findByRole('alert');
+      expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('3.5');
+      expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('12');
+      expect(screen.getByRole('textbox', { name: 'KV heads' })).toHaveValue('4');
+      expect(screen.getByRole('textbox', { name: 'Head size' })).toHaveValue('64');
+      expect(screen.getByRole('region', { name: 'Result' })).toHaveTextContent('from facts typed by hand');
     });
-    render(<Fit />);
-    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
-    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
-    await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
-    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/broken-gateway{Enter}');
-    await screen.findByRole('alert');
-    expect(screen.queryByText(/filled in from/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Weights' })).toHaveValue('');
-    expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('');
+
+    it('leaves a looked-up model and its result under the name of the repo they were read from', async () => {
+      const user = userEvent.setup();
+      consoleThatMakesNoLookup();
+      render(<Fit />);
+      await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+      await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+      await user.click(screen.getByRole('button', { name: 'Estimate' }));
+      await screen.findByRole('region', { name: 'Result' });
+
+      await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
+      await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'gpt2{Enter}');
+      await screen.findByRole('alert');
+      expect(screen.getByText('Filled in from Qwen/Qwen3-8B.')).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'Weights' })).toHaveTextContent('15.3 GiB');
+      expect(screen.getByRole('textbox', { name: 'Layers' })).toHaveValue('36');
+      expect(screen.getByRole('region', { name: 'Result' })).toHaveTextContent('Qwen/Qwen3-8B at 32,768 tokens');
+    });
   });
 
   it('explains a failed lookup and still lets the facts be typed', async () => {

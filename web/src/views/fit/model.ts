@@ -82,11 +82,16 @@ export const readFrom = ({ weights, shape }: Draft): ReadFrom => ({
 /** The longest context the looked-up model supports, when a lookup read the shape. */
 export const maxContextOf = (draft: Draft) => (draft.shape.from === 'lookup' ? draft.shape.maxContext : null);
 
-/** The shape a refused lookup still answers for, from the body of its error. Null when it sent none, or sent nothing the page reads. */
-export function shapeOf(err: unknown): ModelShape | null {
-  if (!(err instanceof ApiError)) return null;
+/**
+ * What a lookup the console made and refused still read: its shape, or none. Null when the error is no refusal
+ * of a lookup, because none was made: the lookup is turned off, the text is not of the form owner/name, or the
+ * console did not answer. The console answers a lookup it refused with 502 and a problem, and nothing else that way.
+ */
+export function refusalOf(err: unknown): { shape: ModelShape | null } | null {
+  if (!(err instanceof ApiError) || err.status !== 502) return null;
   try {
-    return (JSON.parse(err.body) as Partial<LookupFailure>).shape ?? null;
+    const body = JSON.parse(err.body) as Partial<LookupFailure> | null;
+    return body?.problem ? { shape: body.shape ?? null } : null;
   } catch {
     return null;
   }

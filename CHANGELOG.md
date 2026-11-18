@@ -47,7 +47,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   is named as a copy of the same weights or as training state. The
   weights are then the files that `model.safetensors.index.json` names, or `model.safetensors` where there
   is no index, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it is stored. The model's shape
-  comes from the top level of that same `config.json`, and no size is filled in without it. An index over
+  comes from the top level of that same `config.json`, and no size is filled in without it. A
+  `num_key_value_heads` of `null` beside a config class the config names under `auto_map` is refused,
+  because the lookup reads no code and cannot tell how many KV heads a layer has. An index over
   1 MiB is not read; when the repo's safetensors files are then one set of shards, the weights are their
   total, which a server never exceeds, and the page says so beside the number. Every other repo gets no
   size and a refusal in two parts: what the lookup read, then one of two instructions that are the same

@@ -10,7 +10,7 @@ import type { FitRequest, FitResponse, KvDtype, ModelFacts, ModelShape, NodeFit,
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
-import { budgetText, EMPTY_DRAFT, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, maxContextOf, rangeText, readFrom, shapeOf, SIZE_UNITS, toRequest, VERDICTS, type Draft, type ReadFrom, type SizeUnit } from './fit/model';
+import { budgetText, EMPTY_DRAFT, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, maxContextOf, rangeText, readFrom, refusalOf, SIZE_UNITS, toRequest, VERDICTS, type Draft, type ReadFrom, type SizeUnit } from './fit/model';
 import './fit/fit.css';
 import './views.css';
 
@@ -65,10 +65,13 @@ export default function Fit() {
       read = await api.fitLookup(repo);
       setLookup({ status: 'idle' });
     } catch (e) {
-      // A refusal fills in the shape it sends, and nothing when it sends none or the page cannot read its
-      // answer at all: no earlier repo's numbers stay on a form that now names this one.
-      read = shapeOf(e);
       setLookup({ status: 'error', problem: problemOf(e, 'look up the model') });
+      // An answer given without a lookup is about no model, so the model on the form and its result stay.
+      const refusal = refusalOf(e);
+      if (refusal === null) return;
+      // A refusal fills in the shape it sends, and nothing when it sends none: no earlier repo's numbers
+      // stay on a form that now names this one.
+      read = refusal.shape;
     }
     setDraft((d) => fromLookup(d, repo, read));
     // The result on the page was built from the model this lookup has just replaced, so it goes too.
@@ -139,7 +142,7 @@ export default function Fit() {
             <Field
               id="fit-size"
               label="Weights"
-              hint="Type the total of every weight file the server loads, in every folder of the repo and in any other repo. This page shows sizes in GiB, so switch the unit beside the box to type a size given in GB. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
+              hint="Type the total of every weight file the server loads, in every folder of the repo and in any other repo. Where a repo holds the same weights more than once, count them once. This page shows sizes in GiB, so switch the unit beside the box to type a size given in GB. A parameter count is not a size: for a 16-bit model the count in GB is half of what its files hold, and a quantised model has no fixed ratio."
             >
               <div className="fit-weights">
                 <NumberField id="fit-size" describedBy="fit-size-hint" value={weights.size} onChange={(size) => { typeSize({ size }); }} error={errors.size} width="9rem" />

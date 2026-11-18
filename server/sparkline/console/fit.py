@@ -54,6 +54,12 @@ MAX_REDIRECTS = 3
 RepoId = NewType("RepoId", str)
 _REPO_PART = r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}"
 REPO_ID_PATTERN = rf"^{_REPO_PART}/{_REPO_PART}$"
+# The pattern in words, for the answer to text that is not of that form. It says what the lookup takes, not
+# what a repo id is: Hugging Face also answers to ids with no owner.
+REPO_ID_FORM = (
+    "Each of the two parts starts with a letter or a digit and holds at most 96 characters: letters, "
+    "digits, dots, dashes and underscores, with no two dots in a row"
+)
 
 
 class ModelShape(BaseModel):
@@ -214,8 +220,11 @@ def parse_repo_id(raw: str) -> RepoId | None:
     return RepoId(raw) if re.fullmatch(REPO_ID_PATTERN, raw) and ".." not in raw else None
 
 
+# What a refusal asks for as the size. The second sentence is there because the first, read to the letter,
+# counts a repo's copies of its weights: 38.4 GiB for one popular repo whose weights are 12.8 GiB.
 _SIZE_ASKED = (
-    "the total of every weight file the server loads, in every folder of this repo and in any other repo"
+    "the total of every weight file the server loads, in every folder of this repo and in any other repo. "
+    "Where a repo holds the same weights more than once, count them once"
 )
 
 
@@ -259,15 +268,20 @@ class Reason(Enum):
         "credentials",
     )
     RATE_LIMITED = ("Hugging Face has rate limited the console host", "HTTP 429 from {url}")
-    HTTP_STATUS = ("Hugging Face could not answer the lookup", "HTTP {status} from {url}")
+    HTTP_STATUS = ("Hugging Face answered the lookup with HTTP {status}", "From {url}")
     TOO_LARGE = (
         "{what} is larger than the lookup reads",
         "The lookup reads at most {cap} of an answer, and {url} sent more",
     )
     UNREACHABLE = ("Could not reach huggingface.co from the console host", "{error}")
+    TIMED_OUT = ("Hugging Face did not answer the lookup in time", "{error} from {url}")
     NOT_JSON = ("Hugging Face sent an answer that is not JSON", "From {url}")
     REDIRECT_LOOP = ("Hugging Face kept redirecting the lookup", "More than {redirects} redirects")
-    ABSENT = ("Hugging Face has no public model {repo}", "The repo does not exist or is private")
+    ABSENT = (
+        "Hugging Face has no public model {repo}",
+        "The lookup cannot tell whether nothing has that id, or whether a private model, a dataset or a "
+        "space has it",
+    )
     GATED = (
         "{repo} is gated on Hugging Face",
         "Its files are only served to accounts that accepted the model's terms",
@@ -281,15 +295,15 @@ class Reason(Enum):
         "Hugging Face lists a file of {repo} twice",
         "{files} appears more than once with a size, so the lookup cannot tell how large it is",
     )
-    CONFIG_NOT_OBJECT = ("The config.json of {repo} is not a JSON object", "It is a {type}")
+    CONFIG_NOT_OBJECT = ("The config.json of {repo} is not a JSON object", "It is {type}")
     ADAPTER = (
         "{repo} has an {file}",
         "The lookup does not read that file, and cannot tell whether the repo's files hold the base model",
     )
     POINTER = (
-        "The config.json of {repo} holds a name that reads as another repo's",
-        "It holds {where}. The lookup cannot tell whether a name like that is a model, or whether a server "
-        "loads weights from it",
+        "The config.json of {repo} holds a string with the form of a repo id",
+        "It holds {where}. The lookup cannot tell whether a string of the form owner/name names a repo, or "
+        "whether a server loads weights from one",
     )
     DRAFT_KEYS = (
         "The config.json of {repo} has a key that a draft model's config has",
@@ -333,6 +347,11 @@ class Reason(Enum):
     NO_SHAPE = (
         "The config.json of {repo} holds no shape at its top level",
         "The lookup reads the top level only, and found no whole number above 0 there for {keys}",
+    )
+    NULL_KV_HEADS = (
+        "The config.json of {repo} holds null under num_key_value_heads and names its own config class",
+        "It holds {config_class} under AutoConfig in auto_map. The lookup reads no code, and cannot tell "
+        "how many KV heads a layer has",
     )
 
     def of(self, **read: object) -> Refusal:
@@ -527,15 +546,19 @@ def _whole(value: object) -> int | None:
 
 
 def _shape_in(config: dict[str, object]) -> ModelShape:
-    """The shape these keys hold. Raises ``ValidationError`` when they hold none."""
+    """The shape these keys hold. Raises ``ValidationError`` when they hold none.
+
+    A key that holds null is read as a key the config lacks, which is how the config classes of
+    transformers read it: ``"num_key_value_heads": null`` is a model whose KV heads are its attention heads.
+    """
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
-    head_dim = config.get("head_dim")
+    kv_heads, head_dim = config.get("num_key_value_heads"), config.get("head_dim")
     if head_dim is None and (h := _whole(heads)) is not None and (w := _whole(hidden)) is not None:
         head_dim = w // h
     return ModelShape.model_validate(
         {
             "num_layers": config.get("num_hidden_layers"),
-            "num_kv_heads": config.get("num_key_value_heads", heads),
+            "num_kv_heads": heads if kv_heads is None else kv_heads,
             "head_dim": head_dim,
             "max_context": config.get("max_position_embeddings"),
         }
@@ -543,7 +566,16 @@ def _shape_in(config: dict[str, object]) -> ModelShape:
 
 
 def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Refusal:
-    """The model's shape, from the repo's ``config.json`` as decoded JSON."""
+    """The model's shape, from the repo's ``config.json`` as decoded JSON.
+
+    A null ``num_key_value_heads`` beside a config class the config names for itself gets no shape. Only
+    the config classes of transformers are known to read that null as the attention heads. One family's
+    own class groups its heads per layer, and the attention heads gave it a KV cache 13 times too large.
+    """
+    auto_map = config.get("auto_map")
+    config_class = auto_map.get("AutoConfig") if isinstance(auto_map, dict) else None
+    if config.get("num_key_value_heads", 0) is None and isinstance(config_class, str) and config_class:
+        return Reason.NULL_KV_HEADS.of(repo=repo, config_class=config_class)
     try:
         return _shape_in(config)
     except ValidationError as e:
@@ -589,6 +621,8 @@ async def _get_hf_json(
                     if len(body) > MAX_RESPONSE_BYTES:
                         return Reason.TOO_LARGE.of(what=what, cap=_CAP, url=HF_ORIGIN + path)
                 return _Json(json.loads(body))
+    except httpx.TimeoutException as e:
+        return Reason.TIMED_OUT.of(error=type(e).__name__, url=HF_ORIGIN + path)
     except httpx.HTTPError as e:
         return Reason.UNREACHABLE.of(error=f"{type(e).__name__}: {e}".removesuffix(": "))
     # json.loads raises RecursionError, not ValueError, for an answer nested too deep to decode.
@@ -602,6 +636,17 @@ class _Weights(NamedTuple):
     upper_bound: bool
 
 
+# What JSON calls each value ``json.loads`` returns that is not an object.
+_JSON_TYPE = {
+    type(None): "null",
+    bool: "a boolean",
+    int: "a number",
+    float: "a number",
+    str: "a string",
+    list: "an array",
+}
+
+
 def read_config(repo: RepoId, answer: _Json | Refusal) -> dict[str, object] | Refusal:
     """The repo's ``config.json`` as an object, or why the lookup has none.
 
@@ -613,7 +658,7 @@ def read_config(repo: RepoId, answer: _Json | Refusal) -> dict[str, object] | Re
     elif isinstance(answer.value, dict):
         return answer.value
     else:
-        refusal = Reason.CONFIG_NOT_OBJECT.of(repo=repo, type=type(answer.value).__name__)
+        refusal = Reason.CONFIG_NOT_OBJECT.of(repo=repo, type=_JSON_TYPE[type(answer.value)])
     return Refusal(
         refusal.message,
         f"{refusal.cause}. Without the repo's config.json the lookup has no shape and cannot tell whether "
@@ -753,14 +798,14 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
     Three outcomes, and this function is the one place that decides between them: the size with the
     shape, the shape alone, or nothing. A size never comes without a shape.
     """
-    # Hugging Face answers 401 for a repo that does not exist and for a private one alike.
+    # Hugging Face answers 401 for an id nothing has, for a private model and for a dataset or a space alike.
     absent = Reason.ABSENT.of(repo=repo)
     # expand[]=siblings keeps the answer to the file list. Without it the model card comes too, which is
     # a third of the response cap for some repos.
     info = await _get_hf_json(
         client,
         f"/api/models/{repo}?expand[]=siblings&blobs=true",
-        {401: absent, 403: absent, 404: absent},
+        {401: absent, 404: absent},
         f"The file list of {repo}",
     )
     if isinstance(info, Refusal):

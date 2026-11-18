@@ -158,7 +158,8 @@ CACHED_INDEX_PATH = f"/api/resolve-cache/models/Qwen/Qwen3-8B/abc/{INDEX}"
 
 # The two instructions a refusal can end with, as a user reads them.
 SIZE_ASKED = (
-    "the total of every weight file the server loads, in every folder of this repo and in any other repo"
+    "the total of every weight file the server loads, in every folder of this repo and in any other repo. "
+    "Where a repo holds the same weights more than once, count them once"
 )
 ASK_SIZE = f"Enter the size by hand: {SIZE_ASKED}"
 ASK_BOTH = (
@@ -205,6 +206,96 @@ async def test_lookup_falls_back_to_attention_heads_and_an_explicit_head_dim_win
     assert (facts.num_kv_heads, facts.head_dim, facts.max_context) == (16, 64, None)
     facts = await FakeHuggingFace(public_repo(config={**config, "head_dim": 256})).lookup()
     assert facts.head_dim == 256
+
+
+# The top level of a config.json the seventh verifier's lookup was refused for. vLLM's docs name the model.
+NULL_KV_CONFIG = {
+    "num_hidden_layers": 24,
+    "num_attention_heads": 32,
+    "num_key_value_heads": None,
+    "hidden_size": 2048,
+    "max_position_embeddings": 2048,
+}
+
+
+async def test_a_null_num_key_value_heads_means_the_attention_heads():
+    facts = await FakeHuggingFace(public_repo(config=NULL_KV_CONFIG)).lookup()
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim, facts.max_context) == (24, 32, 64, 2048)
+
+
+# What a repo that ships its own config class holds: where transformers imports that class from.
+OWN_CONFIG_CLASS = {"auto_map": {"AutoConfig": "configuration_x.XConfig"}}
+
+
+async def test_a_null_num_key_value_heads_beside_the_repos_own_config_class_is_refused():
+    failure = await FakeHuggingFace(public_repo(config={**NULL_KV_CONFIG, **OWN_CONFIG_CLASS})).lookup()
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
+    assert failure.problem.message == (
+        "The config.json of Qwen/Qwen3-8B holds null under num_key_value_heads and names its own config class"
+    )
+    assert failure.problem.cause == (
+        "It holds configuration_x.XConfig under AutoConfig in auto_map. The lookup reads no code, and "
+        "cannot tell how many KV heads a layer has"
+    )
+    assert failure.problem.fix == ASK_BOTH
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({**NULL_KV_CONFIG, "auto_map": {"AutoModel": "modeling_x.XModel"}}, id="null-no-class"),
+        pytest.param(
+            {k: v for k, v in NULL_KV_CONFIG.items() if v is not None} | OWN_CONFIG_CLASS, id="class-no-key"
+        ),
+    ],
+)
+async def test_only_a_null_beside_a_config_class_is_refused(config):
+    facts = await FakeHuggingFace(public_repo(config=config)).lookup()
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim, facts.max_context) == (24, 32, 64, 2048)
+
+
+@pytest.mark.parametrize(
+    ("config", "shape"),
+    [
+        pytest.param({**NULL_KV_CONFIG, "head_dim": None}, (24, 32, 64, 2048), id="head_dim"),
+        pytest.param({**NULL_KV_CONFIG, "max_position_embeddings": None}, (24, 32, 64, None), id="context"),
+        pytest.param(
+            {**NULL_KV_CONFIG, "num_key_value_heads": 8, "head_dim": 64, "hidden_size": None},
+            (24, 8, 64, 2048),
+            id="hidden_size-with-a-head_dim",
+        ),
+    ],
+)
+async def test_a_null_beside_a_key_that_holds_the_number_is_read_as_absent(config, shape):
+    facts = await FakeHuggingFace(public_repo(config=config)).lookup()
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim, facts.max_context) == shape
+
+
+@pytest.mark.parametrize(
+    ("config", "keys"),
+    [
+        pytest.param({**NULL_KV_CONFIG, "num_hidden_layers": None}, "num_hidden_layers", id="layers"),
+        pytest.param(
+            {**NULL_KV_CONFIG, "num_attention_heads": None},
+            "num_key_value_heads or num_attention_heads; head_dim, or hidden_size and num_attention_heads",
+            id="attention-heads",
+        ),
+        pytest.param(
+            {**NULL_KV_CONFIG, "hidden_size": None},
+            "head_dim, or hidden_size and num_attention_heads",
+            id="hidden",
+        ),
+    ],
+)
+async def test_a_shape_refusal_names_only_the_keys_that_hold_no_number(config, keys):
+    problem = (await FakeHuggingFace(public_repo(config=config)).lookup()).problem
+    assert problem.cause == (
+        f"The lookup reads the top level only, and found no whole number above 0 there for {keys}"
+    )
 
 
 # Hugging Face's parameter counts and weight file sizes for four real 4-bit repos.
@@ -453,19 +544,38 @@ async def test_a_repo_whose_config_names_a_model_outside_it_gets_no_size(config)
     hf = FakeHuggingFace(public_repo(info=SPEECH_INFO, config=config))
     failure = await hf.lookup()
     assert isinstance(failure, LookupFailure), failure
-    assert "holds a name that reads as another repo's" in failure.problem.message
+    assert "holds a string with the form of a repo id" in failure.problem.message
     assert failure.problem.fix == ASK_BOTH
 
 
 async def test_the_refusal_says_what_the_config_holds_and_what_the_lookup_cannot_tell():
     failure = await FakeHuggingFace(public_repo(info=SPEECH_INFO, config=SPEECH_CONFIG)).lookup()
     assert failure.problem.cause == (
-        "It holds some-org/some-70b-model under text_model_id. The lookup cannot tell whether a name like "
-        "that is a model, or whether a server loads weights from it"
+        "It holds some-org/some-70b-model under text_model_id. The lookup cannot tell whether a string of "
+        "the form owner/name names a repo, or whether a server loads weights from one"
     )
     # The name may be a private repo, a part already inside this one, or a file path. The instruction
     # does not hand it over as a model whose files can be added up.
     assert failure.problem.fix == ASK_BOTH
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        # The seventh verifier's two: a ratio, and a file inside the repo.
+        pytest.param("downsample_rate", "4/8", id="a-ratio"),
+        pytest.param("speaker_embedding", "speaker/model.safetensors", id="a-file-inside-the-repo"),
+    ],
+)
+async def test_the_refusal_does_not_call_a_string_a_name_or_a_repo(key, value):
+    info = repo_files({"config.json": 900, "model.safetensors": 5, "speaker/model.safetensors": 5})
+    failure = await FakeHuggingFace(public_repo(info=info, config={**QWEN_CONFIG, key: value})).lookup()
+    said = f"{failure.problem.message}. {failure.problem.cause}"
+    assert said == (
+        "The config.json of Qwen/Qwen3-8B holds a string with the form of a repo id. "
+        f"It holds {value} under {key}. The lookup cannot tell whether a string of the form owner/name "
+        "names a repo, or whether a server loads weights from one"
+    )
 
 
 @pytest.mark.parametrize(
@@ -601,7 +711,7 @@ async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():
     hf = FakeHuggingFace(public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config=SPEECH_CONFIG))
     failure = await hf.lookup()
     assert isinstance(failure, LookupFailure), failure
-    assert "holds a name that reads as another repo's" in failure.problem.message
+    assert "holds a string with the form of a repo id" in failure.problem.message
 
 
 @pytest.mark.parametrize(
@@ -609,7 +719,7 @@ async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():
     [
         (refused(CONFIG_PATH, 401), "is gated"),
         (refused(CONFIG_PATH, 404), "no config.json"),
-        (refused(CONFIG_PATH, 500), "could not answer"),
+        (refused(CONFIG_PATH, 500), "answered the lookup with HTTP 500"),
         ({**public_repo(), CACHED_PATH: httpx.Response(200, content=b"<html>")}, "not JSON"),
         ({**public_repo(), CACHED_PATH: httpx.Response(200, json=["not an object"])}, "not a JSON object"),
     ],
@@ -619,6 +729,33 @@ async def test_a_config_the_lookup_cannot_read_takes_the_size_with_it(routes, me
     assert isinstance(failure, LookupFailure), failure
     assert message in failure.problem.message
     assert "another repo" in failure.problem.cause
+
+
+@pytest.mark.parametrize(
+    ("config", "json_type"),
+    [
+        (b"null", "null"),
+        (b'"text"', "a string"),
+        (b"3", "a number"),
+        (b"1.5", "a number"),
+        (b"true", "a boolean"),
+        (b"[]", "an array"),
+    ],
+)
+async def test_a_config_that_is_not_an_object_is_named_by_its_json_type(config, json_type):
+    routes = {**public_repo(), CACHED_PATH: httpx.Response(200, content=config)}
+    problem = (await FakeHuggingFace(routes).lookup()).problem
+    assert problem.message == "The config.json of Qwen/Qwen3-8B is not a JSON object"
+    assert problem.cause.startswith(f"It is {json_type}. Without the repo's config.json")
+
+
+async def test_an_id_with_no_public_model_is_not_said_to_be_missing_or_private():
+    # A dataset and a space answer the same 401 as an id nothing has.
+    problem = (await FakeHuggingFace(refused(INFO_PATH, 401)).lookup()).problem
+    assert f"{problem.message}. {problem.cause}" == (
+        "Hugging Face has no public model Qwen/Qwen3-8B. The lookup cannot tell whether nothing has that id, "
+        "or whether a private model, a dataset or a space has it"
+    )
 
 
 async def test_a_config_read_but_not_understood_keeps_neither_the_shape_nor_the_size():
@@ -648,7 +785,9 @@ async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
         (refused(INFO_PATH, 404), "no public model"),
         (refused(CONFIG_PATH, 401), "is gated"),
         (refused(CONFIG_PATH, 404), "no config.json"),
-        (refused(INFO_PATH, 500), "could not answer"),
+        (refused(INFO_PATH, 500), "answered the lookup with HTTP 500"),
+        # A 403 says its status. Hugging Face answers 401 for an id it has no public model for.
+        (refused(INFO_PATH, 403), "answered the lookup with HTTP 403"),
         (refused(INFO_PATH, 429), "rate limit"),
         ({**indexed_repo({"model.safetensors": 5}), INDEX_PATH: httpx.Response(401)}, "is gated"),
         (
@@ -693,6 +832,8 @@ async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
         (public_repo(config={"num_hidden_layers": 36}), "holds no shape"),
         (public_repo(config=["not", "an", "object"]), "not a JSON object"),
         ({INFO_PATH: httpx.ConnectError("Name or service not known")}, "Could not reach huggingface.co"),
+        # The file list was read, so huggingface.co was reached. Only the answer did not come.
+        ({**public_repo(), CONFIG_PATH: httpx.ReadTimeout("")}, "did not answer the lookup in time"),
         ({INFO_PATH: httpx.Response(200, content=b"<html>")}, "not JSON"),
         ({INFO_PATH: httpx.Response(200, content=b"[" * 200_000)}, "not JSON"),
         (
@@ -932,6 +1073,7 @@ REFUSALS: dict[str, dict[str, httpx.Response | Exception]] = {
     "HTTP_STATUS": refused(INFO_PATH, 500),
     "TOO_LARGE": {INFO_PATH: httpx.Response(200, content=b" " * (fit.MAX_RESPONSE_BYTES + 1))},
     "UNREACHABLE": {INFO_PATH: httpx.ConnectError("Name or service not known")},
+    "TIMED_OUT": {INFO_PATH: httpx.ReadTimeout("")},
     "NOT_JSON": {INFO_PATH: httpx.Response(200, content=b"<html>")},
     "REDIRECT_LOOP": {INFO_PATH: httpx.Response(307, headers={"location": INFO_PATH})},
     "ABSENT": refused(INFO_PATH, 401),
@@ -961,6 +1103,7 @@ REFUSALS: dict[str, dict[str, httpx.Response | Exception]] = {
     "INDEX_TOO_LARGE": public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS, "model.safetensors": 5})),
     "EMPTY_WEIGHTS": public_repo(info=repo_files({"model.safetensors": 0})),
     "NO_SHAPE": public_repo(config=PARTS_CONFIG),
+    "NULL_KV_HEADS": public_repo(config={**NULL_KV_CONFIG, **OWN_CONFIG_CLASS}),
 }
 
 # What the words a refusal writes for itself may never hold. Advice that is true of one repo is untrue of
@@ -1174,6 +1317,13 @@ def test_lookup_route_makes_no_outbound_call_for_a_bad_repo_id_or_when_turned_of
     with TestClient(make(tmp_path)) as c:
         r = c.get("/api/v1/fit/lookup", params={"repo": "../../etc/passwd"}, headers=BEARER)
         assert r.status_code == 422 and "by hand" in r.json()["problem"]["fix"]
+        # Hugging Face answers to gpt2, so the answer is about the form the lookup takes, not about the id.
+        problem = c.get("/api/v1/fit/lookup", params={"repo": "gpt2"}, headers=BEARER).json()["problem"]
+        assert problem["message"] == "The lookup takes a repo id of the form owner/name"
+        assert problem["cause"].endswith(
+            "The text typed does not have that form, and nothing was asked of Hugging Face"
+        )
+        assert "not a" not in f"{problem['message']} {problem['cause']} {problem['fix']}"
     with TestClient(make(tmp_path / "off", hf_lookup=False)) as c:
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
         assert r.status_code == 403 and "by hand" in r.json()["problem"]["fix"]
