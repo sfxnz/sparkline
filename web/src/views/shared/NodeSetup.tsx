@@ -11,6 +11,7 @@ import { api } from '../../lib/api';
 import { agentAddress, fixSteps, reachOf, retryWait } from '../../lib/onboarding';
 import type { NodeState } from '../../lib/types';
 import { serverNow } from '../../store/cluster';
+import { useConnection } from '../../store/connection';
 import './nodeSetup.css';
 
 function Mark() {
@@ -52,19 +53,25 @@ function Retry({ node }: { node: NodeState }) {
   const trying = secs === 0 || asked;
   // An agent that answered and said no gives the next try the same answer: the fix is the news, not the wait.
   const turnedAway = reachOf(node.status) === 'turned-away';
+  // With the stream down nothing here is news from the console: the toolbar says it is reconnecting.
+  const live = useConnection((s) => s.status === 'live');
   return (
     <div className="setup-retry">
-      <div className="setup-retry__bar" aria-hidden="true"><i style={{ transform: `scaleX(${trying || turnedAway ? 0 : left})` }} /></div>
+      <div className="setup-retry__bar" aria-hidden="true"><i style={{ transform: `scaleX(${!live || trying || turnedAway ? 0 : left})` }} /></div>
       <div className="setup-retry__row">
         <span className="setup-retry__status">
-          <RotateCw aria-hidden="true" className={trying ? 'status__icon--spin' : undefined} />
-          {trying ? (
-            <span>Trying now…</span>
-          ) : turnedAway ? (
-            <span>It goes live once the fix above is done. Until then every try gets the same answer (next in <span className="num">{secs}&nbsp;s</span>).</span>
-          ) : (
-            <span>Trying again in <span className="num">{secs}&nbsp;s</span></span>
-          )}
+          {live ? (
+            <>
+              <RotateCw aria-hidden="true" className={trying ? 'status__icon--spin' : undefined} />
+              {trying ? (
+                <span>Trying now…</span>
+              ) : turnedAway ? (
+                <span>It goes live once the fix above is done. Until then every try gets the same answer (next in <span className="num">{secs}&nbsp;s</span>).</span>
+              ) : (
+                <span>Trying again in <span className="num">{secs}&nbsp;s</span></span>
+              )}
+            </>
+          ) : null}
         </span>
         {/* Never disabled: it may hold the keyboard focus, and asking twice does no harm. The console answers with
             the node: a time in it is when it will try, because an agent takes only so many wrong tokens a minute. */}
@@ -79,7 +86,7 @@ function Retry({ node }: { node: NodeState }) {
           Retry now
         </Button>
       </div>
-      <span className="visually-hidden" role="status">{asked ? `Trying ${node.node_id} now` : ''}</span>
+      <span className="visually-hidden" role="status">{live && asked ? `Trying ${node.node_id} now` : ''}</span>
     </div>
   );
 }

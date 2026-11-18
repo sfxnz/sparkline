@@ -26,7 +26,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   and the fix a step at a time, each command once, in a box under its step with a copy button, the time to
   the next try and **Retry now**. A command box wraps at its spaces, also on a phone. When the agent
   answered and turned the console away (a wrong token), the card says that only the fix will connect it,
-  where it would count down to the next try. The node's first reading arrives on the card in place.
+  where it would count down to the next try. While the browser cannot reach the console, the card says
+  nothing about tries. The node's first reading arrives on the card in place.
 - **Getting started.** The overview of a new install carries a short guide: connect your nodes, get told
   when something breaks, model servers, Prometheus and benchmarks. Each row opens the real page and shows
   what the cluster already has. A row is ticked once you have opened it, or when the cluster already has
