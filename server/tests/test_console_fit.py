@@ -1009,6 +1009,55 @@ def test_lookup_route_sends_nothing_to_fill_in_after_a_refusal_over_a_second_mod
     assert r.json() == {"problem": r.json()["problem"], "shape": None}
 
 
+TWO_FOLDERS = repo_files({"model.safetensors": 5, "v1.0/model.safetensors": 5, f"v1.0/{INDEX}": 9})
+SHARDS_NO_INDEX = repo_files({f"model-0000{i}-of-00002.safetensors": 5 for i in (1, 2)})
+
+
+@pytest.mark.parametrize(
+    ("routes", "said"),
+    [
+        # Each of these repos can hold the file the sentence speaks of in a sub-folder, where the lookup
+        # never looks: the eighth verifier found an index under v1.0/ and a config.json beside a GGUF file.
+        pytest.param(
+            refused(CONFIG_PATH, 404), "Qwen/Qwen3-8B has no config.json at its top level", id="no-config"
+        ),
+        pytest.param(
+            public_repo(info=TWO_FOLDERS),
+            "Qwen/Qwen3-8B holds other safetensors files beside its model.safetensors, and no "
+            "model.safetensors.index.json at its top level",
+            id="no-index-beside-the-weights",
+        ),
+        pytest.param(
+            public_repo(info=SHARDS_NO_INDEX),
+            "It holds other .safetensors files (model-00001-of-00002.safetensors, "
+            "model-00002-of-00002.safetensors), and with no model.safetensors.index.json there the lookup "
+            "cannot tell which of them, if any, a server loads",
+            id="no-index-and-no-weights-file",
+        ),
+    ],
+)
+async def test_a_sentence_about_a_file_the_repo_lacks_says_where_the_lookup_looked(routes, said):
+    problem = (await FakeHuggingFace(routes).lookup()).problem
+    assert said in (problem.message, problem.cause)
+
+
+@pytest.mark.parametrize(
+    ("routes", "shape"),
+    [
+        pytest.param(refused(CONFIG_PATH, 403), None, id="config"),
+        pytest.param(
+            {**indexed_repo({"model.safetensors": 5}), INDEX_PATH: httpx.Response(403)},
+            QWEN_SHAPE,
+            id="index",
+        ),
+    ],
+)
+async def test_a_403_for_a_file_says_its_status_and_not_that_the_repo_is_gated(routes, shape):
+    failure = await FakeHuggingFace(routes).lookup()
+    assert failure.problem.message == "Hugging Face answered the lookup with HTTP 403"
+    assert failure.model_dump()["shape"] == shape
+
+
 @pytest.mark.parametrize(
     ("routes", "message", "shape"),
     [

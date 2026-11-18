@@ -289,7 +289,10 @@ class Reason(Enum):
         "{repo} is gated on Hugging Face",
         "Its files are only served to accounts that accepted the model's terms",
     )
-    NO_CONFIG = ("{repo} has no config.json", "The estimator reads the model's shape from it")
+    NO_CONFIG = (
+        "{repo} has no config.json at its top level",
+        "The estimator reads the model's shape from that file",
+    )
     FILE_LIST = (
         "Hugging Face does not list the files of {repo} in a way this estimator reads",
         "Its answer is not a list of file names with sizes",
@@ -318,15 +321,15 @@ class Reason(Enum):
     )
     NO_WEIGHTS_FILE = (
         "{repo} has no {weights} and no {index} at its top level",
-        "It holds other .safetensors files ({files}), and without an index the lookup cannot tell which of "
-        "them, if any, a server loads",
+        "It holds other .safetensors files ({files}), and with no {index} there the lookup cannot tell "
+        "which of them, if any, a server loads",
     )
     NO_SAFETENSORS = (
         "{repo} has no {weights} and no {index} at its top level",
         "It holds no .safetensors files. GGUF, PyTorch .bin and other formats are not read",
     )
     BESIDE_WEIGHTS_FILE = (
-        "{repo} holds other safetensors files beside its {weights}, and no index",
+        "{repo} holds other safetensors files beside its {weights}, and no {index} at its top level",
         "The lookup cannot tell whether a server loads only {weights} or {files} as well",
     )
     INDEX_UNREADABLE = (
@@ -497,7 +500,9 @@ def unindexed_weights(repo: RepoId, sizes: dict[str, int]) -> int | Refusal:
         reason = Reason.NO_WEIGHTS_FILE if others else Reason.NO_SAFETENSORS
         return reason.of(repo=repo, weights=WEIGHTS_FILE, index=INDEX_FILE, files=_listed(others))
     if others:
-        return Reason.BESIDE_WEIGHTS_FILE.of(repo=repo, weights=WEIGHTS_FILE, files=_listed(others))
+        return Reason.BESIDE_WEIGHTS_FILE.of(
+            repo=repo, weights=WEIGHTS_FILE, index=INDEX_FILE, files=_listed(others)
+        )
     return _total(repo, sizes, {WEIGHTS_FILE})
 
 
@@ -832,7 +837,7 @@ async def weights_of(
         index = await _get_hf_json(
             client,
             f"/{repo}/resolve/main/{INDEX_FILE}",
-            {401: gated, 403: gated},
+            {401: gated},
             f"The weight index of {repo}",
         )
         weights = index if isinstance(index, Refusal) else indexed_weights(repo, sizes, index.value)
@@ -868,7 +873,7 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
         await _get_hf_json(
             client,
             f"/{repo}/resolve/main/config.json",
-            {401: gated, 403: gated, 404: no_config},
+            {401: gated, 404: no_config},
             f"The config.json of {repo}",
         ),
     )
