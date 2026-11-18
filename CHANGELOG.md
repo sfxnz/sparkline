@@ -61,7 +61,8 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   or wrong. The console now never sends the tenth: its own tries and **Retry now** together stop at nine in
   a minute, and the next one waits until there is room, which the card's countdown shows. So a corrected
   token is accepted on the first try, however often **Retry now** was pressed. **Retry now** is one try. It
-  no longer restarts the retry schedule, and a try that is already under way is that try.
+  no longer restarts the retry schedule, and a try that is already under way is that try. The console's
+  count starts again when it restarts, so a console restarted with a wrong token can still reach the limit.
 - The fix for "Agent unreachable" on a refused connection says what to run: the command that starts the
   agent, the command that shows why it did not stay up and, for a node that has never answered, the install
   command. The fix for a rejected agent token says how to compare the two tokens and which service to
