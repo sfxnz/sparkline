@@ -287,9 +287,9 @@ class Reason(Enum):
         "The lookup does not read that file, and cannot tell whether the repo's files hold the base model",
     )
     POINTER = (
-        "The config.json of {repo} holds a name that reads as another repo's",
-        "It holds {where}. The lookup cannot tell whether a name like that is a model, or whether a server "
-        "loads weights from it",
+        "The config.json of {repo} holds a string with the form of a repo id",
+        "It holds {where}. The lookup cannot tell whether a string of the form owner/name names a repo, or "
+        "whether a server loads weights from one",
     )
     DRAFT_KEYS = (
         "The config.json of {repo} has a key that a draft model's config has",

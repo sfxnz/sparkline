@@ -510,19 +510,38 @@ async def test_a_repo_whose_config_names_a_model_outside_it_gets_no_size(config)
     hf = FakeHuggingFace(public_repo(info=SPEECH_INFO, config=config))
     failure = await hf.lookup()
     assert isinstance(failure, LookupFailure), failure
-    assert "holds a name that reads as another repo's" in failure.problem.message
+    assert "holds a string with the form of a repo id" in failure.problem.message
     assert failure.problem.fix == ASK_BOTH
 
 
 async def test_the_refusal_says_what_the_config_holds_and_what_the_lookup_cannot_tell():
     failure = await FakeHuggingFace(public_repo(info=SPEECH_INFO, config=SPEECH_CONFIG)).lookup()
     assert failure.problem.cause == (
-        "It holds some-org/some-70b-model under text_model_id. The lookup cannot tell whether a name like "
-        "that is a model, or whether a server loads weights from it"
+        "It holds some-org/some-70b-model under text_model_id. The lookup cannot tell whether a string of "
+        "the form owner/name names a repo, or whether a server loads weights from one"
     )
     # The name may be a private repo, a part already inside this one, or a file path. The instruction
     # does not hand it over as a model whose files can be added up.
     assert failure.problem.fix == ASK_BOTH
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        # The seventh verifier's two: a ratio, and a file inside the repo.
+        pytest.param("downsample_rate", "4/8", id="a-ratio"),
+        pytest.param("speaker_embedding", "speaker/model.safetensors", id="a-file-inside-the-repo"),
+    ],
+)
+async def test_the_refusal_does_not_call_a_string_a_name_or_a_repo(key, value):
+    info = repo_files({"config.json": 900, "model.safetensors": 5, "speaker/model.safetensors": 5})
+    failure = await FakeHuggingFace(public_repo(info=info, config={**QWEN_CONFIG, key: value})).lookup()
+    said = f"{failure.problem.message}. {failure.problem.cause}"
+    assert said == (
+        "The config.json of Qwen/Qwen3-8B holds a string with the form of a repo id. "
+        f"It holds {value} under {key}. The lookup cannot tell whether a string of the form owner/name "
+        "names a repo, or whether a server loads weights from one"
+    )
 
 
 @pytest.mark.parametrize(
@@ -658,7 +677,7 @@ async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():
     hf = FakeHuggingFace(public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS}), config=SPEECH_CONFIG))
     failure = await hf.lookup()
     assert isinstance(failure, LookupFailure), failure
-    assert "holds a name that reads as another repo's" in failure.problem.message
+    assert "holds a string with the form of a repo id" in failure.problem.message
 
 
 @pytest.mark.parametrize(
