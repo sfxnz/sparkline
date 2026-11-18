@@ -6,7 +6,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 const TABS = ['summary', 'gpu', 'memory', 'cpu', 'network', 'storage', 'thermals', 'processes'] as const;
-const ROUTES = ['/', ...TABS.map((t) => (t === 'summary' ? '/node/spark1' : `/node/spark1/${t}`)), '/alerts', '/benchmarks', '/settings', '/wall'];
+const ROUTES = ['/', ...TABS.map((t) => (t === 'summary' ? '/node/spark1' : `/node/spark1/${t}`)), '/alerts', '/benchmarks', '/fit', '/settings', '/wall'];
 
 /** Connected to the demo and the first node has reported (the sidebar lists it with a status). */
 async function ready(page: Page) {

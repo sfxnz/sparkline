@@ -47,6 +47,17 @@ from .config import ConsoleConfig
 from .demo import DemoSource, demo_history
 from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
+from .fit import (
+    REPO_ID_FORM,
+    FitRequest,
+    FitResponse,
+    LookupFailure,
+    ModelFacts,
+    estimate,
+    fetch_facts,
+    node_fit,
+    parse_repo_id,
+)
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
 from .notify import Notifier, NotifierStopped
@@ -590,6 +601,36 @@ def create_app(
                 await ws.close(code=1013)
             elif client.kicked:
                 await ws.close(code=1008)
+
+    # -- will it fit ----------------------------------------------------------------------------------
+    @app.get("/api/v1/fit/lookup", dependencies=Auth, response_model=ModelFacts)
+    async def fit_lookup(repo: str) -> ModelFacts | JSONResponse:
+        if not cfg.hf_lookup:
+            raise ProblemError(
+                403,
+                "The Hugging Face lookup is turned off on this console",
+                "`hf_lookup = false` in the console configuration",
+                "Enter the model facts by hand",
+            )
+        repo_id = parse_repo_id(repo)
+        if repo_id is None:
+            raise ProblemError(
+                422,
+                "The lookup takes a repo id of the form owner/name",
+                f"{REPO_ID_FORM}. The text typed does not have that form, and nothing was asked of "
+                "Hugging Face",
+                "Type an id of that form, or enter the size and the shape by hand",
+            )
+        facts = await fetch_facts(http["c"], repo_id)
+        if isinstance(facts, LookupFailure):
+            return JSONResponse(facts.model_dump(), status_code=502)
+        return facts
+
+    @app.post("/api/v1/fit/estimate", dependencies=Auth)
+    async def fit_estimate(body: FitRequest) -> FitResponse:
+        est = estimate(body.facts, body.context_tokens, body.kv_dtype)
+        fits = [node_fit(src.state, src.latest_sample(), est) for src in cluster.sources.values()]
+        return FitResponse(estimate=est, nodes=fits)
 
     app.include_router(bench_router(bench, Auth))
 

@@ -161,6 +161,106 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   metadata. The LLM benchmark shows every concurrent stream as it generates and can sweep concurrency levels;
   the tool-calling evaluation shows each scenario's verdict as it finishes. Baselines, regression flags,
   side-by-side comparison, JSON/CSV export and a shareable summary card are included.
+- **Will it fit?** Before you download a model: what it needs at a context length (weights, KV cache, plus
+  10 to 20 % for activations, so a range and not one number) against what each node has free right now, with
+  a verdict per node (Fits, Tight, Does not fit, Unknown). Look a public safetensors repo up on Hugging Face,
+  or type the size of its weight files, layers, KV heads and head size by hand.
+
+  **What a lookup fills in is the size of that repo's safetensors files, and the page says so beside the
+  number.** It is not the size of everything a server loads. A second model the repo loads, a draft model's
+  target and the base model under an adapter are not counted: a server loads those as well, and nothing a
+  lookup reads says how large they are. Add them by hand. A copy of the same weights in another format,
+  such as GGUF, is not counted either.
+
+  A lookup reads the repo's file list and its `config.json`, and sometimes its
+  `model.safetensors.index.json`. It fills in a size only when none of those is a sign that the model
+  reaches outside the repo: the `config.json` can be read and holds no string with the form of another
+  repo's id (`owner/name`, under any key, except `_name_or_path`, which records where a model was made
+  from, and an `auto_map` entry, which names where its code comes from) and none of the keys a draft
+  model keeps about its target (`num_target_layers`, `target_layer_ids`, `draft_vocab_size`,
+  `target_hidden_size`, `target_model_type`); the repo holds no `adapter_config.json`; every `.safetensors`
+  file in it is one the lookup sized and none is listed twice;
+  and every weight file in another format (`.bin`, `.pt`, `.pth`, `.ckpt`, `.gguf`, `.npz`) has a name that
+  marks it as a copy of the same weights or as training state. The size is the files the index names, or
+  `model.safetensors` where there is no index, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it
+  is stored. The model's shape is worked out from the top-level keys of that same `config.json`, and no
+  size is filled in without it: a shape kept in a sub-object such as `text_config`, or under an older name
+  such as `n_layer`, is typed in by hand. The lookup fills in a shape only for the models it knows, and
+  asks for the shape by hand for the rest. It knows a model by a pair of names in the config, `model_type`
+  and the first entry of `architectures`, and it knows fifteen: the plain decoders whose model code was
+  read in vLLM, or in transformers where vLLM builds the model with it (Llama, Qwen2, Qwen3, Mistral,
+  Mixtral, Phi, Granite, Gemma 2 and a few more, listed as `KNOWN_MODELS` in
+  `server/sparkline/console/fit.py`). For any other pair, or a config that lacks either name, it refuses
+  and fills in nothing. The keys of a config do not say what the model's code does with them: a model that
+  runs its layers twice per token holds the same layer count, heads and head size in its config as one
+  that runs them once.
+  Where transformers builds the model and `auto_map` names a model class, a server that trusts the
+  repo's code can run that class in place of transformers' own, so the lookup refuses that too. Where the config has no `head_dim`, the head size is
+  `hidden_size` divided by `num_attention_heads`, a number no file of the repo holds, and the form and the
+  result say it was worked out, not read. The lookup refuses where that division leaves a remainder, and
+  where the model's code takes a default of its own in place of it (Qwen3, Gemma 2). A key that holds `null` is read as a key the config lacks, so a
+  `num_key_value_heads` of `null` gives the model's `num_attention_heads` as its KV heads. Where the
+  config also names its own config class under `auto_map`, the lookup refuses and fills in nothing: it
+  reads no code and cannot tell how many KV heads a layer has. It also refuses, and fills in nothing, for
+  a config that gives its layers one by one and not all alike: a top-level list with as many entries as
+  `num_hidden_layers`, or an object keyed by layer number, whose entries are numbers or objects (a head
+  size per layer, a config per layer). The refusal says what was counted. The lookup sizes every layer
+  alike and cannot tell whether an entry changes a layer's KV cache, so it does not size that model. A
+  list of layer type names does not count, and a key whose name ends in `token_id` or `token_ids` is
+  skipped, because it holds vocabulary ids. An index over 1 MiB is not read. If every safetensors file in
+  the repo is then a shard of one set at its top level (`model-00001-of-00026.safetensors` and so on), the
+  lookup shows their total and says so beside the number: a server loads those files or fewer of them.
+  Anything else shows no size and a refusal.
+
+  A refusal has two parts. The first says what the lookup read: the file or the `config.json` string it
+  saw, and that the lookup cannot tell where that leaves a question open. For a repo with an
+  `adapter_config.json` it says the repo has that file and that the lookup cannot tell whether the repo's
+  files hold the base model. For a `config.json` whose top level holds no shape it says so and names no
+  sub-object. It never says what a server loads, what kind of model the repo is, or where a number can be
+  read, because advice that is true of one repo is untrue of the next. The second part is one of two
+  instructions, in the same words for every repo. One asks for the size: the total of every weight file
+  the server loads, in every folder of the repo and in any other repo, with weights a repo holds more than
+  once counted once. The other asks for that size and for the shape of the language model that answers,
+  not of a vision, audio or other part. A multimodal model's
+  `config.json` can keep the language model's shape in a sub-object beside those of its other parts.
+
+  A refusal fills in the shape alone, or nothing. It fills in nothing after a sign of a second model (a
+  config string naming another repo, an `adapter_config.json`, a draft model's keys), because the shape in
+  that config can be a draft's, often a single layer, or one part's. It fills in nothing when the repo, its
+  file list or its `config.json` could not be read, when the config's top level holds no shape, when
+  it gives its layers one by one, or when the lookup does not fill in the shape for a reason above (a
+  model it does not know, a model class under `auto_map`, a head size it does not work out). Any other
+  refusal fills in the shape it read and asks for the size. A
+  sentence about a file the repo lacks says where the lookup looked: at the repo's top level.
+
+  By hand the weights are the total of every weight file the server loads, in every folder of the repo and
+  in any other repo, with weights a repo holds more than once counted once, in GiB as this page shows sizes
+  or in GB, and never a parameter count: for a 16-bit
+  model the count in GB is half of what its files hold, and a quantised model has no fixed ratio. A result
+  says where the size and the shape each came from, read from the repo or typed by hand. A size the lookup
+  read keeps its label, and the sentence on what it leaves out, when you retype the shape. A result built
+  from typed numbers alone says that the console read nothing and can check nothing. The hint under each
+  shape box names the config key to type and says which models that key describes: those whose layers are
+  all alike and each run once per token. A lookup replaces the
+  model on the form and takes an earlier result off the page, whether it answers or refuses. An answer
+  given without a lookup changes nothing on the form: the lookup is turned off, the text is not of the
+  form `owner/name`, or the browser did not reach the console.
+
+  A unified-memory node offers its available memory minus 4 GiB. A node with dedicated GPU memory offers the
+  free memory of its emptiest GPU, so the verdict is for a model on one GPU. On a GB10, vLLM's
+  `--gpu-memory-utilization` is not a hard cap, and the page says so.
+
+  The KV cache is an estimate that counts every layer as an attention layer of one width, run once per
+  token: the KV heads times the head size on the form. With a shape a lookup filled in, that is what vLLM
+  keeps at its defaults or more: vLLM can keep less for a model that windows its attention in some layers
+  (Gemma 2 among the models the lookup knows). A config with no `num_key_value_heads` gets its
+  `num_attention_heads` as KV heads. Where the model's config class takes a lower default of its own the
+  estimate is high. With a typed shape it is as right as the
+  numbers typed: too low for a model whose layers are wider than typed or run more than once, which the
+  result says beside the number, and too high, sometimes several times, for a model that windows its
+  attention, shares a latent cache (MLA, 25 times less for DeepSeek-V3) or mixes in layers that keep no
+  keys (Mamba, convolution, linear attention). The page does not try to lower the number. Not modelled: GGUF files, a model split across GPUs, the AMD GTT limit
+  and the macOS wired-memory limit.
 - **Wall mode, command palette and keyboard shortcuts.** Dark and light themes that follow the system, with
   reduced-motion and reduced-transparency support.
 - **Demo mode** (`--demo`): three simulated nodes, including a thermal episode, a stalled stream and a node
@@ -352,6 +452,7 @@ process list shows command-line arguments to every user.
 | `[settings]` | see below | Initial values. Once you save in the app (Settings), the saved values in `console.sqlite` win. |
 | `trusted_proxies` | `[]` | IPs or networks of reverse proxies whose `X-Forwarded-For` / `X-Forwarded-Proto` headers are believed, e.g. `["127.0.0.1"]` for a proxy on the same host. See [Security model](#security-model). |
 | `[[notify]]` | none | One table per notification channel. See [Notifications](#notifications). |
+| `hf_lookup` | `true` | Whether Look up on the Will it fit? page may read a public model repo from `https://huggingface.co`. Set `false` on a site with no internet access; the model facts are then typed by hand. See [Security model](#security-model). |
 
 `[settings]` keys: `energy_rate_per_kwh` (0.28), `currency` ("£"), `stale_after_s` (5.0: a node with no
 sample for this long is shown as stale), `offline_after_s` (30.0) and `regression_pct` (5.0: a benchmark
@@ -483,6 +584,18 @@ Sparkline is built for a trusted LAN. It has no TLS of its own.
   with the run in `console.sqlite`, included in its JSON export and visible to anyone signed in to the
   console. The web app shows it as plain text, never as HTML or Markdown. tool-eval-bench's tools are mocks:
   nothing the model asks for is executed.
+- **Hugging Face lookup, only on request.** The console contacts `https://huggingface.co` when a signed-in user
+  presses Look up on the Will it fit? page, and at no other time. A lookup asks for at most three files: the
+  repo's file list, its `config.json` and its `model.safetensors.index.json`. Hugging Face answers a file
+  read with a redirect to a cache path on the same host as often as not, so one lookup sends a few GET
+  requests: how many depends on which of the three files it gets as far as asking for and how many of those
+  are redirected. A renamed repo, or an id typed in another case, is redirected once more for each file.
+  The console follows at most three redirects per file, so no lookup sends more than twelve requests
+  whatever Hugging Face answers. The repo id must match `owner/name`, the host is fixed, a redirect
+  is followed only while it stays on `https://huggingface.co` and is refused if its URL carries a user name,
+  each response is read up to 1 MiB, and the lookup sends no authorization header and no cookie, neither
+  yours nor one an earlier answer set. Hugging Face sees the console host's address and the repo id.
+  `hf_lookup = false` in `console.toml` turns it off.
 - **An agent without a token** starts only on a loopback address, and then answers only local, non-browser
   requests.
 - **No shell execution.** No endpoint runs commands. Benchmarks are a fixed registry, and every parameter is

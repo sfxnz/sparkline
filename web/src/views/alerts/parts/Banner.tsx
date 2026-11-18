@@ -28,7 +28,11 @@ export function Banner({ tone, title, text, action, assertive }: Props) {
   );
 }
 
+/** The cause and the fix are separate sentences, so they are shown as sentences and not run into one. */
 export function ProblemBanner({ problem, action }: { problem: Problem; action?: ReactNode }) {
-  const text = [problem.cause, problem.fix].filter(Boolean).join(' ');
+  const text = [problem.cause, problem.fix]
+    .filter(Boolean)
+    .map((s) => (/[.!?]$/.test(s) ? s : `${s}.`))
+    .join(' ');
   return <Banner tone="crit" title={problem.message} text={text} action={action} assertive />;
 }

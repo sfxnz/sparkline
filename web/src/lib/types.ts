@@ -563,3 +563,66 @@ export type WsMessage =
   | BenchMessage
   | SettingsMessage
   | PingMessage;
+
+// --- Will it fit (server/sparkline/console/fit.py) --------------------------------------------
+
+export type KvDtype = 'fp16' | 'bf16' | 'fp8';
+
+/** What sizes the KV cache. A lookup reads it from config.json. */
+export interface ModelShape {
+  num_layers: number;
+  num_kv_heads: number;
+  head_dim: number;
+  max_context: number | null;
+  /** True when a lookup's config held no head_dim, and head_dim is hidden_size divided by num_attention_heads: a number no file of the repo holds. */
+  head_dim_worked_out: boolean;
+}
+
+export interface ModelFacts extends ModelShape {
+  /** Set when the facts came from a Hugging Face lookup. */
+  repo: string | null;
+  /** The size of the weight files a server loads. */
+  weights_bytes: number;
+  /** True when a lookup could not read which files a server loads, and weights_bytes is the total of every weight file in the repo: a server loads that much or less. */
+  weights_upper_bound: boolean;
+}
+
+/** The body of a refused lookup. It has no size: a size comes only in a full answer, beside its shape. */
+export interface LookupFailure {
+  problem: Problem;
+  /** The model's shape, when the refusal is about this repo's own files. Null after a sign of a second model. */
+  shape: ModelShape | null;
+}
+
+export interface FitEstimate {
+  weights_bytes: number;
+  kv_bytes_per_token: number;
+  kv_bytes: number;
+  /** Weights + KV cache + 10 % and + 20 % for activations: the estimate is a range. */
+  total_low: number;
+  total_high: number;
+}
+
+export type NodeBudget =
+  | { kind: 'unified'; bytes: number; available: number; headroom: number; gpu_vendor: string | null }
+  | { kind: 'gpu'; bytes: number; gpu_index: number; gpu_name: string }
+  | { kind: 'unknown'; reason: string };
+
+export type FitVerdict = 'fits' | 'tight' | 'no' | 'unknown';
+
+export interface NodeFit {
+  node_id: string;
+  budget: NodeBudget;
+  verdict: FitVerdict;
+}
+
+export interface FitRequest {
+  facts: ModelFacts;
+  context_tokens: number;
+  kv_dtype: KvDtype;
+}
+
+export interface FitResponse {
+  estimate: FitEstimate;
+  nodes: NodeFit[];
+}
