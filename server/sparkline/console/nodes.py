@@ -14,6 +14,7 @@ import logging
 import random
 import socket
 import time
+from collections import deque
 from collections.abc import Callable
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -38,6 +39,15 @@ log = logging.getLogger("sparkline.console.nodes")
 
 BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 30.0
+BACKOFF_NEW_CAP_S = 5.0  # a node that has never answered: someone is setting it up and watching the page
+BACKOFF_TURNED_AWAY_CAP_S = 10.0  # ...and whose agent turned the console away: leaves tries for "Retry"
+# ...and the shortest wait after any agent refused the token. A try a second later gets the same answer, and
+# a console restarted on a wrong token would spend five of the agent's ten in its first 15 s.
+# The agent counts the wrong tokens a client IP sent in the last minute and, once it holds FAIL_LIMIT of them
+# (agent/app.py token_check), turns every request away without looking at its token. The console sends at
+# most one fewer in a minute and a second, so every answer it gets is a check of its token.
+WRONG_TOKEN_TRIES = 9
+WRONG_TOKEN_WINDOW_S = 61.0
 RING_S = 900.0
 SKEW_WARN_S = 5.0
 
@@ -73,53 +83,85 @@ def _host_port(url: str) -> tuple[str, int]:
     return u.hostname or url, u.port or 9750
 
 
-def classify(exc: BaseException, node: str, url: str) -> tuple[NodeStatus, Problem]:
-    """Map a connection failure to a status and a human Problem (message, likely cause, concrete fix)."""
-    host, port = _host_port(url)
-    systemctl = f"Check `systemctl status sparkline-agent` on {node}"
-    status = getattr(getattr(exc, "response", None), "status_code", None)  # websockets InvalidStatus
+def http_status(exc: BaseException) -> int | None:
+    """The HTTP status the agent answered a request with, when that is why it failed."""
     if isinstance(exc, AuthRejected):
-        status = exc.status
+        return exc.status
+    return getattr(getattr(exc, "response", None), "status_code", None)  # websockets InvalidStatus
+
+
+def classify(exc: BaseException, node: str, url: str, new: bool = False) -> tuple[NodeStatus, Problem]:
+    """Map a connection failure to a status and a human Problem (message, likely cause, concrete fix).
+
+    A fix is what to do, in the order to do it, one step per sentence, each ending with a full stop. A step
+    that has something to run ends in it, after a colon and in backticks ("Start the agent on spark2: `sudo
+    systemctl start sparkline-agent`."): the web shows the words, and the command in a box of its own with a
+    copy button. Keys and paths are single words in backticks. The console reads its config once, at start,
+    so a fix that edits ``console.toml`` ends with the restart. ``new``: the node has never answered this
+    console, so its agent may not be installed yet."""
+    host, port = _host_port(url)
+    console_toml = "`/etc/sparkline/console.toml`"
+    restart_console = "restart the console: `sudo systemctl restart sparkline`."
+    agent_log = f"read the agent’s log on {node}: `journalctl -u sparkline-agent -n 50`."
+    status = http_status(exc)
     if status in (401, 403):
         return "error", Problem(
-            message=f"Agent on {node} rejected the console's token",
+            message=f"Agent on {node} rejected the console’s token",
             cause=f"HTTP {status} from {host}:{port}: agent token mismatch",
             fix=(
-                "agent_token in /etc/sparkline/console.toml must match token in "
-                f"/etc/sparkline/agent.toml on {node}"
+                f"`agent_token` in {console_toml} must equal `token` in `/etc/sparkline/agent.toml` on "
+                f"{node}. See both, on the console host and on {node}: `sudo grep token "
+                f"/etc/sparkline/*.toml`. Edit one file so they match, then restart its service. For the "
+                f"console: `sudo systemctl restart sparkline`. For the agent on {node}: `sudo systemctl "
+                f"restart sparkline-agent`."
             ),
         )
     if status is not None:
         return "error", Problem(
             message=f"Agent on {node} refused the stream",
             cause=f"HTTP {status} from {host}:{port}",
-            fix=f"Check that {node}'s url in console.toml points at sparkline-agent (port 9750)",
+            fix=(
+                f"Check that {node}’s `url` in {console_toml} points at sparkline-agent (port 9750). "
+                f"After editing it, {restart_console}"
+            ),
         )
     if isinstance(exc, SchemaMismatch):
         return "error", Problem(
             message=f"Agent on {node} speaks a different protocol version",
             cause=f"Agent schema_version {exc.version}, console expects {SCHEMA_VERSION}",
-            fix=f"Upgrade sparkline-agent on {node} and sparkline to one release (re-run deploy/install.sh)",
+            fix=f"Bring the console and {node} to one release, on the console host: `sudo sparkline update`.",
         )
     if isinstance(exc, socket.gaierror):
         return "offline", Problem(
             message=f"Cannot resolve {host}",
             cause=f"DNS lookup for {host} failed ({exc.strerror or exc})",
-            fix=f"Use {node}'s IP address in the url in console.toml, or fix name resolution (/etc/hosts)",
+            fix=(
+                f"Use {node}’s IP address as its `url` in {console_toml}, or fix name resolution "
+                f"(`/etc/hosts`). After editing `console.toml`, {restart_console}"
+            ),
         )
     text = str(exc).lower()
     if isinstance(exc, ConnectionRefusedError) or "refused" in text or "connect call failed" in text:
+        install = (
+            f" If the agent was never installed on {node}, install it from the Sparkline folder there: "
+            "`sudo ./install.sh agent`."
+        )
         return "offline", Problem(
             message=f"Agent unreachable on {node}",
             cause=f"Connection refused at {host}:{port}",
-            fix=systemctl,
+            fix=(
+                f"Start the agent on {node}: `sudo systemctl start sparkline-agent`. If it does not stay "
+                f"up, read why: `journalctl -u sparkline-agent -n 50`.{install if new else ''}"
+            ),
         )
-    journal = f"Check `journalctl -u sparkline-agent` on {node}"
     if isinstance(exc, HandshakeTimeout | httpx.ReadTimeout):
         return "offline", Problem(
             message=f"Agent on {node} is not answering",
             cause=f"{host}:{port} accepted the connection but did not answer (agent hung or overloaded)",
-            fix=f"{journal} and `systemctl status sparkline-agent`; the console retries automatically",
+            fix=(
+                f"The console retries by itself. See what the agent on {node} is doing: `systemctl status "
+                f"sparkline-agent`. If it keeps happening, {agent_log}"
+            ),
         )
     no_route = isinstance(exc, OSError) and exc.errno in (
         errno.EHOSTUNREACH,
@@ -134,7 +176,8 @@ def classify(exc: BaseException, node: str, url: str) -> tuple[NodeStatus, Probl
             cause=f"No response from {host}:{port} ({why}): a network problem",
             fix=(
                 f"Check that {node} is powered on and connected to the LAN, that {host} is still its IP, "
-                f"and that no firewall blocks port {port}"
+                f"and that no firewall blocks port {port}. For the address its agent listens on, "
+                f"{agent_log}"
             ),
         )
     if "keepalive ping timeout" in text:
@@ -142,14 +185,14 @@ def classify(exc: BaseException, node: str, url: str) -> tuple[NodeStatus, Probl
             message=f"Agent on {node} stopped responding",
             cause="The connection stayed open but the agent stopped answering keepalive pings "
             "(hung or overloaded)",
-            fix=f"{journal}; the console reconnects automatically",
+            fix=f"The console reconnects by itself. If it keeps happening, {agent_log}",
         )
     if type(exc).__name__ == "InvalidMessage":  # websockets: TCP accepted, connection closed before any reply
         return "offline", Problem(
             message=f"Agent on {node} is not answering",
             cause=f"{host}:{port} accepted the connection but closed it without replying (agent starting, "
             "stopping or hung)",
-            fix=f"{journal}; the console retries automatically",
+            fix=f"The console retries by itself. If it keeps happening, {agent_log}",
         )
     closed = isinstance(exc, StreamClosed | ConnectionError) or type(exc).__name__.startswith(
         "ConnectionClosed"
@@ -159,14 +202,17 @@ def classify(exc: BaseException, node: str, url: str) -> tuple[NodeStatus, Probl
             message=f"Lost connection to agent on {node}",
             cause=f"Connection closed ({exc or 'no reason given'})",
             fix=(
-                f"The agent may have restarted; reconnecting automatically. If this repeats, check "
-                f"`journalctl -u sparkline-agent` on {node}"
+                f"The agent may have restarted, and the console reconnects by itself. If this repeats, "
+                f"{agent_log}"
             ),
         )
     return "error", Problem(
         message=f"Cannot read from agent on {node}",
         cause=f"{type(exc).__name__}: {exc}",
-        fix=f"Check `journalctl -u sparkline-agent` on {node} and the sparkline log",
+        fix=(
+            f"First, {agent_log} Then read the console’s log on the console host: `journalctl -u sparkline "
+            "-n 50`."
+        ),
     )
 
 
@@ -180,6 +226,9 @@ class NodeSource:
         self._latest: Sample | None = None
         self._procs: tuple[int, list[ProcSample]] | None = None
         self._attempt = 0
+        self._next_try = 0.0
+        # when the agent refused this console's token, oldest first
+        self._turned_away: deque[float] = deque(maxlen=WRONG_TOKEN_TRIES)
         self.connected_at: float | None = None  # when the current session connected; None between sessions
         self._skew_warned = False
         self._wake = asyncio.Event()
@@ -253,14 +302,36 @@ class NodeSource:
         if self._session_task and not self._session_task.done():
             self._session_task.cancel()
 
+    def _room_at(self) -> float:
+        """The earliest time a try is not the wrong token that fills the agent's limit."""
+        q = self._turned_away
+        return q[0] + WRONG_TOKEN_WINDOW_S if len(q) == q.maxlen else 0.0
+
     def retry_now(self) -> None:
-        if self.state.status != "online" and self._session_task and not self._session_task.done():
-            self._session_task.cancel()
-        self._attempt = 0
+        """One try, at once or as soon as the agent's limit has room for it, and the state says which: no
+        time for the next try, or that time. A try that is under way is that try. The doubling goes on."""
+        task = self._session_task
+        if self.state.status == "online" or task is None:
+            return
+        if not task.done():
+            if self.connected_at is not None:  # a stream that is open and silent: start over
+                task.cancel()
+            return
+        now = time.time()
+        self._next_try = max(now, self._room_at())
+        self.set_status(self.state.status, self.state.error, self._next_try if self._next_try > now else None)
         self._wake.set()
 
-    def backoff_delay(self) -> float:
-        return min(BACKOFF_CAP_S, BACKOFF_BASE_S * 2 ** min(self._attempt, 10) * random.uniform(0.8, 1.2))
+    def backoff_delay(self, status: NodeStatus, token_refused: bool = False) -> float:
+        """The wait before the next try, after one that ended in ``status``: doubling, up to 30 s for a node
+        that has answered before. Until a node's first answer the wait stays short, so starting its agent
+        shows on the page within seconds. After the agent refused the token it is never under 10 s."""
+        if self.state.first_seen is not None:
+            cap = BACKOFF_CAP_S
+        else:
+            cap = BACKOFF_TURNED_AWAY_CAP_S if status == "error" else BACKOFF_NEW_CAP_S
+        wait = min(cap, BACKOFF_BASE_S * 2 ** min(self._attempt, 10) * random.uniform(0.8, 1.2))
+        return max(wait, BACKOFF_TURNED_AWAY_CAP_S) if token_refused else wait
 
     async def run(self) -> None:
         while True:
@@ -279,14 +350,19 @@ class NodeSource:
                 failure = e
             self.connected_at = None
             status, problem = self.state.status, self.state.error
+            token_refused = failure is not None and http_status(failure) in (401, 403)
             if failure is not None:
-                status, problem = classify(failure, self.node_id, self.url)
+                status, problem = classify(failure, self.node_id, self.url, self.state.first_seen is None)
                 log.debug("%s: session failed: %r", self.node_id, failure)
-            delay = self.backoff_delay()
+                if token_refused:
+                    self._turned_away.append(time.time())
+            self._next_try = max(time.time() + self.backoff_delay(status, token_refused), self._room_at())
             self._wake.clear()
-            self.set_status(status, problem, time.time() + delay)
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._wake.wait(), delay)
+            self.set_status(status, problem, self._next_try)
+            while (wait := self._next_try - time.time()) > 0:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._wake.wait(), wait)
+                self._wake.clear()
             self._attempt += 1
 
 

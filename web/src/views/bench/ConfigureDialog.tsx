@@ -6,7 +6,8 @@ import type { NetIfInfo } from '../../lib/types';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '../../design/components/Button';
 import { Dialog } from '../../design/components/Dialog';
-import { shownNodeStatus } from '../../design/components/StatusPill';
+import { nodeDisplayStatus, shownNodeStatus, statusLabel } from '../../design/components/StatusPill';
+import { isNewNode } from '../../lib/onboarding';
 import { useNow } from '../../design/useNow';
 import { memoryLayout } from '../../lib/memoryLayout';
 import type { BenchSpec, NodeStatus } from '../../lib/types';
@@ -70,6 +71,11 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
   const nodeStates = useCluster((s) => s.nodes);
   const consoleLive = useConnection((s) => s.status === 'live');
   const statusOf = (n: string) => shownNodeStatus(nodeStates[n]?.status, consoleLive);
+  /** What to say beside a node that is not simply live, in the words every other surface uses for it. */
+  const hintOf = (n: string) => {
+    const shown = nodeDisplayStatus(nodeStates[n]?.status, null, consoleLive, isNewNode(nodeStates[n]));
+    return shown === 'healthy' || shown === 'unknown' ? '' : statusLabel(shown).toLowerCase();
+  };
   const known = useMemo(() => {
     const ids = [...order];
     for (const id of Object.keys(spec.availability)) if (!ids.includes(id)) ids.push(id);
@@ -189,9 +195,9 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
           <section className="bench-config__section" aria-labelledby="bench-nodes-h" data-invalid={nodeError && touched ? true : undefined}>
             <h3 id="bench-nodes-h" className="bench-config__h">{pair ? 'Nodes' : spec.max_nodes === 1 ? 'Node' : 'Nodes'}</h3>
             {pair ? (
-              <PairPicker spec={spec} known={known} statusOf={statusOf} nodes={nodes} onChange={setNodes} />
+              <PairPicker spec={spec} known={known} hintOf={hintOf} nodes={nodes} onChange={setNodes} />
             ) : (
-              <NodeList spec={spec} known={known} statusOf={statusOf} nodes={nodes} gpuIndex={gpuIndex} single={spec.max_nodes === 1} onChange={setNodes} />
+              <NodeList spec={spec} known={known} statusOf={statusOf} hintOf={hintOf} nodes={nodes} gpuIndex={gpuIndex} single={spec.max_nodes === 1} onChange={setNodes} />
             )}
             {nodes.filter((n) => gpuOn && gpuOptions(spec, n).length).map((n) => (
               <GpuPicker key={n} spec={spec} node={n} online={(statusOf(n) ?? 'online') === 'online'} value={gpuIndex[n]} onChange={(i) => { setGpuChoice((c) => ({ ...c, [n]: i })); }} />
@@ -215,11 +221,7 @@ export function ConfigureDialog({ spec, open, onClose, onRun, initialParams, ini
   );
 }
 
-function nodeHint(status: NodeStatus | undefined): string {
-  return status === 'online' || status === undefined ? '' : status === 'stale' ? 'not reporting' : status;
-}
-
-function NodeList({ spec, known, statusOf, nodes, gpuIndex, single, onChange }: { spec: BenchSpec; known: readonly string[]; statusOf: (n: string) => NodeStatus | undefined; nodes: string[]; gpuIndex: GpuIndex; single: boolean; onChange: (n: string[]) => void }) {
+function NodeList({ spec, known, statusOf, hintOf, nodes, gpuIndex, single, onChange }: { spec: BenchSpec; known: readonly string[]; statusOf: (n: string) => NodeStatus | undefined; hintOf: (n: string) => string; nodes: string[]; gpuIndex: GpuIndex; single: boolean; onChange: (n: string[]) => void }) {
   return (
     // A group of options, not a list: <li> under role="group" is an axe "listitem" violation.
     <div className="bench-nodes" role={single ? 'radiogroup' : 'group'} aria-label="Nodes to run on">
@@ -243,7 +245,7 @@ function NodeList({ spec, known, statusOf, nodes, gpuIndex, single, onChange }: 
               {problem ? (
                 <span className="bench-node__why"><ProblemTip problem={problem} /></span>
               ) : (
-                <NodeLoad node={id} status={statusOf(id)} gpu={gpuIndex[id]} />
+                <NodeLoad node={id} status={statusOf(id)} hint={hintOf(id)} gpu={gpuIndex[id]} />
               )}
             </label>
           </div>
@@ -253,7 +255,7 @@ function NodeList({ spec, known, statusOf, nodes, gpuIndex, single, onChange }: 
   );
 }
 
-function PairPicker({ spec, known, statusOf, nodes, onChange }: { spec: BenchSpec; known: readonly string[]; statusOf: (n: string) => NodeStatus | undefined; nodes: string[]; onChange: (n: string[]) => void }) {
+function PairPicker({ spec, known, hintOf, nodes, onChange }: { spec: BenchSpec; known: readonly string[]; hintOf: (n: string) => string; nodes: string[]; onChange: (n: string[]) => void }) {
   const roles = ['Source', 'Target'] as const;
   return (
     <div className="bench-pair">
@@ -273,7 +275,7 @@ function PairPicker({ spec, known, statusOf, nodes, onChange }: { spec: BenchSpe
           >
             {known.map((id) => {
               const problem = spec.availability[id];
-              const hint = problem ? ` — ${problem.message}` : nodeHint(statusOf(id)) ? ` — ${nodeHint(statusOf(id))}` : '';
+              const hint = problem ? ` — ${problem.message}` : hintOf(id) ? ` — ${hintOf(id)}` : '';
               return <option key={id} value={id} disabled={!!problem}>{id}{hint}</option>;
             })}
           </Select>
@@ -283,7 +285,7 @@ function PairPicker({ spec, known, statusOf, nodes, onChange }: { spec: BenchSpe
   );
 }
 
-function NodeLoad({ node, status, gpu }: { node: string; status: NodeStatus | undefined; gpu: number | undefined }) {
+function NodeLoad({ node, status, hint, gpu }: { node: string; status: NodeStatus | undefined; hint: string; gpu: number | undefined }) {
   useNow(2000);
   const live = (status ?? 'online') === 'online';
   const s = liveStore.latest(node);
@@ -291,7 +293,7 @@ function NodeLoad({ node, status, gpu }: { node: string; status: NodeStatus | un
   const top = topGpuProcess(s?.procs);
   const pct = util != null ? `${Math.round(util)}%` : null;
   const load = pct && (gpu === undefined ? `GPU ${live ? '' : 'was '}${pct}` : `GPU\u00a0${gpu}\u00a0${live ? 'at' : 'was'}\u00a0${pct}`);
-  const text = [nodeHint(status), top ? `${isServing(top) ? 'serving' : 'running'} ${workloadName(top)}` : null, load].filter(Boolean).join(' · ');
+  const text = [hint, top ? `${isServing(top) ? 'serving' : 'running'} ${workloadName(top)}` : null, load].filter(Boolean).join(' · ');
   return <span className="bench-node__load num">{text || 'No live data'}</span>;
 }
 

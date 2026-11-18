@@ -10,6 +10,7 @@ import { Switch } from './alerts/parts/Switch';
 import { AboutSection } from './settings/AboutSection';
 import { DataSection } from './settings/DataSection';
 import { SettingRow, SettingRowSkeleton } from './settings/parts';
+import { PrometheusSection } from './settings/PrometheusSection';
 import { BenchSection, EnergySection, FreshnessSection } from './settings/ServerSections';
 import { useServerSettings } from './settings/useServerSettings';
 import './settings/settings.css';
@@ -49,6 +50,7 @@ export default function Settings() {
           </Panel>
         ))
       )}
+      <PrometheusSection />
       <DataSection />
       <AboutSection />
     </div>
@@ -62,7 +64,7 @@ function AppearanceSection() {
   return (
     <Panel title="Appearance" subtitle="How Sparkline looks in this browser. Saved here only.">
       <div className="set-rows">
-        <SettingRow id="set-theme" title="Theme" description="System follows your operating system's light or dark setting. Press T anywhere to switch.">
+        <SettingRow id="set-theme" title="Theme" description="System follows your operating system’s light or dark setting. Press T anywhere to switch.">
           <SegmentedControl label="Theme" options={THEMES} value={theme} onChange={(v) => { set({ theme: v }); }} />
         </SettingRow>
         <SettingRow id="set-transp" title="Reduce transparency" description="Replace translucent, blurred surfaces with solid ones. Also follows the system setting.">

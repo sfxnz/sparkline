@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <ProblemState
         compact={this.props.compact}
-        message={`${this.props.what ?? 'This panel'} couldn't be displayed`}
+        message={`${this.props.what ?? 'This panel'} couldn’t be displayed`}
         cause={error.message || 'An unexpected error occurred while rendering.'}
         fix="Retry. If it keeps failing, reload the page; other panels are unaffected."
         onRetry={this.retry}

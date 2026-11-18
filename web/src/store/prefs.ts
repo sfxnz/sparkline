@@ -12,6 +12,7 @@ const pick = (s: PrefsStore): Prefs => ({
   sidebarCollapsed: s.sidebarCollapsed,
   timeRange: s.timeRange,
   singleKeyShortcuts: s.singleKeyShortcuts,
+  guideOpen: s.guideOpen,
 });
 
 export const usePrefs = create<PrefsStore>()((set, get) => ({

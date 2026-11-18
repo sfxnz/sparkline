@@ -103,16 +103,31 @@ def test_connect_errors_isolated_and_mapped(env):
     assert n1["info"]["hostname"] == "spark1" and n1["error"] is None
     bad = wait_for(lambda: (n := node(env, "bad"))["status"] == "error" and n, 10, "bad -> error")
     assert "token" in bad["error"]["cause"]
-    assert "agent_token in /etc/sparkline/console.toml must match" in bad["error"]["fix"]
+    assert "`agent_token` in `/etc/sparkline/console.toml` must equal" in bad["error"]["fix"]
+    assert "`sudo systemctl restart sparkline`" in bad["error"]["fix"]
     ghost = wait_for(lambda: (n := node(env, "ghost"))["status"] == "offline" and n, 10, "ghost offline")
     assert ghost["error"]["message"] == "Agent unreachable on ghost"
     assert ghost["error"]["cause"] == f"Connection refused at 127.0.0.1:{DEAD_PORT}"
-    assert "systemctl status sparkline-agent" in ghost["error"]["fix"]
+    assert "`sudo systemctl start sparkline-agent`" in ghost["error"]["fix"]
+    assert "`sudo ./install.sh agent`" in ghost["error"]["fix"]  # it has never answered this console
     assert ghost["next_retry_ts"] is not None
     # retry endpoint works and the good node is unaffected by the two failing ones
     r = env["http"].post("/api/v1/nodes/ghost/retry")
     assert r.status_code == 200 and r.json()["node_id"] == "ghost"
     assert node(env, "n1")["status"] == "online"
+
+
+def test_the_benchmark_catalog_says_not_connected_yet_of_a_node_that_has_never_answered(env):
+    wait_for(lambda: node(env, "n1")["status"] == "online", 10, "n1 online")
+    wait_for(lambda: node(env, "bad")["status"] == "error", 10, "bad -> error")
+    wait_for(lambda: node(env, "ghost")["status"] == "offline", 10, "ghost offline")
+    specs = env["http"].get("/api/v1/bench/catalog").json()
+    assert specs, "n1 offers no benchmarks"
+    for spec in specs:
+        assert spec["availability"]["n1"] is None or "n1 is" not in spec["availability"]["n1"]["message"]
+        assert spec["availability"]["ghost"]["message"] == "ghost is not connected yet"
+        assert spec["availability"]["bad"]["message"] == "bad is not connected yet"
+        assert "Start the agent on ghost" in spec["availability"]["ghost"]["fix"]
 
 
 def test_live_and_history_proxy(env):
@@ -311,3 +326,63 @@ def test_hung_agent_is_not_reported_as_network_problem(env):
     st = wait_for(lambda: (n := node(env, "hung"))["status"] == "offline" and n, 15, "hung offline")
     assert st["error"]["message"] == "Agent on hung is not answering"
     assert "accepted the connection but did not answer" in st["error"]["cause"]
+
+
+def test_a_node_is_new_until_its_first_sample_then_alerts_when_it_goes_offline_across_a_restart(tmp_path):
+    agent_port, console_port = free_ports(2)
+    cfg = ConsoleConfig.model_validate(
+        {
+            "token": "browser-tok",
+            "agent_token": "agent-tok",
+            "nodes": [{"id": "late", "url": f"http://127.0.0.1:{agent_port}"}],
+            "web_dist": str(tmp_path / "nodist"),
+        }
+    )
+    http = httpx.Client(base_url=f"http://127.0.0.1:{console_port}", headers=BROWSER, timeout=10)
+
+    def late() -> dict:
+        return http.get("/api/v1/cluster").json()["nodes"][0]
+
+    def offline_alerts() -> list[dict]:
+        events = http.get("/api/v1/events").json()
+        return [e for e in events if e["rule_id"] == "node_offline" and e["kind"] == "alert"]
+
+    console = ServerThread(create_app(cfg, tmp_path / "data"), console_port).start()
+    agent = None
+    try:
+        rules = http.get("/api/v1/alerts/rules").json()
+        at_once = [{**r, "for_s": 0} if r["id"] == "node_offline" else r for r in rules]
+        assert http.put("/api/v1/alerts/rules", json=at_once).status_code == 200
+        refused = wait_for(lambda: (n := late())["status"] == "offline" and n, 10, "late refused")
+        assert refused["first_seen"] is None
+        assert refused["error"]["cause"] == f"Connection refused at 127.0.0.1:{agent_port}"
+        time.sleep(1.5)  # more than one pass of the watchdog
+        assert http.get("/api/v1/events").json() == []
+
+        with ws_connect(f"ws://127.0.0.1:{console_port}/api/v1/stream", additional_headers=BROWSER) as ws:
+            hello = json.loads(ws.recv(timeout=5))
+            assert hello["type"] == "hello" and hello["cluster"]["nodes"][0]["first_seen"] is None
+            agent = ServerThread(make_fake_agent("agent-tok"), agent_port).start()
+            assert http.post("/api/v1/nodes/late/retry").status_code == 200
+            msg = json.loads(ws.recv(timeout=10))
+            while not (msg["type"] == "node_status" and msg["node"]["status"] == "online"):
+                assert msg["type"] != "node_status" or msg["node"]["first_seen"] is None, msg
+                msg = json.loads(ws.recv(timeout=10))
+            first_seen = msg["node"]["first_seen"]  # the message that says online says it is no longer new
+            assert first_seen is not None and late()["first_seen"] == first_seen
+        agent.stop()
+        agent = None
+        [alert] = wait_for(offline_alerts, 10, "node_offline alert")
+        assert alert["title"] == "Node offline on late" and alert["node_id"] == "late"
+    finally:
+        console.stop()
+        if agent is not None:
+            agent.stop()
+
+    console = ServerThread(create_app(cfg, tmp_path / "data"), console_port).start()
+    try:
+        assert late()["first_seen"] == first_seen
+        wait_for(lambda: len(offline_alerts()) == 2, 10, "node_offline alert after the restart")
+    finally:
+        console.stop()
+        http.close()

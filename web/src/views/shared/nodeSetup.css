@@ -1,0 +1,69 @@
+.setup { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; container-type: inline-size; }
+.setup__grid { display: grid; gap: var(--space-4); min-width: 0; }
+.setup__what { display: grid; gap: var(--space-3); align-content: start; min-width: 0; }
+.setup__msg { font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: var(--fw-headline); letter-spacing: var(--ls-headline); color: var(--text-1); text-wrap: pretty; overflow-wrap: anywhere; }
+.setup__row { display: grid; gap: var(--space-1); align-content: start; min-width: 0; }
+.setup__label { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+.setup__cause { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); overflow-wrap: anywhere; }
+.setup__fix { gap: var(--space-3); }
+.setup__label + .setup__step { margin-top: calc(-1 * var(--space-1)); }
+.setup__step { display: grid; gap: var(--space-2); min-width: 0; }
+.setup__fix-text { font-size: var(--fs-callout); line-height: 1.375rem; color: var(--text-1); text-wrap: pretty; overflow-wrap: anywhere; }
+.setup__fix-text code, .setup__cause code { font-size: 0.86em; }
+@container (min-width: 46rem) {
+  .setup__grid { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--space-10); }
+  .setup__fix { padding-left: var(--space-10); border-left: var(--hairline) solid var(--separator); }
+}
+
+.setup-link { display: flex; align-items: center; gap: var(--space-2); min-width: 0; max-width: 26rem; }
+.setup-link__end {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 1.625rem;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-ctl);
+  background: var(--fill-1);
+  border: var(--hairline) solid var(--separator);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  font-weight: 560;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.setup-link__end svg { width: 13px; height: 13px; color: var(--text-2); flex: none; }
+.setup-link__end .setup-link__mark { width: 14px; height: 14px; }
+.setup-link__end--far { border-style: dashed; border-color: var(--separator-strong); background: none; color: var(--text-2); }
+.setup-link__wire { position: relative; flex: 1; min-width: 2rem; height: 1.625rem; }
+.setup-link__wire::before, .setup-link__wire::after { content: ''; position: absolute; top: 50%; height: 0; margin-top: -1px; }
+.setup-link__wire::before { left: 0; width: var(--reach); border-top: 2px solid var(--setup); opacity: 0.8; }
+.setup-link__wire::after { left: var(--reach); right: 0; border-top: 2px dotted var(--text-3); opacity: 0.7; }
+.setup-link__stop {
+  position: absolute;
+  top: 50%;
+  left: var(--stop);
+  width: 1.625rem;
+  height: 1.625rem;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-3);
+  border: var(--hairline) solid var(--separator-strong);
+  color: var(--setup-text);
+  z-index: 1;
+}
+.setup-link__stop svg { width: 13px; height: 13px; }
+.setup-link[data-reach='no-answer'] { --reach: 62%; --stop: 62%; }
+.setup-link[data-reach='turned-away'] { --reach: 100%; --stop: 80%; }
+
+.setup-retry { margin-top: auto; display: grid; gap: var(--space-3); }
+.setup-retry__bar { height: 2px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
+.setup-retry__bar i { display: block; height: 100%; width: 100%; background: var(--setup); opacity: 0.8; transform-origin: left; transition: transform 1s linear; }
+/* As tall as its button, also while the stream is down and the button is not there: the card keeps its height. */
+.setup-retry__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); flex-wrap: wrap; min-height: 1.625rem; }
+.setup-retry__status { flex: 1 1 12rem; display: flex; align-items: flex-start; gap: 6px; text-wrap: pretty; font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-2); }
+.setup-retry__status svg { width: 14px; height: 14px; margin-top: calc((var(--lh-footnote) - 14px) / 2); color: var(--text-3); flex: none; }
+.setup-retry__status .num { color: var(--text-1); font-weight: 560; }

@@ -50,5 +50,7 @@
 .palette__option.is-active .palette__icon { color: var(--accent-text); }
 .palette__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette__hint { display: inline-flex; gap: 3px; }
+/* The same rule as the toolbar's Ctrl K: no key to press on a touch screen. */
+@media (hover: none) and (pointer: coarse) { .palette__search .kbd, .palette__hint { display: none; } }
 .palette__enter { width: 14px; height: 14px; color: var(--text-3); }
 .palette__empty { padding: var(--space-8) var(--space-4); text-align: center; color: var(--text-2); font-size: var(--fs-callout); }

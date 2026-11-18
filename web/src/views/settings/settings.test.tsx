@@ -6,6 +6,7 @@ import gb10Info from '../../test/fixtures/platforms/gb10/info.json';
 import wsInfo from '../../test/fixtures/platforms/workstation/info.json';
 import { AboutSection } from './AboutSection';
 import { DataSection } from './DataSection';
+import { PrometheusSection, scrapeConfig } from './PrometheusSection';
 
 const node = (id: string, status: NodeState['status']): NodeState => ({ node_id: id, url: '', status, since: 0, last_sample_ts: null, error: null, info: null, next_retry_ts: null });
 
@@ -34,6 +35,21 @@ describe('Clear history', () => {
     await waitFor(() => { expect(screen.getByText('History cleared on spark1')).toBeInTheDocument(); });
     expect(fetchSpy).toHaveBeenCalledWith('/api/v1/history?node=spark1', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }));
   });
+
+  it('a node that has never answered is not called offline: it has no history yet', () => {
+    useCluster.setState({ order: ['spark3'], nodes: { spark3: { ...node('spark3', 'offline'), first_seen: null } } });
+    render(<DataSection />);
+    expect(screen.getByText('spark3 has not connected yet. It has no history to clear.')).toBeInTheDocument();
+    expect(screen.queryByText(/offline/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Clear history/ })).toBeNull();
+  });
+
+  it('a node that has answered before and is down keeps its button, disabled, and is named as its status pill names it', () => {
+    useCluster.setState({ order: ['spark3'], nodes: { spark3: { ...node('spark3', 'offline'), first_seen: 100 } } });
+    render(<DataSection />);
+    expect(screen.getByText('spark3 is offline. Its history can be cleared once the agent is reachable.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear history for spark3…' })).toBeDisabled();
+  });
 });
 
 describe('About', () => {
@@ -46,3 +62,41 @@ describe('About', () => {
   });
 });
 
+
+describe('Prometheus', () => {
+  it('writes the scrape job for this console, as the README does', () => {
+    expect(scrapeConfig('192.168.1.11:9700', false)).toBe([
+      'scrape_configs:',
+      '  - job_name: sparkline',
+      '    scrape_interval: 15s',
+      '    static_configs:',
+      '      - targets: ["192.168.1.11:9700"]',
+      '    authorization:',
+      '      credentials_file: /etc/prometheus/sparkline-metrics-token',
+    ].join('\n'));
+    expect(scrapeConfig('sparkline.example', true)).toContain('    scheme: https\n');
+  });
+
+  it('shows where to scrape and the job to paste, each with a copy button, and where to read more', () => {
+    render(<PrometheusSection origin="http://192.168.1.11:9700" />);
+    const section = screen.getByRole('region', { name: 'Prometheus' });
+    expect(within(section).getByText('http://192.168.1.11:9700/metrics')).toBeInTheDocument();
+    expect(within(section).getByRole('button', { name: 'Copy scrape address' })).toBeInTheDocument();
+    expect(section.querySelector('pre')?.textContent).toBe(scrapeConfig('192.168.1.11:9700', false));
+    expect(within(section).getByRole('button', { name: 'Copy scrape job' })).toBeInTheDocument();
+    expect(within(section).getByText('metrics_token')).toBeInTheDocument();
+    expect(within(section).getByRole('link', { name: 'Series, units and setup in the README' })).toHaveAttribute('href', 'https://github.com/sfxnz/sparkline#prometheus');
+    // An address is pasted, not run: no shell prompt before it.
+    expect(section.querySelector('.cmd__prompt')).toBeNull();
+  });
+
+  it('comes into view with focus on its title when the guide links to it', () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    window.history.replaceState(null, '', '/settings#prometheus');
+    render(<PrometheusSection origin="http://192.168.1.11:9700" />);
+    expect(scrolled).toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Prometheus' })).toHaveFocus();
+    window.history.replaceState(null, '', '/');
+  });
+});

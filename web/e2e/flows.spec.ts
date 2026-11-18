@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
-// Key flows against the demo console the Playwright config starts (simulated spark1-3, no auth). Nothing here is
-// stubbed: the build, the preview proxy, the console's REST + WebSocket and its alert engine are all real.
+// Key flows against the demo console the Playwright config starts (simulated spark1-3, no auth). Only the
+// notification channel routes are stubbed, because the demo console has no [[notify]] table: the build, the preview
+// proxy, the console's REST + WebSocket and its alert engine are all real.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -27,6 +28,60 @@ test('overview renders every demo node with a health sentence', async ({ page })
   }
   // The hero answers "is my cluster healthy?" in words, not only colour.
   await expect(page.locator('.ov-hero__sentence')).toHaveText(/healthy|stale|offline|alert|critical|warning|temperature/i); // the demo's thermal episode reads "at its GPU slowdown temperature"
+});
+
+test('on a narrow screen the overview keeps its text inside its padding and starts no line with "·"', async ({ page }) => {
+  await page.goto('/');
+  await ready(page);
+  await expect(page.locator('.ov-hero__sep')).toBeVisible();
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const layout = () => page.evaluate(() => {
+      const sep = document.querySelector('.ov-hero__sep');
+      const said = sep?.closest('p')?.querySelector('.ov-hero__workload');
+      const lastLine = said ? [...said.getClientRects()].at(-1) : undefined;
+      return {
+        // The separator is on the line the workload's last word is on.
+        separatorStartsALine: !sep || !lastLine || Math.abs(sep.getBoundingClientRect().top - lastLine.top) > 4,
+        // A card's subtitle ends where the card's own content ends, at the latest.
+        pastThePadding: [...document.querySelectorAll('.ov-card__workload')]
+          .filter((el) => el.getBoundingClientRect().right > (el.closest('.panel__header')?.getBoundingClientRect().right ?? 0) - parseFloat(getComputedStyle(el.closest('.panel__header') ?? el).paddingRight) + 0.5)
+          .map((el) => el.textContent),
+      };
+    });
+    await expect.poll(layout, `${String(width)} px`).toEqual({ separatorStartsALine: false, pastThePadding: [] });
+  }
+  // A total's footer is a sentence too ("Today 0.012 kWh · £0.01"). However narrow its column, the "·" stays on
+  // the line of the word before it.
+  await page.setViewportSize({ width: 360, height: 844 });
+  await expect(page.locator('.ov-totals .stat__footer', { hasText: '·' }).first()).toBeVisible();
+  const linesThatStartWithTheDot = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.ov-totals .stat__footer')].flatMap((footer) => {
+    const dotStartsALine = () => {
+      let before: number | null = null;
+      const walker = document.createTreeWalker(footer, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const text = n.textContent ?? '';
+        for (let i = 0; i < text.length; i++) {
+          if (!text.charAt(i).trim()) continue;
+          const range = document.createRange();
+          range.setStart(n, i);
+          range.setEnd(n, i + 1);
+          const top = range.getBoundingClientRect().top;
+          if (text.charAt(i) === '·' && before !== null && top - before > 4) return true;
+          before = top;
+        }
+      }
+      return false;
+    };
+    const found: string[] = [];
+    for (let width = 240; width >= 48 && !found.length; width -= 2) {
+      footer.style.width = `${String(width)}px`;
+      if (dotStartsALine()) found.push(`${footer.textContent} at ${String(width)} px`);
+    }
+    footer.style.width = '';
+    return found;
+  }));
+  await expect.poll(linesThatStartWithTheDot).toEqual([]);
 });
 
 test('node tabs are reachable from the keyboard and keep the URL in step', async ({ page }) => {
@@ -74,7 +129,7 @@ test('lazy chunks that fail to load leave the rest of the overview working', asy
   await expect.poll(() => aborted).toBe(2);
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   await expect(page.getByRole('link', { name: /^spark1\b.*open node details/ })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'GPU activity' })).toContainText("The GPU activity panel couldn't be displayed");
+  await expect(page.getByRole('region', { name: 'GPU activity' })).toContainText('The GPU activity panel couldn’t be displayed');
   await page.keyboard.press('Control+k');
   await expect(page.getByRole('combobox', { name: /Search views/ })).toHaveCount(0);
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
@@ -135,6 +190,51 @@ test('an open alert can be acknowledged, and stays acknowledged after a reload',
   await ready(page);
   // Still acknowledged after a reload (it may have resolved meanwhile; then the timeline says so).
   await expect(page.getByText(/Acknowledged|Open · acknowledged/).first()).toBeVisible();
+});
+
+test('with no [[notify]] table the Alerts view shows how to add a channel', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/alerts');
+  await ready(page);
+  const panel = page.getByRole('region', { name: 'Notifications' });
+  await expect(panel.getByText('No notification channels')).toBeVisible();
+  await expect(panel.locator('pre')).toContainText('[[notify]]');
+
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 844 });
+    // Polled: the sidebar folds to its rail over a moment, and the card is measured once it has its width.
+    const cut = () => panel.evaluate((card) => {
+      const box = card.getBoundingClientRect();
+      const out = (el: Element) => { const r = el.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; };
+      const words = card.querySelector('.state__copy p');
+      const snippet = card.querySelector('pre');
+      return {
+        outside: [...card.querySelectorAll('.state__title, .state__copy p, .cmd, pre, button')].filter(out).map((el) => el.className || el.tagName),
+        wordsWrap: !!words && words.scrollWidth <= words.clientWidth,
+        // Every character of the example is on screen: nothing to scroll to, least of all the `url` line to edit.
+        snippetWhole: !!snippet && snippet.scrollWidth <= snippet.clientWidth,
+      };
+    });
+    await expect.poll(cut, `${String(width)} px`).toEqual({ outside: [], wordsWrap: true, snippetWhole: true });
+    // Wrapped on screen, exact on the clipboard.
+    await panel.getByRole('button', { name: 'Copy notify table' }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('[[notify]]\nname = "phone"\nkind = "ntfy"  # or "discord", "slack", "webhook"\nurl = "https://ntfy.sh/<your-topic>"');
+  }
+});
+
+test('a notification channel can be tested from the Alerts view', async ({ page }) => {
+  const channel = { name: 'phone', kind: 'ntfy', host: 'ntfy.sh', min_severity: 'warning', send_resolved: true, pending: 0, retry_at: null, last: null };
+  const delivered = { ts: Date.now() / 1000, ok: true, test: true, notices: 0, failure: null, http_status: 200, problem: null };
+  await page.route('**/api/v1/notify/channels', (route) => route.fulfill({ json: [channel] }));
+  await page.route('**/api/v1/notify/channels/phone/test', (route) => route.fulfill({ json: { ...channel, last: delivered } }));
+  await page.goto('/alerts');
+  await ready(page);
+  const panel = page.getByRole('region', { name: 'Notifications' });
+  await expect(panel.getByRole('row', { name: /phone/ })).toContainText('Nothing sent since the console started');
+  await panel.getByRole('button', { name: 'Send test to phone' }).click();
+  await expect(panel.getByRole('status')).toContainText('Test sent to phone');
+  await expect(panel.getByRole('row', { name: /phone/ })).toContainText('Delivered');
+  expect(await axeViolations(page)).toEqual([]);
 });
 
 test('the theme choice in Settings persists across reloads', async ({ page }) => {

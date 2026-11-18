@@ -232,6 +232,17 @@
 .nnote__link:hover { color: var(--text-1); }
 .nnote__link svg { width: 14px; height: 14px; }
 
+/* ------------------------------------------------------------------ model servers */
+.nllm { display: grid; gap: var(--space-5); }
+.nllm__server { display: grid; gap: var(--space-2); min-width: 0; }
+.nllm__server + .nllm__server { padding-top: var(--space-5); border-top: var(--hairline) solid var(--separator); }
+.nllm__head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.nllm__title { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-headline); line-height: var(--lh-headline); font-weight: var(--fw-headline); }
+.nllm__models { margin: 0; padding: 0; list-style: none; }
+.nllm__problem { margin: 0; font-size: var(--fs-callout); line-height: var(--lh-callout); color: var(--text-1); }
+.nllm__stats { margin-top: var(--space-3); }
+.nllm--stale .stat__value { color: var(--text-3); }
+
 /* ------------------------------------------------------------------ summary */
 .nsum__charts { display: grid; gap: var(--space-5); grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .nsum__wide { grid-column: span 2; }
@@ -440,3 +451,7 @@
 .ntable--stale td :not(.procs__badge, .procs__badge *),
 .npsi--stale.npsi--stale * { color: var(--text-3); }
 .npsi--stale :is(svg, canvas) { opacity: 0.5; }
+
+.node-setup { border-style: dashed; border-color: var(--separator-strong); }
+.node-setup .panel__body { padding-top: var(--space-5); }
+.node-setup__note { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); padding: 0 var(--space-1); }

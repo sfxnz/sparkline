@@ -33,7 +33,8 @@
   text-wrap: balance;
 }
 .state--compact .state__title { font-size: var(--fs-headline); line-height: var(--lh-headline); }
-.state__copy { font-size: var(--fs-callout); line-height: var(--lh-callout); color: var(--text-2); text-wrap: pretty; max-width: 28rem; }
+/* Never wider than the state: a centred item wider than its box is cut off on both sides (a snippet on a phone). */
+.state__copy { font-size: var(--fs-callout); line-height: var(--lh-callout); color: var(--text-2); text-wrap: pretty; max-width: min(28rem, 100%); }
 .state--compact .state__copy { font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
 .state__actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
 .state--compact .state__actions { margin-top: var(--space-1); }

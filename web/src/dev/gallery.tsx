@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client';
 import { Heatmap } from '../charts/Heatmap';
 import { TimeSeriesChart } from '../charts/TimeSeriesChart';
 import { Button } from '../design/components/Button';
+import { CommandLine } from '../design/components/CommandLine';
 import { ConfirmDialog } from '../design/components/Dialog';
 import { EmptyState } from '../design/components/EmptyState';
 import { Panel } from '../design/components/Panel';
@@ -93,7 +94,7 @@ function Gallery() {
   return (
     <div style={{ padding: 32, display: 'grid', gap: 20, maxWidth: 1400 }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        {(['healthy', 'warning', 'critical', 'stale', 'offline', 'connecting', 'unknown'] as const).map((s) => <StatusPill key={s} status={s} />)}
+        {(['healthy', 'warning', 'critical', 'stale', 'offline', 'connecting', 'setup', 'unknown'] as const).map((s) => <StatusPill key={s} status={s} />)}
         <SegmentedControl label="Range" value={range} onChange={setRange} options={[{ value: 'live', label: 'Live' }, { value: '5m', label: '5m' }, { value: '1h', label: '1h' }]} />
         <Button variant="primary">Primary</Button>
         <Button>Secondary</Button>
@@ -101,6 +102,14 @@ function Gallery() {
         <Button variant="destructive" onClick={() => { setConfirm(true); }}>Clear history…</Button>
       </div>
       <Panel title="Stats" subtitle="AnimatedNumber, stale and unsupported states"><LatestStat /></Panel>
+      <Panel title="Command line" subtitle="One thing to run or paste: whole, selectable, with a copy button">
+        <div style={{ display: 'grid', gap: 12, maxWidth: 520 }}>
+          <CommandLine text="systemctl status sparkline-agent" />
+          <CommandLine text="sudo grep ^token /etc/sparkline/console.toml" compact />
+          <div style={{ maxWidth: 260 }}><CommandLine text="sudo grep ^token /etc/sparkline/console.toml" /></div>
+          <CommandLine what="scrape config" text={'scrape_configs:\n  - job_name: sparkline\n    static_configs:\n      - targets: ["192.168.1.11:9700"]'} />
+        </div>
+      </Panel>
       <div className="grid grid--2">
         <Panel title="GPU temperature" subtitle="Live, slowdown threshold at 86 °C">
           <TimeSeriesChart node="spark1" title="GPU temperature" series={[{ key: 'gpu0.temp_c', label: 'GPU' }]} format={formatTemp} range="live" yMin={40} thresholds={[{ value: 86, label: 'Slowdown 86 °C', tone: 'warn' }]} />

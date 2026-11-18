@@ -6,11 +6,14 @@ import os
 import shutil
 import socket
 import sys
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from http.client import HTTPConnection, HTTPException
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
+from urllib.parse import urlsplit
 
 import psutil
 
@@ -78,6 +81,25 @@ class EthReader(Protocol):
     def read(self) -> dict[str, int]: ...
 
 
+HTTP_TIMEOUT_S = 3.0
+HTTP_MAX_BYTES = 8 << 20
+
+
+class HttpReply(NamedTuple):
+    status: int
+    body: bytes
+
+
+class NotHttp(ConnectionError):
+    """The peer answered, and its answer does not read as HTTP."""
+
+
+Http = Callable[[str, Mapping[str, str]], HttpReply]
+"""GET a URL on this node with these headers. Raises TimeoutError when the peer gives no answer in time,
+NotHttp when its answer is not HTTP, and ConnectionError when the connection fails before any answer.
+The text of each never holds the URL or a header."""
+
+
 @dataclass(frozen=True)
 class Sources:
     platform: str
@@ -88,6 +110,37 @@ class Sources:
     ethtool: Callable[[str, list[str]], EthReader]
     docker: Callable[[str], Any]
     which: Callable[[str], str | None]
+    http: Http
+
+
+def live_http(url: str, headers: Mapping[str, str]) -> HttpReply:
+    """One GET through http.client, which follows no redirect, reads no proxy variable and logs nothing,
+    so a request stays on this node and its headers stay out of the log at every level."""
+    parts = urlsplit(url)
+    conn = HTTPConnection(parts.hostname or "", parts.port, timeout=HTTP_TIMEOUT_S)
+    deadline = time.monotonic() + HTTP_TIMEOUT_S
+    body = bytearray()
+    try:
+        conn.request("GET", parts.path, headers={**headers, "Connection": "close"})
+        reply = conn.getresponse()
+        while len(body) < HTTP_MAX_BYTES and (chunk := reply.read(65536)):
+            body += chunk
+            if time.monotonic() > deadline:  # the socket timeout is per read, not for the whole body
+                raise TimeoutError
+        return HttpReply(reply.status, bytes(body[:HTTP_MAX_BYTES]))
+    except TimeoutError:
+        raise TimeoutError("no answer in time") from None
+    except (OSError, ValueError) as e:
+        # Caught before HTTPException: a peer that closes without a byte (RemoteDisconnected) is both.
+        raise ConnectionError(type(e).__name__) from None  # the class only: a message may quote a header
+    except HTTPException as e:
+        raise NotHttp(type(e).__name__) from None
+    finally:
+        conn.close()
+
+
+def refuse_http(url: str, headers: Mapping[str, str]) -> HttpReply:
+    raise ConnectionRefusedError("this source reaches no model server")
 
 
 def live() -> Sources:
@@ -103,6 +156,7 @@ def live() -> Sources:
         ethtool=EthtoolStats,
         docker=docker_get,
         which=shutil.which,
+        http=live_http,
     )
 
 
@@ -201,4 +255,5 @@ def recorded(directory: str | Path) -> Sources:
         ethtool=ethtool,
         docker=docker,
         which=lambda name: host["which"].get(name),
+        http=refuse_http,
     )

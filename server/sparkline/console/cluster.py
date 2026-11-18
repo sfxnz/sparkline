@@ -7,14 +7,26 @@ import contextlib
 import json
 import logging
 import time
+from collections.abc import Callable
 from importlib.metadata import version as pkg_version
 
 from pydantic import TypeAdapter
 
-from ..common.schema import AlertRule, ClusterState, ConsoleSettings, Event, NodeState, Problem, Sample
+from ..common.schema import (
+    AlertRule,
+    ClusterState,
+    ConsoleSettings,
+    Event,
+    NodeState,
+    Onboarding,
+    OnboardingPatch,
+    Problem,
+    Sample,
+)
 from .alerts import DEFAULT_RULES, AlertEngine
 from .hub import Hub
 from .nodes import NodeSource
+from .onboarding import OnboardingStore
 from .store import Store
 
 log = logging.getLogger("sparkline.console.cluster")
@@ -79,10 +91,22 @@ def load_rules(saved: list[object], metrics: dict[str, str | None] | None) -> li
 
 
 class Cluster:
-    def __init__(self, store: Store, hub: Hub, default_settings: ConsoleSettings, demo: bool = False):
+    def __init__(
+        self,
+        store: Store,
+        hub: Hub,
+        default_settings: ConsoleSettings,
+        demo: bool = False,
+        notify: Callable[[Event], None] = lambda ev: None,
+        onboarding: OnboardingStore | None = None,
+        adopt: Callable[[list[Event]], None] = lambda left_open: None,
+    ):
         self.store = store
         self.hub = hub
         self.demo = demo
+        self.notify = notify
+        self.onboarding = onboarding or OnboardingStore.open(store, [], time.time())
+        self.adopt = adopt
         saved: ConsoleSettings | None = store.kv_read("settings", _saved_settings)
         self.settings = saved or default_settings
         metrics = _saved_rule_metrics(store, store.kv_read(RULE_METRICS_KEY, _METRICS.validate_python))
@@ -95,11 +119,14 @@ class Cluster:
         self._tasks: list[asyncio.Task] = []
 
     def add_source(self, src: NodeSource) -> None:
+        src.state.first_seen = self.onboarding.first_seen.get(src.node_id)
         self.sources[src.node_id] = src
 
     # -- lifecycle ----------------------------------------------------------------------------------
     async def start(self) -> None:
-        self.store.resolve_open_alerts(time.time())
+        left_open = self.store.open_alerts()
+        self.adopt(left_open)
+        self.alerts.adopt(left_open, self.sources.keys(), time.time())
         self.store.prune()
         self._tasks = [asyncio.create_task(s.run(), name=f"node:{s.node_id}") for s in self.sources.values()]
         self._tasks += [asyncio.create_task(self._watchdog()), asyncio.create_task(self._housekeeping())]
@@ -116,6 +143,7 @@ class Cluster:
         return ClusterState(
             nodes=[s.state for s in self.sources.values()],
             settings=self.settings,
+            onboarding=self.onboarding.row,
             demo=self.demo,
             version=VERSION,
             server_time=time.time(),
@@ -131,6 +159,11 @@ class Cluster:
         self.settings = s
         self.hub.broadcast({"type": "settings", "settings": s.model_dump(mode="json")})
 
+    def update_onboarding(self, patch: OnboardingPatch) -> Onboarding:
+        row = self.onboarding.patch(patch, time.time())
+        self.hub.broadcast({"type": "onboarding", "onboarding": row.model_dump(mode="json")})
+        return row
+
     def update_rules(self, rules: list[AlertRule]) -> None:
         self.store.kv_set_atomically(
             {
@@ -145,6 +178,7 @@ class Cluster:
     def add_event(self, ev: Event) -> Event:
         ev = self.store.add_event(ev)
         self.hub.broadcast({"type": "event", "event": ev.model_dump(mode="json")})
+        self.notify(ev)
         return ev
 
     def resolve_event(self, ev: Event, ts: float) -> None:
@@ -175,13 +209,24 @@ class Cluster:
 
     def on_status(self, src: NodeSource, old: NodeState) -> None:
         new = src.state
+        if new.status == "online" and new.first_seen is None:
+            # Only a sample turns a node online, so this is its first one here. Stamped before the broadcast:
+            # the message that says online is the one that says the node is no longer new.
+            new.first_seen = time.time()
+            self.onboarding.node_seen(src.node_id, new.first_seen)
         self.hub.broadcast({"type": "node_status", "node": new.model_dump(mode="json")})
         if new.status == old.status:
             return
         try:  # outages are recorded by the node_offline alert (one alert + one recovery), not separate events
-            self.alerts.evaluate_status(src.node_id, new.status, new.error, time.time())
+            self._evaluate_status(src, time.time())
         except Exception:
             log.exception("status handling failed for %s", src.node_id)
+
+    def _evaluate_status(self, src: NodeSource, now: float) -> None:
+        """node_offline for a node that has answered this console at least once. One that never has is not
+        connected yet, which is not an outage: no alert, no event, no notification."""
+        if src.state.first_seen is not None:
+            self.alerts.evaluate_status(src.node_id, src.state.status, src.state.error, now)
 
     # -- background loops ---------------------------------------------------------------------------
     async def _watchdog(self) -> None:
@@ -223,7 +268,7 @@ class Cluster:
                 )
             elif age > max(self.settings.stale_after_s, floor) and st.status == "online":
                 src.set_status("stale", None, None)
-        self.alerts.evaluate_status(src.node_id, src.state.status, src.state.error, now)
+        self._evaluate_status(src, now)
 
     async def _housekeeping(self) -> None:
         while True:

@@ -34,6 +34,9 @@ from ..common.schema import (
     Event,
     HistoryResponse,
     NodeState,
+    NotifyChannelStatus,
+    Onboarding,
+    OnboardingPatch,
     Problem,
 )
 from ..common.schema import Severity as SeverityT
@@ -43,11 +46,14 @@ from .bench_routes import bench_router
 from .bench_store import BenchStore
 from .cluster import VERSION, Cluster
 from .config import ConsoleConfig
-from .demo import DemoSource, demo_history
+from .demo import FIRST_RUN_CALM_S, DemoSource, demo_history, first_run_script
 from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
 from .hub import Hub
 from .nodes import AgentClient, AuthRejected, NodeSource, classify
+from .notify import Notifier, NotifierStopped
+from .onboarding import OnboardingStore
+from .prometheus import render
 from .store import SESSION_TTL_S, Store
 
 log = logging.getLogger("sparkline.console.app")
@@ -150,23 +156,45 @@ def create_app(
     demo_speed: float = 1.0,
     demo_empty_bench: bool = False,
     fleet: str = "dgx",
+    demo_first_run: bool = False,
 ) -> FastAPI:
     data_dir.mkdir(parents=True, exist_ok=True)
     store = Store(data_dir / "console.sqlite")
+    auth_enabled = bool(cfg.token) or not demo
+    t0 = time.time()
+    if demo:
+        onboarding = OnboardingStore.demo(store, FLEETS[fleet], t0, demo_first_run, sign_in=auth_enabled)
+        if demo_first_run:  # a new install has no past: no events here, no benchmark runs below
+            store.clear_events()
+    else:  # before bind_sessions_to_token: until then, only a store an earlier start used has the token row
+        onboarding = OnboardingStore.open(store, [n.id for n in cfg.nodes], t0)
     if store.bind_sessions_to_token(cfg.token):
         log.warning("The console token changed: signed out every existing session")
     hub = Hub()
-    cluster = Cluster(store, hub, cfg.settings, demo=demo)
+    notifier = Notifier(cfg.notify)
+    cluster = Cluster(
+        store,
+        hub,
+        cfg.settings,
+        demo=demo,
+        notify=notifier.publish,
+        adopt=notifier.adopt,
+        onboarding=onboarding,
+    )
     if demo:
-        t0 = time.time()
-        for make in FLEETS[fleet].values():
-            cluster.add_source(DemoSource(make(t0, demo_speed), cluster))
+        makes = list(FLEETS[fleet].values())
+        for i, make in enumerate(makes):
+            src = DemoSource(make(t0, demo_speed), cluster)
+            if demo_first_run:
+                src.hello_at, src.refused = first_run_script(i, len(makes), t0, demo_speed)
+                src.model.calm_s = FIRST_RUN_CALM_S
+            cluster.add_source(src)
     else:
         for n in cfg.nodes:
             cluster.add_source(AgentClient(n.id, n.url, cluster, cfg.agent_token))
     bench_store = BenchStore(store.db)
     if demo:
-        if demo_empty_bench:  # demo DB only: show the empty benchmark state
+        if demo_empty_bench or demo_first_run:  # demo DB only: show the empty benchmark state
             bench_store.clear()
         else:
             models = {nid: cast(DemoSource, src).model for nid, src in cluster.sources.items()}
@@ -174,14 +202,15 @@ def create_app(
         bench = BenchManager(cluster, bench_store, DemoBench(cluster))
     else:
         bench = BenchManager(cluster, bench_store, AgentBackend(cluster, cfg.agent_token))
-    auth_enabled = bool(cfg.token) or not demo
     token = cfg.token.encode()
+    metrics_token = cfg.metrics_token.encode()
     login_attempts: dict[str, deque[float]] = {}
     http: dict[str, httpx.AsyncClient] = {}
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         http["c"] = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0))
+        notifier.start()
         await cluster.start()
         await bench.start()
         try:
@@ -189,6 +218,7 @@ def create_app(
         finally:
             await bench.stop()
             await cluster.stop()
+            await notifier.stop()
             await http["c"].aclose()
             store.close()
 
@@ -288,6 +318,14 @@ def create_app(
 
     Auth = [Depends(require_auth)]
 
+    async def require_scrape_auth(request: Request) -> None:
+        """GET /metrics: the metrics token, tried under the same attempt limit, or whatever opens the API."""
+        h = request.headers.get("authorization", "")
+        sent = h[7:].strip().encode() if h[:7].lower() == "bearer " else b""
+        scrape_only = bool(metrics_token) and hmac.compare_digest(sent, metrics_token)
+        if not (scrape_only and len(attempts(request)) < LOGIN_LIMIT):
+            await require_auth(request)
+
     @app.get("/healthz")
     async def healthz() -> dict:
         return {"ok": True, "version": VERSION}
@@ -305,7 +343,7 @@ def create_app(
             raise ProblemError(
                 401,
                 "Wrong token",
-                "The token does not match this console's token",
+                "The token does not match this console’s token",
                 "Copy `token` from /etc/sparkline/console.toml on the console host",
             )
         response.set_cookie(
@@ -317,6 +355,7 @@ def create_app(
             path="/",
             secure=request.url.scheme == "https",
         )
+        onboarding.signed_in(time.time())
         return {"ok": True, "auth_required": True}
 
     @app.post("/api/v1/auth/logout", dependencies=Auth)
@@ -336,7 +375,12 @@ def create_app(
         status, _ = authenticate(request)
         if status == 429:
             raise too_many()
-        return {"authenticated": status == 200, "auth_required": auth_enabled, "demo": demo}
+        return {
+            "authenticated": status == 200,
+            "auth_required": auth_enabled,
+            "demo": demo,
+            "first_run": auth_enabled and onboarding.row.started is None,  # nobody has signed in here yet
+        }
 
     # -- cluster / nodes ----------------------------------------------------------------------------
     def source(node: str) -> NodeSource:
@@ -520,6 +564,30 @@ def create_app(
         cluster.update_settings(s)
         return s
 
+    @app.put("/api/v1/onboarding", dependencies=Auth)
+    async def put_onboarding(patch: OnboardingPatch) -> Onboarding:
+        return cluster.update_onboarding(patch)
+
+    # -- notifications --------------------------------------------------------------------------------
+    @app.get("/api/v1/notify/channels", dependencies=Auth)
+    async def notify_channels() -> list[NotifyChannelStatus]:
+        return notifier.status()
+
+    @app.post("/api/v1/notify/channels/{name}/test", dependencies=Auth)
+    async def notify_test(name: str) -> NotifyChannelStatus:
+        """A test that could not be delivered is still 200: the outcome is the row's ``last``."""
+        try:
+            return await notifier.test(name)
+        except KeyError:
+            raise ProblemError(
+                404,
+                f"No notification channel {name!r}",
+                "It is not in the console configuration",
+                "Add it as a [[notify]] table in /etc/sparkline/console.toml and restart the console",
+            ) from None
+        except NotifierStopped:
+            raise ProblemError(503, "The console is shutting down", "", "Try again once it is back") from None
+
     # -- live stream ----------------------------------------------------------------------------------
     @app.websocket("/api/v1/stream")
     async def stream(ws: WebSocket) -> None:
@@ -557,6 +625,11 @@ def create_app(
                 await ws.close(code=1008)
 
     app.include_router(bench_router(bench, Auth))
+
+    @app.get("/metrics", dependencies=[Depends(require_scrape_auth)])
+    async def metrics() -> Response:
+        text = render((src.state for src in cluster.sources.values()), cluster.latest_samples())
+        return Response(text, media_type="text/plain; version=0.0.4; charset=utf-8")
 
     # -- static web app (registered last: catch-all) -----------------------------------------------
     @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)

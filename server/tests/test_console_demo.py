@@ -14,12 +14,12 @@ from sparkline.agent.config import AgentConfig
 from sparkline.agent.info import Collectors
 from sparkline.agent.sources import recorded
 from sparkline.common.metrics import flatten
-from sparkline.common.schema import ConsoleSettings, NodeInfo, Sample
+from sparkline.common.schema import LLM_FIELDS, ConsoleSettings, NodeInfo, Sample
 from sparkline.common.throttle import POWER_CAP_BIT
 from sparkline.console.app import create_app
 from sparkline.console.cluster import Cluster
 from sparkline.console.config import ConsoleConfig
-from sparkline.console.demo import DemoModel, DemoSource, demo_history
+from sparkline.console.demo import FIRST_RUN_CALM_S, DemoModel, DemoSource, demo_history
 from sparkline.console.demo_fleets import FLEETS
 from sparkline.console.demo_workstation import POWER_DROPOUT_S
 from sparkline.console.hub import Hub
@@ -40,6 +40,64 @@ def test_demo_samples_and_info_validate_against_schema():
         for i in range(0, 900, 3):  # covers thermal episode, storage error, stalls
             s = m.sample_at(T0 + i, i, procs=i % 5 == 0)
             assert Sample.model_validate(json.loads(s.model_dump_json())) == s
+
+
+def test_the_demo_shows_a_model_server_in_each_state_the_panel_renders():
+    at = T0 + 60
+    [gaps] = DemoModel("spark1", T0).sample_at(at, procs=True).llm
+    assert gaps.reports == ["gen_tps", "prompt_tps", "running", "waiting"] and gaps.values["up"] == 1
+    assert not {"kv_cache_pct", "ttft_p50_s"} & set(gaps.values), "not reported by this server"
+    assert (gaps.mem_source, gaps.values["mem_bytes"]) == (
+        "process",
+        flatten_at("spark1", at)["gpu0.shared_used"],
+    )
+    assert DemoModel("spark2", T0).sample_at(at).llm == []
+    assert ws1().sample_at(at).llm == []
+
+    spark3 = DemoModel("spark3", T0)
+    [full] = spark3.sample_at(at).llm
+    assert set(full.reports) == set(LLM_FIELDS) - {"up", "mem_bytes"} and full.state == "ready"
+    assert set(full.values) >= set(LLM_FIELDS) - {"ttft_p50_s", "ttft_p95_s"}
+    assert all(set(spark3.sample_at(T0 + i).llm[0].values) <= set(LLM_FIELDS) for i in range(0, 900, 7))
+
+
+def flatten_at(node: str, t: float) -> dict[str, float]:
+    return flatten(DemoModel(node, T0).sample_at(t))
+
+
+def test_the_demo_vllm_server_restarts_every_ten_minutes_and_has_no_rate_on_its_first_poll():
+    spark3 = DemoModel("spark3", T0)
+    [down] = spark3.sample_at(T0 + 230).llm
+    assert (down.state, down.values) == ("down", {"up": 0}) and "stopped listening" in down.problem
+    assert flatten_at("spark3", T0 + 230)["llm.8001.up"] == 0
+    [back] = spark3.sample_at(T0 + 246).llm
+    assert back.state == "ready" and "gen_tps" not in back.values and "running" in back.values
+    assert "gen_tps" in spark3.sample_at(T0 + 248).llm[0].values
+    assert [spark3.sample_at(T0 + s).llm[0].state for s in (224, 225, 244, 245, 825)] == [
+        "ready",
+        "down",
+        "down",
+        "ready",
+        "down",
+    ]
+
+
+def test_an_idle_demo_server_has_no_first_token_time_and_a_busy_one_has():
+    spark3 = DemoModel("spark3", T0)
+    samples = [spark3.sample_at(T0 + 2000 + i * 60).llm[0] for i in range(600)]
+    served = [s for s in samples if s.state == "ready" and "gen_tps" in s.values]
+    idle = [s for s in served if "ttft_p50_s" not in s.values]
+    busy = [s for s in served if "ttft_p50_s" in s.values]
+    assert idle and busy
+    assert all(s.values["gen_tps"] == 0 and s.values["running"] == 0 for s in idle)
+    assert all(s.values["gen_tps"] > 20 and s.values["running"] > 0 for s in busy)
+    assert all(s.values["ttft_p95_s"] > s.values["ttft_p50_s"] > 0 for s in busy)
+
+
+def test_demo_history_carries_the_model_server_series():
+    spark3 = DemoModel("spark3", T0)
+    h = demo_history(spark3, ["llm.8001.gen_tps", "llm.8001.up"], T0 - 3600, T0, 60, now=T0)
+    assert any(v for v in h.series["llm.8001.gen_tps"]) and set(h.series["llm.8001.up"]) == {1.0}
 
 
 def test_demo_hardware_mirrors_discovery():
@@ -460,3 +518,73 @@ async def test_the_live_energy_counter_of_every_gpu_integrates_its_power(node, s
         assert gained > 0 and gained == pytest.approx(integral, abs=0.2), i
     if scenario_s:
         assert any(s.gpu[2].power_w is None for s in rest), "no sample fell inside the dropout"
+
+
+def test_the_first_run_demo_brings_up_two_nodes_in_turn_and_the_last_after_it_stops_refusing(tmp_path):
+    """At 10x: hellos at 0.2 s and 0.7 s, the last node refused until 4.1 s and found by the next try, which
+    for a node that has never answered is at most 5 s later. A first sample follows by 1 s."""
+    cfg = ConsoleConfig(web_dist=tmp_path / "x")
+    t0 = time.time()
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True, demo_speed=10, demo_first_run=True)) as c:
+        rules = c.get("/api/v1/alerts/rules").json()
+        at_once = [{**r, "for_s": 0} if r["id"] == "node_offline" else r for r in rules]
+        assert c.put("/api/v1/alerts/rules", json=at_once).status_code == 200
+        live: dict[str, float] = {}
+        refused = None
+        while len(live) < 3 and time.time() < t0 + 30:
+            for n in c.get("/api/v1/cluster").json()["nodes"]:
+                if n["first_seen"] is not None:
+                    live.setdefault(n["node_id"], n["first_seen"] - t0)
+                elif n["status"] == "offline":
+                    refused = n
+            time.sleep(0.05)
+        assert list(live) == ["spark1", "spark2", "spark3"], live
+        assert 1.2 <= live["spark1"] <= live["spark2"] < 5.1 <= live["spark3"] < 11, live
+        assert live["spark2"] >= 1.7, live
+        assert refused is not None and refused["node_id"] == "spark3"
+        assert refused["error"]["cause"].startswith("Connection refused at ")
+        assert c.get("/api/v1/events", params={"node": "spark3"}).json() == []
+
+
+def test_the_first_run_demo_starts_with_no_benchmark_history_and_no_events(tmp_path):
+    """A new install has no past, whatever an earlier demo left in the same data directory."""
+    cfg = ConsoleConfig(web_dist=tmp_path / "x")
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True)) as c:
+        assert c.get("/api/v1/bench/runs").json(), "the ordinary demo seeds benchmark runs"
+        assert c.get("/api/v1/events").json(), "the ordinary demo seeds an event"
+    with TestClient(create_app(cfg, tmp_path / "data", demo=True, demo_first_run=True)) as c:
+        assert c.get("/api/v1/bench/runs").json() == []
+        assert c.get("/api/v1/events").json() == []
+
+
+@pytest.mark.parametrize("fleet", ["dgx", "mixed"])
+def test_the_first_run_demo_holds_every_scripted_failure_back_until_well_after_the_last_node(tmp_path, fleet):
+    """The last node is live by 47 s. The first failure the ordinary demo scripts is at 60 s (spark1's thermal
+    episode); in a first run it is 4 min later, and the others follow in their usual order."""
+    cfg = ConsoleConfig(web_dist=tmp_path / "x")
+    app = create_app(cfg, tmp_path / "data", demo=True, fleet=fleet, demo_first_run=True)
+    models = {nid: src.model for nid, src in app.state.cluster.sources.items()}
+    t0 = models["spark1"].t0
+
+    def failing(t: float) -> list[str]:
+        out = [f"{nid} {m.link_state(t)}" for nid, m in models.items() if m.link_state(t) != "ok"]
+        out += [f"{nid} hot" for nid, m in models.items() if m.thermal(t) > 0]
+        if models["spark2"].storage_error(t):
+            out.append("spark2 storage")
+        out += [
+            f"{nid} server down"
+            for nid, m in models.items()
+            for server in m.sample_at(t).llm or []
+            if server.state == "down"
+        ]
+        return out
+
+    quiet_until = FIRST_RUN_CALM_S + 60
+    assert quiet_until >= 47 + 240
+    assert [(s, failing(t0 + s)) for s in range(0, int(quiet_until)) if failing(t0 + s)] == []
+    assert "spark1 hot" in failing(t0 + FIRST_RUN_CALM_S + 60 + 20)
+    assert "spark2 stall" in failing(t0 + FIRST_RUN_CALM_S + 124)
+    assert "spark3 refused" in failing(t0 + FIRST_RUN_CALM_S + 60 + 115)
+    plain = DemoModel("spark1", t0)
+    assert plain.thermal(t0 + 80) > 0 and plain.scen(t0 + 80) == 80 and plain.scen(t0 - 500) == -500
+    assert models["spark1"].scen(t0 - 500) == -500

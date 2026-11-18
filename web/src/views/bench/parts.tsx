@@ -18,9 +18,10 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { InlineCode } from '../../design/components/InlineCode';
-import { StatusPill } from '../../design/components/StatusPill';
+import { nodeDisplayStatus, statusLabel, StatusPill, type Status } from '../../design/components/StatusPill';
 import { Tooltip } from '../../design/components/Tooltip';
-import type { BenchImpact, NodeStatus, Problem, RunStatus } from '../../lib/types';
+import { isNewNode } from '../../lib/onboarding';
+import type { BenchImpact, NodeState, Problem, RunStatus } from '../../lib/types';
 import { Banner } from '../alerts/parts/Banner';
 import { IMPACT_LABEL, modelledNote, STATUS_LOOK, type Category, type DeltaLook, type Modelled } from './model';
 
@@ -74,14 +75,22 @@ export function ProblemTip({ problem }: { problem: Problem }) {
   );
 }
 
-const DOWN_LABEL: Partial<Record<NodeStatus, string>> = { stale: 'Not reporting', offline: 'Offline', error: 'Unreachable' };
+/** What a card says of a node that can run nothing now, by its display status (nodeDisplayStatus). An agent that
+ *  turns the console away is "Unreachable" here, in the tone of a node that is down. */
+const DOWN: Partial<Record<Status, { status: Status; label: string }>> = {
+  stale: { status: 'stale', label: statusLabel('stale') },
+  offline: { status: 'offline', label: statusLabel('offline') },
+  error: { status: 'offline', label: 'Unreachable' },
+  setup: { status: 'setup', label: statusLabel('setup') },
+  connecting: { status: 'connecting', label: statusLabel('connecting') },
+};
 
 /**
  * One node's availability for a bench. A node that is not reporting says so on every card (whatever the catalog
  * last said); otherwise "Ready", or "Unavailable" with the problem and its fix in a tooltip.
  */
-export function Availability({ node, problem, nodeStatus }: { node: string; problem: Problem | null | undefined; nodeStatus?: NodeStatus }) {
-  const down = nodeStatus ? DOWN_LABEL[nodeStatus] : undefined;
+export function Availability({ node, problem, state }: { node: string; problem: Problem | null | undefined; state?: Pick<NodeState, 'status' | 'first_seen'> }) {
+  const down = state ? DOWN[nodeDisplayStatus(state.status, null, true, isNewNode(state))] : undefined;
   if (!problem && !down) {
     return (
       <li className="bench-avail">
@@ -93,7 +102,7 @@ export function Availability({ node, problem, nodeStatus }: { node: string; prob
   return (
     <li className="bench-avail">
       <span className="bench-avail__node">{node}</span>
-      <StatusPill status={down ? (nodeStatus === 'stale' ? 'stale' : 'offline') : 'warning'} label={down ?? 'Unavailable'} variant="inline" size="sm" />
+      <StatusPill status={down?.status ?? 'warning'} label={down?.label ?? 'Unavailable'} variant="inline" size="sm" />
       {problem ? (
       <Tooltip content={<ProblemTip problem={problem} />}>
         <button type="button" className="bench-avail__info" aria-label={`Why ${node} can’t run this: ${problem.message}`}>

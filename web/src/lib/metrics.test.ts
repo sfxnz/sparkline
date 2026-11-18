@@ -24,6 +24,20 @@ describe('flatten', () => {
     expect(got.has('fs.data_models.used_pct')).toBe(false); // total 0
   });
 
+  it('writes a model server\'s readings and no key for a field with nothing to say', () => {
+    const got = flatten(s);
+    expect(got.get('llm.8000.up')).toBe(1);
+    expect(got.get('llm.9931.up')).toBe(0);
+    expect(s.llm?.[0]?.reports).toContain('ttft_p50_s');
+    expect(got.has('llm.8000.ttft_p50_s')).toBe(false);
+    expect(got.has('llm.8000.kv_cache_pct')).toBe(false);
+    expect(got.get('llm.8000.itl_p50_s')).toBe(0.021);
+  });
+
+  it('writes no llm key for a sample from an agent that predates model servers', () => {
+    expect([...flatten({ ...s, llm: undefined }).keys()].filter((k) => k.startsWith('llm.'))).toEqual([]);
+  });
+
   it('totals the GPUs by the same rules as the Python GPU_TOTALS', () => {
     expect(GPU_TOTALS).toEqual(expected.gpu_total_rules);
   });

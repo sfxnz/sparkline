@@ -577,8 +577,10 @@ class BenchManager:
         st = src.state
         if st.status in ("offline", "error") or src.connected_at is None:
             e = st.error
+            # A node that has never answered was never online, so it is not "offline" here either.
+            never = st.first_seen is None or st.status == "connecting"
             return specs, Problem(
-                message=f"{node} is {st.status if st.status != 'connecting' else 'not connected yet'}",
+                message=f"{node} is {'not connected yet' if never else st.status}",
                 cause=f"{e.message}: {e.cause}" if e else "The console has no connection to its agent",
                 fix=e.fix if e else "Wait for the console to connect, or press Retry on the node",
             )

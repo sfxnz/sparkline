@@ -10,21 +10,27 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from sparkline.common.metrics import flatten
-from sparkline.common.schema import Event, HistoryResponse
+from sparkline.common.schema import Event, HistoryResponse, Onboarding, OnboardingPatch
 from sparkline.console.alerts import DEFAULT_RULES
 from sparkline.console.app import create_app
 from sparkline.console.config import ConsoleConfig
 from sparkline.console.demo import DemoModel
 from sparkline.console.nodes import RING_S, NodeSource
+from sparkline.console.onboarding import merge
 from sparkline.console.store import Store
 
 TOKEN = "s3cret-browser-token"
 SAME = {"Origin": "http://testserver"}
 
 
-def make(tmp_path, demo=False, token=TOKEN, dist=None):
-    cfg = ConsoleConfig(token=token, agent_token="a", web_dist=dist or tmp_path / "missing-dist")
-    return create_app(cfg, tmp_path / "data", demo=demo)
+def make(tmp_path, demo=False, token=TOKEN, dist=None, first_run=False, nodes=()):
+    cfg = ConsoleConfig(
+        token=token,
+        agent_token="a",
+        web_dist=dist or tmp_path / "missing-dist",
+        nodes=[{"id": n, "url": "http://127.0.0.1:1"} for n in nodes],  # nothing listens there
+    )
+    return create_app(cfg, tmp_path / "data", demo=demo, demo_first_run=first_run)
 
 
 @pytest.fixture
@@ -42,7 +48,7 @@ def test_everything_but_healthz_login_and_me_needs_auth(client):
     # signed out is a normal answer from /auth/me, not an error (no red 401 in the browser console)
     r = client.get("/api/v1/auth/me")
     assert r.status_code == 200
-    assert r.json() == {"authenticated": False, "auth_required": True, "demo": False}
+    assert r.json() == {"authenticated": False, "auth_required": True, "demo": False, "first_run": True}
     assert client.get("/api/v1/auth/me", headers=bearer("wrong")).json()["authenticated"] is False
     assert client.get("/api/v1/auth/me", headers=bearer()).json()["authenticated"] is True
     for method, path in [
@@ -76,6 +82,7 @@ def test_login_cookie_logout_and_sessions_survive_restart(tmp_path):
             "authenticated": True,
             "auth_required": True,
             "demo": False,
+            "first_run": False,
         }
         sid = c.cookies["sparkline_session"]
     with TestClient(make(tmp_path)) as c2:  # restart: session persisted in SQLite
@@ -506,3 +513,192 @@ def test_rules_the_console_read_or_never_saved_are_not_reported_as_reset(tmp_pat
     stored_before_start(tmp_path, rows)
     with TestClient(make(tmp_path)) as c:
         assert c.get(RULES_STATUS, headers=bearer()).json() == {"reset": False}
+
+
+ME = "/api/v1/auth/me"
+LOGIN = "/api/v1/auth/login"
+ONBOARDING = "/api/v1/onboarding"
+NEW = {"started": None, "finished": None, "reopened": False, "seen": []}
+
+
+def cluster_state(c) -> dict:
+    return c.get("/api/v1/cluster", headers=bearer()).json()
+
+
+def test_a_console_is_on_its_first_run_until_the_first_sign_in_and_never_again(tmp_path):
+    for _ in range(2):  # installed, then restarted before anyone signed in
+        with TestClient(make(tmp_path)) as c:
+            assert c.get(ME).json()["first_run"] is True
+            assert c.get(ME, headers=bearer()).json()["first_run"] is True  # a bearer token is not a sign-in
+            assert cluster_state(c)["onboarding"] == NEW
+    with TestClient(make(tmp_path)) as c:
+        assert c.post(LOGIN, json={"token": "nope"}).status_code == 401
+        assert c.get(ME).json()["first_run"] is True
+        before = time.time()
+        assert c.post(LOGIN, json={"token": TOKEN}).status_code == 200
+        assert c.get(ME).json()["first_run"] is False
+        row = cluster_state(c)["onboarding"]
+        assert before <= row["started"] <= time.time() and row == {**NEW, "started": row["started"]}
+        assert c.post("/api/v1/auth/logout").status_code == 200
+        signed_out = {"authenticated": False, "auth_required": True, "demo": False, "first_run": False}
+        assert c.get(ME).json() == signed_out
+        assert c.post(LOGIN, json={"token": TOKEN}).status_code == 200  # a later sign-in is not the first
+        assert cluster_state(c)["onboarding"] == row
+    with TestClient(make(tmp_path)) as c:
+        assert c.get(ME).json()["first_run"] is False and cluster_state(c)["onboarding"] == row
+
+
+def test_onboarding_put_adds_seen_ids_and_stamps_finished_once_until_it_is_cleared(tmp_path):
+    with TestClient(make(tmp_path)) as c:
+
+        def put(patch: dict) -> dict:
+            r = c.put(ONBOARDING, json=patch, headers={**bearer(), **SAME})
+            assert r.status_code == 200, r.text
+            return r.json()
+
+        assert put({"seen": ["notifications", "fit"]}) == {**NEW, "seen": ["fit", "notifications"]}
+        seen = ["benchmarks", "fit", "notifications"]
+        assert put({"seen": ["fit", "benchmarks", "fit"]}) == {**NEW, "seen": seen}
+        before = time.time()
+        row = put({"finished": True})
+        assert before <= row["finished"] <= time.time()
+        assert row == {**NEW, "finished": row["finished"], "seen": seen}
+        for same in ({"finished": True}, {"seen": ["fit"], "finished": True}, {"seen": []}, {}):
+            assert put(same) == row, same
+        assert cluster_state(c)["onboarding"] == row
+    with TestClient(make(tmp_path)) as c:
+        assert cluster_state(c)["onboarding"] == row
+        reopened = {**row, "finished": None, "reopened": True}
+        for _ in range(2):
+            assert c.put(ONBOARDING, json={"finished": False}, headers=bearer()).json() == reopened
+        assert put({"seen": ["prometheus"]})["reopened"] is True  # opening a row does not put it away again
+    with TestClient(make(tmp_path)) as c:
+        assert cluster_state(c)["onboarding"]["reopened"] is True
+        again = c.put(ONBOARDING, json={"finished": True}, headers=bearer()).json()
+        assert again["finished"] > row["finished"] and again["reopened"] is False
+        assert again["seen"] == sorted([*seen, "prometheus"])
+
+
+def test_merge_keeps_three_states_unfinished_finished_and_reopened():
+    new = Onboarding(started=1.0)
+    finished = merge(new, OnboardingPatch(finished=True), 10.0)
+    assert (finished.finished, finished.reopened) == (10.0, False)
+    assert merge(finished, OnboardingPatch(finished=True), 20.0) == finished  # stamped once
+    reopened = merge(finished, OnboardingPatch(finished=False), 30.0)
+    assert (reopened.finished, reopened.reopened) == (None, True)
+    assert merge(reopened, OnboardingPatch(finished=False), 40.0) == reopened
+    assert merge(reopened, OnboardingPatch(seen=["benchmarks"]), 40.0).reopened is True
+    again = merge(reopened, OnboardingPatch(finished=True), 50.0)
+    assert (again.finished, again.reopened) == (50.0, False)
+    assert merge(new, OnboardingPatch(finished=False), 5.0).reopened is True
+
+
+def test_a_row_stored_before_reopened_existed_reads_as_not_reopened(tmp_path):
+    with TestClient(make(tmp_path)) as c:
+        assert c.put(ONBOARDING, json={"seen": ["fit"]}, headers=bearer()).status_code == 200
+    store = Store(tmp_path / "data" / "console.sqlite")
+    store.kv_set("onboarding", {"started": 1.0, "finished": None, "seen": ["fit"]})
+    store.close()
+    with TestClient(make(tmp_path)) as c:
+        expected = {"started": 1.0, "finished": None, "reopened": False, "seen": ["fit"]}
+        assert cluster_state(c)["onboarding"] == expected
+
+
+def test_onboarding_put_needs_a_sign_in_the_consoles_own_origin_and_a_readable_patch(client):
+    assert client.put(ONBOARDING, json={"finished": True}).status_code == 401
+    evil = {**bearer(), "Origin": "http://evil.example"}
+    r = client.put(ONBOARDING, json={"finished": True}, headers=evil)
+    assert r.status_code == 403 and r.json()["problem"]["message"] == "Cross-site request blocked"
+    unreadable = (
+        {"seen": "fit"},
+        {"seen": ["a" * 65]},
+        {"seen": [f"row-{i}" for i in range(65)]},
+        *({"seen": [bad]} for bad in ("", "Fit", "fit_it", "-fit", "fit-", "fit--it", "fit it", "fit\n", 5)),
+    )
+    for body in unreadable:
+        r = client.put(ONBOARDING, json=body, headers=bearer())
+        assert r.status_code == 422 and r.json()["problem"]["message"] == "Invalid request", body
+    assert cluster_state(client)["onboarding"] == NEW
+    assert client.post(LOGIN, json={"token": TOKEN}).status_code == 200  # the session cookie opens it too
+    assert client.put(ONBOARDING, json={"seen": ["fit"]}, headers=SAME).json()["seen"] == ["fit"]
+    longest = ["a" * 64, *(f"row-{i}" for i in range(63))]  # the most one patch may carry
+    assert client.put(ONBOARDING, json={"seen": longest}, headers=SAME).json()["seen"] == sorted(
+        [*longest, "fit"]
+    )
+
+
+def test_an_onboarding_change_is_broadcast_to_open_streams(client):
+    with client.websocket_connect("/api/v1/stream", headers={**bearer(), **SAME}) as ws:
+        hello = json.loads(ws.receive_text())
+        assert hello["type"] == "hello" and hello["cluster"]["onboarding"] == NEW
+        row = client.put(ONBOARDING, json={"seen": ["fit"], "finished": True}, headers=bearer()).json()
+        msg = json.loads(ws.receive_text())
+        while msg["type"] == "ping":
+            msg = json.loads(ws.receive_text())
+        assert msg == {"type": "onboarding", "onboarding": row}
+
+
+def test_a_store_an_earlier_release_ran_on_starts_finished_with_its_configured_nodes_seen(tmp_path):
+    (tmp_path / "data").mkdir()
+    store = Store(tmp_path / "data" / "console.sqlite")
+    store.bind_sessions_to_token(TOKEN)  # all that an earlier release leaves when nobody ever signed in
+    store.close()
+    before = time.time()
+    with TestClient(make(tmp_path, nodes=["spark1", "spark2"])) as c:
+        assert c.get(ME).json()["first_run"] is False
+        state = cluster_state(c)
+        row = state["onboarding"]
+        assert before <= row["started"] <= time.time()
+        assert row == {**NEW, "started": row["started"], "finished": row["started"]}
+        assert [n["first_seen"] for n in state["nodes"]] == [row["started"]] * 2
+    with TestClient(make(tmp_path, nodes=["spark1", "spark2", "spark3"])) as c:
+        state = cluster_state(c)
+        assert state["onboarding"] == row
+        assert [n["first_seen"] for n in state["nodes"]] == [row["started"]] * 2 + [None]
+
+
+@pytest.mark.parametrize("key", ["onboarding", "node_first_seen"])
+def test_an_unreadable_first_run_row_starts_the_console_as_one_that_was_set_up(tmp_path, key):
+    with TestClient(make(tmp_path, nodes=["spark1"])) as c:
+        assert cluster_state(c)["onboarding"] == NEW and cluster_state(c)["nodes"][0]["first_seen"] is None
+    store = Store(tmp_path / "data" / "console.sqlite")
+    store.db.execute("INSERT OR REPLACE INTO kv VALUES (?,?)", (key, "{not json"))
+    store.close()
+    with TestClient(make(tmp_path, nodes=["spark1"])) as c:
+        state = cluster_state(c)
+        if key == "onboarding":
+            assert c.get(ME).json()["first_run"] is False and state["onboarding"]["finished"] is not None
+        else:
+            assert state["nodes"][0]["first_seen"] is not None  # its node_offline alert stays armed
+
+
+@pytest.mark.parametrize("token", ["", TOKEN])
+def test_the_demo_starts_finished_with_every_node_already_seen(tmp_path, token):
+    before = time.time()
+    with TestClient(make(tmp_path, demo=True, token=token)) as c:
+        assert c.get(ME).json()["first_run"] is False
+        state = cluster_state(c)
+        row = state["onboarding"]
+        assert before <= row["started"] <= time.time()
+        assert row == {**NEW, "started": row["started"], "finished": row["started"]}
+        assert [n["first_seen"] for n in state["nodes"]] == [row["started"]] * 3
+
+
+def test_the_first_run_demo_starts_as_a_new_install_whatever_the_last_demo_left(tmp_path):
+    with TestClient(make(tmp_path, demo=True, token="")) as c:
+        assert c.put(ONBOARDING, json={"seen": ["fit"]}).json()["seen"] == ["fit"]
+    with TestClient(make(tmp_path, demo=True, token="", first_run=True)) as c:
+        state = c.get("/api/v1/cluster").json()
+        row = state["onboarding"]
+        # without a token nobody can sign in, so the start stands in for the first sign-in: the guide opens
+        assert row == {**NEW, "started": row["started"]} and row["started"] is not None
+        assert c.get(ME).json()["first_run"] is False
+        assert [(n["status"], n["first_seen"]) for n in state["nodes"]] == [("connecting", None)] * 3
+    with TestClient(make(tmp_path, demo=True, first_run=True)) as c:
+        assert c.get(ME).json()["first_run"] is True and cluster_state(c)["onboarding"] == NEW
+        assert c.post(LOGIN, json={"token": TOKEN}).status_code == 200
+        assert c.get(ME).json()["first_run"] is False
+    with TestClient(make(tmp_path, demo=True, token="")) as c:
+        state = c.get("/api/v1/cluster").json()
+        assert state["onboarding"]["finished"] is not None and state["onboarding"]["seen"] == []
+        assert all(n["first_seen"] is not None for n in state["nodes"])

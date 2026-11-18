@@ -9,6 +9,9 @@ port = 9700
 token = ""
 # Must equal token in /etc/sparkline/agent.toml on every node. Or leave empty and set SPARKLINE_AGENT_TOKEN.
 agent_token = ""
+# Optional: opens GET /metrics for Prometheus and nothing else. Put the same value in the file that the
+# scrape job names as credentials_file. Reference: README.md, "Prometheus".
+# metrics_token = ""
 
 # [settings]                  # also editable in the app (Settings)
 # energy_rate_per_kwh = 0.28
@@ -16,6 +19,16 @@ agent_token = ""
 # stale_after_s = 5.0
 # offline_after_s = 30.0
 # regression_pct = 5.0
+
+# Alert notifications, one table per channel. kind: "ntfy", "discord", "slack" or "webhook".
+# The url is a credential: keep this file private. Reference: README.md, "Notifications".
+# [[notify]]
+# name = "phone"
+# kind = "ntfy"
+# url = "https://ntfy.sh/<your-topic>"
+# token = ""                  # ntfy and webhook only: sent as Authorization: Bearer
+# min_severity = "warning"    # "info", "warning" or "critical"
+# send_resolved = true        # also send when an alert clears
 
 [[nodes]]
 id = "spark1"

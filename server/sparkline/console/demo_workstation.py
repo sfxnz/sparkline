@@ -38,7 +38,7 @@ from ..common.schema import (
     Unsupported,
 )
 from .cluster import VERSION
-from .demo import BenchWindow, Smooth, _clamp, _episode, _h, bench_load
+from .demo import BenchWindow, Smooth, _clamp, _episode, _h, bench_load, scenario_time
 
 GIB = 1 << 30
 MEM_TOTAL = 263_617_544 * 1024
@@ -96,8 +96,10 @@ class WorkstationModel:
         self.bench_windows: list[BenchWindow] = []
         self.disk_windows: list[list[float]] = []
 
+    calm_s = 0.0
+
     def scen(self, t: float) -> float:
-        return (t - self.t0) * self.speed
+        return scenario_time((t - self.t0) * self.speed, self.calm_s)
 
     def link_state(self, t: float) -> str:
         return "ok"
@@ -368,6 +370,7 @@ class WorkstationModel:
             temps=temps,
             cpu_temp_c=cpu_temp,
             procs=self._procs(t, gpus, b) if procs else None,
+            llm=[],
         )
 
     def _procs(self, t: float, gpus: list[GpuSample], b: float) -> list[ProcSample]:

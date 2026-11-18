@@ -72,7 +72,7 @@ printf '    %-8s LAN %-15s rails %s\n' "$LOCAL_ID" "$LOCAL_LAN" "${LOCAL_RAILS:-
 
 flags=(--yes)
 [[ $DRY_RUN == 1 ]] && flags=(--dry-run)
-agent_flags=("${flags[@]}")
+agent_flags=("${flags[@]}" --no-next-steps) # the next steps are the rest of this script
 [[ $BENCH == 1 ]] && agent_flags+=(--enable-benchmarks)
 SUDO=(sudo)
 [[ $DRY_RUN == 1 ]] && SUDO=()

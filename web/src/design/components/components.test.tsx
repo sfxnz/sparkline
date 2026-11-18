@@ -6,6 +6,7 @@ import { bytesParts, tempParts } from '../../lib/format';
 import type { NodeInfo, Unsupported as UnsupportedEntry } from '../../lib/types';
 import { AnimatedNumber } from './AnimatedNumber';
 import { Button, IconButton } from './Button';
+import { CommandLine } from './CommandLine';
 import { ConfirmDialog } from './Dialog';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Announcer, DEDUPE_MS, MIN_GAP_MS } from './LiveAnnouncer';
@@ -133,6 +134,24 @@ describe('StatusPill', () => {
     expect(nodeDisplayStatus('online', 'critical', false)).toBe('stale');
     expect(nodeDisplayStatus(undefined, null, false)).toBe('unknown');
   });
+
+  it('nodeDisplayStatus: a node that has never answered is connecting, then not connected yet, never offline or an error', () => {
+    expect(nodeDisplayStatus('connecting', null, true, true)).toBe('connecting');
+    expect(nodeDisplayStatus('offline', null, true, true)).toBe('setup');
+    expect(nodeDisplayStatus('error', null, true, true)).toBe('setup');
+    // An alert cannot make it Critical, and a lost console does not turn "never connected" into "not reporting".
+    expect(nodeDisplayStatus('offline', 'critical', true, true)).toBe('setup');
+    expect(nodeDisplayStatus('error', null, false, true)).toBe('setup');
+    expect(nodeDisplayStatus('online', null, true, false)).toBe('healthy');
+    expect(nodeDisplayStatus('offline', null, true, false)).toBe('offline');
+  });
+
+  it('the setup pill says "Not connected yet" in the setup tone, with an icon', () => {
+    const { container } = render(<StatusPill status="setup" />);
+    expect(screen.getByText('Not connected yet')).toBeInTheDocument();
+    expect(container.querySelector('.status')).toHaveClass('tone-setup');
+    expect(container.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+  });
 });
 
 describe('Stat / AnimatedNumber', () => {
@@ -234,7 +253,7 @@ describe('ErrorBoundary', () => {
       return <p>recovered</p>;
     }
     render(<><ErrorBoundary what="The GPU panel"><Flaky /></ErrorBoundary><p>sibling ok</p></>);
-    expect(screen.getByText('The GPU panel couldn’t be displayed'.replace('’', "'"))).toBeInTheDocument();
+    expect(screen.getByText('The GPU panel couldn’t be displayed')).toBeInTheDocument();
     expect(screen.getByText('bad data')).toBeInTheDocument();
     expect(screen.getByText('sibling ok')).toBeInTheDocument();
     fail = false;
@@ -291,5 +310,59 @@ describe('Announcer', () => {
     a.announce('GPU hot on spark1', 'warning');
     act(() => { vi.advanceTimersByTime(MIN_GAP_MS); });
     expect(out[2]).toBe('GPU hot on spark1');
+  });
+});
+
+describe('CommandLine', () => {
+  const secure = (on: boolean) => { Object.defineProperty(window, 'isSecureContext', { value: on, configurable: true }); };
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it('shows the whole command and copies exactly it, naming what was copied', async () => {
+    secure(true);
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { container } = render(<CommandLine text="systemctl status sparkline-agent" />);
+    expect(container.querySelector('.cmd__text')?.textContent).toBe('systemctl status sparkline-agent');
+    // Each word is one box, so the line wraps at its spaces.
+    expect([...container.querySelectorAll('.cmd__word')].map((w) => w.textContent)).toEqual(['systemctl', 'status', 'sparkline-agent']);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy command' }));
+    expect(writeText).toHaveBeenCalledWith('systemctl status sparkline-agent');
+    expect(await screen.findByRole('button', { name: 'Copied command' })).toHaveTextContent('Copied');
+    expect(screen.getByRole('status')).toHaveTextContent('Copied command');
+  });
+
+  it('lets an address or a path wider than its line break before a slash or the colon of a port, and never inside "://"', () => {
+    const { container } = render(<CommandLine text="curl http://198.51.100.11:9700/metrics /etc/sparkline/console.toml spark2:9750 [2001:db8::1]:9700" />);
+    expect(container.querySelector('.cmd__text')?.textContent).toBe('curl http://198.51.100.11:9700/metrics /etc/sparkline/console.toml spark2:9750 [2001:db8::1]:9700');
+    expect([...container.querySelectorAll('.cmd__word')].map((w) => w.innerHTML)).toEqual([
+      'curl', 'http://198.51.100.11<wbr>:9700<wbr>/metrics', '/etc<wbr>/sparkline<wbr>/console.toml', 'spark2<wbr>:9750', '[2001:db8::1]<wbr>:9700',
+    ]);
+  });
+
+  it('copies on a plain-http LAN page, where the clipboard API is missing', async () => {
+    secure(false);
+    const exec = vi.fn<(command: string) => boolean>(() => true);
+    Object.defineProperty(document, 'execCommand', { value: exec, configurable: true });
+    render(<CommandLine text="sudo grep ^token /etc/sparkline/console.toml" compact />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy command' }));
+    expect(await screen.findByRole('button', { name: 'Copied command' })).toBeInTheDocument();
+    expect(exec).toHaveBeenCalledWith('copy');
+  });
+
+  it('says so when the browser blocks the copy', async () => {
+    secure(false);
+    Object.defineProperty(document, 'execCommand', { value: () => false, configurable: true });
+    render(<CommandLine text="systemctl status sparkline-agent" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy command' }));
+    await vi.waitFor(() => { expect(screen.getByRole('status')).toHaveTextContent('The browser blocked the clipboard'); });
+    expect(screen.getByRole('button', { name: 'Copy command' })).toHaveTextContent('Copy');
+  });
+
+  it('keeps the lines of a snippet and names it', () => {
+    const text = 'scrape_configs:\n  - job_name: sparkline';
+    const { container } = render(<CommandLine text={text} what="scrape config" />);
+    expect(container.querySelector('pre')?.textContent).toBe(text);
+    expect(screen.getByRole('button', { name: 'Copy scrape config' })).toBeInTheDocument();
+    expect(container.querySelector('.cmd__prompt')).toBeNull();
   });
 });

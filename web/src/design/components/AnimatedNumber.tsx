@@ -27,13 +27,15 @@ interface Props {
   /** The unit the text is written in ("Mb/s"). When it changes the number jumps instead of interpolating, so a
    *  48 Gb/s -> 5 Mb/s change never shows in-between frames such as "48273 Mb/s". */
   scale?: string;
+  /** Count up from this value when the number first has one, instead of appearing (a node's first reading). */
+  enterFrom?: number;
 }
 
 /**
  * Interpolates between values with a spring and writes the text directly, so a changing number costs no
  * React renders per frame. Instant on first paint, for missing values, and under reduced motion.
  */
-export function AnimatedNumber({ value, format, className, scale }: Props) {
+export function AnimatedNumber({ value, format, className, scale, enterFrom }: Props) {
   const ref = useRef<HTMLSpanElement>(null);
   const shown = useRef<number | null>(null);
   const formatRef = useRef(format);
@@ -44,7 +46,7 @@ export function AnimatedNumber({ value, format, className, scale }: Props) {
     const el = ref.current;
     if (!el) return;
     const target = value == null || !Number.isFinite(value) ? null : value;
-    const from = shown.current;
+    const from = shown.current ?? enterFrom ?? null;
     const rescaled = scaleRef.current !== scale;
     scaleRef.current = scale;
     if (rescaled || !animate || target === null || from === null || format(from) === format(target) || prefersReducedMotion() || document.hidden) {
@@ -71,7 +73,7 @@ export function AnimatedNumber({ value, format, className, scale }: Props) {
     return () => {
       controls.stop();
     };
-  }, [value, format, scale]);
+  }, [value, format, scale, enterFrom]);
 
   return <span ref={ref} className={`num${className ? ` ${className}` : ''}`} />;
 }

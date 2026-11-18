@@ -7,9 +7,10 @@ import { gpuProcessesGap, gpusWithUnknownProcesses } from '../../lib/gpu';
 import { quietGpusOf } from '../../store/attention';
 import { useCluster } from '../../store/cluster';
 import { liveStore } from '../../store/live';
+import { GuideChip } from '../guide/Guide';
 import { excl } from '../shared/totalGap';
 import { clusterGpuNow, shallowEqual, useAcross, useClusterHealth, useOnlineIds } from './hooks';
-import { workloadSentence } from './model';
+import { waitingLine, workloadSentence } from './model';
 
 const intText = (n: number) => n.toFixed(0);
 const wattsText = (n: number) => wattsParts(n, 'W').value;
@@ -20,10 +21,11 @@ export function Hero() {
   return (
     <header className="ov-hero">
       <div className="ov-hero__line">
-        <h2 className="ov-hero__sentence">{health.sentence}</h2>
+        <h2 className="ov-hero__sentence">{health.welcome ?? health.sentence}</h2>
         <StatusPill status={health.status} label={health.label} />
       </div>
       <Activity />
+      <GuideChip />
     </header>
   );
 }
@@ -54,7 +56,10 @@ function Activity() {
     Object.keys(nodes).join(),
   );
 
-  if (!online.length) return <p className="ov-hero__activity ov-dim">No node is reporting live data.</p>;
+  if (!online.length) {
+    const waiting = waitingLine(Object.values(nodes));
+    return <p className={`ov-hero__activity${waiting ? '' : ' ov-dim'}`}>{waiting ?? 'No node is reporting live data.'}</p>;
+  }
   if (a.util === null && a.workload === null) {
     return (
       <p className="ov-hero__activity" aria-hidden="true">

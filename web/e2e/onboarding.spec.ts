@@ -1,0 +1,524 @@
+/// <reference lib="dom" />
+// Each test starts its own console (--demo-first-run with a token) and serves the built app from it, because the
+// first-run script runs on the console's clock from the moment it starts: a console shared by the whole suite would
+// be past "connecting" before the first test opened a page. --demo-speed 0.5 gives the tests room: spark1 answers
+// about 6 s in, spark2 about 16 s, and spark3 refuses for the first 82 s. A test that needs every node live says so
+// with a `demo-speed` annotation.
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+
+const PORT = Number(process.env.E2E_FIRSTRUN_PORT ?? 9704);
+const BASE = `http://127.0.0.1:${PORT}`;
+const TOKEN = 'first-run-e2e-token-not-a-secret-0123456789';
+const LINK = `${BASE}/login#token=${TOKEN}`;
+// What the setup card of a node that refuses connections says to run, in order.
+const FIX = ['sudo systemctl start sparkline-agent', 'journalctl -u sparkline-agent -n 50', 'sudo ./install.sh agent'];
+
+// One console at a time on one port: the tests in this file run in order, in one worker.
+test.describe.configure({ mode: 'default' });
+test.setTimeout(90_000);
+
+let server: ChildProcess | undefined;
+
+test.beforeEach(async ({ request }, testInfo) => {
+  const dir = testInfo.outputPath('console');
+  mkdirSync(`${dir}/data`, { recursive: true });
+  writeFileSync(`${dir}/console.toml`, `token = "${TOKEN}"\ndata_dir = "${dir}/data"\n`);
+  const speed = testInfo.annotations.find((a) => a.type === 'demo-speed')?.description ?? '0.5';
+  server = spawn('../server/.venv/bin/sparkline', ['--demo-first-run', '--demo-speed', speed, '--config', `${dir}/console.toml`, '--bind', '127.0.0.1', '--port', String(PORT), '--web-dist', 'dist'], { stdio: 'ignore' });
+  await expect.poll(() => request.get(`${BASE}/healthz`).then((r) => r.ok(), () => false), { timeout: 20_000, intervals: [100] }).toBe(true);
+});
+
+test.afterEach(async () => {
+  const child = server;
+  server = undefined;
+  if (!child || child.exitCode !== null) return;
+  await new Promise<void>((done) => {
+    child.once('exit', () => { done(); });
+    child.kill('SIGTERM');
+  });
+});
+
+/** Whether the last character of `text` inside `el` is painted inside `el`: not cut off, clamped or ellipsised. */
+const shows = (el: Element, text: string) => {
+  el.scrollIntoView({ block: 'center' });
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const at = n.textContent?.indexOf(text) ?? -1;
+    if (at < 0) continue;
+    const range = document.createRange();
+    range.setStart(n, at + text.length - 1);
+    range.setEnd(n, at + text.length);
+    const r = range.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return r.width > 0 && r.left >= box.left && r.right <= box.right + 0.5 && r.top >= box.top && r.bottom <= box.bottom + 0.5 && el.scrollWidth <= el.clientWidth;
+  }
+  return false;
+};
+
+/** The character each line of `el` after its first starts with. */
+const lineStarts = (el: Element) => {
+  const starts: string[] = [];
+  let last: number | null = null;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n.textContent ?? '';
+    for (let i = 0; i < text.length; i++) {
+      const range = document.createRange();
+      range.setStart(n, i);
+      range.setEnd(n, i + 1);
+      const top = range.getBoundingClientRect().top;
+      if (last !== null && top - last > 4) starts.push(text.charAt(i));
+      last = top;
+    }
+  }
+  return starts;
+};
+
+async function axe(page: Page, within?: string): Promise<string[]> {
+  await page.waitForFunction(() => [...document.querySelectorAll('.shell__page')].every((el) => getComputedStyle(el).opacity === '1'));
+  await page.waitForTimeout(300);
+  const builder = within ? new AxeBuilder({ page }).include(within) : new AxeBuilder({ page });
+  const results = await builder.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
+  return results.violations.map((v) => `${v.impact ?? ''} ${v.id}: ${v.help} (${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')})`);
+}
+
+const noSidewaysScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+
+async function signInByLink(page: Page) {
+  await page.goto(LINK);
+  await expect(page).toHaveURL(`${BASE}/`);
+}
+
+/** `selector` starts in the first strip of screen under the sticky toolbar, and is still there once the page has settled. */
+async function expectJustUnderToolbar(page: Page, selector: string) {
+  const gap = () => page.evaluate((sel) => {
+    const bar = document.querySelector('.toolbar')?.getBoundingClientRect().bottom ?? 0;
+    const top = document.querySelector(sel)?.getBoundingClientRect().top ?? -999;
+    return Math.round(top - bar);
+  }, selector);
+  const near = (n: number) => n >= 0 && n <= 48;
+  await expect.poll(async () => near(await gap()), { message: `${selector} under the toolbar` }).toBe(true);
+  await page.waitForTimeout(1200);
+  expect(near(await gap()), `${selector} still under the toolbar: ${String(await gap())} px`).toBe(true);
+}
+
+const setupCard = (page: Page) => page.getByRole('region', { name: 'Node spark3, not connected yet' });
+const guidePanel = (page: Page) => page.getByRole('region', { name: 'Getting started', exact: true });
+const guideStrip = (page: Page) => page.getByRole('region', { name: /^Getting started, \d+ of \d+ done$/ });
+/** How many rows the guide has, as its own meter says ("N of M done"). The table in views/guide/items.ts decides,
+ *  so a row added there changes nothing here. */
+async function guideTotal(page: Page): Promise<number> {
+  const label = await guidePanel(page).getByRole('img', { name: /^\d+ of \d+ done$/ }).getAttribute('aria-label');
+  return Number(/of (\d+)/.exec(label ?? '')?.[1]);
+}
+
+/** Nothing on the page says a node that has never answered is broken. */
+async function expectNoAlarm(page: Page) {
+  await expect(page.locator('.status', { hasText: /critical|offline|error/i })).toHaveCount(0);
+  await expect(page.locator('.tone-crit')).toHaveCount(0);
+  await expect(page.locator('.nav__badge')).toHaveCount(0);
+  await expect(page.getByRole('main').getByText('Critical')).toHaveCount(0);
+}
+
+async function expectWholeFix(card: Locator) {
+  await expect(card.getByText('Not connected yet')).toBeVisible();
+  await expect(card.getByRole('heading', { name: 'Agent unreachable on spark3' })).toBeVisible();
+  await expect(card.getByText('Likely cause')).toBeVisible();
+  await expect(card.getByText(/^Connection refused at /)).toBeVisible();
+  await expect(card.getByText('How to fix')).toBeVisible();
+  await expect(card.locator('.setup__fix-text')).toHaveText(['Start the agent on spark3:', 'If it does not stay up, read why:', 'If the agent was never installed on spark3, install it from the Sparkline folder there:']);
+  await expect.poll(() => card.locator('.setup__fix-text').last().evaluate(shows, 'folder there:'), { message: 'the last step is shown to its last word' }).toBe(true);
+  await expect(card.locator('.cmd__text')).toHaveText(FIX);
+  for (const command of FIX) {
+    // Once on the card, in its box, and what a person selects there is the command.
+    await expect(card.getByText(command)).toHaveCount(1);
+    const box = card.locator('.cmd__text', { hasText: command });
+    expect(await box.evaluate((el) => { getSelection()?.selectAllChildren(el); return getSelection()?.toString(); })).toBe(command);
+    // It wraps at its spaces: no word is on two lines.
+    await expect.poll(() => box.evaluate((el) => [...el.querySelectorAll('.cmd__word')].filter((w) => w.getBoundingClientRect().height > 1.5 * parseFloat(getComputedStyle(el).lineHeight)).map((w) => w.textContent)), { message: `${command} breaks only at spaces` }).toEqual([]);
+  }
+  await expect(card.getByRole('button', { name: 'Copy command' })).toHaveCount(FIX.length);
+  await expect(card.getByText(/Trying again in \d+\s*s|Trying now…/)).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Retry' })).toBeVisible();
+}
+
+test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, and a guide that stays put away', async ({ page, browser }) => {
+  await page.goto(`${BASE}/login`);
+  await expect(page.getByRole('heading', { name: 'Welcome to Sparkline' })).toBeVisible();
+  await expect(page.getByText('This console is new.')).toBeVisible();
+  await expect(page.getByText('sudo grep ^token /etc/sparkline/console.toml')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy command' })).toBeVisible();
+
+  await signInByLink(page);
+  expect(await page.evaluate(() => `${location.href} ${JSON.stringify(history.state)}`)).not.toContain(TOKEN);
+  expect(await page.evaluate(() => location.hash)).toBe('');
+
+  await expect(page.getByRole('heading', { level: 2, name: /^Welcome to Sparkline\./ })).toBeVisible();
+  const spark1 = page.getByRole('region', { name: 'Node spark1', exact: true });
+  await expect(spark1.getByText('Connecting')).toBeVisible();
+  await expect(spark1.getByText(/^Reaching /)).toBeVisible();
+  // The page has its stream, and no reading yet: the toolbar does not say "Live".
+  await expect(page.locator('.conn__status')).toHaveText('Connected');
+  await expectWholeFix(setupCard(page));
+  await expectNoAlarm(page);
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^spark3/ })).toContainText('Not connected');
+  await expect(spark1.getByText('Healthy')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.conn__status')).toHaveText('Live');
+  // Beside spark3's taller setup card, spark1's card keeps its own height: no empty band above its last rows.
+  await expect(setupCard(page)).toBeVisible();
+  const band = () => spark1.evaluate((card) => {
+    const foot = card.querySelector('.ov-card__foot');
+    const above = foot?.previousElementSibling;
+    return foot && above ? Math.round(foot.getBoundingClientRect().top - above.getBoundingClientRect().bottom) : -1;
+  });
+  await expect.poll(band).toBeLessThanOrEqual(17);
+  await expect(page.getByRole('heading', { level: 2, name: /^Welcome to Sparkline\. spark1 is live/ })).toBeVisible();
+  await expect(spark1.getByRole('img', { name: /^GPU utilisation \d+%/ })).toBeVisible({ timeout: 10_000 });
+  await expectNoAlarm(page);
+
+  await page.goto(`${BASE}/benchmarks`);
+  await expect(page.locator('.bench-avail', { hasText: 'spark3' }).first()).toContainText('Not connected yet');
+  await expectNoAlarm(page);
+  await page.goto(`${BASE}/settings`);
+  await expect(page.getByText('spark3 has not connected yet. It has no history to clear.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear history for spark3…' })).toHaveCount(0);
+  await page.goto(`${BASE}/`);
+
+  const panel = guidePanel(page);
+  const total = await guideTotal(page);
+  expect(total).toBeGreaterThan(0);
+  await expect(panel.getByRole('listitem')).toHaveCount(total);
+  await expect(panel.getByRole('heading', { level: 3 })).toHaveText(['Set up', 'Already on', 'Try it']);
+  const entry = page.getByRole('link', { name: /^Get started/ });
+  await expect(entry).toContainText(new RegExp(`\\d+ of ${total}`));
+
+  await panel.getByRole('link', { name: /^Prometheus export/ }).click();
+  await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
+  const prometheus = page.getByRole('region', { name: 'Prometheus' });
+  await expect(prometheus.getByText(`${BASE}/metrics`)).toBeVisible();
+  await expect(prometheus.getByRole('button', { name: 'Copy scrape job' })).toBeVisible();
+  await page.reload();
+  await page.goto(`${BASE}/`);
+  const strip = guideStrip(page);
+  await expect(strip).toBeVisible();
+  await expect(strip.getByRole('link', { name: /^Next / })).toBeVisible();
+  await expect(guidePanel(page)).toHaveCount(0);
+  // The welcome was for the first visit.
+  await expect(page.getByRole('heading', { level: 2, name: /^Welcome to Sparkline/ })).toHaveCount(0);
+
+  await strip.getByRole('button', { name: 'Dismiss getting started' }).click();
+  await expect(page.getByText('Getting started is put away.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Node spark1', exact: true })).toBeVisible();
+  await expect(page.getByText(/Getting started|Get started/)).toHaveCount(0);
+
+  // Another browser on the same console (a phone, say) agrees: signed in, no guide, and no first-run welcome.
+  const other = await browser.newContext();
+  const phone = await other.newPage();
+  await phone.goto(`${BASE}/login`);
+  await expect(phone.getByRole('heading', { name: 'Sign in to Sparkline' })).toBeVisible();
+  await phone.getByText('Where is the token?').click();
+  await expect(phone.getByText('sudo grep ^token /etc/sparkline/console.toml')).toBeVisible();
+  await signInByLink(phone);
+  await expect(phone.getByRole('region', { name: 'Node spark1', exact: true })).toBeVisible();
+  await expect(phone.getByText(/Getting started|Get started/)).toHaveCount(0);
+  await other.close();
+
+  await page.goto(`${BASE}/settings`);
+  await page.getByRole('button', { name: 'Open getting started' }).click();
+  await expect(page).toHaveURL(`${BASE}/`);
+  await expect(guidePanel(page)).toBeFocused();
+  await expect(guidePanel(page).getByRole('listitem')).toHaveCount(total);
+});
+
+test('a guide that finished itself comes back from Settings and from Search, and stays until it is dismissed', { annotation: { type: 'demo-speed', description: '4' } }, async ({ page, browser }) => {
+  await signInByLink(page);
+  const panel = guidePanel(page);
+  // Every node has answered (spark3 about 10 s in at this speed), so what is left is rows to open.
+  await expect(panel.getByText('All 3 nodes are live.')).toBeVisible({ timeout: 40_000 });
+  const total = await guideTotal(page);
+  const todo = panel.getByRole('link').filter({ hasNotText: '(done)' });
+  const opens = await todo.count();
+  expect(opens).toBeGreaterThan(0);
+  for (let i = 0; i < opens; i++) {
+    // Back from the first row the guide is one line.
+    if (i === 1) await guideStrip(page).getByRole('button', { name: 'Show all' }).click();
+    await todo.first().click();
+    await expect(page).not.toHaveURL(`${BASE}/`);
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Overview' }).click();
+  }
+  await expect(page.getByText('That is all of it. Getting started is put away.')).toBeVisible();
+
+  const everyRowTicked = async (p: Page) => {
+    await expect(guidePanel(p).getByRole('listitem')).toHaveCount(total);
+    await expect(guidePanel(p).getByRole('listitem').filter({ hasText: '(done)' })).toHaveCount(total);
+  };
+  await page.goto(`${BASE}/settings`);
+  await page.getByRole('button', { name: 'Open getting started' }).click();
+  await expect(page).toHaveURL(`${BASE}/`);
+  await expect(guidePanel(page)).toBeFocused();
+  await everyRowTicked(page);
+  await expect(guidePanel(page).getByRole('link', { name: /^Prometheus export/ })).toHaveAttribute('href', '/settings#prometheus');
+  // Another browser on the same console, which never asked for it, shows it in full too, and neither puts it away.
+  const other = await browser.newContext();
+  const second = await other.newPage();
+  await signInByLink(second);
+  await everyRowTicked(second);
+  await page.waitForTimeout(1500);
+  await everyRowTicked(page);
+  await everyRowTicked(second);
+  await page.reload();
+  await everyRowTicked(page);
+
+  await guidePanel(page).getByRole('button', { name: 'Dismiss getting started' }).click();
+  await expect(page.getByText('Getting started is put away.')).toBeVisible();
+  await expect(second.locator('#getting-started')).toHaveCount(0);
+  await second.keyboard.press('Control+k');
+  await second.keyboard.type('getting started');
+  await second.keyboard.press('Enter');
+  await expect(guidePanel(second)).toBeFocused();
+  await second.waitForTimeout(1500);
+  await everyRowTicked(second);
+  await everyRowTicked(page);
+  await other.close();
+});
+
+test('a link with a wrong token falls back to the form with the usual error, and the token leaves the address bar', async ({ page }) => {
+  await page.goto(`${BASE}/login#token=not-the-token`);
+  await expect(page.getByText('That token wasn’t accepted.')).toBeVisible();
+  await expect(page).toHaveURL(`${BASE}/login`);
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+  await expect(page.getByLabel('Console token')).toHaveValue('');
+});
+
+test('a first run on a phone: the chip under the welcome goes to the guide, and the fix is whole down to 360 px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${BASE}/login`);
+  await expect(page.getByRole('heading', { name: 'Welcome to Sparkline' })).toBeVisible();
+  await expect.poll(() => page.locator('.login__where .cmd__text').evaluate(shows, 'console.toml')).toBe(true);
+  expect(await noSidewaysScroll(page)).toBe(true);
+  // iOS Safari zooms the page when a focused field's text is under 16 px.
+  expect(await page.getByLabel('Console token').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
+
+  await signInByLink(page);
+  await expect(page.getByRole('heading', { level: 2, name: /^Welcome to Sparkline\./ })).toBeVisible();
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expectWholeFix(setupCard(page));
+    expect(await noSidewaysScroll(page), `no sideways scroll at ${width} px`).toBe(true);
+  }
+  await expectNoAlarm(page);
+
+  await page.evaluate(() => { window.scrollTo(0, 0); });
+  const chip = page.getByRole('button', { name: /^Getting started \d+ of \d+/ });
+  await expect(chip).toBeVisible();
+  await expect(guidePanel(page)).not.toBeInViewport();
+  await chip.click();
+  await expect(guidePanel(page)).toBeInViewport();
+  await expect(guidePanel(page)).toBeFocused();
+  // Taller than the screen: it starts at its title, under the toolbar.
+  await expectJustUnderToolbar(page, '#getting-started');
+  // Its lead ends, at the latest, as far from the panel's right edge as it starts from the left one.
+  expect(await guidePanel(page).evaluate((panel) => {
+    const lead = panel.querySelector('.panel__subtitle')?.getBoundingClientRect();
+    const box = panel.getBoundingClientRect();
+    return lead ? Math.round(lead.right - box.right + lead.left - box.left) : null;
+  }), 'how far the lead may run past its padding, px').toBeLessThanOrEqual(0);
+
+  await guidePanel(page).getByRole('link', { name: /^Alerts on your phone/ }).click();
+  await expect(page).toHaveURL(`${BASE}/alerts#notifications`);
+  await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
+  // The section it names is at the top of the screen, and stays there while the rest of the page loads above it.
+  await expectJustUnderToolbar(page, '#notifications');
+  await page.goto(`${BASE}/`);
+  await expect(guideStrip(page)).toBeVisible();
+  // Having been to Alerts ticks it, with no channel configured: "Next" has moved on.
+  await expect(guideStrip(page).getByRole('link', { name: /^Next / })).toBeVisible();
+  await expect(guideStrip(page).getByRole('link', { name: /^Next / })).not.toContainText('Alerts on your phone');
+  await expect(guideStrip(page).getByRole('button', { name: 'Show all' })).toBeVisible();
+  expect(await noSidewaysScroll(page)).toBe(true);
+  await guideStrip(page).getByRole('button', { name: 'Show all' }).click();
+  await expect(guidePanel(page).getByRole('listitem')).toHaveCount(await guideTotal(page));
+  await guidePanel(page).getByRole('link', { name: /^Prometheus export/ }).click();
+  await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
+  await expectJustUnderToolbar(page, '#prometheus');
+  // The scrape address is wider than its box at 360 px: it breaks before a slash, not inside a word.
+  await page.setViewportSize({ width: 360, height: 844 });
+  const address = (base: string) => page.getByRole('region', { name: 'Prometheus' }).locator('.cmd__text', { hasText: `${base}/metrics` });
+  await expect.poll(() => address(BASE).evaluate(lineStarts), { message: 'what each further line of the address starts with' }).toEqual(['/']);
+  // A console reached by a name as long as a LAN address (28 characters before the path) is too wide before its
+  // slash: the address breaks before the port, not inside the name or the port.
+  const named = `http://spark1.localhost:${PORT}`;
+  await page.goto(`${named}/login#token=${TOKEN}`);
+  await expect(page).toHaveURL(`${named}/`);
+  await page.goto(`${named}/settings#prometheus`);
+  for (const width of [360, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(() => address(named).evaluate(lineStarts), { message: `what each further line of the long address starts with at ${width} px` }).toEqual([':']);
+    expect(await address(named).evaluate((el) => { getSelection()?.selectAllChildren(el); return getSelection()?.toString(); })).toBe(`${named}/metrics`);
+  }
+  // Model servers lands on the node's panel, which on a phone is far below the top of the node's page.
+  await page.goto(`${BASE}/`);
+  await guidePanel(page).getByRole('link', { name: /^Model servers/ }).click();
+  await expect(page).toHaveURL(/\/node\/spark\d#model-servers$/);
+  await expect(page.getByRole('heading', { level: 2, name: 'Model servers' })).toBeFocused();
+  await expectJustUnderToolbar(page, '#model-servers');
+});
+
+test('a touch screen is not shown a key to press', async ({ page, browser }) => {
+  const putAway = async (p: Page) => {
+    await signInByLink(p);
+    await guidePanel(p).getByRole('button', { name: 'Dismiss getting started' }).click();
+    const line = p.getByRole('status').filter({ hasText: 'Getting started is put away.' });
+    await expect(line).toBeVisible();
+    return (await line.locator('span').first().innerText()).replace(/\s+/g, ' ');
+  };
+  // With a keyboard: the hint is beside Search and in the line that says where the guide went.
+  expect(await putAway(page)).toBe('Getting started is put away. It stays in Settings and in Search (Ctrl K).');
+  await expect(page.locator('.toolbar__search kbd').first()).toBeVisible();
+  await page.locator('.toolbar__search').click();
+  await expect(page.locator('.palette__search kbd')).toBeVisible();
+  await expect(page.locator('.palette__hint kbd').first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Bring it back' }).click();
+  await expect(guidePanel(page)).toBeVisible();
+
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const touch = await phone.newPage();
+  expect(await putAway(touch)).toBe('Getting started is put away. It stays in Settings and in Search.');
+  await expect(touch.locator('.toolbar__search')).toBeVisible();
+  await expect(touch.locator('.toolbar__search kbd').first()).toBeHidden();
+  // Nor in Search itself: every row is there, with no "esc", "G O" or "1" beside it.
+  await touch.locator('.toolbar__search').tap();
+  await expect(touch.getByRole('option', { name: 'Overview' })).toBeVisible();
+  expect(await touch.locator('.palette__search kbd, .palette__hint kbd').evaluateAll((keys) => [keys.length > 3, keys.filter((k) => k.getClientRects().length > 0).map((k) => k.textContent)])).toEqual([true, []]);
+  await phone.close();
+});
+
+test('the main path with a keyboard only', async ({ page }) => {
+  const tabTo = async (target: Locator) => {
+    for (let i = 0; i < 80; i++) {
+      if (await target.evaluate((el) => el === document.activeElement).catch(() => false)) return;
+      await page.keyboard.press('Tab');
+    }
+    throw new Error('never reached the target with Tab');
+  };
+
+  await page.goto(`${BASE}/login`);
+  await expect(page.getByLabel('Console token')).toBeFocused();
+  await page.keyboard.type(TOKEN);
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(`${BASE}/`);
+
+  const card = setupCard(page);
+  await tabTo(card.getByRole('button', { name: 'Copy command' }).first());
+  await page.keyboard.press('Enter');
+  await expect(card.getByRole('button', { name: 'Copied command' })).toBeVisible();
+  await tabTo(card.getByRole('button', { name: 'Retry' }));
+  await page.keyboard.press('Enter');
+  await expect(card.getByText(/Trying now…|Trying again in/)).toBeVisible();
+
+  await tabTo(guidePanel(page).getByRole('link', { name: /^Prometheus export/ }));
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
+  await expect(page.getByRole('heading', { name: 'Prometheus' })).toBeFocused();
+  await tabTo(page.getByRole('link', { name: /^Get started/ }));
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(`${BASE}/`);
+  await expect(guidePanel(page)).toBeFocused();
+  // Collapse, Show all, Dismiss and Bring it back each go away when pressed: the keyboard goes to the control that
+  // takes their place, so the next key press still does something.
+  const strip = guideStrip(page);
+  await tabTo(guidePanel(page).getByRole('button', { name: 'Collapse' }));
+  await page.keyboard.press('Enter');
+  await expect(strip.getByRole('button', { name: 'Show all' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(guidePanel(page).getByRole('button', { name: 'Collapse' })).toBeFocused();
+  await tabTo(guidePanel(page).getByRole('button', { name: 'Dismiss getting started' }));
+  await page.keyboard.press('Space');
+  await expect(page.getByText('Getting started is put away.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Bring it back' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(guidePanel(page).getByRole('button', { name: 'Collapse' })).toBeFocused();
+  await tabTo(guidePanel(page).getByRole('button', { name: 'Dismiss getting started' }));
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Getting started is put away.')).toBeVisible();
+
+  await page.keyboard.press('Control+k');
+  await expect(page.getByRole('combobox', { name: /Search views/ })).toBeFocused();
+  await page.keyboard.type('getting started');
+  await expect(page.getByRole('option', { name: /Open getting started/ })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Enter');
+  await expect(guidePanel(page)).toBeFocused();
+});
+
+test.describe('with reduced motion', () => {
+  test.use({ reducedMotion: 'reduce' });
+
+  test('a node goes live with nothing moving', async ({ page }) => {
+    await signInByLink(page);
+    const spark1 = page.getByRole('region', { name: 'Node spark1', exact: true });
+    await expect(spark1.getByText('Connecting')).toBeVisible();
+    // Watch the card from now until well after its first reading: its values never fade or slide.
+    await spark1.evaluate((card) => {
+      const moved: string[] = [];
+      (window as unknown as { moved: string[] }).moved = moved;
+      const tick = () => {
+        for (const el of card.querySelectorAll<HTMLElement>('.ov-card__values, .ov-card__foot')) {
+          const s = getComputedStyle(el);
+          if (s.opacity !== '1' || (s.transform !== 'none' && s.transform !== 'matrix(1, 0, 0, 1, 0, 0)')) moved.push(`${el.className}: opacity ${s.opacity}, transform ${s.transform}`);
+        }
+        requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    await expect(spark1.getByRole('img', { name: /^GPU utilisation \d+%/ })).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(800);
+    expect(await page.evaluate(() => (window as unknown as { moved: string[] }).moved)).toEqual([]);
+    // The retry bar steps, it does not glide.
+    const bar = setupCard(page).locator('.setup-retry__bar i');
+    expect(await bar.evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration))).toBeLessThan(0.01);
+  });
+});
+
+for (const scheme of ['dark', 'light'] as const) {
+  test.describe(`${scheme} theme`, () => {
+    test.use({ colorScheme: scheme });
+
+    test('the first-run screens have no accessibility violations, at desktop and phone width', async ({ page }) => {
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        // Sign-in, before anyone has signed in (the first pass) and after.
+        await page.context().clearCookies();
+        await page.goto(`${BASE}/login`);
+        await expect(page.getByRole('heading', { name: /Sparkline$/ })).toBeVisible();
+        await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
+        expect(await axe(page), `sign-in, ${width} px`).toEqual([]);
+
+        await signInByLink(page);
+        await expect(setupCard(page).getByRole('button', { name: 'Retry' })).toBeVisible();
+        await expect(page.locator('#getting-started')).toBeVisible();
+        expect(await axe(page), `overview, ${width} px`).toEqual([]);
+
+        await page.goto(`${BASE}/node/spark3`);
+        await expect(page.getByRole('region', { name: 'spark3 is not connected yet' })).toBeVisible();
+        expect(await axe(page), `node page, ${width} px`).toEqual([]);
+        await page.goto(`${BASE}/settings#prometheus`);
+        await expect(page.getByRole('region', { name: 'Prometheus' })).toBeVisible();
+        // The section this feature adds, not the rest of Settings.
+        expect(await axe(page, '#prometheus'), `settings, ${width} px`).toEqual([]);
+      }
+
+      await page.goto(`${BASE}/`);
+      await guidePanel(page).getByRole('button', { name: 'Collapse' }).click();
+      await expect(guideStrip(page)).toBeVisible();
+      expect(await axe(page), 'strip').toEqual([]);
+      await guideStrip(page).getByRole('button', { name: 'Dismiss getting started' }).click();
+      await expect(page.getByText('Getting started is put away.')).toBeVisible();
+      expect(await axe(page), 'put away').toEqual([]);
+    });
+  });
+}

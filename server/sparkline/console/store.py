@@ -16,6 +16,7 @@ from ..common.schema import Event
 
 SESSION_TTL_S = 30 * 86400
 EVENT_RETENTION_S = 30 * 86400
+TOKEN_FP_KEY = "session_token_fp"  # every release writes it on its first start with a store
 
 log = logging.getLogger("sparkline.console.store")
 
@@ -77,11 +78,11 @@ class Store:
         """Sessions belong to the token that issued them: when the configured token changes (a leaked token
         was replaced), every existing session is deleted. Returns True when sessions were cleared."""
         fp = hashlib.sha256(b"sparkline-session-token\0" + token.encode()).hexdigest()
-        old = self.kv_get("session_token_fp")
+        old = self.kv_get(TOKEN_FP_KEY)
         if old == fp:
             return False
         self.db.execute("DELETE FROM sessions")
-        self.kv_set("session_token_fp", fp)
+        self.kv_set(TOKEN_FP_KEY, fp)
         return old is not None
 
     # -- kv -------------------------------------------------------------------------------------
@@ -172,11 +173,17 @@ class Store:
         rows = self.db.execute(sql, [*args, limit]).fetchall()
         return [Event(**dict(zip(_EVENT_COLS, r, strict=True))) for r in rows]
 
+    def clear_events(self) -> None:
+        self.db.execute("DELETE FROM events")
+
     def prune(self) -> None:
         now = time.time()
         self.db.execute("DELETE FROM events WHERE ts < ?", (now - EVENT_RETENTION_S,))
         self.db.execute("DELETE FROM sessions WHERE expires < ?", (now,))
 
-    def resolve_open_alerts(self, ts: float) -> None:
-        """Alerts left open by a previous run cannot be tracked any more; close them."""
-        self.db.execute("UPDATE events SET resolved_ts=? WHERE kind='alert' AND resolved_ts IS NULL", (ts,))
+    def open_alerts(self) -> list[Event]:
+        cols = ",".join(_EVENT_COLS)
+        rows = self.db.execute(
+            f"SELECT {cols} FROM events WHERE kind='alert' AND resolved_ts IS NULL ORDER BY id"
+        ).fetchall()
+        return [Event(**dict(zip(_EVENT_COLS, r, strict=True))) for r in rows]

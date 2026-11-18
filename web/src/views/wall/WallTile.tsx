@@ -67,12 +67,13 @@ function Cx7({ node, info }: { node: string; info: NodeInfo | null }) {
   }, shallowEqual, names.join(','));
   const gap = interconnectGap(info);
   if (gap) return <Unsupported gap={gap} />;
-  if (!names.length) return <Unsupported gap={{ kind: 'hardware', label: 'No direct link', detail: noLinkReason(nicModel(info?.net)) }} />;
+  // No info: the node has not said what links it has, so the tile shows the dash its other figures show.
+  if (info && !names.length) return <Unsupported gap={{ kind: 'hardware', label: 'No direct link', detail: noLinkReason(nicModel(info.net)) }} />;
   return <BigValue value={v.v} parts={gbpsParts} />;
 }
 
 /** "Updated 12 s ago", "Offline · last seen 2 min ago": what makes old numbers obviously old. */
-function Freshness({ id, freshness }: { id: string; freshness: Freshness }) {
+function Freshness({ id, freshness, fresh }: { id: string; freshness: Freshness; fresh: boolean }) {
   useTick(1000);
   const node = useCluster((s) => s.nodes[id]);
   const consoleLive = useConnection((s) => s.status === 'live');
@@ -83,7 +84,8 @@ function Freshness({ id, freshness }: { id: string; freshness: Freshness }) {
   if (freshness === 'down') {
     return (
       <p className="wall-tile__fresh">
-        <CircleSlash aria-hidden="true" />
+        {/* The slash is the mark of a node that went offline. One that has never answered was never online. */}
+        {fresh ? null : <CircleSlash aria-hidden="true" />}
         <span>{ago ? `Last seen ${ago} · ` : ''}{node?.error?.message ?? `${id} is not responding`}</span>
       </p>
     );
@@ -127,7 +129,7 @@ export function WallTile({ id }: { id: string }) {
           <StatusPill status={display} />
         </span>
       </header>
-      <Freshness id={id} freshness={freshness} />
+      <Freshness id={id} freshness={freshness} fresh={display === 'setup'} />
 
       {freshness === 'waiting' ? (
         <TileSkeleton sparkH={sparkH} linkLabel={linkLabel} />

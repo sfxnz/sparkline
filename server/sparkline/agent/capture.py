@@ -72,7 +72,7 @@ from .redact import (
     redact,
 )
 from .sampler import Sampler
-from .sources import EthReader, NvmlReplay, RootFs, Sources, live, recorded
+from .sources import EthReader, NvmlReplay, RootFs, Sources, live, recorded, refuse_http
 
 ISSUE_URL = "https://github.com/sfxnz/sparkline/issues/new"
 ARCHIVE = "recording.tgz"
@@ -319,6 +319,7 @@ def traced(src: Sources) -> tuple[Sources, Tape]:
         "ethtool": ethtool,
         "docker": docker,
         "which": which,
+        "http": refuse_http,
     }
     untraced = sorted({f.name for f in dataclasses.fields(src)} - set(readings))
     if untraced:

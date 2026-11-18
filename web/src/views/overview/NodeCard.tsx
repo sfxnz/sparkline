@@ -3,7 +3,7 @@
 // driven by a CSS custom property (useBreath), never by React renders.
 import { ArrowLeft, ArrowRight, Clock, OctagonAlert, RotateCw, TriangleAlert, Unplug } from 'lucide-react';
 import { m } from 'motion/react';
-import { createContext, useCallback, useContext, useMemo, useRef, type MouseEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { paths } from '../../app/routes';
 import { AnimatedNumber } from '../../design/components/AnimatedNumber';
@@ -15,14 +15,16 @@ import { Skeleton } from '../../design/components/Skeleton';
 import { Sparkline } from '../../design/components/Sparkline';
 import { StatusPill } from '../../design/components/StatusPill';
 import { Unsupported } from '../../design/components/Unsupported';
-import { springs } from '../../design/motion';
+import { arrival, prefersReducedMotion, springs } from '../../design/motion';
 import { useNow } from '../../design/useNow';
 import { api } from '../../lib/api';
 import { bitrateParts, DASH, formatAgo, formatBytes, formatPercent, formatWatts, text, wattsParts } from '../../lib/format';
 import { headroomGpu, tempRoom } from '../../lib/condition';
 import { nicAbbr, nicHeading, nicModel } from '../../lib/interconnect';
+import { agentAddress, isNewNode } from '../../lib/onboarding';
+import { SERVER_PILL, serverLine, serverTitle } from '../../lib/llm';
 import { memoryLayout } from '../../lib/memoryLayout';
-import type { GpuInfo, NodeInfo, Sample } from '../../lib/types';
+import type { GpuInfo, ModelServerSample, NodeInfo, Sample } from '../../lib/types';
 import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -41,8 +43,10 @@ interface CardCtx {
   id: string;
   freshness: Freshness;
   info: NodeInfo | null;
+  /** This node had never answered when the page opened: its first reading is an arrival, not a refresh. */
+  arriving: boolean;
 }
-const Ctx = createContext<CardCtx>({ id: '', freshness: 'waiting', info: null });
+const Ctx = createContext<CardCtx>({ id: '', freshness: 'waiting', info: null, arriving: false });
 
 /** Recent window for sparklines and the observed power peak. */
 const PEAK_WINDOW_S = 900;
@@ -52,7 +56,7 @@ const preload = () => { void preloadSummary(); };
 const intText = (n: number) => n.toFixed(0);
 const wattsText = (n: number) => wattsParts(n, 'W').value;
 
-export function NodeCard({ id }: { id: string }) {
+export function NodeCard({ id, arriving = false }: { id: string; arriving?: boolean }) {
   const info = useCluster((s) => s.nodes[id]?.info ?? null);
   const { freshness } = useFreshness(id);
   const display = useNodeDisplayStatus(id);
@@ -72,8 +76,12 @@ export function NodeCard({ id }: { id: string }) {
 
   const dim = freshness === 'stale' || freshness === 'down';
   const layout = memoryLayout(info);
+  const land = arriving && !prefersReducedMotion();
+  const [landed, setLanded] = useState(false);
+  if (land && freshness === 'live' && !landed) setLanded(true); // once: a later blip is a refresh, not an arrival
+  const pose = landed ? arrival.landed : arrival.waiting;
   return (
-    <Ctx.Provider value={{ id, freshness, info }}>
+    <Ctx.Provider value={{ id, freshness, info, arriving: land }}>
       <m.div
         ref={surface}
         layoutId={`node-card-${id}`}
@@ -93,7 +101,7 @@ export function NodeCard({ id }: { id: string }) {
           subtitle={<Workload />}
           actions={<StatusPill status={display} />}
         >
-          <div className="ov-card__values">
+          <m.div className={`ov-card__values${land ? ' ov-card__values--arriving' : ''}`} initial={false} animate={pose} transition={arrival.transition}>
             <div className="ov-card__top">
               <UtilRing />
               <div className="ov-card__stats">
@@ -103,10 +111,11 @@ export function NodeCard({ id }: { id: string }) {
             </div>
             <MemoryBar name={layout.name} sharesRam={layout.sharesRam} />
             {layout.sharesRam ? null : <GpuMemory gpus={layout.dedicated} />}
-          </div>
+            <ModelServers />
+          </m.div>
           {/* The stale/offline notice takes the place of the link and trend row (which are frozen anyway), inside a
               slot of fixed height, so a node changing state never resizes its card or the row of cards. */}
-          <div className={`ov-card__foot${dim ? ' has-notice' : ''}`}>
+          <m.div className={`ov-card__foot${dim ? ' has-notice' : ''}`} initial={false} animate={pose} transition={arrival.transition}>
             <div className="ov-card__foot-main">
               <Interconnect />
               <div className="ov-card__sparks">
@@ -115,7 +124,7 @@ export function NodeCard({ id }: { id: string }) {
               </div>
             </div>
             <CardNotice />
-          </div>
+          </m.div>
         </Panel>
       </m.div>
     </Ctx.Provider>
@@ -194,6 +203,8 @@ const sameWorkload = (a: WorkloadSeen, b: WorkloadSeen) => a === b || (typeof a 
 function Workload() {
   const { id, freshness, info } = useContext(Ctx);
   const w = useLatest(id, useMemo(() => workloadSelector(id, info), [id, info]), sameWorkload);
+  const reaching = useCluster((s) => { const n = s.nodes[id]; return isNewNode(n) && n?.status === 'connecting' ? agentAddress(n.url) : null; });
+  if (reaching) return <span className="ov-card__workload num">Reaching {reaching}</span>;
   if (w && typeof w === 'object') return <>GPU processes <Unsupported gap={w} /></>;
   // Processes refresh every few seconds: while live, wait for them; when not live, say we don't know.
   if (w === undefined) return freshness === 'waiting' || freshness === 'live' ? <Skeleton width={180} height={12} style={{ marginTop: 3 }} /> : <span className="ov-card__workload ov-dim">Workload unknown</span>;
@@ -235,12 +246,13 @@ function CardNotice() {
 }
 
 function UtilRing() {
-  const { id, freshness, info } = useContext(Ctx);
+  const { id, freshness, info, arriving } = useContext(Ctx);
   const util = useLiveValue(id, nodeGpuKey(info, 'util'), 1);
   const from = useTotalFrom(id, 'util');
   const utilGap = useNodeGpuGap(id, 'util');
   const gap = util === null ? utilGap : null;
-  if (util === null && freshness === 'waiting' && !gap) return <Skeleton width={RING} height={RING} radius={RING / 2} />;
+  // An arriving node keeps an empty ring while it waits, so the first reading sweeps round it.
+  if (util === null && freshness === 'waiting' && !gap && !arriving) return <Skeleton width={RING} height={RING} radius={RING / 2} />;
   const said = gap ? gap.label.toLowerCase() : util === null ? 'unknown' : `${util.toFixed(0)}%${from ? `, from ${from}` : ''}`;
   return (
     <RingGauge value={util === null ? null : util / 100} size={RING} stroke={8} label={`GPU utilisation ${said}`}>
@@ -249,7 +261,7 @@ function UtilRing() {
           <span className="ov-ring__gap">{gap.label}</span>
         ) : (
           <span className="ov-ring__value">
-            <AnimatedNumber value={util} format={intText} />
+            <AnimatedNumber value={util} format={intText} enterFrom={arriving ? 0 : undefined} />
             {util !== null ? <span className="ov-ring__unit">%</span> : null}
           </span>
         )}
@@ -260,7 +272,7 @@ function UtilRing() {
 }
 
 function StatBlock({ label, value, unit, format, footer, unsupported }: { label: string; value: number | null; unit: string; format: (n: number) => string; footer?: ReactNode; unsupported?: NotReported | null }) {
-  const { freshness } = useContext(Ctx);
+  const { freshness, arriving } = useContext(Ctx);
   if (value === null && freshness === 'waiting' && !unsupported) return <StatSkel />;
   return (
     <div className="ov-stat">
@@ -269,7 +281,7 @@ function StatBlock({ label, value, unit, format, footer, unsupported }: { label:
         <Unsupported gap={unsupported} />
       ) : (
         <span className="ov-stat__value">
-          <AnimatedNumber value={value} format={format} scale={unit} className="ov-stat__number" />
+          <AnimatedNumber value={value} format={format} scale={unit} className="ov-stat__number" enterFrom={arriving ? 0 : undefined} />
           {value !== null ? <span className="ov-stat__unit">{unit}</span> : null}
         </span>
       )}
@@ -435,6 +447,30 @@ function GpuMemory({ gpus }: { gpus: readonly GpuInfo[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+const NO_SERVERS: readonly ModelServerSample[] = [];
+const selectServers = (s: Sample | null) => s?.llm ?? NO_SERVERS;
+const sameServers = (a: readonly ModelServerSample[], b: readonly ModelServerSample[]) =>
+  a.length === b.length && a.every((x, i) => x.port === b[i]?.port && serverTitle(x) === serverTitle(b[i]) && serverLine(x) === serverLine(b[i]));
+const SERVER_LINES = 2;
+
+function ModelServers() {
+  const { id } = useContext(Ctx);
+  const servers = useLatest(id, selectServers, sameServers);
+  if (!servers.length) return null;
+  const more = servers.length - SERVER_LINES;
+  return (
+    <ul className="ov-llm" aria-label="Model servers">
+      {servers.slice(0, SERVER_LINES).map((s) => (
+        <li key={s.port} className="ov-row">
+          <span className="ov-llm__name" title={serverTitle(s)}>{serverTitle(s)}</span>
+          {s.state === 'ready' ? <span className="ov-llm__now num">{serverLine(s)}</span> : <StatusPill status={SERVER_PILL[s.state]} label={serverLine(s)} variant="inline" size="sm" />}
+        </li>
+      ))}
+      {more > 0 ? <li className="ov-dim">and {more} more</li> : null}
+    </ul>
   );
 }
 

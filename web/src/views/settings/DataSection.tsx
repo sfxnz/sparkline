@@ -3,10 +3,12 @@ import { useState } from 'react';
 import { Button } from '../../design/components/Button';
 import { ConfirmDialog } from '../../design/components/Dialog';
 import { Panel } from '../../design/components/Panel';
+import { nodeDisplayStatus, statusLabel } from '../../design/components/StatusPill';
 import type { Problem } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { historyCache } from '../../store/history';
 import { api, problemOf } from '../../lib/api';
+import { isNewNode } from '../../lib/onboarding';
 import { Banner, ProblemBanner } from '../alerts/parts/Banner';
 import { RETENTION } from './model';
 import { SettingRow } from './parts';
@@ -40,23 +42,27 @@ export function DataSection() {
   };
 
   return (
-    <Panel title="Data" subtitle="Each node's agent keeps its own history on disk. Clearing it frees that space and resets charts for 5m–7d.">
+    <Panel title="Data" subtitle="Each node’s agent keeps its own history on disk. Clearing it frees that space and resets charts for 5m–7d.">
       <div className="set-rows">
         {order.length === 0 ? <p className="t-callout t-secondary">No nodes are configured yet.</p> : null}
         {order.map((id) => {
           const st = nodes[id]?.status;
           const reachable = st === 'online' || st === 'stale';
+          // A node that has never answered has no history: nothing to clear, so no button, not a dimmed one.
+          const fresh = isNewNode(nodes[id]);
           const r = result?.node === id ? result : null;
           return (
             <div key={id} className="set-node">
               <SettingRow
                 id={`set-clear-${id}`}
                 title={id}
-                description={reachable ? `Stored history: ${RETENTION}.` : `${id} is ${st ?? 'not connected'}. Its history can be cleared once the agent is reachable.`}
+                description={reachable ? `Stored history: ${RETENTION}.` : fresh ? `${id} has not connected yet. It has no history to clear.` : `${id} is ${st ? statusLabel(nodeDisplayStatus(st)).toLowerCase() : 'not connected'}. Its history can be cleared once the agent is reachable.`}
               >
-                <Button variant="destructive" size="sm" icon={<Trash2 />} disabled={!reachable || busy} onClick={() => { setResult(null); setTarget(id); }} aria-label={`Clear history for ${id}…`} aria-describedby={`set-clear-${id}-desc`}>
-                  Clear history…
-                </Button>
+                {fresh ? null : (
+                  <Button variant="destructive" size="sm" icon={<Trash2 />} disabled={!reachable || busy} onClick={() => { setResult(null); setTarget(id); }} aria-label={`Clear history for ${id}…`} aria-describedby={`set-clear-${id}-desc`}>
+                    Clear history…
+                  </Button>
+                )}
               </SettingRow>
               {r ? (
                 r.ok ? (

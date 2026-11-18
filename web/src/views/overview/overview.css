@@ -22,7 +22,9 @@
   color: var(--text-2);
 }
 .ov-hero__workload { color: var(--text-1); font-weight: 500; }
-.ov-hero__sep { color: var(--text-3); }
+.ov-hero__sep { color: var(--text-3); margin-left: var(--space-2); }
+/* With a workload it is a sentence, not a row: it wraps as text, so "·" ends a line and never starts one. */
+.ov-hero__activity:has(.ov-hero__sep) { display: block; }
 .ov-hero__numbers { font-variant-numeric: tabular-nums; }
 .ov-hero__numbers .num { color: var(--text-1); font-weight: 560; }
 
@@ -130,10 +132,11 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  max-width: 100%;
+  /* The header's width, not the title column's: the line may run under the status pill, and stops at the padding. */
+  max-width: 100cqi;
 }
 .ov-card .panel__titles { gap: 1px; }
-.ov-card .panel__header { min-height: 0; }
+.ov-card .panel__header { min-height: 0; container-type: inline-size; }
 .ov-card .panel__actions { margin: 0; }
 
 .ov-card .panel__body { display: flex; flex-direction: column; gap: var(--space-4); }
@@ -142,6 +145,8 @@
 .ov-card__foot { position: relative; margin-top: auto; }
 .ov-card__foot-main { display: flex; flex-direction: column; gap: var(--space-4); }
 .ov-card__foot.has-notice > .ov-card__foot-main { visibility: hidden; }
+/* Motion writes the opacity of an arriving card each frame; a CSS transition on it would lag behind. */
+.ov-card__values--arriving { transition-property: filter; }
 .ov-card--dim .ov-card__values { filter: saturate(0.3); }
 
 .ov-card__top { display: flex; align-items: center; gap: var(--space-4); }
@@ -184,6 +189,10 @@
 .ov-cx__none { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
 .ov-cx .ov-label { overflow-wrap: anywhere; }
 
+.ov-llm { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.ov-llm__name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 560; color: var(--text-1); }
+.ov-llm__now { flex: none; color: var(--text-2); }
+
 .ov-card__sparks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .ov-spark { display: grid; gap: var(--space-1); min-width: 0; }
 .ov-spark__label { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 500; color: var(--text-2); }
@@ -215,6 +224,18 @@
 .ov-notice__fix { color: var(--text-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .ov-notice__fix code { font-size: 0.95em; }
 .ov-notice__meta { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A node that has never answered: a dashed, quieter card sized to what it says (never stretched to a live card's
+   height, never clipped). */
+.ov-card--setup { cursor: default; align-self: start; }
+/* Beside a setup card every card keeps its own height: stretched to the tallest, a live card has an empty band. */
+.ov-cards:has(.ov-card--setup) { align-items: start; }
+.ov-card--setup .ov-card__panel { border-style: dashed; border-color: var(--separator-strong); }
+.ov-card--setup .panel__body { display: flex; flex-direction: column; padding-top: var(--space-5); }
+
+.ov-quiet { border-radius: var(--radius-lg); border: var(--hairline) dashed var(--separator-strong); }
+.ov-quiet .state { padding-block: var(--space-6); }
+.ov-quiet .state__title { text-wrap: balance; }
 
 /* -------------------------------------------------------------- totals */
 .ov-totals .panel__body { padding: var(--space-5); }
@@ -368,3 +389,6 @@
 .ov-rail--stale.ov-rail--stale * { color: var(--text-3); }
 .ov-card--dim .ov-card__values :is(svg, canvas),
 .ov-rail--stale :is(svg, canvas) { opacity: 0.5; }
+/* A stat's placeholder never outgrows its column (a narrow card, a phone). */
+.ov-stat:has(> .skeleton) { grid-template-columns: minmax(0, 1fr); }
+.ov-stat > .skeleton, .ov-totals .stat__footer > .skeleton { max-width: 100%; }

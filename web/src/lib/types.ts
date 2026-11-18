@@ -207,6 +207,40 @@ export interface ProcSample {
   model: string | null;
 }
 
+export const SERVER_STATES = ['ready', 'loading', 'sleeping', 'down'] as const;
+export type ServerState = (typeof SERVER_STATES)[number];
+
+export interface LoadedModel {
+  name: string;
+  context_len: number | null;
+  size_bytes: number | null;
+  vram_bytes: number | null;
+  /** When the server unloads the model if it stays idle. */
+  expires_ts: number | null;
+}
+
+/** One model server listening on a node. Read a field through `reading()` in lib/llm.ts, never from `values`. */
+export interface ModelServerSample {
+  port: number;
+  adapter: string;
+  software: string | null;
+  version: string | null;
+  prefix: string | null;
+  /** A state from a newer agent that this build predates reads as 'ready', as the console reads it. */
+  state: ServerState;
+  models: LoadedModel[];
+  /** Field -> reading. A field with no reading has no key; it is never 0 for "unknown". */
+  values: Readonly<Record<string, number>>;
+  /** The fields this server can report. One that is here and not in `values` has nothing to say now. */
+  reports: readonly string[];
+  mem_source: 'server' | 'process' | null;
+  pid: number | null;
+  container: string | null;
+  started_ts: number | null;
+  scraped_ts: number | null;
+  problem: string | null;
+}
+
 export interface Sample {
   node_id: string;
   ts: number;
@@ -227,6 +261,8 @@ export interface Sample {
   procs: ProcSample[] | null;
   /** When the process list was last refreshed (carried on every tick; null from older agents). */
   procs_ts?: number | null;
+  /** Model servers on the node. Absent or null: the agent predates them, or looks for none. []: none found. */
+  llm?: ModelServerSample[] | null;
   errors: Record<string, string>;
 }
 
@@ -260,6 +296,28 @@ export interface NodeState {
   error: Problem | null;
   info: NodeInfo | null;
   next_retry_ts: number | null;
+  /** When this console first received a sample from the node. null: it has never answered (a new node). Absent
+   *  from consoles before 0.3.0, whose nodes all count as seen. */
+  first_seen?: number | null;
+}
+
+/** First-run state, one per console (kv row "onboarding"). */
+export interface Onboarding {
+  /** First successful sign-in on this console. null: nobody has signed in. */
+  started: number | null;
+  /** The getting-started guide was completed or dismissed. Set: it never opens by itself again. */
+  finished: number | null;
+  /** Brought back after it was finished: it stays, however many rows are done, until the person dismisses it. */
+  reopened: boolean;
+  /** Ids of the guide items the person opened. Sorted, unique. Ids this build does not know are ignored. */
+  seen: string[];
+}
+
+/** PUT /api/v1/onboarding. Merge semantics: `seen` adds ids, `finished` true stamps it once and clears `reopened`,
+ *  false clears it and sets `reopened`. */
+export interface OnboardingPatch {
+  seen?: string[];
+  finished?: boolean;
 }
 
 export interface ConsoleSettings {
@@ -276,6 +334,8 @@ export interface ClusterState {
   demo: boolean;
   version: string;
   server_time: number;
+  /** Absent from consoles before 0.3.0: such an install was set up long ago, so its guide counts as finished. */
+  onboarding?: Onboarding;
 }
 
 export type Severity = 'info' | 'warning' | 'critical';
@@ -311,6 +371,40 @@ export interface Event {
   value: number | null;
   resolved_ts: number | null;
   acked: boolean;
+}
+
+// --- Notifications -----------------------------------------------------------------------------
+
+export type ChannelKind = 'ntfy' | 'discord' | 'slack' | 'webhook';
+
+export type NotifyFailure = 'dns' | 'address_refused' | 'connect' | 'tls' | 'timeout' | 'redirect' | 'rate_limited' | 'rejected' | 'server_error';
+
+export interface NotifyDelivery {
+  ts: number;
+  ok: boolean;
+  /** Made by "Send test". */
+  test: boolean;
+  /** Alerts and recoveries in the message (0 for a test). */
+  notices: number;
+  failure: NotifyFailure | null;
+  http_status: number | null;
+  problem: Problem | null;
+}
+
+/** One [[notify]] channel from console.toml. The console never sends its url or token. */
+export interface NotifyChannelStatus {
+  name: string;
+  kind: ChannelKind;
+  /** Host and port only. */
+  host: string;
+  min_severity: Severity;
+  send_resolved: boolean;
+  /** Notices waiting to be sent. */
+  pending: number;
+  /** When waiting notices are next tried, while the channel backs off or is rate limited. */
+  retry_at: number | null;
+  /** null until the first delivery since the console started. */
+  last: NotifyDelivery | null;
 }
 
 // --- Benchmarks --------------------------------------------------------------------------------
@@ -480,6 +574,11 @@ export interface SettingsMessage {
   type: 'settings';
   settings: ConsoleSettings;
 }
+/** The first-run state changed (PUT /api/v1/onboarding), so two tabs agree. */
+export interface OnboardingMessage {
+  type: 'onboarding';
+  onboarding: Onboarding;
+}
 export interface PingMessage {
   type: 'ping';
   ts: number;
@@ -492,4 +591,5 @@ export type WsMessage =
   | EventMessage
   | BenchMessage
   | SettingsMessage
+  | OnboardingMessage
   | PingMessage;

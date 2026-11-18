@@ -7,7 +7,8 @@ and synthesized history share one model. Scripted failures run on "scenario time
           from 240 s
   spark3: from 150 s, every 150 s: stops sending 20 s (stale) -> refused 40 s (offline) -> reconnects
 The first minute is calm (a newcomer first sees a healthy cluster), then the episodes come one at a time, all
-within about four minutes so a short demo still shows each of them.
+within about four minutes so a short demo still shows each of them. --demo-first-run holds the whole script
+still for its first FIRST_RUN_CALM_S, so a new install is not met by a failure (see DemoModel.scen).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from typing import Literal, Protocol
 
 from ..common.metrics import BITMASK_KEYS_SUFFIX, COUNTER_KEYS_SUFFIX, SUM_KEYS_SUFFIX, flatten
 from ..common.schema import (
+    LLM_FIELDS,
     CoreInfo,
     CpuSample,
     DiskInfo,
@@ -30,7 +32,9 @@ from ..common.schema import (
     GpuInfo,
     GpuSample,
     HistoryResponse,
+    LoadedModel,
     MemSample,
+    ModelServerSample,
     NetIfInfo,
     NetSample,
     NodeInfo,
@@ -162,8 +166,15 @@ def bench_load(windows: list[BenchWindow], t: float, gpu: int) -> tuple[float, f
     return load, heat
 
 
+def scenario_time(elapsed: float, calm_s: float) -> float:
+    """Scenario time ``elapsed`` scenario seconds after t0, with the script held at its start for ``calm_s``.
+    Nothing is scripted at 0, so the hold is calm. Time before t0 (history) is unchanged."""
+    return elapsed if elapsed < 0 else max(0.0, elapsed - calm_s)
+
+
 class DemoNode(Protocol):
     node_id: str
+    calm_s: float
     lan_ip: str
     info: NodeInfo
     bench_windows: list[BenchWindow]
@@ -197,8 +208,10 @@ class DemoModel:
         self.disk_windows: list[list[float]] = []
 
     # -- scenario ------------------------------------------------------------------------------------
+    calm_s = 0.0  # the script holds still for this many scenario seconds after t0 (--demo-first-run)
+
     def scen(self, t: float) -> float:
-        return (t - self.t0) * self.speed
+        return scenario_time((t - self.t0) * self.speed, self.calm_s)
 
     def link_state(self, t: float) -> str:
         """'ok' | 'stall' (connected, no samples) | 'refused' (agent down)."""
@@ -491,7 +504,71 @@ class DemoModel:
             temps=temps,
             procs=self._procs(t, gpu_mem, util, b) if procs else None,
             errors=errors,
+            llm=self._llm(t, b, active, gpu_mem),
         )
+
+    def _llm(self, t: float, b: float, active: float, gpu_mem: int) -> list[ModelServerSample]:
+        if self.node_id == "spark2":
+            return []
+        j = lambda key: _h(self.node_id, key, int(t))  # noqa: E731
+        running = round(8 * b * active)
+        gen = running * (38 - 1.2 * running) * (1 + 0.03 * j("gen"))
+        values = {
+            "up": 1.0,
+            "running": float(running),
+            "waiting": float(round(max(0.0, b - 0.75) * 24 * active)),
+            "gen_tps": round(gen, 1),
+            "prompt_tps": round(gen * (8 + j("prompt")), 1),
+            "mem_bytes": float(gpu_mem),
+        }
+        if self.workload == "tp2":
+            return [
+                ModelServerSample(
+                    port=8000,
+                    adapter="prometheus",
+                    software="serve_stats",
+                    prefix="serve_stats:",
+                    models=[LoadedModel(name="DeepSeek-V4.1-Flash-EXL3", context_len=65536)],
+                    values=values,
+                    reports=["gen_tps", "prompt_tps", "running", "waiting"],
+                    mem_source="process",
+                    pid=48213,
+                    container="c5-2B-r0",
+                    started_ts=round(self.boot + 1260),
+                    scraped_ts=t,
+                )
+            ]
+        since_restart = (self.scen(t) - 225) % 600
+        server = ModelServerSample(
+            port=8001,
+            adapter="prometheus",
+            software="vLLM",
+            prefix="vllm:",
+            models=[LoadedModel(name="Qwen/Qwen3-32B", context_len=40960)],
+            reports=sorted(f for f in LLM_FIELDS if f not in ("up", "mem_bytes")),
+            mem_source="process",
+            pid=30544,
+            container="vllm-qwen3",
+            started_ts=round(self.boot + 900),
+            scraped_ts=t,
+        )
+        if self.scen(t) >= 225 and since_restart < 20:
+            server.state, server.values = "down", {"up": 0.0}
+            server.problem = "The server on port 8001 stopped listening"
+            return [server]
+        values |= {"kv_cache_pct": round(_clamp(9 * running + 2 * j("kv"), 0, 100), 1)}
+        if self.scen(t) >= 225 and since_restart < 22:
+            del values["gen_tps"], values["prompt_tps"]
+        else:
+            values["preempt_per_s"] = 0.5 if values["waiting"] > 2 else 0.0
+            if running:
+                p50 = 0.16 + 0.9 * b * b
+                values |= {
+                    "ttft_p50_s": round(p50, 3),
+                    "ttft_p95_s": round(3.1 * p50 + 0.2 * values["waiting"], 3),
+                }
+        server.values = values
+        return [server]
 
     def _procs(self, t: float, gpu_mem: int, util: float, b: float) -> list[ProcSample]:
         j = lambda key: _h(self.node_id, key, int(t))  # noqa: E731
@@ -670,12 +747,31 @@ class DemoModel:
         )
 
 
+# --demo-first-run, in scenario seconds: when each node but the last says hello, and how long the last one
+# refuses connections. A node's first sample, which turns it online, follows its hello by 1 s. The last node
+# is found by the console's next try, at most BACKOFF_NEW_CAP_S after it stops refusing: live at 42 to 47 s.
+FIRST_RUN_HELLO_S = (2.0, 7.0)
+FIRST_RUN_REFUSED_S = 41.0
+# How long the scripted failures are held back: the first one (spark1's thermal episode) starts 5 min in, more
+# than 4 min after the last node arrived.
+FIRST_RUN_CALM_S = 240.0
+
+
+def first_run_script(i: int, n: int, t0: float, speed: float) -> tuple[float, bool]:
+    """For node ``i`` of ``n``: (when it first says hello, whether its port refuses connections till then)."""
+    last = i == n - 1
+    wait = FIRST_RUN_REFUSED_S if last else FIRST_RUN_HELLO_S[min(i, len(FIRST_RUN_HELLO_S) - 1)]
+    return t0 + wait / speed, last
+
+
 class DemoSource(NodeSource):
     """A simulated agent connection; failures are raised/withheld exactly where a real link would fail."""
 
     def __init__(self, model: DemoNode, listener: Listener):
         super().__init__(model.node_id, f"http://{model.lan_ip}:9750", listener)
         self.model = model
+        self.hello_at = 0.0  # no agent answers before this time: connecting takes until then, or is refused
+        self.refused = False
         self.seq = 0
         self.energy: dict[int, float] = {}
         self.last_power_w: dict[int, float] = {}
@@ -688,9 +784,12 @@ class DemoSource(NodeSource):
         )
 
     async def session(self) -> None:
-        if self.model.link_state(time.time()) == "refused":
+        wait = self.hello_at - time.time()
+        if self.model.link_state(time.time()) == "refused" or (wait > 0 and self.refused):
             await asyncio.sleep(0.05)
             raise self._refused()
+        if wait > 0:
+            await asyncio.sleep(wait)
         self.got_hello(self.model.info)
         next_t = time.time()
         while True:

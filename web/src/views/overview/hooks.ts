@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { gapAcross, type NotReported } from '../../lib/capabilities';
 import { gpuCountText, gpuSetGap, nodeGpuKey, nodeTotalGap, totalFrom } from '../../lib/gpu';
+import { guideStage, isNewNode } from '../../lib/onboarding';
 import type { HistoryResponse, NodeInfo, NodeState, NodeStatus } from '../../lib/types';
 import { useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -13,7 +14,7 @@ import { loadSpan } from '../shared/live';
 import { useShallow } from 'zustand/react/shallow';
 import { quietGpusOf, silentForOf, useLiveConditions } from '../../store/attention';
 import { openAlerts, useEvents } from '../../store/events';
-import { breathLevel, clusterHealth, clusterTotals, openAlertCounts, type Health, type NodeNumbers } from './model';
+import { breathLevel, clusterHealth, clusterTotals, openAlertCounts, welcomeSentence, type Health, type NodeNumbers } from './model';
 
 const quantise = (v: number | null, q: number | undefined) => (v === null || !q ? v : Math.round(v / q) * q);
 
@@ -158,8 +159,9 @@ export function useOnlineIds(): string[] {
   return useMemo(() => (key ? key.split('\u0000') : []), [key]);
 }
 
-/** The cluster sentence and pill (Overview hero, Wall): node states, live GPU flags and open alerts. */
-export function useClusterHealth(): Health {
+/** The cluster sentence and pill (Overview hero, Wall): node states, live GPU flags and open alerts. `welcome` is
+ *  the sentence the Overview shows in its place on a first visit (model.ts welcomeSentence), else null. */
+export function useClusterHealth(): Health & { welcome: string | null } {
   const order = useCluster((s) => s.order);
   const nodes = useCluster((s) => s.nodes);
   const consoleLive = useConnection((s) => s.status === 'live');
@@ -167,11 +169,10 @@ export function useClusterHealth(): Health {
   const alerts = useEvents(useShallow((s) => openAlertCounts(s.events, notLiveIds)));
   const open = useEvents(useShallow((s) => openAlerts(s.events)));
   const conditions = useLiveConditions(order);
-  return clusterHealth(
-    order.map((id) => ({ id, status: nodes[id]?.status, conditions: conditions[id] ?? null, alerts: open.filter((e) => e.node_id === id) })),
-    alerts,
-    consoleLive,
-  );
+  const firstVisit = useCluster((s) => guideStage(s.onboarding) === 'first');
+  const inputs = order.map((id) => ({ id, status: nodes[id]?.status, conditions: conditions[id] ?? null, alerts: open.filter((e) => e.node_id === id), isNew: isNewNode(nodes[id]) }));
+  const health = clusterHealth(inputs, alerts, consoleLive);
+  return { ...health, welcome: consoleLive ? welcomeSentence(inputs, health, firstVisit) : null };
 }
 
 // ------------------------------------------------------------------------------------------------ energy today

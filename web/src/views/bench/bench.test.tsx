@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCluster } from '../../store/cluster';
+import { useConnection } from '../../store/connection';
 import { ConfigureDialog } from './ConfigureDialog';
 import { LLM, MATMUL, RDMA, result } from './fixtures';
 import { History } from './History';
@@ -87,9 +88,42 @@ describe('review fixes', () => {
     expect(container.ownerDocument.querySelector('.bench-nodes li')).toBeNull();
   });
   it('shows a node that is not reporting as such, even when the catalog says it can run', () => {
-    render(<ul><Availability node="spark3" problem={null} nodeStatus="stale" /></ul>);
+    render(<ul><Availability node="spark3" problem={null} state={{ status: 'stale', first_seen: 1 }} /></ul>);
     expect(screen.getByText('Not reporting')).toBeInTheDocument();
     expect(screen.queryByText('Ready')).toBeNull();
+  });
+  it('says "Not connected yet" of a node that has never answered, as every other screen does, and "Offline" only of one that has', () => {
+    const never = { message: 'spark3 is not connected yet', cause: 'Agent unreachable on spark3: Connection refused at 198.51.100.13:9750', fix: 'Start the agent on spark3: `sudo systemctl start sparkline-agent`.' };
+    const { rerender } = render(<ul><Availability node="spark3" problem={never} state={{ status: 'offline', first_seen: null }} /></ul>);
+    const pill = () => document.querySelector('.bench-avail .status');
+    expect(pill()).toHaveTextContent('Not connected yet');
+    expect(pill()).toHaveClass('tone-setup');
+    expect(screen.queryByText(/Offline|Unreachable/)).toBeNull();
+    // An agent that turned the console away (a wrong token) on its first try is being set up too.
+    rerender(<ul><Availability node="spark3" problem={never} state={{ status: 'error', first_seen: null }} /></ul>);
+    expect(pill()).toHaveTextContent('Not connected yet');
+    // The console has only just started and is still on its first try.
+    rerender(<ul><Availability node="spark3" problem={never} state={{ status: 'connecting', first_seen: null }} /></ul>);
+    expect(pill()).toHaveTextContent('Connecting');
+    // A node that has answered before is down, and says so.
+    rerender(<ul><Availability node="spark3" problem={never} state={{ status: 'offline', first_seen: 100 }} /></ul>);
+    expect(pill()).toHaveTextContent('Offline');
+    rerender(<ul><Availability node="spark3" problem={never} state={{ status: 'error', first_seen: 100 }} /></ul>);
+    expect(pill()).toHaveTextContent('Unreachable');
+    expect(pill()).toHaveClass('tone-stale');
+  });
+  it('words a node in the node picker as its status pill does, never with the raw status', () => {
+    const state = (first_seen: number | null) => ({ node_id: 'spark2', url: '', status: 'offline' as const, since: 0, last_sample_ts: null, error: null, info: null, next_retry_ts: null, first_seen });
+    useConnection.setState({ status: 'live', everLive: true });
+    // The catalog was fetched before the node's state changed, so it still says spark2 can run.
+    useCluster.setState({ nodes: { spark2: state(null) } });
+    const { unmount } = render(<ConfigureDialog spec={MATMUL} open onClose={() => undefined} onRun={() => undefined} />);
+    expect(screen.getByText('not connected yet')).toHaveClass('bench-node__load');
+    expect(screen.queryByText('offline')).toBeNull();
+    unmount();
+    useCluster.setState({ nodes: { spark2: state(100) } });
+    render(<ConfigureDialog spec={MATMUL} open onClose={() => undefined} onRun={() => undefined} />);
+    expect(screen.getByText('offline')).toHaveClass('bench-node__load');
   });
   it('allows ticking only runs of one benchmark for comparison', () => {
     const a = { id: 'r1', bench_id: 'gpu-matmul', params: {}, nodes: ['spark1'], status: 'succeeded' as const, created_ts: 2, started_ts: 2, finished_ts: 3, progress: 1, phase: '', results: [], series: {}, metadata: {}, error: null, log_tail: [], baseline_for: false, params_key: 'k', baseline_run_id: null };

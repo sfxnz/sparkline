@@ -164,6 +164,15 @@
 
 .tl-more { display: flex; align-items: center; gap: var(--space-3); padding-top: var(--space-2); }
 
+/* ------------------------------------------------------------------ notification channels */
+.notify-channel, .notify-last { display: grid; gap: 1px; }
+.notify-channel__name { font-weight: 600; color: var(--text-1); }
+.notify-channel .t-footnote, .notify-last .t-footnote { color: var(--text-2); }
+.notify-host { font-family: var(--font-mono); font-size: var(--fs-footnote); overflow-wrap: anywhere; }
+.notify-last__result { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.notify-tested { padding: var(--space-3) var(--space-5) var(--space-4); }
+.notify-snippet { margin-top: var(--space-3); }
+
 /* ------------------------------------------------------------------ rules */
 .rules-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
 /* Sticks to the bottom of the window only while there are unsaved edits; otherwise it sits after the last rule

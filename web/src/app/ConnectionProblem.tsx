@@ -67,7 +67,7 @@ export function ConnectionProblem({ state }: { state: ConnState }) {
         </dl>
         <div className="conn-problem__actions">
           <Button variant="primary" icon={<RotateCw />} onClick={retryConnection}>
-            Retry now
+            Retry
           </Button>
           <p className="conn-problem__countdown num" aria-live="off">
             {state.status === 'offline'

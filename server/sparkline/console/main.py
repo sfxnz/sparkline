@@ -80,12 +80,19 @@ def main(argv: list[str] | None = None) -> None:
         help="demo without seeded benchmark history (shows the empty state)",
     )
     p.add_argument(
+        "--demo-first-run",
+        action="store_true",
+        help="demo of a new install: nobody has signed in, there is no benchmark history and no event, two "
+        "nodes connect within seconds and the last one refuses connections at first and is live about 45 s "
+        "in. The scripted failures start five minutes in",
+    )
+    p.add_argument(
         "--allow-public", action="store_true", help="allow binding a public / all-interfaces address"
     )
     p.add_argument("--log-level", default="info", choices=["debug", "info", "warning", "error"])
     p.add_argument("--web-dist", type=Path, help="built web app directory (default <repo>/web/dist)")
     args = p.parse_args(argv)
-    args.demo = args.demo or args.demo_mixed
+    args.demo = args.demo or args.demo_mixed or args.demo_first_run
     logging.basicConfig(
         level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
@@ -115,6 +122,8 @@ def main(argv: list[str] | None = None) -> None:
             )
         if len(cfg.token) < 16 or len(cfg.agent_token) < 16:
             fail("token and agent_token must be at least 16 characters (install.sh generates them)")
+        if cfg.metrics_token and len(cfg.metrics_token) < 16:
+            fail("metrics_token must be at least 16 characters")
         if not cfg.nodes:
             fail("no [[nodes]] configured (or run with --demo)")
     if args.demo_speed <= 0:
@@ -144,6 +153,7 @@ def main(argv: list[str] | None = None) -> None:
         demo_speed=args.demo_speed,
         demo_empty_bench=args.demo_empty_bench,
         fleet="mixed" if args.demo_mixed else "dgx",
+        demo_first_run=args.demo_first_run,
     )
     app.state.data_dir_lock = lock
     hint = container_hint(cfg.port, os.environ)

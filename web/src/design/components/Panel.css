@@ -33,3 +33,5 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+/* A panel that is a jump target lands below the toolbar, which stays on screen (and is taller on a phone). */
+.panel[id] { scroll-margin-top: calc(var(--toolbar-offset, var(--toolbar-height)) + var(--space-4)); }

@@ -1,10 +1,10 @@
-import { CircleCheck, CircleHelp, CircleSlash, CircleX, Clock, LoaderCircle, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { CircleCheck, CircleDashed, CircleHelp, CircleSlash, CircleX, Clock, LoaderCircle, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
 import type { NodeStatus } from '../../lib/types';
 import './StatusPill.css';
 
-export type Status = 'healthy' | 'warning' | 'critical' | 'error' | 'stale' | 'offline' | 'connecting' | 'unknown';
+export type Status = 'healthy' | 'warning' | 'critical' | 'error' | 'stale' | 'offline' | 'connecting' | 'setup' | 'unknown';
 
-const META: Record<Status, { label: string; icon: LucideIcon; tone: 'ok' | 'warn' | 'crit' | 'stale' }> = {
+const META: Record<Status, { label: string; icon: LucideIcon; tone: 'ok' | 'warn' | 'crit' | 'stale' | 'setup' }> = {
   healthy: { label: 'Healthy', icon: CircleCheck, tone: 'ok' },
   warning: { label: 'Warning', icon: TriangleAlert, tone: 'warn' },
   critical: { label: 'Critical', icon: OctagonAlert, tone: 'crit' },
@@ -14,16 +14,21 @@ const META: Record<Status, { label: string; icon: LucideIcon; tone: 'ok' | 'warn
   stale: { label: 'Not reporting', icon: Clock, tone: 'stale' },
   offline: { label: 'Offline', icon: CircleSlash, tone: 'stale' },
   connecting: { label: 'Connecting', icon: LoaderCircle, tone: 'stale' },
+  /** A node this console has never heard from and cannot reach yet: a step in setting up, not an outage. */
+  setup: { label: 'Not connected yet', icon: CircleDashed, tone: 'setup' },
   unknown: { label: 'Unknown', icon: CircleHelp, tone: 'stale' },
 };
 
 /**
  * Map a console NodeStatus to a display status. An open alert on the node raises 'online' to warning/critical, and
  * while the browser has lost the console (`consoleLive` false) the last NodeState is not current, so it shows 'stale'.
+ * A node that has never answered this console (`isNew`, see lib/onboarding.ts) and cannot be reached is 'setup':
+ * never Offline, Error or Critical, because it was never online. Every surface that names a node's status asks here.
  */
 export const shownNodeStatus = (status: NodeStatus | undefined, consoleLive: boolean): NodeStatus | undefined => (status && !consoleLive ? 'stale' : status);
 
-export function nodeDisplayStatus(status: NodeStatus | undefined, alert: 'warning' | 'critical' | null = null, consoleLive = true): Status {
+export function nodeDisplayStatus(status: NodeStatus | undefined, alert: 'warning' | 'critical' | null = null, consoleLive = true, isNew = false): Status {
+  if (isNew && (status === 'offline' || status === 'error')) return 'setup';
   switch (shownNodeStatus(status, consoleLive)) {
     case 'online':
       return alert ?? 'healthy';
@@ -39,6 +44,8 @@ export function nodeDisplayStatus(status: NodeStatus | undefined, alert: 'warnin
       return 'unknown';
   }
 }
+
+export const statusLabel = (status: Status): string => META[status].label;
 
 interface Props {
   status: Status;

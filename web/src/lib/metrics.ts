@@ -145,5 +145,9 @@ export function flatten(s: Sample): Map<string, number> {
 
   for (const t of s.temps) put(`temp.${t.id}`, t.c);
 
+  for (const srv of s.llm ?? []) {
+    for (const [name, value] of Object.entries(srv.values)) put(`llm.${srv.port}.${name}`, value);
+  }
+
   return out;
 }
