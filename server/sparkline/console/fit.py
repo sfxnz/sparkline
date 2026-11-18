@@ -9,10 +9,11 @@ index. It fills in a size only when nothing it read is a sign that the model rea
 weight files, and names the sign it found when it will not. The signs are: a string in ``config.json`` that
 names another repo, a key in it that measures a model the repo does not hold, an ``adapter_config.json``, a
 ``.safetensors`` file the sizing leaves out, a weight file in another format whose name does not mark it as
-a copy or as training state, and a ``config.json`` it could not read at all. The model's shape comes from
-that same ``config.json``, and a size is never filled in without it. A refusal fills in the shape alone,
-and not even that after a sign of a second model (the first three above): the shape in the config may
-then be an adapter's, a draft's or one part's, not that of the model a server answers with.
+a copy or as training state, and a ``config.json`` it could not read at all. The model's shape is worked
+out from the top-level keys of that same ``config.json``, and a size is never filled in without it. A
+config that gives its layers one by one and not all alike has no such shape. A refusal fills in the shape
+alone, and not even that after a sign of a second model (the first three above): the shape in the config
+may then be an adapter's, a draft's or one part's, not that of the model a server answers with.
 
 A refusal is what the lookup read (``Reason``), then one of two fixed instructions (``Ask``). It never says
 what a server loads, what kind of model the repo is, or where a number can be read: advice that is true
@@ -24,8 +25,12 @@ still served beside a target, and ``subfolder=``, ``variant=`` and a LoRA flag a
 page fills in is the size of this repo's safetensors files, and the form and the result say that beside
 the number. A copy of the weights in another format is not in it.
 
-Not modelled: GGUF repos, sliding-window attention, latent attention (the KV cache estimate is 25 times too
-high for DeepSeek-V3), splitting a model across GPUs, the AMD GTT limit and the macOS wired-memory limit.
+The KV cache counts every layer as an attention layer of one width. That is too high, sometimes several
+times, for a model that windows its attention, shares a latent cache (25 times for DeepSeek-V3), mixes in
+layers that keep no keys (Mamba, convolution, linear attention), or keeps its KV head count under a key the
+lookup does not read. Nothing here lowers the estimate for such a model. The page says it is high.
+
+Not modelled: GGUF repos, splitting a model across GPUs, the AMD GTT limit and the macOS wired-memory limit.
 """
 
 from __future__ import annotations
@@ -63,7 +68,11 @@ REPO_ID_FORM = (
 
 
 class ModelShape(BaseModel):
-    """What sizes the KV cache. A lookup reads it from ``config.json``."""
+    """What sizes the KV cache: every layer counted as an attention layer of one width.
+
+    A lookup reads it from the top-level keys of ``config.json``. It is an upper estimate for a model
+    whose layers are not all attention layers of that width.
+    """
 
     # Strict, so that JSON true is not read as 1 byte or 1 layer.
     model_config = ConfigDict(strict=True)

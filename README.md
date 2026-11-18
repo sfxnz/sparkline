@@ -176,12 +176,18 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   and every weight file in another format (`.bin`, `.pt`, `.pth`, `.ckpt`, `.gguf`, `.npz`) has a name that
   marks it as a copy of the same weights or as training state. The size is the files the index names, or
   `model.safetensors` where there is no index, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it
-  is stored. The model's shape comes from the top level of that same `config.json`, and no size is filled
-  in without it: a shape kept in a sub-object such as `text_config`, or under an older name such as
-  `n_layer`, is typed in by hand. A key that holds `null` is read as a key the config lacks, so a
+  is stored. The model's shape is worked out from the top-level keys of that same `config.json`, and no
+  size is filled in without it: a shape kept in a sub-object such as `text_config`, or under an older name
+  such as `n_layer`, is typed in by hand. Where the config has no `head_dim`, the head size is
+  `hidden_size` divided by `num_attention_heads`, a number no file of the repo holds, and the form and the
+  result say it was worked out, not read. A key that holds `null` is read as a key the config lacks, so a
   `num_key_value_heads` of `null` gives the model's `num_attention_heads` as its KV heads. Where the
   config also names its own config class under `auto_map`, the lookup refuses and fills in nothing: it
-  reads no code and cannot tell how many KV heads a layer has. An index over 1 MiB is not read. If every safetensors file in the repo is
+  reads no code and cannot tell how many KV heads a layer has. It also refuses, and fills in nothing, for
+  a config that gives its layers one by one and not all alike: a top-level list with one entry per layer,
+  or an object keyed by layer number, whose entries are numbers or objects (a head size per layer, a
+  config per layer). The lookup sizes every layer alike and cannot size that model. A list of layer type
+  names does not count. An index over 1 MiB is not read. If every safetensors file in the repo is
   then a shard of one set at its top level (`model-00001-of-00026.safetensors` and so on), the lookup shows
   their total and says so beside the number: a server loads those files or fewer of them. Anything else
   shows no size and a refusal.
@@ -201,8 +207,9 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   A refusal fills in the shape alone, or nothing. It fills in nothing after a sign of a second model (a
   config string naming another repo, an `adapter_config.json`, a draft model's keys), because the shape in
   that config can be a draft's, often a single layer, or one part's. It fills in nothing when the repo, its
-  file list or its `config.json` could not be read, or when the config's top level holds no shape. Any
-  other refusal fills in the shape it read and asks for the size.
+  file list or its `config.json` could not be read, when the config's top level holds no shape, or when
+  it gives its layers one by one. Any other refusal fills in the shape it read and asks for the size. A
+  sentence about a file the repo lacks says where the lookup looked: at the repo's top level.
 
   By hand the weights are the total of every weight file the server loads, in every folder of the repo and
   in any other repo, with weights a repo holds more than once counted once, in GiB as this page shows sizes
@@ -217,10 +224,15 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
 
   A unified-memory node offers its available memory minus 4 GiB. A node with dedicated GPU memory offers the
   free memory of its emptiest GPU, so the verdict is for a model on one GPU. On a GB10, vLLM's
-  `--gpu-memory-utilization` is not a hard cap, and the page says so. The KV cache is sized as every layer
-  at full width, so it is too high for a model that keeps a smaller one: sliding-window layers halve it, and
-  latent attention (MLA) needs a fraction, 25 times less for DeepSeek-V3. Not modelled: GGUF files, a model
-  split across GPUs, the AMD GTT limit and the macOS wired-memory limit.
+  `--gpu-memory-utilization` is not a hard cap, and the page says so.
+
+  The KV cache is an estimate that counts every layer as an attention layer of one width: the KV heads
+  times the head size on the form. That is too high, sometimes several times, for a model that
+  windows its attention, shares a latent cache (MLA, 25 times less for DeepSeek-V3), mixes in layers
+  that keep no keys (Mamba, convolution, linear attention), or keeps its KV head count under a key the
+  lookup does not read. The page says so, and does not try to
+  lower the number for such a model. Not modelled: GGUF files, a model split across GPUs, the AMD GTT limit
+  and the macOS wired-memory limit.
 - **Wall mode, command palette and keyboard shortcuts.** Dark and light themes that follow the system, with
   reduced-motion and reduced-transparency support.
 - **Demo mode** (`--demo`): three simulated nodes, including a thermal episode, a stalled stream and a node
