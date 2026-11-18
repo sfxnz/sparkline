@@ -326,6 +326,27 @@ test('a first run on a phone: the chip under the welcome goes to the guide, and 
   await guidePanel(page).getByRole('link', { name: /^Prometheus export/ }).click();
   await expect(page).toHaveURL(`${BASE}/settings#prometheus`);
   await expectJustUnderToolbar(page, '#prometheus');
+  // The scrape address is wider than its box at 360 px: it breaks before a slash, not inside a word.
+  await page.setViewportSize({ width: 360, height: 844 });
+  const address = page.getByRole('region', { name: 'Prometheus' }).locator('.cmd__text', { hasText: `${BASE}/metrics` });
+  await expect.poll(() => address.evaluate((el) => {
+    const starts: string[] = [];
+    let last: number | null = null;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const text = n.textContent ?? '';
+      for (let i = 0; i < text.length; i++) {
+        const range = document.createRange();
+        range.setStart(n, i);
+        range.setEnd(n, i + 1);
+        const top = range.getBoundingClientRect().top;
+        if (last !== null && top - last > 4) starts.push(text.charAt(i));
+        last = top;
+      }
+    }
+    return starts;
+  }), { message: 'what each further line of the address starts with' }).toEqual(['/']);
+  await page.setViewportSize({ width: 390, height: 844 });
   // Model servers lands on the node's panel, which on a phone is far below the top of the node's page.
   await page.goto(`${BASE}/`);
   await guidePanel(page).getByRole('link', { name: /^Model servers/ }).click();

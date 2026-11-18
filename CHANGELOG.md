@@ -82,7 +82,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 ### Fixed
 
 - **Small screens.** The sign-in token field no longer makes iOS Safari zoom the page: its text is 16 px on
-  a small screen. A device with only a touch screen is not shown the "Ctrl K" hint beside Search.
+  a small screen. A device with only a touch screen is not shown the "Ctrl K" hint beside Search. Under a
+  cluster total on the overview, no line starts with "·". An address or a path too wide for its copy box
+  (the Prometheus scrape address on a phone) breaks before a slash, where it broke inside a word.
 - **Alerts > Notifications on a phone.** With no channel configured, the card's text and its `[[notify]]`
   example were cut off on both sides on a narrow screen. Both now wrap, and the example has a copy button.
 

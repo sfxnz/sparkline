@@ -14,6 +14,9 @@ interface Props {
   prompt?: boolean;
 }
 
+/** A word wider than its line breaks before a slash of a path when one fits there, and anywhere only after that. */
+const breakable = (word: string) => word.split(/(?<=[^/:])(?=\/)/).flatMap((piece, i) => (i ? [<wbr key={i} />, piece] : [piece]));
+
 /** One thing to run or paste, whole and selectable, with a copy button. It wraps instead of truncating, so the
  *  text on screen is always the text that works. A line wraps at its spaces: each word is a box that moves to the
  *  next line whole, and breaks inside only when it alone is wider than the line. */
@@ -33,7 +36,7 @@ export function CommandLine({ text, what = 'command', compact, prompt = true }: 
       ) : (
         <>
           {prompt ? <span className="cmd__prompt" aria-hidden="true">$</span> : null}
-          <code className="cmd__text">{text.split(/( +)/).map((part, i) => (i % 2 ? part : <span key={i} className="cmd__word">{part}</span>))}</code>
+          <code className="cmd__text">{text.split(/( +)/).map((part, i) => (i % 2 ? part : <span key={i} className="cmd__word">{breakable(part)}</span>))}</code>
         </>
       )}
       {compact ? (

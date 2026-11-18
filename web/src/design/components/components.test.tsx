@@ -331,6 +331,12 @@ describe('CommandLine', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Copied command');
   });
 
+  it('lets an address or a path wider than its line break before a slash, and never inside "://"', () => {
+    const { container } = render(<CommandLine text="curl http://198.51.100.11:9700/metrics /etc/sparkline/console.toml" />);
+    expect(container.querySelector('.cmd__text')?.textContent).toBe('curl http://198.51.100.11:9700/metrics /etc/sparkline/console.toml');
+    expect([...container.querySelectorAll('.cmd__word')].map((w) => w.innerHTML)).toEqual(['curl', 'http://198.51.100.11:9700<wbr>/metrics', '/etc<wbr>/sparkline<wbr>/console.toml']);
+  });
+
   it('copies on a plain-http LAN page, where the clipboard API is missing', async () => {
     secure(false);
     const exec = vi.fn<(command: string) => boolean>(() => true);
