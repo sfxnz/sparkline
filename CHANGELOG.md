@@ -24,9 +24,9 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   its card, its page, the sidebar, the wall, the benchmark cards and in Settings, in a neutral tone, and
   Settings > Data offers no "Clear history" for it. Its card shows what the console tried, the likely cause
   and the fix a step at a time, each command once, in a box under its step with a copy button, the time to
-  the next try and **Retry now**. A command box wraps at its spaces, also on a phone. When the agent answered and turned the console away (a wrong token), the card says that
-  only the fix will connect it, where it would count down to the next try. The node's first reading arrives
-  on the card in place.
+  the next try and **Retry now**. A command box wraps at its spaces, also on a phone. When the agent
+  answered and turned the console away (a wrong token), the card says that only the fix will connect it,
+  where it would count down to the next try. The node's first reading arrives on the card in place.
 - **Getting started.** The overview of a new install carries a short guide: connect your nodes, get told
   when something breaks, model servers, Prometheus and benchmarks. Each row opens the real page and shows
   what the cluster already has. A row is ticked once you have opened it, or when the cluster already has
@@ -79,8 +79,7 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 - **Small screens.** The sign-in token field no longer makes iOS Safari zoom the page: its text is 16 px on
   a small screen. A device with only a touch screen is not shown the "Ctrl K" hint beside Search.
 - **Alerts > Notifications on a phone.** With no channel configured, the card's text and its `[[notify]]`
-  example were cut off on both sides on a narrow screen. The text now wraps, and the example scrolls inside
-  its own box and has a copy button.
+  example were cut off on both sides on a narrow screen. Both now wrap, and the example has a copy button.
 
 ## [0.2.0] - 2026-11-17
 
