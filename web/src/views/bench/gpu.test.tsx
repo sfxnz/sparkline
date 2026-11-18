@@ -29,7 +29,7 @@ vi.mock('./RunChart', () => ({
 }));
 
 const GB10 = gb10Info as unknown as NodeInfo;
-const GB10_SAMPLE: Sample = gb10Sample;
+const GB10_SAMPLE = gb10Sample as unknown as Sample;
 const RTX = 'NVIDIA RTX 6000 Ada Generation';
 const noop = () => undefined;
 const GPU_NUMBER = /GPU \d+(?![\d%])/;

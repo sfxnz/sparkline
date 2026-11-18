@@ -246,6 +246,60 @@ class ProcSample(BaseModel):
     model: str | None = None  # detected model name, e.g. "DeepSeek-V4.1-Flash-EXL3"
 
 
+ServerState = Literal["ready", "loading", "sleeping", "down"]
+
+# The fields an agent writes into ModelServerSample.values and .reports. The wire keys stay `str`, so a
+# field a newer agent adds still gets history on an older console.
+LlmField = Literal[
+    "up",  # 1 while the server answers (ready or sleeping), else 0; always in `values`
+    "running",  # requests in prefill or decode
+    "waiting",  # requests queued
+    "kv_cache_pct",  # 0..100, the fullest pool when the server reports several
+    "gen_tps",  # generated tokens/s over the last ~10 s
+    "prompt_tps",  # prompt tokens/s over the last ~10 s
+    "preempt_per_s",
+    "ttft_p50_s",  # over requests whose first token came in the last ~60 s
+    "ttft_p95_s",
+    "mem_bytes",  # memory the server holds: its own gauge, else its process's GPU memory (mem_source)
+]
+LLM_FIELDS: tuple[str, ...] = get_args(LlmField)
+
+
+class LoadedModel(BaseModel):
+    name: str  # as clients address it
+    context_len: int | None = None  # tokens
+    size_bytes: int | None = None
+    vram_bytes: int | None = None
+    expires_ts: float | None = None  # when the server unloads it if idle
+
+
+class ModelServerSample(BaseModel):
+    port: int  # the series key: llm.<port>.<field>
+    adapter: str  # how the agent reads it: "prometheus"
+    software: str | None = None  # "vLLM", "llama.cpp", or the name the server gives itself
+    version: str | None = None
+    prefix: str | None = None  # metric namespace in its exposition: "vllm:", "trtllm_", "" for bare names
+    state: ServerState = "ready"
+    models: list[LoadedModel] = Field(default_factory=list)
+    # Three states per field. In `values`: a reading. In `reports` only: the server has the series and
+    # nothing to say now (no request in the window, first poll after a restart). In neither: not reported
+    # by this server. A missing reading is never 0.
+    values: dict[str, float] = Field(default_factory=dict)
+    reports: list[str] = Field(default_factory=list)
+    mem_source: str | None = None  # whose figure mem_bytes is: "server" (its own gauge) or "process"
+    pid: int | None = None
+    container: str | None = None
+    started_ts: float | None = None  # process start, as the server reports it
+    scraped_ts: float | None = None  # last poll the server answered
+    problem: str | None = None  # why readings are missing, phrased as the fix
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _unknown_state_reads_as_ready(cls, v: object) -> object:
+        # A newer agent may send a state this console predates; rejecting it would drop the whole sample.
+        return v if v in get_args(ServerState) else "ready"
+
+
 class Sample(BaseModel):
     node_id: str
     ts: float
@@ -263,6 +317,8 @@ class Sample(BaseModel):
     cpu_temp_c: float | None = None
     procs: list[ProcSample] | None = None  # only on ticks where processes were refreshed
     procs_ts: float | None = None  # when the process list was last refreshed (on every tick)
+    # Model servers listening on the node. None: the agent predates them, or looks for none. []: none found.
+    llm: list[ModelServerSample] | None = None
     errors: dict[str, str] = Field(default_factory=dict)  # collector name -> error; others still report
 
 

@@ -21,8 +21,9 @@ import { api } from '../../lib/api';
 import { bitrateParts, DASH, formatAgo, formatBytes, formatPercent, formatWatts, text, wattsParts } from '../../lib/format';
 import { headroomGpu, tempRoom } from '../../lib/condition';
 import { nicAbbr, nicHeading, nicModel } from '../../lib/interconnect';
+import { SERVER_PILL, serverLine, serverTitle } from '../../lib/llm';
 import { memoryLayout } from '../../lib/memoryLayout';
-import type { GpuInfo, NodeInfo, Sample } from '../../lib/types';
+import type { GpuInfo, ModelServerSample, NodeInfo, Sample } from '../../lib/types';
 import { interconnectGap, notReported, type NotReported } from '../../lib/capabilities';
 import { serverNow, useCluster } from '../../store/cluster';
 import { useConnection } from '../../store/connection';
@@ -103,6 +104,7 @@ export function NodeCard({ id }: { id: string }) {
             </div>
             <MemoryBar name={layout.name} sharesRam={layout.sharesRam} />
             {layout.sharesRam ? null : <GpuMemory gpus={layout.dedicated} />}
+            <ModelServers />
           </div>
           {/* The stale/offline notice takes the place of the link and trend row (which are frozen anyway), inside a
               slot of fixed height, so a node changing state never resizes its card or the row of cards. */}
@@ -435,6 +437,30 @@ function GpuMemory({ gpus }: { gpus: readonly GpuInfo[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+const NO_SERVERS: readonly ModelServerSample[] = [];
+const selectServers = (s: Sample | null) => s?.llm ?? NO_SERVERS;
+const sameServers = (a: readonly ModelServerSample[], b: readonly ModelServerSample[]) =>
+  a.length === b.length && a.every((x, i) => x.port === b[i]?.port && serverTitle(x) === serverTitle(b[i]) && serverLine(x) === serverLine(b[i]));
+const SERVER_LINES = 2;
+
+function ModelServers() {
+  const { id } = useContext(Ctx);
+  const servers = useLatest(id, selectServers, sameServers);
+  if (!servers.length) return null;
+  const more = servers.length - SERVER_LINES;
+  return (
+    <ul className="ov-llm" aria-label="Model servers">
+      {servers.slice(0, SERVER_LINES).map((s) => (
+        <li key={s.port} className="ov-row">
+          <span className="ov-llm__name" title={serverTitle(s)}>{serverTitle(s)}</span>
+          {s.state === 'ready' ? <span className="ov-llm__now num">{serverLine(s)}</span> : <StatusPill status={SERVER_PILL[s.state]} label={serverLine(s)} variant="inline" size="sm" />}
+        </li>
+      ))}
+      {more > 0 ? <li className="ov-dim">and {more} more</li> : null}
+    </ul>
   );
 }
 

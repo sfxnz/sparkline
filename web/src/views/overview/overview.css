@@ -184,6 +184,10 @@
 .ov-cx__none { font-size: var(--fs-footnote); line-height: var(--lh-footnote); color: var(--text-3); }
 .ov-cx .ov-label { overflow-wrap: anywhere; }
 
+.ov-llm { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; font-size: var(--fs-footnote); line-height: var(--lh-footnote); }
+.ov-llm__name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 560; color: var(--text-1); }
+.ov-llm__now { flex: none; color: var(--text-2); }
+
 .ov-card__sparks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .ov-spark { display: grid; gap: var(--space-1); min-width: 0; }
 .ov-spark__label { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 500; color: var(--text-2); }

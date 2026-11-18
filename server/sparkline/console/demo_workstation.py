@@ -368,6 +368,7 @@ class WorkstationModel:
             temps=temps,
             cpu_temp_c=cpu_temp,
             procs=self._procs(t, gpus, b) if procs else None,
+            llm=[],
         )
 
     def _procs(self, t: float, gpus: list[GpuSample], b: float) -> list[ProcSample]:

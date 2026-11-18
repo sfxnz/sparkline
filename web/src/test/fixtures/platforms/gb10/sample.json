@@ -309,5 +309,44 @@
     }
   ],
   "procs_ts": 1791288000.5,
+  "llm": [
+    {
+      "port": 8000,
+      "adapter": "prometheus",
+      "software": "serve_stats",
+      "version": null,
+      "prefix": "serve_stats:",
+      "state": "ready",
+      "models": [
+        {
+          "name": "DeepSeek-V4.1-Flash-EXL3",
+          "context_len": 65536,
+          "size_bytes": null,
+          "vram_bytes": null,
+          "expires_ts": null
+        }
+      ],
+      "values": {
+        "up": 1.0,
+        "running": 1.0,
+        "waiting": 0.0,
+        "gen_tps": 37.1,
+        "prompt_tps": 262.1,
+        "mem_bytes": 85978526474.0
+      },
+      "reports": [
+        "gen_tps",
+        "prompt_tps",
+        "running",
+        "waiting"
+      ],
+      "mem_source": "process",
+      "pid": 48213,
+      "container": "c5-2B-r0",
+      "started_ts": 1791006648.0,
+      "scraped_ts": 1791288000.5,
+      "problem": null
+    }
+  ],
   "errors": {}
 }

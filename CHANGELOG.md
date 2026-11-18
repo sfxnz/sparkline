@@ -15,6 +15,15 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   the channels with their last delivery and a **Send test** button, through `GET /api/v1/notify/channels`
   and `POST /api/v1/notify/channels/{name}/test`. The console sends to the hosts in those
   tables, which can be outside the LAN: see "Security model" in the README and `docs/adr/0003-outbound-notifications.md`.
+- **Model servers.** Each agent finds the model servers running on its own node, with no setup, and the node
+  summary shows for each one whether it is up, which model is loaded, the requests running and waiting, tokens
+  per second, time to first token, KV cache use and memory held. The overview card carries one line per
+  server. It reads vLLM, SGLang, llama.cpp, NIM, TensorRT-LLM and any server that uses the same Prometheus
+  metric names under its own prefix. A value a server does not export reads "Not reported by this server",
+  never 0. The readings are also history and alert keys, `llm.<port>.<field>`. `[[model_servers]]` in
+  `agent.toml` names a server on another port or one that needs an API key, and
+  `model_server_discovery = false` stops the agent asking any port you did not list. See
+  [Model servers](README.md#model-servers).
 
 ### Changed
 

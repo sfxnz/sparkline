@@ -1,0 +1,41 @@
+# HELP acmeserve:num_requests_running Requests being served now.
+acmeserve:num_requests_running 2
+# HELP acmeserve:requests_running The same count under a second name.
+acmeserve:requests_running 2
+# HELP acmeserve:num_requests_waiting Requests in the queue.
+acmeserve:num_requests_waiting 1
+# HELP acmeserve:kv_cache_usage_perc Share of each cache slot in use, from 0 to 1.
+acmeserve:kv_cache_usage_perc{slot="0"} 0.25
+acmeserve:kv_cache_usage_perc{slot="1"} 0.5
+# HELP acmeserve:generation_tokens_total Output tokens, counted when a request ends.
+acmeserve:generation_tokens_total 20000
+# HELP acmeserve:scheduler_tokens_total Tokens counted while a request is in progress, one series per mode.
+acmeserve:scheduler_tokens_total{mode="prefill"} 410000
+acmeserve:scheduler_tokens_total{mode="decode"} 21000
+# HELP acmeserve:prompt_tokens_total Input tokens, counted when a request ends.
+acmeserve:prompt_tokens_total 400000
+# HELP acmeserve:cached_prompt_tokens_total Input tokens read from a cache.
+acmeserve:cached_prompt_tokens_total 90000
+# HELP acmeserve:preemptions_total Requests paused to make room for another.
+acmeserve:preemptions_total 3
+# HELP acmeserve:time_to_first_token_seconds Wait before the first output token.
+acmeserve:time_to_first_token_seconds_bucket{le="0.25"} 10
+acmeserve:time_to_first_token_seconds_bucket{le="0.5"} 20
+acmeserve:time_to_first_token_seconds_bucket{le="1"} 30
+acmeserve:time_to_first_token_seconds_bucket{le="2.5"} 36
+acmeserve:time_to_first_token_seconds_bucket{le="5"} 39
+acmeserve:time_to_first_token_seconds_bucket{le="+Inf"} 40
+acmeserve:time_to_first_token_seconds_sum 30
+acmeserve:time_to_first_token_seconds_count 40
+# HELP acmeserve:requests_finished_total Requests answered since the start.
+acmeserve:requests_finished_total 40
+# HELP acmeserve:device_memory_bytes Accelerator memory in use.
+acmeserve:device_memory_bytes 68719476736
+# HELP acmeserve:engine_parked Whether the model is unloaded: 1 if so.
+acmeserve:engine_parked 0
+# HELP acmeserve:server_info Describes this server in its labels.
+acmeserve:server_info{model="example-model",version="0.0.0",instance="example-instance"} 1
+# HELP acmeserve:process_start_time_seconds Start of the process, in Unix seconds.
+acmeserve:process_start_time_seconds 1700000000
+# HELP process_open_fds Open file descriptors.
+process_open_fds 32

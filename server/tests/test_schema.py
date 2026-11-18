@@ -5,7 +5,16 @@ import re
 import typing
 from pathlib import Path
 
-from sparkline.common.schema import MemoryModel, NodeInfo, Unsupported, UnsupportedKind
+from sparkline.common.schema import (
+    LLM_FIELDS,
+    MemoryModel,
+    ModelServerSample,
+    NodeInfo,
+    Sample,
+    ServerState,
+    Unsupported,
+    UnsupportedKind,
+)
 
 WEB_TYPES = Path(__file__).resolve().parents[2] / "web" / "src" / "lib" / "types.ts"
 
@@ -84,3 +93,38 @@ def test_a_gpu_from_an_agent_that_predates_memory_models_or_sends_an_unknown_one
     for model in typing.get_args(MemoryModel):
         info["gpus"][0]["memory"] = model
         assert NodeInfo.model_validate(info).gpus[0].memory == model
+
+
+WEB_SAMPLE = Path(__file__).resolve().parents[2] / "web" / "src" / "test" / "fixtures" / "sample.json"
+
+
+def test_a_sample_from_an_agent_that_predates_model_servers_reads_with_llm_none():
+    old = json.loads(WEB_SAMPLE.read_text())
+    del old["llm"]
+    assert Sample.model_validate(old).llm is None
+
+
+def test_a_model_server_from_a_newer_agent_keeps_the_sample():
+    sample = json.loads(WEB_SAMPLE.read_text())
+    sample["llm"][0] |= {"state": "draining", "mem_source": "cgroup", "queue_depth_by_reason": {"kv": 2}}
+    sample["llm"][0]["values"]["itl_p95_s"] = 0.04
+    server = Sample.model_validate(sample).llm[0]
+    assert (server.state, server.mem_source, server.values["itl_p95_s"]) == ("ready", "cgroup", 0.04)
+
+
+def test_a_model_server_with_only_a_port_and_an_adapter_reads_with_no_reading():
+    server = ModelServerSample.model_validate({"port": 11434, "adapter": "ollama"})
+    assert (server.state, server.values, server.reports, server.models) == ("ready", {}, [], [])
+
+
+def test_web_types_list_the_same_server_states():
+    m = re.search(r"SERVER_STATES = \[([^\]]*)\] as const", WEB_TYPES.read_text())
+    assert m, f"SERVER_STATES not found in {WEB_TYPES}"
+    assert re.findall(r"'([^']+)'", m.group(1)) == list(typing.get_args(ServerState))
+
+
+def test_the_web_panel_reads_every_field_the_agent_can_send():
+    web = WEB_TYPES.with_name("llm.ts")
+    m = re.search(r"LLM_FIELDS = \[([^\]]*)\] as const", web.read_text())
+    assert m, f"LLM_FIELDS not found in {web}"
+    assert sorted(re.findall(r"'([^']+)'", m.group(1))) == sorted(set(LLM_FIELDS) - {"up"})
