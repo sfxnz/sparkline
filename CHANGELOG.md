@@ -7,12 +7,36 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
+### Upgrading
+
+Run `sudo sparkline update` on the console host. It updates the console first and then every node, which is
+the order this release needs: a 0.1.2 console shows a 0.2.0 agent's node without its model servers, and a
+0.2.0 console says "Update the agent" in that panel for an older agent. No config edit is required.
+
+Three things are on after the update:
+
+- Each agent asks the usual model server ports on its own node (8000, 8080, 9931, 30000, and any port that a
+  process holding GPU memory was started with) for a model server, and reads the ones it finds every
+  2 seconds. `model_server_discovery = false` in `agent.toml` stops that.
+- `GET /metrics` on the console answers the console token. Set `metrics_token` in `console.toml` to give
+  Prometheus a token that opens nothing else.
+- The Will it fit? page reads a public model's file list and config from `https://huggingface.co` when a
+  signed-in user presses Look up, and at no other time. `hf_lookup = false` in `console.toml` turns that off.
+
+Notifications stay off until `console.toml` has a `[[notify]]` table.
+
+To go back to 0.1.2, remove every `[[notify]]` table and the `metrics_token` and `hf_lookup` keys from
+`console.toml` first, and `[[model_servers]]` and `model_server_discovery` from `agent.toml`. 0.1.2 refuses
+to start on a config key it does not know.
+
 ### Added
 
 - Alert notifications. Each `[[notify]]` table in `console.toml` is a channel (`ntfy`, `discord`, `slack` or a
   generic JSON `webhook`) that receives alerts and their recoveries when no browser is open, filtered by
-  `min_severity` and `send_resolved`. Alerts that fire together arrive as one message. The Alerts view lists
-  the channels with their last delivery and a **Send test** button, through `GET /api/v1/notify/channels`
+  `min_severity` and `send_resolved`. Alerts that fire at the same moment arrive as one message. The Alerts
+  view lists the channels with their last delivery and a **Send test** button, through `GET /api/v1/notify/channels`
   and `POST /api/v1/notify/channels/{name}/test`. The console sends to the hosts in those
   tables, which can be outside the LAN: see "Security model" in the README and `docs/adr/0003-outbound-notifications.md`.
 - **Model servers.** Each agent finds the model servers running on its own node, with no setup, and the node
@@ -226,7 +250,8 @@ gives the upgrade commands.
 - The web tests' copy of undici, which jsdom pulls in, moves from 8.11.2 to 8.12.3 and gets the security fixes
   of undici 8.12.2. The built web app does not include undici (#73).
 
-[Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/sfxnz/sparkline/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sfxnz/sparkline/releases/tag/v0.2.0
 [0.1.2]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.2
 [0.1.1]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.1
 [0.1.0]: https://github.com/sfxnz/sparkline/releases/tag/v0.1.0

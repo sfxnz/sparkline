@@ -22,8 +22,9 @@ change raises the major number.
 
 The agent reports its installed version as `agent_version` in its node info. The console reports its own
 version as `version` in `GET /api/v1/cluster`. **Settings > About** shows both.
-`server/tests/test_release_version.py` fails when these files disagree, or when `CHANGELOG.md` has no section
-for the version.
+`server/tests/test_release_version.py` fails when these files disagree, when `CHANGELOG.md` has no section
+for the version, or when that section has an Added, Changed, Deprecated or Removed heading and the version
+is a patch release.
 
 Each pull request that changes what a user sees adds one line under `## [Unreleased]` in `CHANGELOG.md`.
 
