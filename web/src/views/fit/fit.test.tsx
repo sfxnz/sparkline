@@ -443,6 +443,15 @@ describe('Will it fit', () => {
     expect(result.queryByText(/worked out/)).not.toBeInTheDocument();
   });
 
+  it('says what the KV cache estimate counts and where it is too high', () => {
+    render(<Fit />);
+    const note = screen.getByText(/The total is a range/);
+    expect(note).toHaveTextContent('The KV cache counts every layer as an attention layer of one width');
+    expect(note).toHaveTextContent('too high, sometimes several times');
+    for (const kind of ['windows its attention', 'shares a latent cache', 'Mamba, convolution, linear attention', 'under a key the lookup does not read']) expect(note).toHaveTextContent(kind);
+    expect(note).not.toHaveTextContent(/every layer at full width|halve/);
+  });
+
   it('does not leave one repo\'s size beside another repo\'s shape', async () => {
     const user = userEvent.setup();
     fakeConsole();

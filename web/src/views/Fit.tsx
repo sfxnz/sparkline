@@ -195,9 +195,10 @@ export default function Fit() {
       {run.status === 'done' ? <Result from={run.from} request={run.request} response={run.response} /> : null}
 
       <p className="fit-scope t-footnote">
-        The total is a range because activations and the compute graph add 10 to 20 % on top of weights and KV cache. The KV cache here is every layer at full width, so
-        it is too high for a model that keeps a smaller one: sliding-window layers halve it, and latent attention (MLA, as DeepSeek and Kimi use) needs a fraction of it,
-        25 times less for DeepSeek-V3. Not modelled: GGUF files, a model split across GPUs, the AMD GTT limit and the macOS wired-memory limit.
+        The total is a range because activations and the compute graph add 10 to 20 % on top of weights and KV cache. The KV cache counts every layer as an attention
+        layer of one width, the KV heads times the head size above. That is too high, sometimes several times, for a model that windows its attention, shares a latent
+        cache (MLA, as DeepSeek and Kimi use: 25 times less for DeepSeek-V3), mixes in layers that keep no keys (Mamba, convolution, linear attention), or keeps its KV
+        head count under a key the lookup does not read. Not modelled: GGUF files, a model split across GPUs, the AMD GTT limit and the macOS wired-memory limit.
       </p>
     </div>
   );
