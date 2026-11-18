@@ -35,11 +35,12 @@
    gutters, a header that wraps and a detail line that breaks where it must were not enough: at
    360 px the three columns still needed 250 px of 218, so 32 px of "Does not fit" stayed off screen. The
    verdict is the only cell left that cannot give ground, because a pill never wraps, so in this table it
-   wraps. "Does not fit" then sets its own width from "Does", not from the whole phrase. */
+   wraps. "Does not fit" then sets its own width from "Does", not from the whole phrase. "Unknown" is one word
+   and cannot wrap: beside a node with no reading the columns needed 239 px of 218 and the pill's right edge
+   was cut. So the table also takes 12 px of the panel's padding on each side and keeps 8 px of its own. */
 @media (max-width: 27rem) {
+  .fit-view .table-wrap { margin-inline: calc(-1 * var(--space-3)); }
   .fit-view .table th, .fit-view .table td { padding-left: var(--space-2); padding-right: var(--space-2); }
-  .fit-view .table th:first-child, .fit-view .table td:first-child { padding-left: var(--space-3); }
-  .fit-view .table th:last-child, .fit-view .table td:last-child { padding-right: var(--space-3); }
   .fit-view .table th { white-space: normal; }
   .fit-view .fit-budget__detail { overflow-wrap: anywhere; }
   .fit-view .table td:last-child .status { white-space: normal; align-items: flex-start; }
