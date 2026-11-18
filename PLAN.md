@@ -72,6 +72,7 @@ agent carries them. `README.md` documents installation.)
 | `DELETE /api/v1/history?node=` (body `{confirm:"DELETE"}`) | clear history |
 | `GET /api/v1/bench/catalog`; `GET/POST /api/v1/bench/runs`; `GET /api/v1/bench/runs/{id}`; `POST …/{id}/cancel`; `DELETE …/{id}`; `GET …/{id}/export?format=json\|csv`; `PUT /api/v1/bench/baselines/{bench_id}` `{run_id}`; `GET /api/v1/bench/compare?ids=` | benchmarks |
 | `GET /metrics` (Bearer console token or `metrics_token`) → Prometheus text format 0.0.4 | every online node's latest sample as `sparkline_*` series; `sparkline_node_up` for every node |
+| `GET /api/v1/fit/lookup?repo=owner/name` → `ModelFacts` (read from huggingface.co), or 502 `{problem, shape}`, where `shape` is the model's shape when the refusal still answers for it and `null` otherwise; `POST /api/v1/fit/estimate` `{facts, context_tokens, kv_dtype}` → `{estimate, nodes}` | will it fit |
 | `GET /healthz` (no auth) | liveness |
 
 The agent exposes the same shapes for a single node: `GET /api/v1/info`, `GET /api/v1/snapshot`, `WS /api/v1/stream`,

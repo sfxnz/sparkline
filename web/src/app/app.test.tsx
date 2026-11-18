@@ -45,6 +45,7 @@ describe('connection copy', () => {
     expect(pageTitle('/')).toBe('Overview');
     expect(pageTitle('/node/spark2/gpu')).toBe('spark2');
     expect(pageTitle('/benchmarks/compare')).toBe('Benchmarks');
+    expect(documentTitle('/fit')).toBe('Will it fit? · Sparkline');
     expect(documentTitle('/alerts')).toBe('Alerts · Sparkline');
     expect(documentTitle('/node/spark2/gpu')).toBe('GPU · spark2 · Sparkline'); // each tab its own title
     expect(documentTitle('/node/spark2/thermals')).toBe('Thermals & Power · spark2 · Sparkline');
@@ -97,6 +98,22 @@ describe('CommandPalette', () => {
     await user.keyboard('{Enter}');
     expect(loc.history).toContain('/node/spark2/gpu');
     expect(useUi.getState().paletteOpen).toBe(false);
+  });
+
+  it('opens the fit estimator from a search for what it answers', async () => {
+    const user = userEvent.setup();
+    useCluster.getState().setHello(cluster);
+    const loc = memoryLocation({ path: '/', record: true });
+    render(
+      <Router hook={loc.hook}>
+        <CommandPalette />
+      </Router>,
+    );
+    act(() => { useUi.getState().setPalette(true); });
+    await user.type(screen.getByRole('combobox', { name: /Search views/ }), 'model memory');
+    expect(screen.getAllByRole('option')[0]).toHaveTextContent('Will it fit?');
+    await user.keyboard('{Enter}');
+    expect(loc.history.at(-1)).toBe('/fit');
   });
 
   it('finds metrics and individual benchmarks by name, and nothing unrelated', async () => {

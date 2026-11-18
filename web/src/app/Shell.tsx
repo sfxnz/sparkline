@@ -1,4 +1,4 @@
-import { Bell, Compass, Gauge, LayoutGrid, Monitor, PanelLeftClose, PanelLeftOpen, Search, Server, Settings as SettingsIcon, type LucideIcon } from 'lucide-react';
+import { Bell, Compass, Gauge, LayoutGrid, Monitor, PanelLeftClose, PanelLeftOpen, Scale, Search, Server, Settings as SettingsIcon, type LucideIcon } from 'lucide-react';
 import { m } from 'motion/react';
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Route, Switch, useLocation } from 'wouter';
@@ -22,7 +22,7 @@ import Overview from '../views/Overview';
 import { ChartPanelSkeleton } from '../views/placeholders';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import { ConnectionProblem } from './ConnectionProblem';
-import { Alerts, Benchmarks, Settings, pageTitle, paths } from './routes';
+import { Alerts, Benchmarks, Fit, Settings, pageTitle, paths } from './routes';
 import './Shell.css';
 
 const RANGES: readonly Segment<TimeRange>[] = [
@@ -69,6 +69,7 @@ export function Shell() {
                     <Route path="/benchmarks" component={Benchmarks} />
                     <Route path="/benchmarks/runs/:id" component={Benchmarks} />
                     <Route path="/benchmarks/compare" component={Benchmarks} />
+                    <Route path="/fit" component={Fit} />
                     <Route path="/settings" component={Settings} />
                     <Route>
                       <EmptyState icon={Compass} title="Nothing here" action={<Link href="/" className="btn btn--secondary btn--md">Go to Overview</Link>}>
@@ -210,6 +211,7 @@ function Sidebar({ collapsed, canExpand, location }: { collapsed: boolean; canEx
                 }
               />
               <NavItem href="/benchmarks" icon={Gauge} label="Benchmarks" active={location.startsWith('/benchmarks')} collapsed={collapsed} />
+              <NavItem href="/fit" icon={Scale} label="Will it fit?" active={location.startsWith('/fit')} collapsed={collapsed} />
               <NavItem href="/settings" icon={SettingsIcon} label="Settings" active={location.startsWith('/settings')} collapsed={collapsed} />
             </ul>
           </div>

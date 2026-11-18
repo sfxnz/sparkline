@@ -7,7 +7,7 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-17
+## [0.2.0] - 2026-11-18
 
 ### Upgrading
 
@@ -15,19 +15,21 @@ Run `sudo sparkline update` on the console host. It updates the console first an
 the order this release needs: a 0.1.2 console shows a 0.2.0 agent's node without its model servers, and a
 0.2.0 console says "Update the agent" in that panel for an older agent. No config edit is required.
 
-Two things start on their own after the update:
+Three things are on after the update:
 
 - Each agent asks the usual model server ports on its own node (8000, 8080, 9931, 30000, and any port that a
   process holding GPU memory was started with) for a model server, and reads the ones it finds every
   2 seconds. `model_server_discovery = false` in `agent.toml` stops that.
 - `GET /metrics` on the console answers the console token. Set `metrics_token` in `console.toml` to give
   Prometheus a token that opens nothing else.
+- The Will it fit? page reads a public model's file list and config from `https://huggingface.co` when a
+  signed-in user presses Look up, and at no other time. `hf_lookup = false` in `console.toml` turns that off.
 
 Notifications stay off until `console.toml` has a `[[notify]]` table.
 
-To go back to 0.1.2, remove every `[[notify]]` table and the `metrics_token` key from `console.toml` first,
-and `[[model_servers]]` and `model_server_discovery` from `agent.toml`. 0.1.2 refuses to start on a config
-key it does not know.
+To go back to 0.1.2, remove every `[[notify]]` table and the `metrics_token` and `hf_lookup` keys from
+`console.toml` first, and `[[model_servers]]` and `model_server_discovery` from `agent.toml`. 0.1.2 refuses
+to start on a config key it does not know.
 
 ### Added
 
@@ -52,6 +54,58 @@ key it does not know.
   `sparkline_node_up` 0 and the time of its last sample. The new `metrics_token` key in `console.toml` opens
   `/metrics` and nothing else, so Prometheus does not need the console token. See
   [Prometheus](README.md#prometheus).
+- **Will it fit?** A new page estimates what a model needs at a context length (weights, KV cache, and 10 to
+  20 % on top for activations, so the total is a range) and compares it with what each node has free in its
+  latest sample: available memory minus 4 GiB on a unified-memory node, or the free memory of the emptiest
+  GPU on a node with dedicated GPU memory. Each node gets a verdict: Fits, Tight, Does not fit or Unknown.
+  Look up reads a public repo from huggingface.co and fills in the size of that repo's safetensors files.
+  The page says so where the number is, on the form and above the verdicts, and names what is not counted:
+  a second model the repo loads, a draft model's target, the base model under an adapter. A lookup cannot
+  see those, so they are added by hand.
+
+  A size is filled in only when nothing the lookup read is a sign that the model reaches outside the repo:
+  the `config.json` can be read and holds no string naming another Hugging Face repo (under any key, except
+  `_name_or_path` and an `auto_map` code pointer) and none of the keys a draft model keeps about its
+  target; there is no `adapter_config.json`; every `.safetensors` file is one the lookup sized and none is
+  listed twice; and every weight file in another format (`.bin`, `.pt`, `.pth`, `.ckpt`, `.gguf`, `.npz`)
+  is named as a copy of the same weights or as training state. The
+  weights are then the files that `model.safetensors.index.json` names, or `model.safetensors` where there
+  is no index, so a 4-bit AWQ, GPTQ, bitsandbytes or MLX repo counts as it is stored. The model's shape
+  is worked out from the top-level keys of that same `config.json`, and no size is filled in without it.
+  The lookup fills in a shape only for the models it knows, fifteen pairs of `model_type` and first
+  `architectures` entry whose model code was read in vLLM or transformers, and asks for the shape by hand
+  for the rest: the keys of a config do not say whether the model's code runs a layer once. Where
+  transformers builds the model and `auto_map` names a model class, the lookup refuses as well.
+  Where the config has no `head_dim`, the head size is `hidden_size` divided by `num_attention_heads`, and
+  the form and the result say it was worked out, not read. Where that division leaves a remainder, or the
+  model's code takes a default of its own, the lookup refuses. A
+  `num_key_value_heads` of `null` beside a config class the config names under `auto_map` is refused,
+  because the lookup reads no code and cannot tell how many KV heads a layer has. A config that gives its
+  layers one by one and not all alike (a top-level list with as many entries as `num_hidden_layers`, or
+  an object keyed by layer number, whose entries are numbers or objects) is refused too, because the
+  lookup sizes every layer alike and cannot tell whether an entry changes a layer's KV cache. A key whose
+  name ends in `token_id` or `token_ids` holds vocabulary ids and is skipped. An index over
+  1 MiB is not read; when the repo's safetensors files are then one set of shards, the weights are their
+  total, which a server never exceeds, and the page says so beside the number. Every other repo gets no
+  size and a refusal in two parts: what the lookup read, then one of two instructions that are the same
+  words for every repo. One asks for the size, the total of every weight file the server loads in every
+  folder of the repo and in any other repo. The other asks for the size and for the shape of the language
+  model that answers. A refusal never says what a server loads, what kind of model the repo is, or where a
+  number can be read. A refusal fills in the shape alone, or nothing: nothing after a sign of a second
+  model (a config string naming another repo, an `adapter_config.json`, a draft model's keys), and nothing
+  when no shape was read.
+
+  The same facts can be typed instead, as the total of every weight file the server loads, in GiB or GB and
+  never as a parameter count. A result says where the size and the shape each came from, read from the repo
+  or typed by hand. A lookup replaces the model on the form and takes an earlier result off the page. The
+  hint under each shape box says which models its config key describes: those whose layers are all alike
+  and each run once per token. The KV cache is an estimate that counts every layer as an attention layer
+  of one width, run once per token. With a looked-up shape that is what vLLM keeps at its defaults or
+  more. With a typed shape it is as right as the numbers typed, and the result says beside it that it is
+  too low for a model whose layers are wider than typed or run more than once, and may be too high for a
+  model that windows its attention, shares a latent cache (MLA, 25 times less for DeepSeek-V3) or mixes
+  in layers that keep no keys (Mamba, convolution, linear attention). New endpoints `GET /api/v1/fit/lookup?repo=` and `POST /api/v1/fit/estimate`. The new
+  `console.toml` key `hf_lookup` (default `true`) turns the lookup off.
 
 ### Changed
 

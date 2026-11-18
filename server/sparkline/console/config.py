@@ -40,6 +40,9 @@ class ConsoleConfig(BaseModel):
     # Reverse proxies (IPs or CIDRs) whose X-Forwarded-For / -Proto are believed: behind a TLS proxy the
     # session cookie is then Secure, and sign-in limits count the real client, not the proxy.
     trusted_proxies: list[str] = Field(default_factory=list)
+    # "Will it fit?" may read a public model's size from https://huggingface.co when the user presses
+    # Look up. False for sites with no internet: the facts are then entered by hand.
+    hf_lookup: bool = True
     notify: list[NotifyConfig] = Field(default_factory=list)
 
     @field_validator("notify")

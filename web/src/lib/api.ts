@@ -1,5 +1,5 @@
 // REST client for the console. Same-origin (dev/preview proxy /api to the console); auth is an HttpOnly cookie.
-import type { AlertRule, AlertRulesStatus, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, HistoryResponse, NodeState, NotifyChannelStatus, Problem, RunStatus } from './types';
+import type { AlertRule, AlertRulesStatus, BenchCompare, BenchCreate, BenchRun, BenchSpec, ConsoleSettings, Event, FitRequest, FitResponse, HistoryResponse, ModelFacts, NodeState, NotifyChannelStatus, Problem, RunStatus } from './types';
 
 export type ApiErrorKind = 'unauthorized' | 'unreachable' | 'server' | 'client';
 
@@ -83,6 +83,9 @@ export const api = {
   /** Irreversible: deletes the node's stored history (the console requires the explicit confirm body). */
   clearHistory: (node: string) =>
     request<{ ok: boolean; demo?: boolean }>(`/api/v1/history?${query({ node })}`, json({ confirm: 'DELETE' }, 'DELETE')),
+  /** The console reads the public repo from huggingface.co, so this call leaves the LAN. */
+  fitLookup: (repo: string) => request<ModelFacts>(`/api/v1/fit/lookup?${query({ repo })}`),
+  fitEstimate: (body: FitRequest) => request<FitResponse>('/api/v1/fit/estimate', json(body)),
 };
 
 export interface BenchRunFilters {
