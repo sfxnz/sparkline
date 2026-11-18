@@ -7,6 +7,23 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
 
 ## [Unreleased]
 
+### Added
+
+- Alert notifications. Each `[[notify]]` table in `console.toml` is a channel (`ntfy`, `discord`, `slack` or a
+  generic JSON `webhook`) that receives alerts and their recoveries when no browser is open, filtered by
+  `min_severity` and `send_resolved`. Alerts that fire together arrive as one message. The Alerts view lists
+  the channels with their last delivery and a **Send test** button, through `GET /api/v1/notify/channels`
+  and `POST /api/v1/notify/channels/{name}/test`. The console sends to the hosts in those
+  tables, which can be outside the LAN: see "Security model" in the README and `docs/adr/0003-outbound-notifications.md`.
+
+### Changed
+
+- Editing, disabling or deleting an alert rule while its alert is open now adds a "Resolved" event that says
+  the rule was changed or removed, in the timeline and on every notification channel. Before, the alert was
+  closed with no recovery. If the edited rule still matches, its alert fires again.
+- An alert that is open when the console restarts stays open until a reading from its node decides it, then
+  ends with a "Resolved" event or fires again. Before, every open alert was closed at the start with no recovery.
+
 ## [0.1.2] - 2026-11-11
 
 ### Upgrading
