@@ -9,6 +9,9 @@ port = 9700
 token = ""
 # Must equal token in /etc/sparkline/agent.toml on every node. Or leave empty and set SPARKLINE_AGENT_TOKEN.
 agent_token = ""
+# Optional: opens GET /metrics for Prometheus and nothing else. Put the same value in the file that the
+# scrape job names as credentials_file. Reference: README.md, "Prometheus".
+# metrics_token = ""
 
 # [settings]                  # also editable in the app (Settings)
 # energy_rate_per_kwh = 0.28

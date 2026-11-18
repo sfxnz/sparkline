@@ -24,6 +24,12 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   `agent.toml` names a server on another port or one that needs an API key, and
   `model_server_discovery = false` stops the agent asking any port you did not list. See
   [Model servers](README.md#model-servers).
+- **Prometheus export.** `GET /metrics` on the console serves every node's latest readings in Prometheus
+  text format: GPU, memory, CPU, network, disk, filesystem, temperature and model-server series named
+  `sparkline_*`, in base units, with a `node` label. A node that is not online exports only
+  `sparkline_node_up` 0 and the time of its last sample. The new `metrics_token` key in `console.toml` opens
+  `/metrics` and nothing else, so Prometheus does not need the console token. See
+  [Prometheus](README.md#prometheus).
 
 ### Changed
 

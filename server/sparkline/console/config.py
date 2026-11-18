@@ -32,6 +32,7 @@ class ConsoleConfig(BaseModel):
     port: int = 9700
     token: str = ""  # browser token
     agent_token: str = ""
+    metrics_token: str = ""  # opens GET /metrics and nothing else, for a Prometheus credentials file
     nodes: list[NodeConfig] = Field(default_factory=list)
     data_dir: Path | None = None
     web_dist: Path = REPO_WEB_DIST
