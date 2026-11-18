@@ -228,6 +228,8 @@
 /* A node that has never answered: a dashed, quieter card sized to what it says (never stretched to a live card's
    height, never clipped). */
 .ov-card--setup { cursor: default; align-self: start; }
+/* Beside a setup card every card keeps its own height: stretched to the tallest, a live card has an empty band. */
+.ov-cards:has(.ov-card--setup) { align-items: start; }
 .ov-card--setup .ov-card__panel { border-style: dashed; border-color: var(--separator-strong); }
 .ov-card--setup .panel__body { display: flex; flex-direction: column; padding-top: var(--space-5); }
 

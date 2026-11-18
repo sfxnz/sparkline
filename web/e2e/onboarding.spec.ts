@@ -148,6 +148,14 @@ test('a first run on a desktop: welcome, sign-in link, nodes arriving, the fix, 
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^spark3/ })).toContainText('Not connected');
   await expect(spark1.getByText('Healthy')).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('.conn__status')).toHaveText('Live');
+  // Beside spark3's taller setup card, spark1's card keeps its own height: no empty band above its last rows.
+  await expect(setupCard(page)).toBeVisible();
+  const band = () => spark1.evaluate((card) => {
+    const foot = card.querySelector('.ov-card__foot');
+    const above = foot?.previousElementSibling;
+    return foot && above ? Math.round(foot.getBoundingClientRect().top - above.getBoundingClientRect().bottom) : -1;
+  });
+  await expect.poll(band).toBeLessThanOrEqual(17);
   await expect(page.getByRole('heading', { level: 2, name: /^Welcome to Sparkline\. spark1 is live/ })).toBeVisible();
   await expect(spark1.getByRole('img', { name: /^GPU utilisation \d+%/ })).toBeVisible({ timeout: 10_000 });
   await expectNoAlarm(page);
