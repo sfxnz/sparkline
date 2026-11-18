@@ -343,7 +343,7 @@ BY_NUMBER = "an object keyed by layer number"
         pytest.param(
             "per_layer_config",
             {"03": {"head_dim": 512}, "07": {"head_dim": 512}, "11": {"head_dim": 512}},
-            f"{BY_NUMBER} that holds an entry for 3 of the 12 layers num_hidden_layers counts",
+            f"{BY_NUMBER} with 3 entries, fewer than the 12 layers num_hidden_layers counts",
             id="an-object-for-some-layers",
         ),
         pytest.param(
@@ -358,13 +358,10 @@ async def test_a_config_that_gives_its_layers_one_by_one_and_not_all_alike_is_re
     failure = await made_up_repo({**LAYERED_CONFIG, key: value}).lookup(LAYERED)
     assert isinstance(failure, LookupFailure), failure
     assert failure.shape is None
-    assert failure.problem.message == (
-        f"The config.json of {LAYERED} holds {key}, which the lookup reads as one entry per layer, and the "
-        "layers do not all get the same entry"
-    )
+    assert failure.problem.message == f"The config.json of {LAYERED} holds {key}, {held}"
     assert failure.problem.cause == (
-        f"{key} is {held}. The lookup sizes every layer alike and cannot tell what an entry changes in a "
-        "layer, so it cannot size this model"
+        "The lookup sizes every layer alike and cannot tell whether an entry changes a layer's KV cache, so "
+        "it does not size this model"
     )
     assert failure.problem.fix == ASK_BOTH
 
@@ -390,6 +387,14 @@ async def test_a_config_whose_layers_are_alike_or_only_named_keeps_its_answer(ex
     facts = await made_up_repo({**LAYERED_CONFIG, **extra}).lookup(LAYERED)
     assert isinstance(facts, ModelFacts), facts.problem
     assert (facts.num_layers, facts.num_kv_heads, facts.head_dim) == (12, 8, 80)
+
+
+@pytest.mark.parametrize("key", ["eos_token_id", "stop_token_ids"])
+async def test_a_list_of_token_ids_as_long_as_the_layer_count_keeps_its_answer(key):
+    config = {**LAYERED_CONFIG, "num_hidden_layers": 2, key: [1, 107]}
+    facts = await made_up_repo(config).lookup(LAYERED)
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim) == (2, 8, 80)
 
 
 async def test_a_config_with_no_shape_is_refused_for_that_before_its_layers_are_compared():

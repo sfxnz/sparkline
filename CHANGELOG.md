@@ -31,9 +31,10 @@ version. [docs/RELEASING.md](docs/RELEASING.md) says how to cut a release.
   the form and the result say it was worked out, not read. A
   `num_key_value_heads` of `null` beside a config class the config names under `auto_map` is refused,
   because the lookup reads no code and cannot tell how many KV heads a layer has. A config that gives its
-  layers one by one and not all alike (a top-level list with one entry per layer, or an object keyed by
-  layer number, whose entries are numbers or objects) is refused too, because the lookup sizes every
-  layer alike. An index over
+  layers one by one and not all alike (a top-level list with as many entries as `num_hidden_layers`, or
+  an object keyed by layer number, whose entries are numbers or objects) is refused too, because the
+  lookup sizes every layer alike and cannot tell whether an entry changes a layer's KV cache. A key whose
+  name ends in `token_id` or `token_ids` holds vocabulary ids and is skipped. An index over
   1 MiB is not read; when the repo's safetensors files are then one set of shards, the weights are their
   total, which a server never exceeds, and the page says so beside the number. Every other repo gets no
   size and a refusal in two parts: what the lookup read, then one of two instructions that are the same

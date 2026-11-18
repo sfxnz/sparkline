@@ -184,13 +184,15 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   `num_key_value_heads` of `null` gives the model's `num_attention_heads` as its KV heads. Where the
   config also names its own config class under `auto_map`, the lookup refuses and fills in nothing: it
   reads no code and cannot tell how many KV heads a layer has. It also refuses, and fills in nothing, for
-  a config that gives its layers one by one and not all alike: a top-level list with one entry per layer,
-  or an object keyed by layer number, whose entries are numbers or objects (a head size per layer, a
-  config per layer). The lookup sizes every layer alike and cannot size that model. A list of layer type
-  names does not count. An index over 1 MiB is not read. If every safetensors file in the repo is
-  then a shard of one set at its top level (`model-00001-of-00026.safetensors` and so on), the lookup shows
-  their total and says so beside the number: a server loads those files or fewer of them. Anything else
-  shows no size and a refusal.
+  a config that gives its layers one by one and not all alike: a top-level list with as many entries as
+  `num_hidden_layers`, or an object keyed by layer number, whose entries are numbers or objects (a head
+  size per layer, a config per layer). The refusal says what was counted. The lookup sizes every layer
+  alike and cannot tell whether an entry changes a layer's KV cache, so it does not size that model. A
+  list of layer type names does not count, and a key whose name ends in `token_id` or `token_ids` is
+  skipped, because it holds vocabulary ids. An index over 1 MiB is not read. If every safetensors file in
+  the repo is then a shard of one set at its top level (`model-00001-of-00026.safetensors` and so on), the
+  lookup shows their total and says so beside the number: a server loads those files or fewer of them.
+  Anything else shows no size and a refusal.
 
   A refusal has two parts. The first says what the lookup read: the file or the `config.json` string it
   saw, and that the lookup cannot tell where that leaves a question open. For a repo with an

@@ -369,10 +369,9 @@ class Reason(Enum):
         "how many KV heads a layer has",
     )
     LAYERS_DIFFER = (
-        "The config.json of {repo} holds {key}, which the lookup reads as one entry per layer, and the "
-        "layers do not all get the same entry",
-        "{key} is {held}. The lookup sizes every layer alike and cannot tell what an entry changes in a "
-        "layer, so it cannot size this model",
+        "The config.json of {repo} holds {key}, {held}",
+        "The lookup sizes every layer alike and cannot tell whether an entry changes a layer's KV cache, so "
+        "it does not size this model",
     )
 
     def of(self, **read: object) -> Refusal:
@@ -597,12 +596,16 @@ def _number_or_object(value: object) -> bool:
 def layers_one_by_one(config: dict[str, object], layers: int) -> tuple[str, str] | None:
     """The first top-level key that gives the layers one by one and not all alike, and what it holds.
 
-    Two values are read as one entry per layer: a list as long as the model has layers, and an object
-    whose every key is the number of a layer. The entries are numbers or objects. Names do not count: 181
-    of 3,867 cached configs hold a ``layer_types`` list whose names differ, and a name gives no width. An
-    object that names only some of the layers gives those layers something the others lack.
+    Two values count: a list as long as the model has layers, and an object whose every key is the number
+    of a layer. The entries are numbers or objects. Names do not count: 181 of 3,867 cached configs hold a
+    ``layer_types`` list whose names differ, and a name gives no width. An object with fewer entries than
+    the model has layers counts whatever its entries are. A key whose name ends in ``token_id`` or
+    ``token_ids`` holds vocabulary ids and is skipped: two end-of-sequence ids in a model of two layers
+    are no layer's setting.
     """
     for key, value in config.items():
+        if key.endswith(("token_id", "token_ids")):
+            continue
         if isinstance(value, list):
             entries, held = value, "a list of"
         elif isinstance(value, dict) and all(
@@ -616,8 +619,8 @@ def layers_one_by_one(config: dict[str, object], layers: int) -> tuple[str, str]
         if len(entries) == layers and any(entry != entries[0] for entry in entries):
             return key, f"{held} {layers} entries, as many as num_hidden_layers, that are not all alike"
         if isinstance(value, dict) and len(entries) < layers:
-            named = f"an entry for {len(entries)} of the {layers} layers num_hidden_layers counts"
-            return key, f"an object keyed by layer number that holds {named}"
+            fewer = f"fewer than the {layers} layers num_hidden_layers counts"
+            return key, f"an object keyed by layer number with {len(entries)} entries, {fewer}"
     return None
 
 
