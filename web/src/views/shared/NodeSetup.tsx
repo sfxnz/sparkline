@@ -44,10 +44,12 @@ function Retry({ node }: { node: NodeState }) {
   // When this wait was first seen, so the bar can show how much of it is left.
   const [wait, setWait] = useState({ next, learned: now });
   if (wait.next !== next) setWait({ next, learned: now });
-  // "Retry now" was pressed for this wait: say so until the console reports the outcome (a new wait, or online).
+  // "Retry now" was pressed for this wait: say so until the console answers.
   const [askedFor, setAskedFor] = useState<number | null | undefined>(undefined);
   const { secs, left } = retryWait(next, wait.learned, now);
-  const trying = secs === 0 || askedFor === next;
+  // No time for the next try: the console is making one that was asked for.
+  const asked = askedFor === next || next === null;
+  const trying = secs === 0 || asked;
   // An agent that answered and said no gives the next try the same answer: the fix is the news, not the wait.
   const turnedAway = reachOf(node.status) === 'turned-away';
   return (
@@ -64,12 +66,20 @@ function Retry({ node }: { node: NodeState }) {
             <span>Trying again in <span className="num">{secs}&nbsp;s</span></span>
           )}
         </span>
-        {/* Never disabled: it may hold the keyboard focus, and asking twice does no harm. */}
-        <Button size="sm" icon={<RotateCw />} onClick={() => { setAskedFor(next); void api.retryNode(node.node_id).catch(() => { setAskedFor(undefined); }); }}>
+        {/* Never disabled: it may hold the keyboard focus, and asking twice does no harm. The console answers with
+            the node: a time in it is when it will try, because an agent takes only so many wrong tokens a minute. */}
+        <Button
+          size="sm"
+          icon={<RotateCw />}
+          onClick={() => {
+            setAskedFor(next);
+            void api.retryNode(node.node_id).then((answer) => { if (answer.next_retry_ts !== null) setAskedFor(undefined); }, () => { setAskedFor(undefined); });
+          }}
+        >
           Retry now
         </Button>
       </div>
-      <span className="visually-hidden" role="status">{askedFor === next ? `Trying ${node.node_id} now` : ''}</span>
+      <span className="visually-hidden" role="status">{asked ? `Trying ${node.node_id} now` : ''}</span>
     </div>
   );
 }

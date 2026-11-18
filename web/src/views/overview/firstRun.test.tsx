@@ -1,6 +1,6 @@
 // The overview on a first run: a node that has never answered gets a setup card with the whole fix, and the page
 // says nothing is wrong. See lib/onboarding.ts for the rules these screens are drawn from.
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
@@ -124,15 +124,37 @@ describe('a node that cannot be reached on a first run', () => {
     expect(within(card).queryByRole('button', { name: 'Copy command' })).toBeNull();
   });
 
+  /** The console's answer to "Retry now": the node, with no time for its next try (it is trying) or with one. */
+  const consoleAnswers = (node: NodeState) => {
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve(new Response(JSON.stringify(node), { status: 200, headers: { 'content-type': 'application/json' } })));
+  };
+
   it('retries on demand and says it is trying', async () => {
     show([refused('spark1')]);
+    consoleAnswers({ ...refused('spark1'), next_retry_ts: null });
     await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
     expect(fetch).toHaveBeenCalledWith('/api/v1/nodes/spark1/retry', expect.objectContaining({ method: 'POST' }));
+    expect(screen.getByText('Trying now…')).toBeInTheDocument();
+    expect(screen.getByText('Trying spark1 now')).toHaveAttribute('role', 'status');
+    act(() => { dispatch({ type: 'node_status', node: { ...refused('spark1'), next_retry_ts: null } }); });
     expect(screen.getByText('Trying now…')).toBeInTheDocument();
     expect(screen.getByText('Trying spark1 now')).toHaveAttribute('role', 'status');
     // The console reports the outcome as a new wait.
     act(() => { dispatch({ type: 'node_status', node: { ...refused('spark1'), next_retry_ts: now + 2 } }); });
     expect(screen.getByText(/Trying again in/)).toHaveTextContent('Trying again in 2 s');
+    expect(screen.queryByText('Trying spark1 now')).toBeNull();
+  });
+
+  it('does not say it is trying when the console answers "Retry now" with a time', async () => {
+    // An agent takes only so many wrong tokens a minute, and the console keeps the last one: it tries when there is room.
+    show([rejected('spark2')]);
+    consoleAnswers(rejected('spark2'));
+    await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
+    expect(fetch).toHaveBeenCalledWith('/api/v1/nodes/spark2/retry', expect.objectContaining({ method: 'POST' }));
+    const status = screen.getByRole('region', { name: 'Node spark2, not connected yet' }).querySelector('.setup-retry__status');
+    await waitFor(() => { expect(status).toHaveTextContent('Until then every try gets the same answer (next in 30 s).'); });
+    expect(screen.queryByText('Trying now…')).toBeNull();
+    expect(screen.queryByText('Trying spark2 now')).toBeNull();
   });
 
   it('puts one quiet line where totals, events and charts will be, until a node reports', () => {
