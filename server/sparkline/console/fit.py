@@ -543,8 +543,10 @@ def _whole(value: object) -> int | None:
 def _shape_in(config: dict[str, object]) -> ModelShape:
     """The shape these keys hold. Raises ``ValidationError`` when they hold none.
 
-    A key that holds null is read as a key the config lacks, which is how a model's own config class reads
-    it: ``"num_key_value_heads": null`` is a model whose KV heads are its attention heads.
+    A key that holds null is read as a key the config lacks, which is how the config classes of
+    transformers read it: ``"num_key_value_heads": null`` is a model whose KV heads are its attention heads.
+    A repo whose own code groups its heads in another key gets its attention heads too. That is too high
+    for it, and never too low: a model has no more KV heads than attention heads.
     """
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
     kv_heads, head_dim = config.get("num_key_value_heads"), config.get("head_dim")

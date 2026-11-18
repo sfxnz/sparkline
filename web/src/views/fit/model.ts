@@ -84,8 +84,8 @@ export const maxContextOf = (draft: Draft) => (draft.shape.from === 'lookup' ? d
 
 /**
  * What a lookup the console made and refused still read: its shape, or none. Null when the error is no refusal
- * of a lookup, because none was made: the lookup is turned off, the text is not an id, or the console did not
- * answer. The console answers a lookup it refused with 502 and a problem, and nothing else that way.
+ * of a lookup, because none was made: the lookup is turned off, the text is not of the form owner/name, or the
+ * console did not answer. The console answers a lookup it refused with 502 and a problem, and nothing else that way.
  */
 export function refusalOf(err: unknown): { shape: ModelShape | null } | null {
   if (!(err instanceof ApiError) || err.status !== 502) return null;
