@@ -197,7 +197,7 @@ export default function Fit() {
       <p className="fit-scope t-footnote">
         The total is a range because activations and the compute graph add 10 to 20 % on top of weights and KV cache. The KV cache counts every layer as an attention
         layer of one width, the KV heads times the head size above, run once per token. With a shape a lookup filled in, that is what vLLM keeps at its defaults or
-        more: more for a model that windows its attention in some layers, or whose code gives it fewer KV heads than its config.json holds. With a typed shape it is
+        more: vLLM can keep less for a model that windows its attention in some layers. With a typed shape it is
         as right as the numbers typed: too low for a model whose layers are wider than typed or run more than once, and too high, sometimes several times, for a
         model that windows its attention, shares a latent cache (MLA, as DeepSeek and Kimi use: 25 times less for DeepSeek-V3) or mixes in layers that keep no keys
         (Mamba, convolution, linear attention). Not modelled: GGUF files, a model split across GPUs, the AMD GTT limit and the macOS wired-memory limit.

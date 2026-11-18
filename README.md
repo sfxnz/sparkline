@@ -242,8 +242,10 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
 
   The KV cache is an estimate that counts every layer as an attention layer of one width, run once per
   token: the KV heads times the head size on the form. With a shape a lookup filled in, that is what vLLM
-  keeps at its defaults or more: more for a model that windows its attention in some layers, or whose
-  code gives it fewer KV heads than its `config.json` holds. With a typed shape it is as right as the
+  keeps at its defaults or more: vLLM can keep less for a model that windows its attention in some layers
+  (Gemma 2 among the models the lookup knows). A config with no `num_key_value_heads` gets its
+  `num_attention_heads` as KV heads. Where the model's config class takes a lower default of its own the
+  estimate is high. With a typed shape it is as right as the
   numbers typed, and the result says so beside the number: too low for a model whose layers are wider
   than typed or run more than once, and too high, sometimes several times, for a model that windows its
   attention, shares a latent cache (MLA, 25 times less for DeepSeek-V3) or mixes in layers that keep no

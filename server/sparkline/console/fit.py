@@ -27,9 +27,10 @@ page fills in is the size of this repo's safetensors files, and the form and the
 the number. A copy of the weights in another format is not in it.
 
 The KV cache counts every layer as an attention layer of one width, run once per token. For a shape the
-lookup fills in that is what a server keeps or more: more for a model that windows its attention in some
-layers, or whose code gives it fewer KV heads than its config.json holds. For a typed shape it is as right
-as the numbers typed: too low for a model whose layers are wider than typed or run more than once, too
+lookup fills in that is what vLLM keeps at its defaults or more: vLLM can keep less for a model that windows
+its attention in some layers (Gemma 2), and a config with no num_key_value_heads gets num_attention_heads
+where the model's config class may take a lower default. For a typed shape it is as right as the numbers
+typed: too low for a model whose layers are wider than typed or run more than once, too
 high, sometimes several times, for one that shares a latent cache (25 times for DeepSeek-V3) or mixes in
 layers that keep no keys (Mamba, convolution, linear attention). The page says both.
 

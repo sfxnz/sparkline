@@ -488,10 +488,10 @@ describe('Will it fit', () => {
     const note = screen.getByText(/The total is a range/);
     expect(note).toHaveTextContent('The KV cache counts every layer as an attention layer of one width, the KV heads times the head size above, run once per token.');
     // A looked-up shape is never called low, and a typed one is never called high as a flat fact.
-    expect(note).toHaveTextContent('With a shape a lookup filled in, that is what vLLM keeps at its defaults or more: more for a model that windows its attention in some layers, or whose code gives it fewer KV heads than its config.json holds.');
+    expect(note).toHaveTextContent('With a shape a lookup filled in, that is what vLLM keeps at its defaults or more: vLLM can keep less for a model that windows its attention in some layers.');
     expect(note).toHaveTextContent('With a typed shape it is as right as the numbers typed: too low for a model whose layers are wider than typed or run more than once, and too high, sometimes several times, for a model that');
     for (const kind of ['windows its attention', 'shares a latent cache', 'Mamba, convolution, linear attention']) expect(note).toHaveTextContent(kind);
-    expect(note).not.toHaveTextContent(/every layer at full width|halve|That is too high|under a key the lookup does not read/);
+    expect(note).not.toHaveTextContent(/every layer at full width|halve|That is too high|under a key the lookup does not read|fewer KV heads/);
   });
 
   it('does not leave one repo\'s size beside another repo\'s shape', async () => {
