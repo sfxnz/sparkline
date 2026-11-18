@@ -55,8 +55,12 @@ export function Login() {
   // Opened from a sign-in link: the page starts signing in, with nothing to type.
   const [signingIn, setSigningIn] = useState<'link' | 'typed' | null>(() => (hasSignInToken() ? 'link' : null));
   const busy = signingIn !== null;
-  // /auth/me can answer while a link is signing in: the page under "Signing in…" stays as it is until that ends.
-  const firstRun = useAuthInfo((s) => s.firstRun) && signingIn !== 'link';
+  const firstRunNow = useAuthInfo((s) => s.firstRun);
+  // What the page was when a link first signed in on it. /auth/me can answer meanwhile and the link can be wrong:
+  // the title stays for the rest of the visit, and the page under "Signing in…" until that ends.
+  const [atLink, setAtLink] = useState<boolean | null>(() => (signingIn === 'link' ? firstRunNow : null));
+  const welcome = atLink ?? firstRunNow;
+  const firstRun = signingIn === 'link' ? welcome : firstRunNow;
   const [error, setError] = useState<LoginError>(null);
   const field = useRef<HTMLInputElement>(null);
   const fieldId = useId();
@@ -92,7 +96,9 @@ export function Login() {
   // The link opened in this tab while the sign-in page was already showing.
   const linkOpenedHere = useEffectEvent(() => {
     const later = takeSignInToken();
-    if (later) signIn('link', later);
+    if (!later) return;
+    setAtLink((was) => was ?? firstRunNow);
+    signIn('link', later);
   });
   useEffect(() => {
     arrivedByLink();
@@ -114,7 +120,7 @@ export function Login() {
         <div className="login__mark" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="44" height="44"><rect width="32" height="32" rx="9" fill="var(--accent-fill)" /><path d="M7 19.5h4l2.5-7 4 12 3-9 1.5 4H25" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </div>
-        <h1 className="login__title">{firstRun ? 'Welcome to Sparkline' : 'Sign in to Sparkline'}</h1>
+        <h1 className="login__title">{welcome ? 'Welcome to Sparkline' : 'Sign in to Sparkline'}</h1>
         <p className="login__lead">
           {signingIn === 'link' ? 'Signing in with your link.' : firstRun ? 'This console is new. Sign in with its token and your nodes are on the next screen.' : 'Enter the console token for this cluster.'}
         </p>

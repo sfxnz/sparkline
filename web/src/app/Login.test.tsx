@@ -134,10 +134,28 @@ describe('sign-in link', () => {
     expect(screen.getByText('Signing in with your link.')).toBeInTheDocument();
     expect(screen.queryByText(/This console is new/)).toBeNull();
     expect(screen.getByRole('button', { name: 'Signing in…' })).toBeDisabled();
-    // The link's token is refused: now it is the first-run form, with the error.
+    // The link's token is refused: now it is the first-run form, with the error, under the title it had.
     act(() => { answer(new Response('{}', { status: 401 })); });
-    expect(await screen.findByRole('heading', { name: 'Welcome to Sparkline' })).toBeInTheDocument();
-    expect(screen.getByText('That token wasn’t accepted.')).toBeInTheDocument();
+    expect(await screen.findByText('That token wasn’t accepted.')).toBeInTheDocument();
+    expect(screen.getByText(/This console is new/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(title);
+  });
+
+  it('keeps the title, and the help, of a first-run page when a link is opened in its tab, right or wrong', async () => {
+    let answer: (r: Response) => void = () => undefined;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { answer = resolve; })));
+    watchSignInLink();
+    show(true);
+    const title = () => screen.getByRole('heading', { level: 1 });
+    expect(title()).toHaveTextContent('Welcome to Sparkline');
+    window.history.replaceState(null, '', '/login#token=not-the-token');
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(screen.getByText('Signing in with your link.')).toBeInTheDocument();
+    expect(title()).toHaveTextContent('Welcome to Sparkline');
+    expect(document.querySelector('.cmd__text')).toHaveTextContent(TOKEN_COMMAND);
+    act(() => { answer(new Response('{}', { status: 401 })); });
+    expect(await screen.findByText('That token wasn’t accepted.')).toBeInTheDocument();
+    expect(title()).toHaveTextContent('Welcome to Sparkline');
   });
 
   it('signs in when the link is opened in a tab that already shows the sign-in page', async () => {
