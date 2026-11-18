@@ -348,6 +348,11 @@ class Reason(Enum):
         "The config.json of {repo} holds no shape at its top level",
         "The lookup reads the top level only, and found no whole number above 0 there for {keys}",
     )
+    NULL_KV_HEADS = (
+        "The config.json of {repo} holds null under num_key_value_heads and names its own config class",
+        "It holds {config_class} under AutoConfig in auto_map. The lookup reads no code, and cannot tell "
+        "how many KV heads a layer has",
+    )
 
     def of(self, **read: object) -> Refusal:
         message, cause = self.value
@@ -545,8 +550,6 @@ def _shape_in(config: dict[str, object]) -> ModelShape:
 
     A key that holds null is read as a key the config lacks, which is how the config classes of
     transformers read it: ``"num_key_value_heads": null`` is a model whose KV heads are its attention heads.
-    A repo whose own code groups its heads in another key gets its attention heads too. That is too high
-    for it, and never too low: a model has no more KV heads than attention heads.
     """
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
     kv_heads, head_dim = config.get("num_key_value_heads"), config.get("head_dim")
@@ -563,7 +566,16 @@ def _shape_in(config: dict[str, object]) -> ModelShape:
 
 
 def parse_shape(repo: RepoId, config: dict[str, object]) -> ModelShape | Refusal:
-    """The model's shape, from the repo's ``config.json`` as decoded JSON."""
+    """The model's shape, from the repo's ``config.json`` as decoded JSON.
+
+    A null ``num_key_value_heads`` beside a config class the config names for itself gets no shape. Only
+    the config classes of transformers are known to read that null as the attention heads. One family's
+    own class groups its heads per layer, and the attention heads gave it a KV cache 13 times too large.
+    """
+    auto_map = config.get("auto_map")
+    config_class = auto_map.get("AutoConfig") if isinstance(auto_map, dict) else None
+    if config.get("num_key_value_heads", 0) is None and isinstance(config_class, str) and config_class:
+        return Reason.NULL_KV_HEADS.of(repo=repo, config_class=config_class)
     try:
         return _shape_in(config)
     except ValidationError as e:

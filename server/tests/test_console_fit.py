@@ -224,6 +224,39 @@ async def test_a_null_num_key_value_heads_means_the_attention_heads():
     assert (facts.num_layers, facts.num_kv_heads, facts.head_dim, facts.max_context) == (24, 32, 64, 2048)
 
 
+# What a repo that ships its own config class holds: where transformers imports that class from.
+OWN_CONFIG_CLASS = {"auto_map": {"AutoConfig": "configuration_x.XConfig"}}
+
+
+async def test_a_null_num_key_value_heads_beside_the_repos_own_config_class_is_refused():
+    failure = await FakeHuggingFace(public_repo(config={**NULL_KV_CONFIG, **OWN_CONFIG_CLASS})).lookup()
+    assert isinstance(failure, LookupFailure), failure
+    assert failure.shape is None
+    assert failure.problem.message == (
+        "The config.json of Qwen/Qwen3-8B holds null under num_key_value_heads and names its own config class"
+    )
+    assert failure.problem.cause == (
+        "It holds configuration_x.XConfig under AutoConfig in auto_map. The lookup reads no code, and "
+        "cannot tell how many KV heads a layer has"
+    )
+    assert failure.problem.fix == ASK_BOTH
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({**NULL_KV_CONFIG, "auto_map": {"AutoModel": "modeling_x.XModel"}}, id="null-no-class"),
+        pytest.param(
+            {k: v for k, v in NULL_KV_CONFIG.items() if v is not None} | OWN_CONFIG_CLASS, id="class-no-key"
+        ),
+    ],
+)
+async def test_only_a_null_beside_a_config_class_is_refused(config):
+    facts = await FakeHuggingFace(public_repo(config=config)).lookup()
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim, facts.max_context) == (24, 32, 64, 2048)
+
+
 @pytest.mark.parametrize(
     ("config", "shape"),
     [
@@ -1070,6 +1103,7 @@ REFUSALS: dict[str, dict[str, httpx.Response | Exception]] = {
     "INDEX_TOO_LARGE": public_repo(info=repo_files({**OVER_THE_CAP, **SHARDS, "model.safetensors": 5})),
     "EMPTY_WEIGHTS": public_repo(info=repo_files({"model.safetensors": 0})),
     "NO_SHAPE": public_repo(config=PARTS_CONFIG),
+    "NULL_KV_HEADS": public_repo(config={**NULL_KV_CONFIG, **OWN_CONFIG_CLASS}),
 }
 
 # What the words a refusal writes for itself may never hold. Advice that is true of one repo is untrue of
