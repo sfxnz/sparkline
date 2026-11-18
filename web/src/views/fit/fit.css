@@ -26,6 +26,8 @@
   text-wrap: pretty;
 }
 .fit-warning { margin-top: var(--space-4); }
+/* A refusal quotes what the lookup read, and a URL or a file path has no space to break at. */
+.fit-view .ops-banner p { overflow-wrap: anywhere; }
 .fit-scope { color: var(--text-2); text-wrap: pretty; }
 
 /* At phone widths the verdict is the last column, and the three columns together were wider than the screen,
