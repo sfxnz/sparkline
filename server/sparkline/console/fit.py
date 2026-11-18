@@ -527,15 +527,19 @@ def _whole(value: object) -> int | None:
 
 
 def _shape_in(config: dict[str, object]) -> ModelShape:
-    """The shape these keys hold. Raises ``ValidationError`` when they hold none."""
+    """The shape these keys hold. Raises ``ValidationError`` when they hold none.
+
+    A key that holds null is read as a key the config lacks, which is how a model's own config class reads
+    it: ``"num_key_value_heads": null`` is a model whose KV heads are its attention heads.
+    """
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
-    head_dim = config.get("head_dim")
+    kv_heads, head_dim = config.get("num_key_value_heads"), config.get("head_dim")
     if head_dim is None and (h := _whole(heads)) is not None and (w := _whole(hidden)) is not None:
         head_dim = w // h
     return ModelShape.model_validate(
         {
             "num_layers": config.get("num_hidden_layers"),
-            "num_kv_heads": config.get("num_key_value_heads", heads),
+            "num_kv_heads": heads if kv_heads is None else kv_heads,
             "head_dim": head_dim,
             "max_context": config.get("max_position_embeddings"),
         }

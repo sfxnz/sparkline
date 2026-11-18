@@ -207,6 +207,63 @@ async def test_lookup_falls_back_to_attention_heads_and_an_explicit_head_dim_win
     assert facts.head_dim == 256
 
 
+# The top level of a config.json the seventh verifier's lookup was refused for. vLLM's docs name the model.
+NULL_KV_CONFIG = {
+    "num_hidden_layers": 24,
+    "num_attention_heads": 32,
+    "num_key_value_heads": None,
+    "hidden_size": 2048,
+    "max_position_embeddings": 2048,
+}
+
+
+async def test_a_null_num_key_value_heads_means_the_attention_heads():
+    facts = await FakeHuggingFace(public_repo(config=NULL_KV_CONFIG)).lookup()
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim, facts.max_context) == (24, 32, 64, 2048)
+
+
+@pytest.mark.parametrize(
+    ("config", "shape"),
+    [
+        pytest.param({**NULL_KV_CONFIG, "head_dim": None}, (24, 32, 64, 2048), id="head_dim"),
+        pytest.param({**NULL_KV_CONFIG, "max_position_embeddings": None}, (24, 32, 64, None), id="context"),
+        pytest.param(
+            {**NULL_KV_CONFIG, "num_key_value_heads": 8, "head_dim": 64, "hidden_size": None},
+            (24, 8, 64, 2048),
+            id="hidden_size-with-a-head_dim",
+        ),
+    ],
+)
+async def test_a_null_beside_a_key_that_holds_the_number_is_read_as_absent(config, shape):
+    facts = await FakeHuggingFace(public_repo(config=config)).lookup()
+    assert isinstance(facts, ModelFacts), facts.problem
+    assert (facts.num_layers, facts.num_kv_heads, facts.head_dim, facts.max_context) == shape
+
+
+@pytest.mark.parametrize(
+    ("config", "keys"),
+    [
+        pytest.param({**NULL_KV_CONFIG, "num_hidden_layers": None}, "num_hidden_layers", id="layers"),
+        pytest.param(
+            {**NULL_KV_CONFIG, "num_attention_heads": None},
+            "num_key_value_heads or num_attention_heads; head_dim, or hidden_size and num_attention_heads",
+            id="attention-heads",
+        ),
+        pytest.param(
+            {**NULL_KV_CONFIG, "hidden_size": None},
+            "head_dim, or hidden_size and num_attention_heads",
+            id="hidden",
+        ),
+    ],
+)
+async def test_a_shape_refusal_names_only_the_keys_that_hold_no_number(config, keys):
+    problem = (await FakeHuggingFace(public_repo(config=config)).lookup()).problem
+    assert problem.cause == (
+        f"The lookup reads the top level only, and found no whole number above 0 there for {keys}"
+    )
+
+
 # Hugging Face's parameter counts and weight file sizes for four real 4-bit repos.
 PACKED_REPOS = [
     pytest.param(
