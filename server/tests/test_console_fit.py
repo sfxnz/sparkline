@@ -46,6 +46,8 @@ QWEN_CONFIG = {
     "num_hidden_layers": 36,
     "num_key_value_heads": 8,
 }
+# What a lookup of that config adds to the shape: QWEN_CONFIG holds no head_dim.
+QWEN_LOOKED_UP = {"max_context": 40960, "head_dim_worked_out": True}
 
 
 def test_the_worked_example_qwen3_8b_at_32k_context():
@@ -196,7 +198,7 @@ def indexed_repo(sizes: dict[str, int], *named: str, config=QWEN_CONFIG):
 async def test_lookup_reads_the_size_of_the_weights_and_the_model_shape():
     hf = FakeHuggingFace(public_repo())
     facts = await hf.lookup()
-    assert facts == QWEN.model_copy(update={"repo": "Qwen/Qwen3-8B", "max_context": 40960})
+    assert facts == QWEN.model_copy(update={"repo": "Qwen/Qwen3-8B", **QWEN_LOOKED_UP})
     assert set(hf.hosts) == {"https://huggingface.co"}
 
 
@@ -393,6 +395,31 @@ async def test_a_config_whose_layers_are_alike_or_only_named_keeps_its_answer(ex
 async def test_a_config_with_no_shape_is_refused_for_that_before_its_layers_are_compared():
     config = {"num_hidden_layers": 12, "head_sizes": [256] * 11 + [64]}
     assert "holds no shape" in (await made_up_repo(config).lookup(LAYERED)).problem.message
+
+
+async def test_a_head_size_the_config_does_not_hold_is_marked_as_worked_out():
+    facts = await made_up_repo(LAYERED_CONFIG).lookup(LAYERED)
+    assert (facts.head_dim, facts.head_dim_worked_out) == (80, True)
+    facts = await made_up_repo({**LAYERED_CONFIG, "head_dim": None}).lookup(LAYERED)
+    assert (facts.head_dim, facts.head_dim_worked_out) == (80, True)
+
+
+async def test_a_head_size_the_config_holds_is_marked_as_read():
+    facts = await made_up_repo({**LAYERED_CONFIG, "head_dim": 256}).lookup(LAYERED)
+    assert (facts.head_dim, facts.head_dim_worked_out) == (256, False)
+
+
+async def test_a_refusal_that_fills_in_the_shape_says_whether_its_head_size_was_worked_out():
+    gguf_only = repo_files({"model.Q4_K_M.gguf": 5})
+    for config, worked_out in ((LAYERED_CONFIG, True), ({**LAYERED_CONFIG, "head_dim": 256}, False)):
+        hf = made_up_repo(config)
+        hf.routes[f"/api/models/{LAYERED}"] = httpx.Response(200, json=gguf_only)
+        failure = await hf.lookup(LAYERED)
+        assert failure.shape is not None and failure.shape.head_dim_worked_out is worked_out
+
+
+def test_a_typed_shape_is_not_marked_as_worked_out():
+    assert QWEN.head_dim_worked_out is False
 
 
 PACKED_REPOS = [
@@ -945,7 +972,13 @@ async def test_each_lookup_failure_is_a_problem_that_says_what_to_enter_by_hand(
     assert "Input should be" not in problem.cause and "Field required" not in problem.cause
 
 
-QWEN_SHAPE = {"num_layers": 36, "num_kv_heads": 8, "head_dim": 128, "max_context": 40960}
+QWEN_SHAPE = {
+    "num_layers": 36,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "max_context": 40960,
+    "head_dim_worked_out": True,
+}
 
 # Every one of these configs holds a whole shape at its top level, and the lookup read it.
 SECOND_MODEL = [
@@ -1397,7 +1430,7 @@ def test_lookup_route_returns_the_facts(tmp_path, hf):
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
     assert r.status_code == 200
     assert ModelFacts.model_validate(r.json()) == QWEN.model_copy(
-        update={"repo": "Qwen/Qwen3-8B", "max_context": 40960}
+        update={"repo": "Qwen/Qwen3-8B", **QWEN_LOOKED_UP}
     )
     assert len(hf.hosts) == 3 and hf.credentials == set()
 

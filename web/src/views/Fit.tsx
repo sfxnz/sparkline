@@ -10,7 +10,7 @@ import type { FitRequest, FitResponse, KvDtype, ModelFacts, ModelShape, NodeFit,
 import { Banner, ProblemBanner } from './alerts/parts/Banner';
 import { NumberField } from './alerts/parts/NumberField';
 import { Select } from './alerts/parts/Select';
-import { budgetText, EMPTY_DRAFT, fromLookup, hasNvidiaUnifiedMemory, KV_DTYPES, maxContextOf, rangeText, readFrom, refusalOf, SIZE_UNITS, toRequest, VERDICTS, type Draft, type ReadFrom, type SizeUnit } from './fit/model';
+import { budgetText, EMPTY_DRAFT, fromLookup, hasNvidiaUnifiedMemory, headDimWorkedOut, KV_DTYPES, maxContextOf, rangeText, readFrom, refusalOf, SIZE_UNITS, toRequest, VERDICTS, WORKED_OUT, type Draft, type ReadFrom, type SizeUnit } from './fit/model';
 import './fit/fit.css';
 import './views.css';
 
@@ -158,7 +158,11 @@ export default function Fit() {
           <Field id="fit-kv-heads" label="KV heads" hint="num_key_value_heads, or num_attention_heads when the model has no grouped attention.">
             <NumberField id="fit-kv-heads" describedBy="fit-kv-heads-hint" value={shape.kvHeads} onChange={(kvHeads) => { typeShape({ kvHeads }); }} error={errors.kvHeads} />
           </Field>
-          <Field id="fit-head-dim" label="Head size" hint="head_dim, or hidden_size divided by num_attention_heads.">
+          <Field
+            id="fit-head-dim"
+            label="Head size"
+            hint={headDimWorkedOut(draft) ? 'Not read from the repo: its config.json gives no head_dim, so this is hidden_size divided by num_attention_heads.' : 'head_dim, or hidden_size divided by num_attention_heads.'}
+          >
             <NumberField id="fit-head-dim" describedBy="fit-head-dim-hint" value={shape.headDim} onChange={(headDim) => { typeShape({ headDim }); }} error={errors.headDim} />
           </Field>
           <Field
@@ -227,10 +231,13 @@ const COLUMNS: readonly Column<NodeFit>[] = [
   { id: 'verdict', header: 'Verdict', render: (n) => <StatusPill status={VERDICTS[n.verdict].status} label={VERDICTS[n.verdict].label} size="sm" /> },
 ];
 
+/** Where a looked-up shape came from: the repo, and the head size apart when the lookup worked it out. */
+const shapeSource = (repo: string, workedOut: boolean) => `read from ${repo}${workedOut ? `, except the head size: ${WORKED_OUT}` : ''}`;
+
 /** The sentence above the verdicts: what they count, part by part, and which part the console cannot check. */
-function verdictScope({ size, shape }: ReadFrom): string {
+function verdictScope({ size, shape }: ReadFrom, workedOut: boolean): string {
   if (size !== null) return `Every verdict below counts ${size}'s safetensors files and nothing else. ${NOT_COUNTED}${shape === null ? ' The shape was typed on the form, and the console cannot check it.' : ''}`;
-  if (shape !== null) return `Every verdict below is built from a size typed on the form, which the console cannot check. The shape was read from ${shape}.`;
+  if (shape !== null) return `Every verdict below is built from a size typed on the form, which the console cannot check. The shape was ${shapeSource(shape, workedOut)}.`;
   return 'Every verdict below is built from the size and the shape typed on the form. The console did not read the model and cannot check them.';
 }
 
@@ -238,6 +245,7 @@ function Result({ from, request, response }: { from: ReadFrom; request: FitReque
   const { estimate, nodes } = response;
   const what = `${request.facts.repo ?? 'This model'} at ${request.context_tokens.toLocaleString('en')} tokens of context, ${request.kv_dtype} KV cache`;
   const allTyped = from.size === null && from.shape === null;
+  const workedOut = request.facts.head_dim_worked_out;
   return (
     <Panel title="Result" subtitle={`${what}${allTyped ? ', from facts typed by hand' : ''}. Free memory is each node's latest sample.`}>
       <dl className="fit-sums">
@@ -252,7 +260,7 @@ function Result({ from, request, response }: { from: ReadFrom; request: FitReque
           <dt>KV cache</dt>
           <dd className="num">{formatBytes(estimate.kv_bytes)}</dd>
           <dd className="fit-sums__detail">{formatBytes(estimate.kv_bytes_per_token)} per token</dd>
-          <dd className="fit-sums__detail">{from.shape === null ? 'shape typed by hand' : `shape read from ${from.shape}`}</dd>
+          <dd className="fit-sums__detail">{from.shape === null ? 'shape typed by hand' : `shape ${shapeSource(from.shape, workedOut)}`}</dd>
         </div>
         <div>
           <dt>Needs in total</dt>
@@ -260,7 +268,7 @@ function Result({ from, request, response }: { from: ReadFrom; request: FitReque
           <dd className="fit-sums__detail">with 10 to 20 % for activations</dd>
         </div>
       </dl>
-      <p className="fit-verdict-scope">{verdictScope(from)}</p>
+      <p className="fit-verdict-scope">{verdictScope(from, workedOut)}</p>
       <Table caption="Whether the model fits on each node" columns={COLUMNS} rows={nodes} rowKey={(n) => n.node_id} empty="This console has no nodes." />
       {hasNvidiaUnifiedMemory(nodes) ? (
         <div className="fit-warning">

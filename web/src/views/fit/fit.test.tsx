@@ -7,7 +7,9 @@ import { EMPTY_DRAFT, fromLookup, maxContextOf, parseCount, parseSize, readFrom,
 const GIB = 1024 ** 3;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-const QWEN: ModelFacts = { repo: 'Qwen/Qwen3-8B', weights_bytes: 16_381_470_720, weights_upper_bound: false, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+const QWEN: ModelFacts = { repo: 'Qwen/Qwen3-8B', weights_bytes: 16_381_470_720, weights_upper_bound: false, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960, head_dim_worked_out: false };
+// A repo whose config.json holds no head_dim: the console divided hidden_size by num_attention_heads.
+const NO_HEAD_DIM: ModelFacts = { ...QWEN, repo: 'some/no-head-dim', head_dim: 80, head_dim_worked_out: true };
 const SHARDED: ModelFacts = { ...QWEN, repo: 'some/sharded', weights_bytes: 12_000_000_000, weights_upper_bound: true };
 const RESPONSE: FitResponse = {
   estimate: { weights_bytes: 16_381_470_720, kv_bytes_per_token: 147_456, kv_bytes: 4.5 * GIB, total_low: 23_334_639_820, total_high: 25_455_970_713 },
@@ -19,7 +21,7 @@ const RESPONSE: FitResponse = {
   ],
 };
 
-const SHAPE = { num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960 };
+const SHAPE = { num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: 40960, head_dim_worked_out: false };
 // The two instructions a refusal ends with, as the console sends them.
 const SIZE_ASKED = 'the total of every weight file the server loads, in every folder of this repo and in any other repo. Where a repo holds the same weights more than once, count them once';
 const ASK_SIZE = `Enter the size by hand: ${SIZE_ASKED}`;
@@ -60,7 +62,7 @@ function fakeConsole(estimate: FitResponse = RESPONSE) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
     if (init?.method === 'POST') return Promise.resolve(json(estimate));
     const repo = new URL(url as string, 'http://console').searchParams.get('repo') ?? '';
-    const facts = [QWEN, SHARDED].find((f) => f.repo === repo);
+    const facts = [QWEN, SHARDED, NO_HEAD_DIM].find((f) => f.repo === repo);
     return Promise.resolve(facts ? json(facts) : json(REFUSED[repo] ?? NO_REPO, 502));
   });
 }
@@ -139,7 +141,7 @@ describe('Will it fit', () => {
     await screen.findByRole('region', { name: 'Result' });
     expect(spy).toHaveBeenCalledTimes(1);
     expect(sent(spy)).toEqual({
-      facts: { repo: null, weights_bytes: 5_980_741_960, weights_upper_bound: false, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null },
+      facts: { repo: null, weights_bytes: 5_980_741_960, weights_upper_bound: false, num_layers: 36, num_kv_heads: 8, head_dim: 128, max_context: null, head_dim_worked_out: false },
       context_tokens: 8192,
       kv_dtype: 'fp8',
     });
@@ -386,6 +388,61 @@ describe('Will it fit', () => {
     expect(result.queryByText(/are not counted/)).not.toBeInTheDocument();
   });
 
+  const WORKED_OUT_HINT = 'Not read from the repo: its config.json gives no head_dim, so this is hidden_size divided by num_attention_heads.';
+  const READ_HINT = 'head_dim, or hidden_size divided by num_attention_heads.';
+
+  it('says on the form and in the result when the head size was worked out, not read', async () => {
+    const user = userEvent.setup();
+    const spy = fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/no-head-dim{Enter}');
+    await screen.findByText('Filled in from some/no-head-dim.');
+    expect(screen.getByRole('textbox', { name: 'Head size' })).toHaveValue('80');
+    expect(screen.getByRole('textbox', { name: 'Head size' })).toHaveAccessibleDescription(WORKED_OUT_HINT);
+
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    const result = within(await screen.findByRole('region', { name: 'Result' }));
+    expect(sent(spy).facts).toEqual(NO_HEAD_DIM);
+    expect(result.getByText('shape read from some/no-head-dim, except the head size: worked out as hidden_size divided by num_attention_heads')).toBeInTheDocument();
+  });
+
+  it('says the same beside a typed size, where the verdicts name the shape\'s source', async () => {
+    const user = userEvent.setup();
+    fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/no-head-dim{Enter}');
+    await screen.findByText('Filled in from some/no-head-dim.');
+    await user.click(screen.getByRole('button', { name: 'Enter a size' }));
+    await user.type(screen.getByRole('textbox', { name: 'Weights' }), '16');
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    const result = within(await screen.findByRole('region', { name: 'Result' }));
+    expect(result.getByText(/The shape was read from some\/no-head-dim, except the head size: worked out as hidden_size divided by num_attention_heads\.$/)).toBeInTheDocument();
+  });
+
+  it('does not call a head size worked out when the lookup read it, or once it is retyped', async () => {
+    const user = userEvent.setup();
+    const spy = fakeConsole();
+    render(<Fit />);
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'Qwen/Qwen3-8B{Enter}');
+    await screen.findByText('Filled in from Qwen/Qwen3-8B.');
+    expect(screen.getByRole('textbox', { name: 'Head size' })).toHaveAccessibleDescription(READ_HINT);
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    expect(within(await screen.findByRole('region', { name: 'Result' })).getByText('shape read from Qwen/Qwen3-8B')).toBeInTheDocument();
+
+    await user.clear(screen.getByRole('textbox', { name: 'Hugging Face repo' }));
+    await user.type(screen.getByRole('textbox', { name: 'Hugging Face repo' }), 'some/no-head-dim{Enter}');
+    await screen.findByText('Filled in from some/no-head-dim.');
+    await user.clear(screen.getByRole('textbox', { name: 'Head size' }));
+    await user.type(screen.getByRole('textbox', { name: 'Head size' }), '256');
+    expect(screen.getByRole('textbox', { name: 'Head size' })).toHaveAccessibleDescription(READ_HINT);
+    spy.mockClear();
+    await user.click(screen.getByRole('button', { name: 'Estimate' }));
+    const result = within(await screen.findByRole('region', { name: 'Result' }));
+    expect(sent(spy).facts.head_dim_worked_out).toBe(false);
+    expect(result.getByText('shape typed by hand')).toBeInTheDocument();
+    expect(result.queryByText(/worked out/)).not.toBeInTheDocument();
+  });
+
   it('does not leave one repo\'s size beside another repo\'s shape', async () => {
     const user = userEvent.setup();
     fakeConsole();
@@ -587,6 +644,15 @@ describe('fit form model', () => {
       const parsed = toRequest(draft);
       expect(parsed.ok && parsed.request.facts.repo).toBeNull();
     }
+  });
+
+  it('carries whether the head size was worked out with a looked-up shape, and drops it with a typed one', () => {
+    const read = fromLookup(EMPTY_DRAFT, 'some/no-head-dim', NO_HEAD_DIM);
+    expect(read.shape).toMatchObject({ from: 'lookup', headDimWorkedOut: true });
+    const refused = fromLookup(EMPTY_DRAFT, 'some/big-index', { ...SHAPE, head_dim_worked_out: true });
+    expect(refused.shape).toMatchObject({ from: 'lookup', headDimWorkedOut: true });
+    const retyped = toRequest({ ...read, shape: { from: 'hand', layers: '36', kvHeads: '8', headDim: '80' } });
+    expect(retyped.ok && retyped.request.facts.head_dim_worked_out).toBe(false);
   });
 
   it('sends a typed size as bytes', () => {

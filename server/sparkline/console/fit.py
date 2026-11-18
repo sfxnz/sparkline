@@ -72,6 +72,9 @@ class ModelShape(BaseModel):
     num_kv_heads: int = Field(gt=0)
     head_dim: int = Field(gt=0)
     max_context: int | None = Field(default=None, gt=0)
+    # Set by a lookup whose config holds no head_dim: head_dim is then hidden_size // num_attention_heads,
+    # a number no file of the repo holds, and the page says so beside it.
+    head_dim_worked_out: bool = False
 
 
 class ModelFacts(ModelShape):
@@ -559,7 +562,8 @@ def _shape_in(config: dict[str, object]) -> ModelShape:
     """
     heads, hidden = config.get("num_attention_heads"), config.get("hidden_size")
     kv_heads, head_dim = config.get("num_key_value_heads"), config.get("head_dim")
-    if head_dim is None and (h := _whole(heads)) is not None and (w := _whole(hidden)) is not None:
+    worked_out = head_dim is None
+    if worked_out and (h := _whole(heads)) is not None and (w := _whole(hidden)) is not None:
         head_dim = w // h
     return ModelShape.model_validate(
         {
@@ -567,6 +571,7 @@ def _shape_in(config: dict[str, object]) -> ModelShape:
             "num_kv_heads": heads if kv_heads is None else kv_heads,
             "head_dim": head_dim,
             "max_context": config.get("max_position_embeddings"),
+            "head_dim_worked_out": worked_out,
         }
     )
 
