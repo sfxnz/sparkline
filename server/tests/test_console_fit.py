@@ -686,7 +686,7 @@ async def test_a_second_repo_takes_the_size_off_the_upper_bound_path_too():
     [
         (refused(CONFIG_PATH, 401), "is gated"),
         (refused(CONFIG_PATH, 404), "no config.json"),
-        (refused(CONFIG_PATH, 500), "could not answer"),
+        (refused(CONFIG_PATH, 500), "answered the lookup with HTTP 500"),
         ({**public_repo(), CACHED_PATH: httpx.Response(200, content=b"<html>")}, "not JSON"),
         ({**public_repo(), CACHED_PATH: httpx.Response(200, json=["not an object"])}, "not a JSON object"),
     ],
@@ -696,6 +696,33 @@ async def test_a_config_the_lookup_cannot_read_takes_the_size_with_it(routes, me
     assert isinstance(failure, LookupFailure), failure
     assert message in failure.problem.message
     assert "another repo" in failure.problem.cause
+
+
+@pytest.mark.parametrize(
+    ("config", "json_type"),
+    [
+        (b"null", "null"),
+        (b'"text"', "a string"),
+        (b"3", "a number"),
+        (b"1.5", "a number"),
+        (b"true", "a boolean"),
+        (b"[]", "an array"),
+    ],
+)
+async def test_a_config_that_is_not_an_object_is_named_by_its_json_type(config, json_type):
+    routes = {**public_repo(), CACHED_PATH: httpx.Response(200, content=config)}
+    problem = (await FakeHuggingFace(routes).lookup()).problem
+    assert problem.message == "The config.json of Qwen/Qwen3-8B is not a JSON object"
+    assert problem.cause.startswith(f"It is {json_type}. Without the repo's config.json")
+
+
+async def test_an_id_with_no_public_model_is_not_said_to_be_missing_or_private():
+    # A dataset and a space answer the same 401 as an id nothing has.
+    problem = (await FakeHuggingFace(refused(INFO_PATH, 401)).lookup()).problem
+    assert f"{problem.message}. {problem.cause}" == (
+        "Hugging Face has no public model Qwen/Qwen3-8B. The lookup cannot tell whether nothing has that id, "
+        "or whether a private model, a dataset or a space has it"
+    )
 
 
 async def test_a_config_read_but_not_understood_keeps_neither_the_shape_nor_the_size():
@@ -725,7 +752,9 @@ async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
         (refused(INFO_PATH, 404), "no public model"),
         (refused(CONFIG_PATH, 401), "is gated"),
         (refused(CONFIG_PATH, 404), "no config.json"),
-        (refused(INFO_PATH, 500), "could not answer"),
+        (refused(INFO_PATH, 500), "answered the lookup with HTTP 500"),
+        # A 403 says its status. Hugging Face answers 401 for an id it has no public model for.
+        (refused(INFO_PATH, 403), "answered the lookup with HTTP 403"),
         (refused(INFO_PATH, 429), "rate limit"),
         ({**indexed_repo({"model.safetensors": 5}), INDEX_PATH: httpx.Response(401)}, "is gated"),
         (
@@ -770,6 +799,8 @@ async def test_no_index_is_asked_for_once_the_config_rules_the_size_out():
         (public_repo(config={"num_hidden_layers": 36}), "holds no shape"),
         (public_repo(config=["not", "an", "object"]), "not a JSON object"),
         ({INFO_PATH: httpx.ConnectError("Name or service not known")}, "Could not reach huggingface.co"),
+        # The file list was read, so huggingface.co was reached. Only the answer did not come.
+        ({**public_repo(), CONFIG_PATH: httpx.ReadTimeout("")}, "did not answer the lookup in time"),
         ({INFO_PATH: httpx.Response(200, content=b"<html>")}, "not JSON"),
         ({INFO_PATH: httpx.Response(200, content=b"[" * 200_000)}, "not JSON"),
         (
@@ -1009,6 +1040,7 @@ REFUSALS: dict[str, dict[str, httpx.Response | Exception]] = {
     "HTTP_STATUS": refused(INFO_PATH, 500),
     "TOO_LARGE": {INFO_PATH: httpx.Response(200, content=b" " * (fit.MAX_RESPONSE_BYTES + 1))},
     "UNREACHABLE": {INFO_PATH: httpx.ConnectError("Name or service not known")},
+    "TIMED_OUT": {INFO_PATH: httpx.ReadTimeout("")},
     "NOT_JSON": {INFO_PATH: httpx.Response(200, content=b"<html>")},
     "REDIRECT_LOOP": {INFO_PATH: httpx.Response(307, headers={"location": INFO_PATH})},
     "ABSENT": refused(INFO_PATH, 401),
@@ -1251,6 +1283,13 @@ def test_lookup_route_makes_no_outbound_call_for_a_bad_repo_id_or_when_turned_of
     with TestClient(make(tmp_path)) as c:
         r = c.get("/api/v1/fit/lookup", params={"repo": "../../etc/passwd"}, headers=BEARER)
         assert r.status_code == 422 and "by hand" in r.json()["problem"]["fix"]
+        # Hugging Face answers to gpt2, so the answer is about the form the lookup takes, not about the id.
+        problem = c.get("/api/v1/fit/lookup", params={"repo": "gpt2"}, headers=BEARER).json()["problem"]
+        assert problem["message"] == "The lookup takes a repo id of the form owner/name"
+        assert problem["cause"].endswith(
+            "The text typed does not have that form, and nothing was asked of Hugging Face"
+        )
+        assert "not a" not in f"{problem['message']} {problem['cause']} {problem['fix']}"
     with TestClient(make(tmp_path / "off", hf_lookup=False)) as c:
         r = c.get("/api/v1/fit/lookup", params={"repo": "Qwen/Qwen3-8B"}, headers=BEARER)
         assert r.status_code == 403 and "by hand" in r.json()["problem"]["fix"]

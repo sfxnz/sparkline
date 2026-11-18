@@ -54,6 +54,12 @@ MAX_REDIRECTS = 3
 RepoId = NewType("RepoId", str)
 _REPO_PART = r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}"
 REPO_ID_PATTERN = rf"^{_REPO_PART}/{_REPO_PART}$"
+# The pattern in words, for the answer to text that is not of that form. It says what the lookup takes, not
+# what a repo id is: Hugging Face also answers to ids with no owner.
+REPO_ID_FORM = (
+    "Each of the two parts starts with a letter or a digit and holds at most 96 characters: letters, "
+    "digits, dots, dashes and underscores, with no two dots in a row"
+)
 
 
 class ModelShape(BaseModel):
@@ -262,15 +268,20 @@ class Reason(Enum):
         "credentials",
     )
     RATE_LIMITED = ("Hugging Face has rate limited the console host", "HTTP 429 from {url}")
-    HTTP_STATUS = ("Hugging Face could not answer the lookup", "HTTP {status} from {url}")
+    HTTP_STATUS = ("Hugging Face answered the lookup with HTTP {status}", "From {url}")
     TOO_LARGE = (
         "{what} is larger than the lookup reads",
         "The lookup reads at most {cap} of an answer, and {url} sent more",
     )
     UNREACHABLE = ("Could not reach huggingface.co from the console host", "{error}")
+    TIMED_OUT = ("Hugging Face did not answer the lookup in time", "{error} from {url}")
     NOT_JSON = ("Hugging Face sent an answer that is not JSON", "From {url}")
     REDIRECT_LOOP = ("Hugging Face kept redirecting the lookup", "More than {redirects} redirects")
-    ABSENT = ("Hugging Face has no public model {repo}", "The repo does not exist or is private")
+    ABSENT = (
+        "Hugging Face has no public model {repo}",
+        "The lookup cannot tell whether nothing has that id, or whether a private model, a dataset or a "
+        "space has it",
+    )
     GATED = (
         "{repo} is gated on Hugging Face",
         "Its files are only served to accounts that accepted the model's terms",
@@ -284,7 +295,7 @@ class Reason(Enum):
         "Hugging Face lists a file of {repo} twice",
         "{files} appears more than once with a size, so the lookup cannot tell how large it is",
     )
-    CONFIG_NOT_OBJECT = ("The config.json of {repo} is not a JSON object", "It is a {type}")
+    CONFIG_NOT_OBJECT = ("The config.json of {repo} is not a JSON object", "It is {type}")
     ADAPTER = (
         "{repo} has an {file}",
         "The lookup does not read that file, and cannot tell whether the repo's files hold the base model",
@@ -596,6 +607,8 @@ async def _get_hf_json(
                     if len(body) > MAX_RESPONSE_BYTES:
                         return Reason.TOO_LARGE.of(what=what, cap=_CAP, url=HF_ORIGIN + path)
                 return _Json(json.loads(body))
+    except httpx.TimeoutException as e:
+        return Reason.TIMED_OUT.of(error=type(e).__name__, url=HF_ORIGIN + path)
     except httpx.HTTPError as e:
         return Reason.UNREACHABLE.of(error=f"{type(e).__name__}: {e}".removesuffix(": "))
     # json.loads raises RecursionError, not ValueError, for an answer nested too deep to decode.
@@ -609,6 +622,17 @@ class _Weights(NamedTuple):
     upper_bound: bool
 
 
+# What JSON calls each value ``json.loads`` returns that is not an object.
+_JSON_TYPE = {
+    type(None): "null",
+    bool: "a boolean",
+    int: "a number",
+    float: "a number",
+    str: "a string",
+    list: "an array",
+}
+
+
 def read_config(repo: RepoId, answer: _Json | Refusal) -> dict[str, object] | Refusal:
     """The repo's ``config.json`` as an object, or why the lookup has none.
 
@@ -620,7 +644,7 @@ def read_config(repo: RepoId, answer: _Json | Refusal) -> dict[str, object] | Re
     elif isinstance(answer.value, dict):
         return answer.value
     else:
-        refusal = Reason.CONFIG_NOT_OBJECT.of(repo=repo, type=type(answer.value).__name__)
+        refusal = Reason.CONFIG_NOT_OBJECT.of(repo=repo, type=_JSON_TYPE[type(answer.value)])
     return Refusal(
         refusal.message,
         f"{refusal.cause}. Without the repo's config.json the lookup has no shape and cannot tell whether "
@@ -760,14 +784,14 @@ async def fetch_facts(client: httpx.AsyncClient, repo: RepoId) -> ModelFacts | L
     Three outcomes, and this function is the one place that decides between them: the size with the
     shape, the shape alone, or nothing. A size never comes without a shape.
     """
-    # Hugging Face answers 401 for a repo that does not exist and for a private one alike.
+    # Hugging Face answers 401 for an id nothing has, for a private model and for a dataset or a space alike.
     absent = Reason.ABSENT.of(repo=repo)
     # expand[]=siblings keeps the answer to the file list. Without it the model card comes too, which is
     # a third of the response cap for some repos.
     info = await _get_hf_json(
         client,
         f"/api/models/{repo}?expand[]=siblings&blobs=true",
-        {401: absent, 403: absent, 404: absent},
+        {401: absent, 404: absent},
         f"The file list of {repo}",
     )
     if isinstance(info, Refusal):

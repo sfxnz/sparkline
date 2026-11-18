@@ -52,7 +52,7 @@ const REFUSED: Record<string, unknown> = {
   },
 };
 const NO_REPO = {
-  problem: { message: 'Hugging Face has no public model nope/nope', cause: 'The repo does not exist or is private', fix: ASK_BOTH },
+  problem: { message: 'Hugging Face has no public model nope/nope', cause: 'The lookup cannot tell whether nothing has that id, or whether a private model, a dataset or a space has it', fix: ASK_BOTH },
   shape: null,
 };
 

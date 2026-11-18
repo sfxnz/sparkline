@@ -47,6 +47,7 @@ from .demo import DemoSource, demo_history
 from .demo_bench import DemoBench, seed_history
 from .demo_fleets import FLEETS
 from .fit import (
+    REPO_ID_FORM,
     FitRequest,
     FitResponse,
     LookupFailure,
@@ -580,9 +581,10 @@ def create_app(
         if repo_id is None:
             raise ProblemError(
                 422,
-                "That is not a Hugging Face repo id",
-                "A repo id is owner/name, for example Qwen/Qwen3-8B",
-                "Correct the repo id, or enter the model facts by hand",
+                "The lookup takes a repo id of the form owner/name",
+                f"{REPO_ID_FORM}. The text typed does not have that form, and nothing was asked of "
+                "Hugging Face",
+                "Type an id of that form, or enter the size and the shape by hand",
             )
         facts = await fetch_facts(http["c"], repo_id)
         if isinstance(facts, LookupFailure):
