@@ -187,8 +187,8 @@ The concurrency-stream and tool-calling screenshots show its simulated runs: no 
   and fills in nothing. The keys of a config do not say what the model's code does with them: a model that
   runs its layers twice per token holds the same layer count, heads and head size in its config as one
   that runs them once.
-  Where transformers builds the model and `auto_map` names a model class, the repo's own code is what
-  runs, so the lookup refuses that too. Where the config has no `head_dim`, the head size is
+  Where transformers builds the model and `auto_map` names a model class, a server that trusts the
+  repo's code can run that class in place of transformers' own, so the lookup refuses that too. Where the config has no `head_dim`, the head size is
   `hidden_size` divided by `num_attention_heads`, a number no file of the repo holds, and the form and the
   result say it was worked out, not read. The lookup refuses where that division leaves a remainder, and
   where the model's code takes a default of its own in place of it (Qwen3, Gemma 2). A key that holds `null` is read as a key the config lacks, so a

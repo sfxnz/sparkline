@@ -658,8 +658,8 @@ class KnownModel(NamedTuple):
     # When the config holds no head_dim, the code takes hidden_size // num_attention_heads, the number
     # the lookup works out. False where it takes a default of its own.
     works_out_head_size: bool
-    # vLLM has no model file for it and builds the model with transformers, which runs the class that
-    # auto_map names in place of its own.
+    # vLLM has no model file for it and builds the model with transformers, which can run the class that
+    # auto_map names in place of its own when the repo's code is trusted.
     auto_map_replaces_it: bool
 
 
@@ -667,8 +667,9 @@ _VLLM = KnownModel(works_out_head_size=True, auto_map_replaces_it=False)
 _VLLM_OWN_HEAD_SIZE = KnownModel(works_out_head_size=False, auto_map_replaces_it=False)
 _TRANSFORMERS = KnownModel(works_out_head_size=True, auto_map_replaces_it=True)
 
-# The models the lookup vouches a shape for, by the pair a server picks its model file with: model_type and
-# the first entry of architectures. A pair is here only when that file, read at a pinned commit of vLLM
+# The models the lookup vouches a shape for, by two names: the first entry of architectures, which picks a
+# server's model file, and model_type, which picks the config class. A pair is here only when that file,
+# read at a pinned commit of vLLM
 # (transformers where vLLM has none), gives each of num_hidden_layers layers one KV cache slot, run once per
 # token and no wider than the KV heads times the head size the lookup reads. A file that windows some
 # layers is in: the estimate is then high. One that runs its layers more than once, sizes them one by one,
